@@ -38,7 +38,7 @@ pub use safe_vector_v2::{
 pub use safe_vector_v2::{staging_safe_vector_v2_ir_fixture, StagingSafeVectorV2IrFixture};
 pub use staging_text::{
     finalize_staging_pdf_text_fonts, FrozenStagingPdfTextClusterPlan, FrozenStagingPdfTextFontPlan,
-    StagingPdfTextClusterUsage,
+    StagingPdfTextClusterUsage, NativeMathGlyphSource, PdfFontClusterSource,
 };
 pub use typaxis_resource_admission::{VectorContentKey, VectorContentMediaType};
 pub use vector_content::{
@@ -128,6 +128,7 @@ impl FontInstanceTable {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterExtractionPlan {
+    NativeMathGlyph { source: NativeMathGlyphSource, cids: Vec<Cid>, unicode: Vec<UnicodeScalar> },
     PerCid {
         text_span: DisplayTextSpan,
         cids: Vec<Cid>,
@@ -970,7 +971,8 @@ impl FrozenPdfResourcePlans {
                 let cids = match cluster_plan {
                     ClusterExtractionPlan::PerCid { cids, .. }
                     | ClusterExtractionPlan::ActualText { cids, .. }
-                    | ClusterExtractionPlan::Artifact { cids } => cids,
+                    | ClusterExtractionPlan::Artifact { cids }
+                    | ClusterExtractionPlan::NativeMathGlyph { cids, .. } => cids,
                 };
                 if cids.len() != glyphs.len() || cids.is_empty() {
                     return Err(ResourceError::IncompleteUsagePlan);
@@ -2162,16 +2164,46 @@ struct SfntTableRef<'a> {
     bytes: &'a [u8],
 }
 
+struct PreparedTrueTypeSubset<'a> {
+    tables: BTreeMap<[u8; 4], SfntTableRef<'a>>,
+    locations: Vec<usize>,
+    closure: BTreeSet<u16>,
+    original_to_subset: BTreeMap<OriginalGlyphId, SubsetGlyphId>,
+    glyph_count: usize,
+    number_of_h_metrics: usize,
+}
+
 fn subset_truetype(
     source: &[u8],
     face_index: u32,
     requested: &BTreeSet<OriginalGlyphId>,
 ) -> Result<TrueTypeSubset, ResourceError> {
+    write_truetype_subset(prepare_truetype_subset(source, face_index, requested)?)
+}
+
+fn prepare_truetype_subset<'a>(
+    source: &'a [u8],
+    face_index: u32,
+    requested: &BTreeSet<OriginalGlyphId>,
+) -> Result<PreparedTrueTypeSubset<'a>, ResourceError> {
+    prepare_truetype_subset_with_charge(source, face_index, requested, &mut |_, _, _| Ok(()))
+}
+
+// Charges are retained by the successor caller even if parsing or allocation
+// later fails. Legacy callers use the same kernel with their existing budget.
+fn prepare_truetype_subset_with_charge<'a>(
+    source: &'a [u8],
+    face_index: u32,
+    requested: &BTreeSet<OriginalGlyphId>,
+    charge: &mut dyn FnMut(usize, usize, usize) -> Result<(), ResourceError>,
+) -> Result<PreparedTrueTypeSubset<'a>, ResourceError> {
+    let (_, table_count) = sfnt_directory(source, face_index)?;
+    charge(table_count, table_count.checked_mul(128).and_then(|n| n.checked_add(512)).ok_or(ResourceError::ResourceLimit)?, table_count.checked_mul(128).ok_or(ResourceError::ResourceLimit)?)?;
     let tables = parse_sfnt_table_map(source, face_index)?;
     let head = table_bytes(&tables, *b"head")?;
     let hhea = table_bytes(&tables, *b"hhea")?;
     let maxp = table_bytes(&tables, *b"maxp")?;
-    let hmtx = table_bytes(&tables, *b"hmtx")?;
+    table_bytes(&tables, *b"hmtx")?;
     let loca = table_bytes(&tables, *b"loca")?;
     let glyf = table_bytes(&tables, *b"glyf")?;
     if head.len() < 54 || hhea.len() < 36 || maxp.len() < 6 {
@@ -2182,7 +2214,10 @@ fn subset_truetype(
         return Err(ResourceError::InvalidFontPlan);
     }
     let loca_format = read_subset_i16(head, 50)?;
+    charge(glyph_count + 1, (glyph_count + 1).checked_mul(std::mem::size_of::<usize>()).ok_or(ResourceError::ResourceLimit)?, glyph_count + 1)?;
     let locations = parse_loca(loca, glyph_count, loca_format, glyf.len())?;
+    let initial = requested.len().checked_add(1).ok_or(ResourceError::ResourceLimit)?;
+    charge(initial, initial.checked_mul(128).and_then(|n| n.checked_add(512)).ok_or(ResourceError::ResourceLimit)?, initial.checked_mul(128).ok_or(ResourceError::ResourceLimit)?)?;
     let mut closure: BTreeSet<u16> = requested.iter().map(|glyph| glyph.get()).collect();
     closure.insert(0);
     if closure
@@ -2191,20 +2226,35 @@ fn subset_truetype(
     {
         return Err(ResourceError::InvalidFontPlan);
     }
-    let mut pending: Vec<u16> = closure.iter().copied().collect();
+    charge(closure.len(), closure.len().checked_mul(2).ok_or(ResourceError::ResourceLimit)?, closure.len())?;
+    let mut pending = Vec::new();
+    pending.try_reserve_exact(closure.len()).map_err(|_| ResourceError::ResourceLimit)?;
+    pending.extend(closure.iter().copied());
     while let Some(glyph) = pending.pop() {
-        for component in composite_components(glyph_bytes(glyf, &locations, glyph)?)? {
+        charge(0, 0, 1)?;
+        visit_composite_components(glyph_bytes(glyf, &locations, glyph)?, |_, component| {
+            charge(0, 0, 128)?;
             if usize::from(component) >= glyph_count {
                 return Err(ResourceError::InvalidFontPlan);
             }
-            if closure.insert(component) {
+            if !closure.contains(&component) {
+                charge(1, 128, 128)?;
+                if pending.len() == pending.capacity() {
+                    let capacity = pending.capacity().checked_mul(2).and_then(|n| n.checked_add(1)).ok_or(ResourceError::ResourceLimit)?.min(glyph_count);
+                    let added = capacity.checked_sub(pending.capacity()).ok_or(ResourceError::ResourceLimit)?;
+                    charge(added, added.checked_mul(2).ok_or(ResourceError::ResourceLimit)?, 1)?;
+                    pending.try_reserve_exact(capacity - pending.len()).map_err(|_| ResourceError::ResourceLimit)?;
+                }
+                closure.insert(component);
                 pending.push(component);
             }
-        }
+            Ok(())
+        })?;
     }
     if closure.len() > usize::from(u16::MAX) {
         return Err(ResourceError::ResourceLimit);
     }
+    charge(closure.len(), closure.len().checked_mul(128).and_then(|n| n.checked_add(512)).ok_or(ResourceError::ResourceLimit)?, closure.len().checked_mul(128).ok_or(ResourceError::ResourceLimit)?)?;
     let original_to_subset: BTreeMap<_, _> = closure
         .iter()
         .copied()
@@ -2220,104 +2270,21 @@ fn subset_truetype(
     if number_of_h_metrics == 0 || number_of_h_metrics > glyph_count {
         return Err(ResourceError::InvalidFontPlan);
     }
-    let mut new_glyf = Vec::new();
-    let mut new_loca = Vec::new();
-    let mut new_hmtx = Vec::new();
-    let mut original_widths = BTreeMap::new();
-    for original in &closure {
-        new_loca.extend_from_slice(
-            &u32::try_from(new_glyf.len())
-                .map_err(|_| ResourceError::ResourceLimit)?
-                .to_be_bytes(),
-        );
-        let mut glyph = glyph_bytes(glyf, &locations, *original)?.to_vec();
-        remap_composite_components(&mut glyph, &original_to_subset)?;
-        new_glyf.extend_from_slice(&glyph);
-        while new_glyf.len() % 4 != 0 {
-            new_glyf.push(0);
-        }
-        let (advance, side_bearing) = horizontal_metric(
-            hmtx,
-            glyph_count,
-            number_of_h_metrics,
-            usize::from(*original),
-        )?;
-        original_widths.insert(OriginalGlyphId::new(*original), advance);
-        new_hmtx.extend_from_slice(&advance.to_be_bytes());
-        new_hmtx.extend_from_slice(&side_bearing.to_be_bytes());
-    }
-    new_loca.extend_from_slice(
-        &u32::try_from(new_glyf.len())
-            .map_err(|_| ResourceError::ResourceLimit)?
-            .to_be_bytes(),
-    );
-    let subset_count = u16::try_from(closure.len()).map_err(|_| ResourceError::ResourceLimit)?;
-    let mut new_head = head.to_vec();
-    new_head[8..12].fill(0);
-    new_head[50..52].copy_from_slice(&1i16.to_be_bytes());
-    let mut new_hhea = hhea.to_vec();
-    new_hhea[34..36].copy_from_slice(&subset_count.to_be_bytes());
-    let mut new_maxp = maxp.to_vec();
-    new_maxp[4..6].copy_from_slice(&subset_count.to_be_bytes());
-    let mut post = vec![0; 32];
-    post[..4].copy_from_slice(&0x0003_0000u32.to_be_bytes());
-    if let Some(source_post) = tables.get(b"post") {
-        if source_post.bytes.len() >= 16 {
-            post[4..16].copy_from_slice(&source_post.bytes[4..16]);
-        }
-    }
-    let mut output_tables = vec![
-        SfntRewriteTable {
-            tag: *b"glyf",
-            bytes: new_glyf,
-        },
-        SfntRewriteTable {
-            tag: *b"head",
-            bytes: new_head,
-        },
-        SfntRewriteTable {
-            tag: *b"hhea",
-            bytes: new_hhea,
-        },
-        SfntRewriteTable {
-            tag: *b"hmtx",
-            bytes: new_hmtx,
-        },
-        SfntRewriteTable {
-            tag: *b"loca",
-            bytes: new_loca,
-        },
-        SfntRewriteTable {
-            tag: *b"maxp",
-            bytes: new_maxp,
-        },
-        SfntRewriteTable {
-            tag: *b"post",
-            bytes: post,
-        },
-    ];
-    if let Some(os2) = tables.get(b"OS/2") {
-        output_tables.push(SfntRewriteTable {
-            tag: *b"OS/2",
-            bytes: os2.bytes.to_vec(),
-        });
-    }
-    // `issue_font` replaces this placeholder with its canonical name table.
-    output_tables.push(SfntRewriteTable {
-        tag: *b"name",
-        bytes: canonical_subset_name_table(FontInstanceId::new(0))?,
-    });
-    let metrics = pdf_metrics(
-        head,
-        hhea,
-        tables.get(b"OS/2").map(|table| table.bytes),
-        tables.get(b"post").map(|table| table.bytes),
+    Ok(PreparedTrueTypeSubset {
+        tables, locations, closure, original_to_subset, glyph_count, number_of_h_metrics,
+    })
+}
+
+mod truetype_subset_writer;
+fn write_truetype_subset(prepared: PreparedTrueTypeSubset<'_>) -> Result<TrueTypeSubset, ResourceError> {
+    let written = truetype_subset_writer::write(
+        &prepared, FontInstanceId::new(0), u64::MAX, &mut |_, _, _| Ok(()),
     )?;
     Ok(TrueTypeSubset {
-        bytes: rebuild_sfnt(output_tables)?,
-        original_to_subset,
-        original_widths,
-        metrics,
+        bytes: written.bytes,
+        original_to_subset: prepared.original_to_subset,
+        original_widths: written.widths,
+        metrics: written.metrics,
     })
 }
 
@@ -2325,6 +2292,11 @@ fn parse_sfnt_table_map(
     source: &[u8],
     face_index: u32,
 ) -> Result<BTreeMap<[u8; 4], SfntTableRef<'_>>, ResourceError> {
+    let (face_offset, count) = sfnt_directory(source, face_index)?;
+    parse_sfnt_directory_tables(source, face_offset, count)
+}
+
+fn sfnt_directory(source: &[u8], face_index: u32) -> Result<(usize, usize), ResourceError> {
     let face_offset = if source.get(..4) == Some(b"ttcf") {
         let count = read_subset_u32(source, 8)?;
         if face_index >= count {
@@ -2364,6 +2336,10 @@ fn parse_sfnt_table_map(
     if directory_end > source.len() {
         return Err(ResourceError::InvalidFontPlan);
     }
+    Ok((face_offset, count))
+}
+
+fn parse_sfnt_directory_tables(source: &[u8], face_offset: usize, count: usize) -> Result<BTreeMap<[u8; 4], SfntTableRef<'_>>, ResourceError> {
     let mut tables = BTreeMap::new();
     for index in 0..count {
         let record = face_offset
@@ -2460,56 +2436,28 @@ fn glyph_bytes<'a>(
     glyf.get(start..end).ok_or(ResourceError::InvalidFontPlan)
 }
 
-fn composite_components(glyph: &[u8]) -> Result<Vec<u16>, ResourceError> {
+fn visit_composite_components(glyph: &[u8], visit: impl FnMut(usize, u16) -> Result<(), ResourceError>) -> Result<(), ResourceError> {
     if glyph.is_empty() {
-        return Ok(Vec::new());
+        return Ok(());
     }
     if glyph.len() < 10 {
         return Err(ResourceError::InvalidFontPlan);
     }
     if read_subset_i16(glyph, 0)? >= 0 {
-        return Ok(Vec::new());
+        return Ok(());
     }
+    walk_composite_components(glyph, visit)
+}
+#[cfg(test)]
+fn composite_components(glyph: &[u8]) -> Result<Vec<u16>, ResourceError> {
     let mut components = Vec::new();
-    walk_composite_components(glyph, |_, component| {
+    visit_composite_components(glyph, |_, component| {
         components.push(component);
         Ok(())
     })?;
     Ok(components)
 }
 
-fn remap_composite_components(
-    glyph: &mut [u8],
-    mapping: &BTreeMap<OriginalGlyphId, SubsetGlyphId>,
-) -> Result<(), ResourceError> {
-    if glyph.is_empty() {
-        return Ok(());
-    }
-    if glyph.len() < 10 {
-        return Err(ResourceError::InvalidFontPlan);
-    }
-    if read_subset_i16(glyph, 0)? >= 0 {
-        return Ok(());
-    }
-    let mut replacements = Vec::new();
-    walk_composite_components(glyph, |offset, component| {
-        let subset = mapping
-            .get(&OriginalGlyphId::new(component))
-            .ok_or(ResourceError::InvalidFontPlan)?;
-        replacements.push((offset, subset.get()));
-        Ok(())
-    })?;
-    for (offset, subset) in replacements {
-        let end = offset
-            .checked_add(2)
-            .ok_or(ResourceError::InvalidFontPlan)?;
-        glyph
-            .get_mut(offset..end)
-            .ok_or(ResourceError::InvalidFontPlan)?
-            .copy_from_slice(&subset.to_be_bytes());
-    }
-    Ok(())
-}
 
 fn walk_composite_components(
     glyph: &[u8],
@@ -3113,6 +3061,32 @@ mod tests {
         .unwrap();
         let subset =
             subset_truetype(&source, 0, &[OriginalGlyphId::new(3)].into_iter().collect()).unwrap();
+        let requested = [OriginalGlyphId::new(3)].into_iter().collect();
+        let run_preparation = |maximum: (usize, usize, usize)| {
+            let mut spent = (0usize, 0usize, 0usize);
+            let prepared = prepare_truetype_subset_with_charge(&source, 0, &requested, &mut |records, bytes, work| {
+                let records = spent.0.checked_add(records).filter(|n| *n <= maximum.0).ok_or(ResourceError::ResourceLimit)?;
+                let bytes = spent.1.checked_add(bytes).filter(|n| *n <= maximum.1).ok_or(ResourceError::ResourceLimit)?;
+                spent.0 = records; spent.1 = bytes;
+                for _ in 0..work {
+                    spent.2 = spent.2.checked_add(1).filter(|n| *n <= maximum.2).ok_or(ResourceError::ResourceLimit)?;
+                }
+                Ok(())
+            });
+            (prepared, spent)
+        };
+        let (prepared, spent) = run_preparation((usize::MAX, usize::MAX, usize::MAX));
+        let prepared = prepared.unwrap();
+        assert_eq!(prepared.closure.iter().copied().collect::<Vec<_>>(), [0, 2, 3]);
+        truetype_subset_writer::assert_budgeted_writer(&prepared, &subset.bytes);
+        assert_eq!(write_truetype_subset(prepared).unwrap().bytes, subset.bytes);
+        assert!(run_preparation(spent).0.is_ok());
+        for maximum in [(spent.0 - 1, spent.1, spent.2), (spent.0, spent.1 - 1, spent.2), (spent.0, spent.1, spent.2 - 1)] {
+            assert!(matches!(run_preparation(maximum).0, Err(ResourceError::ResourceLimit)));
+        }
+        let (_, failed) = run_preparation((spent.0, spent.1, spent.2 - 1));
+        assert_eq!(failed.2, spent.2 - 1);
+        assert!(failed.0 > 0 && failed.1 > 0);
         assert_eq!(
             subset
                 .original_to_subset
@@ -3588,3 +3562,6 @@ mod tests {
         assert_eq!(require_admitted_epoch_binding(selected, selected), Ok(()));
     }
 }
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_font_selection.rs"]
+pub mod book_v2;

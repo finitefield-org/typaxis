@@ -13,7 +13,7 @@ name = "typaxis"
 path = "src/main.rs"
 
 [features]
-book-v2-staging = ["typaxis-machine-profile/book-v2-staging", "typaxis-syntax/book-v2-staging", "typaxis-shaping/book-v2-staging"]
+book-v2-staging = ["typaxis-manifest/book-v2-staging", "typaxis-machine-profile/book-v2-staging", "typaxis-syntax/book-v2-staging", "typaxis-shaping/book-v2-staging", "typaxis-layout/book-v2-staging", "typaxis-pagination/book-v2-staging", "typaxis-display-list/book-v2-staging", "typaxis-resources/book-v2-staging", "typaxis-pdf/book-v2-staging"]
 
 [dependencies]
 rustix = { version = "=1.1.4", features = ["fs"] }
@@ -37,5 +37,6 @@ typaxis-pdf = { path = "../typaxis-pdf" }
 typaxis-manifest = { path = "../typaxis-manifest" }
 
 [dev-dependencies]
+typaxis-math = { path = "../typaxis-math" }
 serde_json = "=1.0.151"
 typaxis-testkit = { path = "../typaxis-testkit", features = ["precomposed-vector-fixtures"] }

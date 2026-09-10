@@ -414,11 +414,10 @@ pub(crate) fn finalize_production_draw_forms(
     registry: &VectorContentCandidateRegistry,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<StagingSafeVectorFormPlansV2, StagingSafeVectorResourceV2Error> {
-    use typaxis_display_list::ProductionBodyDraw;
     let mut keys = BTreeSet::new();
     let mut usages = Vec::new();
     for (draw_index, draw) in draws.iter().enumerate() {
-        let ProductionBodyDraw::Vector(vector) = draw else {
+        let Some(vector) = draw.vector_paint() else {
             continue;
         };
         let usage_id = u32::try_from(usages.len())
@@ -429,7 +428,7 @@ pub(crate) fn finalize_production_draw_forms(
             .map_err(|_| StagingSafeVectorResourceV2Error::AllocationFailure)?;
         usages.push(PlanningUsage {
             usage_id,
-            image_id: vector.binding().resource().image_id(),
+            image_id: vector.image_id(),
             content_key: vector.content_key(),
             ir_fingerprint: vector.content_key().ir_fingerprint(),
             page_index: vector.page_index(),

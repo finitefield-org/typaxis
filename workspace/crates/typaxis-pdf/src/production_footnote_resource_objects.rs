@@ -181,12 +181,17 @@ pub fn build_production_footnote_resource_objects<
             .get(),
         navigation.destinations(),
         |i| navigation.destination_name(i).map(|n| n.as_str()),
-        navigation
-            .outline_entries()
-            .iter()
-            .map(|e| (e.outline_id, e.label.as_str(), e.destination.as_str())),
+        navigation.outline_entries().iter().map(|e| {
+            (
+                e.outline_id,
+                e.label.as_str(),
+                e.destination.as_str(),
+                e.source.node_id,
+            )
+        }),
         navigation.outline(),
         navigation.outline_root(),
+        marked.structure().registry(),
     )?;
     // Resolve all local resources/outline roles here; destinations retain
     // checked Page references for the final page-tree owner.
@@ -195,6 +200,8 @@ pub fn build_production_footnote_resource_objects<
             if let ProductionBodyObjectChunk::Reference(role) = chunk {
                 match role {
                     R::Page(page) if (*page as usize) < marked.pages().len() => {}
+                    R::StructureNode(node)
+                        if marked.structure().registry().node(*node).is_some() => {}
                     _ if b.roles.contains(role) => {}
                     _ => return Err(E::ReceiptMismatch),
                 }

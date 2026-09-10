@@ -66,6 +66,7 @@ impl ProductionTableCell {
 pub struct ProductionTable {
     owner: NodeId,
     source_span: SourceSpan,
+    pub(super) caption_events: Option<std::ops::Range<usize>>,
     columns: Vec<TableColumn>,
     rows: Vec<ProductionTableRow>,
     cells: Vec<ProductionTableCell>,
@@ -78,6 +79,11 @@ impl ProductionTable {
     }
     pub const fn source_span(&self) -> SourceSpan {
         self.source_span
+    }
+    /// Original caption events before header/body rows; no caption is repeated
+    /// as a header. This range has no page-layout authority by itself.
+    pub fn caption_event_range(&self) -> Option<std::ops::Range<usize>> {
+        self.caption_events.clone()
     }
     pub fn columns(&self) -> &[TableColumn] {
         &self.columns
@@ -183,9 +189,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
             lower_section(section, source, &mut remaining, &mut rows, &mut cells)?;
         }
         let page_name = self
-            .rules
-            .ordinary
-            .cascade_basic_document("table", block.classes())
+            .rules.cascade_ordinary("table", block.classes())
             .and_then(|s| s.page_name())
             .map_err(|_| failure(E::InvalidStyle, owner))?;
         self.tables
@@ -194,6 +198,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         self.tables.push(ProductionTable {
             owner,
             source_span: lower_span(*span).map_err(|_| invalid())?,
+            caption_events: None,
             columns: typed,
             rows,
             cells,

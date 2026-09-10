@@ -162,6 +162,7 @@ fn check_blocks<K: Copy>(
     use WireSemanticBlock as B;
     for block in blocks {
         let span = match block {
+            B::DescriptionList { span, .. } => *span,
             B::Paragraph { span, .. }
             | B::Heading { span, .. }
             | B::List { span, .. }
@@ -179,13 +180,29 @@ fn check_blocks<K: Copy>(
                 check_inlines(children, sources)?
             }
             B::SemanticContainer { blocks, .. } => check_blocks(blocks, sources)?,
+            B::DescriptionList { items, .. } => {
+                for item in items {
+                    check_span(item.node_id, item.span, sources)?;
+                    check_span(item.term.node_id, item.term.span, sources)?;
+                    check_inlines(&item.term.children, sources)?;
+                    check_blocks(&item.blocks, sources)?;
+                }
+            }
             B::List { items, .. } => {
                 for item in items {
                     check_span(item.node_id, item.span, sources)?;
                     check_blocks(&item.blocks, sources)?;
                 }
             }
-            B::Table { head, body, .. } => {
+            B::Table {
+                caption,
+                head,
+                body,
+                ..
+            } => {
+                if let Some(caption) = caption {
+                    check_blocks(caption, sources)?;
+                }
                 for row in head.iter().chain(body) {
                     check_span(row.node_id, row.span, sources)?;
                     for cell in &row.cells {

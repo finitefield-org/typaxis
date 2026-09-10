@@ -1,0 +1,18 @@
+{
+  "scope": "scale-probe-only",
+  "case": "distinct",
+  "pdf_sha256": "bd2e80d189013fc24011dd9ae1463919e90731de5cb9212f529414303622240d",
+  "pages": 385,
+  "declarations": 5000,
+  "placements": 5000,
+  "forms": 5000,
+  "raster_xobjects": 0,
+  "mcids": 5000,
+  "verified_raster_pixels": 0,
+  "verified_paths": 71682,
+  "verified_source_segments": 1521172,
+  "extractors": [
+    "Poppler",
+    "MuPDF"
+  ]
+}

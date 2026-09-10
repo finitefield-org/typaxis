@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import io
+from fontTools import version as fonttools_version
+from fontTools.ttLib import TTFont, TTCollection
 import json
 import runpy
 from collections import Counter
@@ -378,8 +381,36 @@ package["metadata"] = {
 
 job = HERE / "job"
 (job / "svg").mkdir(parents=True, exist_ok=True)
-body_ttf = (ACCESSIBILITY / "job/body.ttf").read_bytes()
-collection_ttc = (ACCESSIBILITY / "job/collection.ttc").read_bytes()
+# The accessibility math fixture replaces its cmap with math symbols. Keep
+# its MATH table and existing glyphs, restoring the authored ASCII text map
+# and the repository-authored bullet required by the common body shaper.
+assert fonttools_version == "4.51.0", "fixture generator requires fontTools 4.51.0"
+body_font = TTFont(ACCESSIBILITY / "job/body.ttf", recalcTimestamp=False)
+body_ascii = TTFont(REPOSITORY / "samples/machine-package/profiles/basic-document-1/combined/job/body.ttf")
+bullet_font = TTFont(STAGING / "vmb-book/list-fonts/body-list-no-math.ttf")
+def restore_body_coverage(body_font):
+    assert body_font.getGlyphOrder() == body_ascii.getGlyphOrder()
+    body_order = list(body_font.getGlyphOrder())
+    body_font["glyf"]["bullet"] = copy.deepcopy(bullet_font["glyf"]["bullet"])
+    body_font["hmtx"].metrics["bullet"] = bullet_font["hmtx"].metrics["bullet"]
+    body_font.setGlyphOrder(body_order + ["bullet"])
+    for table in body_font["cmap"].tables:
+        if table.isUnicode():
+            table.cmap.update(body_ascii.getBestCmap())
+            table.cmap[0x2022] = "bullet"
+
+
+restore_body_coverage(body_font)
+font_bytes = io.BytesIO()
+body_font.save(font_bytes)
+body_ttf = font_bytes.getvalue()
+collection = TTCollection(ACCESSIBILITY / "job/collection.ttc")
+for face in collection.fonts:
+    face.recalcTimestamp = False
+    restore_body_coverage(face)
+collection_bytes = io.BytesIO()
+collection.save(collection_bytes)
+collection_ttc = collection_bytes.getvalue()
 png = (ACCESSIBILITY / "job/figure.data").read_bytes()
 safe1 = (STAGING / "vector-media/job/art.vector").read_bytes()
 safe2 = (STAGING / "precomposed-vector/svg/x-plus-y.svg").read_bytes()
@@ -562,7 +593,7 @@ expected = {
             "sources": "admitted",
         },
         "normalized_extracted_text": None,
-        "page_count": 2,
+        "page_count": 5,
         "primary_code": None,
         "side_effects": {
             "layout_started": True,
@@ -590,13 +621,18 @@ expected["resource_hashes"] = [
         *zip(package["resources"]["images"], (png, safe1, safe2, jpeg)),
     )
 ]
+# The common source geometry preserves all three authored 8,000,000-unit
+# table rows. The table's measured 25,441,792-unit height alone exceeds one
+# 18,689,280-unit body frame, after an explicit page break. The old two-page
+# recipe compressed those extents and left the Page reference unresolved.
+# Keep source/row heights and exact text; migrate only the derived expectation.
 expected["expected"]["normalized_extracted_text"] = (
-    "x squared x plus one Basic document page top internal 1 1 Accessible footnote "
-    "1. First item 2. Second entry PNG caption Header A Header B alpha beta gamma "
-    "delta Heading level 2 Heading level 3 Heading level 4 Heading level 5 Heading "
-    "level 6 emphasized strong • Unordered item Accessible result Accessible proof "
-    "Accessible exercise safe vector one safe vector two x plus y SafeVector 1 caption "
-    "JPEG caption AB x plus y, equation AB"
+    "Basic document 1 internal 1 1. First item 2. Second entry 1 Accessible footnote "
+    "PNG caption Header A Header B alpha beta Header A Header B gamma delta "
+    "x squared x plus one Heading level 2 Heading level 3 Heading level 4 Heading "
+    "level 5 Heading level 6 emphasizedstrong • Unordered item Accessible result "
+    "Accessible proof Accessible exercise safe vector one safe vector twox plus y "
+    "SafeVector 1 caption JPEG caption x plus y, equation AB AB"
 )
 
 canonical = lambda value: json.dumps(

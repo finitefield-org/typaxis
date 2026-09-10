@@ -206,10 +206,27 @@ pub struct SemanticListItem<K> {
     pub blocks: Vec<SemanticBlock<K>>,
 }
 
+/// Authored inline term; the original wire retains its full inline tree.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SemanticDescriptionTerm {
+    pub common: StagingM4BlockCommon,
+    pub has_authored_content: bool,
+    pub inline_vectors: Vec<StagingM4InlineVector>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SemanticDescriptionItem<K> {
+    pub node_id: NodeId,
+    pub span: SourceSpan,
+    pub term: SemanticDescriptionTerm,
+    pub blocks: Vec<SemanticBlock<K>>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticTableCell<K> {
     pub node_id: NodeId,
     pub span: SourceSpan,
+    pub classes: Vec<String>,
     pub colspan: NonZeroU16,
     pub rowspan: NonZeroU16,
     pub blocks: Vec<SemanticBlock<K>>,
@@ -224,6 +241,8 @@ pub struct SemanticTableRow<K> {
 
 /// Recursive semantic body shared by explicitly selected container vocabularies.
 /// Contract-specific aliases remain distinct from the legacy `Block` enum.
+/// Keep carrier variants stable across dependency feature unification. Their
+/// presence does not grant admission under a particular contract or profile.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SemanticBlock<K> {
     Paragraph {
@@ -240,8 +259,13 @@ pub enum SemanticBlock<K> {
         common: StagingM4BlockCommon,
         items: Vec<SemanticListItem<K>>,
     },
+    DescriptionList {
+        common: StagingM4BlockCommon,
+        items: Vec<SemanticDescriptionItem<K>>,
+    },
     Table {
         common: StagingM4BlockCommon,
+        caption: Vec<SemanticBlock<K>>,
         head: Vec<SemanticTableRow<K>>,
         body: Vec<SemanticTableRow<K>>,
     },
@@ -305,6 +329,7 @@ impl StagingM4FigurePlacement {
 impl<K: Copy> SemanticBlock<K> {
     pub const fn common(&self) -> &StagingM4BlockCommon {
         match self {
+            Self::DescriptionList { common, .. } => common,
             Self::Paragraph { common, .. }
             | Self::Heading { common, .. }
             | Self::List { common, .. }
@@ -332,6 +357,7 @@ impl<K: Copy> SemanticBlock<K> {
 
     pub const fn semantic_kind(&self) -> Option<K> {
         match self {
+            Self::DescriptionList { .. } => None,
             Self::SemanticContainer { semantic_kind, .. } => Some(*semantic_kind),
             Self::Paragraph { .. }
             | Self::Heading { .. }
@@ -347,7 +373,8 @@ impl<K: Copy> SemanticBlock<K> {
 
     pub fn direct_blocks(&self) -> &[SemanticBlock<K>] {
         match self {
-            Self::Figure { caption, .. }
+            Self::Table { caption, .. }
+            | Self::Figure { caption, .. }
             | Self::VectorFigure { caption, .. }
             | Self::SemanticContainer {
                 blocks: caption, ..
@@ -361,6 +388,8 @@ impl<K: Copy> SemanticBlock<K> {
     /// an alternative-bearing replacement, or a nonempty owned subflow are.
     pub fn is_semantically_nonempty(&self) -> bool {
         match self {
+            Self::DescriptionList { items, .. } => items.iter().any(|item|
+                item.term.has_authored_content || item.blocks.iter().any(Self::is_semantically_nonempty)),
             Self::Paragraph {
                 has_authored_content,
                 ..
@@ -373,12 +402,9 @@ impl<K: Copy> SemanticBlock<K> {
                 .iter()
                 .flat_map(|item| &item.blocks)
                 .any(Self::is_semantically_nonempty),
-            Self::Table { head, body, .. } => head
-                .iter()
-                .chain(body)
-                .flat_map(|row| &row.cells)
-                .flat_map(|cell| &cell.blocks)
-                .any(Self::is_semantically_nonempty),
+            Self::Table { caption, head, body, .. } => caption.iter().any(Self::is_semantically_nonempty)
+                || head.iter().chain(body).flat_map(|row| &row.cells)
+                    .flat_map(|cell| &cell.blocks).any(Self::is_semantically_nonempty),
             Self::Figure {
                 has_nonempty_alternative,
                 caption,

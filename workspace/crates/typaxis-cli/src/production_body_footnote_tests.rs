@@ -1068,7 +1068,7 @@ fn production_footnote_math_terminals_close_real_stable_body_and_definition_bloc
             let terminals = search
                 .finalize_page_math(&stable, &geometry, registry, limits)
                 .unwrap();
-            assert!(std::ptr::eq(terminals.geometry(), &geometry));
+            assert!(std::ptr::eq(terminals.geometry().ordinary().unwrap(), &geometry));
             terminals.terminals().verify(registry).unwrap();
             assert_eq!(
                 terminals.terminals().receipts().len(),
@@ -1232,7 +1232,9 @@ fn production_footnote_display_projects_real_text_vectors_numbers_and_separators
                     let (index, page) = match draw {
                         ProductionBodyDraw::Text(d) => (d.fragment_index(), d.page_index()),
                         ProductionBodyDraw::Vector(d) => (d.fragment_index(), d.page_index()),
+                        ProductionBodyDraw::SvgFigure(d) => (d.fragment_index(), d.page_index()),
                         ProductionBodyDraw::Raster(d) => (d.fragment_index(), d.page_index()),
+                        ProductionBodyDraw::Math(d) => (d.fragment_index(), d.page_index()),
                     };
                     assert!(index >= previous);
                     previous = index;
@@ -1291,7 +1293,9 @@ fn production_footnote_display_projects_real_text_vectors_numbers_and_separators
                     let index = match draw {
                         ProductionBodyDraw::Text(d) => d.fragment_index(),
                         ProductionBodyDraw::Vector(d) => d.fragment_index(),
+                        ProductionBodyDraw::SvgFigure(d) => d.fragment_index(),
                         ProductionBodyDraw::Raster(d) => d.fragment_index(),
+                        ProductionBodyDraw::Math(d) => d.fragment_index(),
                     };
                     assert!(all[index as usize].definition_index().is_some());
                     assert_eq!(
@@ -1610,7 +1614,7 @@ fn production_footnote_fonts_bind_selected_glyphs_and_generated_unicode() {
                         ProductionBodyDraw::Text(text) => {
                             let (font, cluster) = fonts.text_plan(index).unwrap();
                             assert_eq!(font.font_face_id(), text.font_face_id());
-                            assert_eq!(cluster.text_span(), text.text_span());
+                            assert_eq!(cluster.text_span(), Some(text.text_span()));
                             assert_eq!(cluster.exact_text(), text.exact_text());
                             assert_eq!(
                                 cluster.glyphs(),
@@ -1653,7 +1657,7 @@ fn production_footnote_fonts_bind_selected_glyphs_and_generated_unicode() {
                     let (font, cluster) = fonts.text_plan(draw_index).unwrap();
                     assert_eq!(paint.draw_index(), draw_index);
                     assert_eq!(paint.page_index(), text.page_index());
-                    assert_eq!(paint.font_instance_id(), font.pdf_font().font_instance_id());
+                    assert_eq!(paint.font_instance_id(), Some(font.pdf_font().font_instance_id()));
                     let commands =
                         std::str::from_utf8(encoded.paint_commands(paint_index).unwrap()).unwrap();
                     assert_eq!(commands.matches(" Tj\n").count(), text.glyphs().len());
@@ -2537,9 +2541,13 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                     );
                     for draw in display.draws() {
                         let (fragment, rect) = match draw {
+                            ProductionBodyDraw::Math(m) => (m.fragment_index(), Some(m.bounds())),
                             ProductionBodyDraw::Text(t) => (t.fragment_index(), t.logical_bounds()),
                             ProductionBodyDraw::Vector(v) => {
                                 (v.fragment_index(), Some(v.viewport()))
+                            }
+                            ProductionBodyDraw::SvgFigure(r) => {
+                                (r.fragment_index(), Some(r.viewport()))
                             }
                             ProductionBodyDraw::Raster(r) => {
                                 (r.fragment_index(), Some(r.viewport()))
@@ -3081,7 +3089,8 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                     assert_eq!(roles.len(), objects.len());
                     for object in objects {
                         assert!(production_object_references(object).iter().all(|r| roles.contains(r)
-                            || matches!(r, Role::Page(p) if (*p as usize) < marked.pages().len())));
+                            || matches!(r, Role::Page(p) if (*p as usize) < marked.pages().len())
+                            || matches!(r, Role::StructureNode(node) if structure_objects.objects().iter().any(|object| object.role() == Role::StructureNode(*node)))));
                     }
                     let navigation = annotations.navigation();
                     if !navigation.destinations().is_empty() {
@@ -3147,8 +3156,12 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                                 .flatten()
                                 .map(Role::Outline),
                             );
+                            let source_node = marked.structure().registry()
+                                .source_node(entry.source.node_id).unwrap();
+                            expected.push(Role::StructureNode(source_node.structure_node_id()));
                             assert_eq!(production_object_references(object), expected);
                             let bytes = String::from_utf8(production_object_bytes(object)).unwrap();
+                            assert_eq!(bytes.matches(" /SE ").count(), 1);
                             let hex: String = entry
                                 .destination
                                 .as_str()
@@ -3213,7 +3226,7 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                                 typaxis_pdf::ProductionBodyPageDrawSource::Text { paint_index } => {
                                     expected.insert(Role::Font {
                                         instance: content.text().paints()[paint_index]
-                                            .font_instance_id(),
+                                            .font_instance_id().expect("text font"),
                                         part: Part::Type0,
                                     });
                                 }

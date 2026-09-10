@@ -174,6 +174,8 @@ pub struct StagingSafeVectorManifestPlacementV2 {
 }
 
 impl StagingSafeVectorManifestPlacementV2 {
+    pub const fn alternative_sha256(&self) -> [u8; 32] { self.alternative_sha256 }
+
     pub const fn usage_id(&self) -> u32 {
         self.usage_id
     }
@@ -754,6 +756,10 @@ fn figure_source_fact_in_blocks<'a>(
                 if let Some(found) = figure_source_fact_in_blocks(caption, owner) {
                     return Some(found);
                 }
+            }
+            StagingM4Block::DescriptionList { items, .. } => {
+                if let Some(found) = items.iter().find_map(|item|
+                    figure_source_fact_in_blocks(&item.blocks, owner)) { return Some(found); }
             }
             StagingM4Block::List { items, .. } => {
                 if let Some(found) = items

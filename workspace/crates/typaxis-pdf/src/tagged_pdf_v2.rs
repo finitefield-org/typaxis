@@ -1066,6 +1066,9 @@ fn collect_safe_vector_figures(
             | StagingM4Block::SemanticContainer {
                 blocks: caption, ..
             } => collect_safe_vector_figures(caption, admitted, output)?,
+            StagingM4Block::DescriptionList { .. } => {
+                return Err(TaggedPdfV2Error::ReceiptMismatch);
+            }
             StagingM4Block::List { items, .. } => {
                 for item in items {
                     collect_safe_vector_figures(&item.blocks, admitted, output)?;
@@ -1629,6 +1632,9 @@ fn raster_figure_resources(
                 | StagingM4Block::SemanticContainer {
                     blocks: caption, ..
                 } => visit(caption, admitted, output)?,
+                StagingM4Block::DescriptionList { .. } => {
+                    return Err(TaggedPdfV2Error::ReceiptMismatch);
+                }
                 StagingM4Block::List { items, .. } => {
                     for item in items {
                         visit(&item.blocks, admitted, output)?;
@@ -2696,6 +2702,9 @@ fn raster_figure_bindings_v2(
                 | StagingM4Block::SemanticContainer {
                     blocks: caption, ..
                 } => visit(caption, selected, output)?,
+                StagingM4Block::DescriptionList { .. } => {
+                    return Err(TaggedPdfV2Error::ReceiptMismatch);
+                }
                 StagingM4Block::List { items, .. } => {
                     for item in items {
                         visit(&item.blocks, selected, output)?;

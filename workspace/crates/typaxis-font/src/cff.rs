@@ -3288,6 +3288,9 @@ trait Type2ProgramAccess {
     fn validate_width(&self, operand: Option<i32>) -> Result<(), Cff1Error>;
 }
 trait Type2WorkBudget {
+    fn charge_allocation(&mut self, _records: usize, _bytes: usize) -> Result<(), Cff1Error> {
+        Ok(())
+    }
     fn charge_operation(&mut self) -> Result<(), Cff1Error>;
     fn charge_segment(&mut self) -> Result<(), Cff1Error>;
 }
@@ -3328,6 +3331,11 @@ fn evaluate_type2(
     gid: u16,
     budget: &mut impl Type2WorkBudget,
 ) -> Result<EvaluatedGlyph, Cff1Error> {
+    budget.charge_allocation(
+        TYPE2_OPERAND_STACK_LIMIT + TYPE2_CALL_DEPTH_LIMIT + 1,
+        TYPE2_OPERAND_STACK_LIMIT * std::mem::size_of::<i32>()
+            + (TYPE2_CALL_DEPTH_LIMIT + 1) * std::mem::size_of::<CallFrame>(),
+    )?;
     let mut stack = Vec::new();
     stack
         .try_reserve_exact(TYPE2_OPERAND_STACK_LIMIT)
@@ -3397,7 +3405,8 @@ fn evaluate_type2(
                 if state.stack.len() < 2 || state.stack.len() % 2 != 0 {
                     return Err(Cff1Error::InvalidCharstring);
                 }
-                let values = std::mem::take(&mut state.stack);
+                let (values, count) = take_type2_operands(&mut state)?;
+                let values = &values[..count];
                 for pair in values.chunks_exact(2) {
                     state.x = add_fixed(state.x, pair[0])?;
                     state.y = add_fixed(state.y, pair[1])?;
@@ -3409,9 +3418,10 @@ fn evaluate_type2(
                 if state.stack.is_empty() {
                     return Err(Cff1Error::InvalidCharstring);
                 }
-                let values = std::mem::take(&mut state.stack);
+                let (values, count) = take_type2_operands(&mut state)?;
+                let values = &values[..count];
                 let mut horizontal = byte == 6;
-                for value in values {
+                for &value in values {
                     if horizontal {
                         state.x = add_fixed(state.x, value)?;
                     } else {
@@ -3426,7 +3436,8 @@ fn evaluate_type2(
                 if state.stack.len() < 6 || state.stack.len() % 6 != 0 {
                     return Err(Cff1Error::InvalidCharstring);
                 }
-                let values = std::mem::take(&mut state.stack);
+                let (values, count) = take_type2_operands(&mut state)?;
+                let values = &values[..count];
                 for values in values.chunks_exact(6) {
                     relative_cubic(&mut state, budget, values)?;
                 }
@@ -3531,7 +3542,8 @@ fn evaluate_type2(
                 if state.stack.len() < 8 || (state.stack.len() - 2) % 6 != 0 {
                     return Err(Cff1Error::InvalidCharstring);
                 }
-                let values = std::mem::take(&mut state.stack);
+                let (values, count) = take_type2_operands(&mut state)?;
+                let values = &values[..count];
                 let curve_end = values.len() - 2;
                 for curve in values[..curve_end].chunks_exact(6) {
                     relative_cubic(&mut state, budget, curve)?;
@@ -3545,7 +3557,8 @@ fn evaluate_type2(
                 if state.stack.len() < 8 || (state.stack.len() - 6) % 2 != 0 {
                     return Err(Cff1Error::InvalidCharstring);
                 }
-                let values = std::mem::take(&mut state.stack);
+                let (values, count) = take_type2_operands(&mut state)?;
+                let values = &values[..count];
                 let curve_start = values.len() - 6;
                 for line in values[..curve_start].chunks_exact(2) {
                     state.x = add_fixed(state.x, line[0])?;
@@ -3843,10 +3856,17 @@ fn reserve_segment(
     // allocation refusal stays in the same bounded outline-output domain and
     // cannot trigger an infallible Vec growth or a partial subset.
     budget.charge_segment()?;
-    state
-        .segments
-        .try_reserve(1)
-        .map_err(|_| Cff1Error::OutlineSegmentLimit)
+    if state.segments.len() == state.segments.capacity() {
+        let next = state.segments.capacity().checked_mul(2).map(|n| n.max(4))
+            .ok_or(Cff1Error::OutlineSegmentLimit)?;
+        let additional = next - state.segments.capacity();
+        let bytes = additional.checked_mul(std::mem::size_of::<OutlineSegment>())
+            .ok_or(Cff1Error::OutlineSegmentLimit)?;
+        budget.charge_allocation(additional, bytes)?;
+        state.segments.try_reserve_exact(additional)
+            .map_err(|_| Cff1Error::OutlineSegmentLimit)?;
+    }
+    Ok(())
 }
 
 fn relative_cubic(
@@ -3864,12 +3884,25 @@ fn relative_cubic(
     emit_cubic(state, budget, [x1, y1, x2, y2, x3, y3])
 }
 
+// The operand stack keeps its original bounded allocation across path
+// operators. A fixed stack copy avoids abandoning its Vec and regrowing an
+// unaccounted operand buffer for every following path segment.
+fn take_type2_operands(state: &mut Type2State) -> Result<([i32; TYPE2_OPERAND_STACK_LIMIT], usize), Cff1Error> {
+    let count = state.stack.len();
+    if count > TYPE2_OPERAND_STACK_LIMIT { return Err(Cff1Error::InvalidCharstring); }
+    let mut values = [0; TYPE2_OPERAND_STACK_LIMIT];
+    values[..count].copy_from_slice(&state.stack);
+    state.stack.clear();
+    Ok((values, count))
+}
+
 fn evaluate_vvcurveto(
     state: &mut Type2State,
     budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     require_width_seen(state)?;
-    let values = std::mem::take(&mut state.stack);
+    let (values, count) = take_type2_operands(state)?;
+    let values = &values[..count];
     if values.len() < 4 || values.len() % 4 > 1 {
         return Err(Cff1Error::InvalidCharstring);
     }
@@ -3900,7 +3933,8 @@ fn evaluate_hhcurveto(
     budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     require_width_seen(state)?;
-    let values = std::mem::take(&mut state.stack);
+    let (values, count) = take_type2_operands(state)?;
+    let values = &values[..count];
     if values.len() < 4 || values.len() % 4 > 1 {
         return Err(Cff1Error::InvalidCharstring);
     }
@@ -3931,7 +3965,8 @@ fn evaluate_alternating_curves(
     budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     require_width_seen(state)?;
-    let values = std::mem::take(&mut state.stack);
+    let (values, count) = take_type2_operands(state)?;
+    let values = &values[..count];
     if values.len() < 4 || !matches!(values.len() % 4, 0 | 1) {
         return Err(Cff1Error::InvalidCharstring);
     }
@@ -3981,7 +4016,8 @@ fn evaluate_flex(
     budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     require_width_seen(state)?;
-    let values = std::mem::take(&mut state.stack);
+    let (values, count) = take_type2_operands(state)?;
+    let values = &values[..count];
     let deltas = match operator {
         34 => {
             let v = exactly(&values, 7)?;
@@ -4268,21 +4304,40 @@ fn outward_i16_bbox(bounds: [i32; 4]) -> Result<[i16; 4], Cff1Error> {
     ])
 }
 
+trait Type2ByteSink {
+    fn push(&mut self, byte: u8);
+    fn extend_from_slice(&mut self, bytes: &[u8]);
+}
+impl Type2ByteSink for Vec<u8> {
+    fn push(&mut self, byte: u8) { Vec::push(self, byte); }
+    fn extend_from_slice(&mut self, bytes: &[u8]) { Vec::extend_from_slice(self, bytes); }
+}
+struct Type2ByteCount(usize);
+impl Type2ByteSink for Type2ByteCount {
+    fn push(&mut self, _: u8) { self.0 += 1; }
+    fn extend_from_slice(&mut self, bytes: &[u8]) { self.0 += bytes.len(); }
+}
+fn canonical_charstring_len(advance: u16, segments: &[OutlineSegment]) -> Result<usize, Cff1Error> {
+    // Each command emits at most six five-byte numbers and one operator.
+    // Prove counting cannot overflow before walking the shared encoder.
+    segments.len().checked_mul(31).and_then(|n| n.checked_add(6))
+        .ok_or(Cff1Error::SubsetByteLimit)?;
+    let mut count = Type2ByteCount(0);
+    write_canonical_charstring(advance, segments, &mut count)?;
+    Ok(count.0)
+}
 fn canonical_charstring(advance: u16, segments: &[OutlineSegment]) -> Result<Vec<u8>, Cff1Error> {
+    let length = canonical_charstring_len(advance, segments)?;
     let mut output = Vec::new();
-    output
-        .try_reserve_exact(
-            segments
-                .len()
-                .checked_mul(31)
-                .and_then(|value| value.checked_add(6))
-                .ok_or(Cff1Error::SubsetByteLimit)?,
-        )
-        .map_err(|_| Cff1Error::SubsetByteLimit)?;
+    output.try_reserve_exact(length).map_err(|_| Cff1Error::SubsetByteLimit)?;
+    write_canonical_charstring(advance, segments, &mut output)?;
+    Ok(output)
+}
+fn write_canonical_charstring(advance: u16, segments: &[OutlineSegment], output: &mut impl Type2ByteSink) -> Result<(), Cff1Error> {
     let width = i32::from(advance) - 32_768;
     encode_type2_number(
         width.checked_mul(65_536).ok_or(Cff1Error::InvalidSubset)?,
-        &mut output,
+        output,
     );
     let mut x = 0i32;
     let mut y = 0i32;
@@ -4291,11 +4346,11 @@ fn canonical_charstring(advance: u16, segments: &[OutlineSegment]) -> Result<Vec
             OutlineSegment::Move(next_x, next_y) => {
                 encode_type2_number(
                     next_x.checked_sub(x).ok_or(Cff1Error::InvalidSubset)?,
-                    &mut output,
+                    output,
                 );
                 encode_type2_number(
                     next_y.checked_sub(y).ok_or(Cff1Error::InvalidSubset)?,
-                    &mut output,
+                    output,
                 );
                 output.push(21);
                 x = next_x;
@@ -4304,11 +4359,11 @@ fn canonical_charstring(advance: u16, segments: &[OutlineSegment]) -> Result<Vec
             OutlineSegment::Line(next_x, next_y) => {
                 encode_type2_number(
                     next_x.checked_sub(x).ok_or(Cff1Error::InvalidSubset)?,
-                    &mut output,
+                    output,
                 );
                 encode_type2_number(
                     next_y.checked_sub(y).ok_or(Cff1Error::InvalidSubset)?,
-                    &mut output,
+                    output,
                 );
                 output.push(5);
                 x = next_x;
@@ -4323,7 +4378,7 @@ fn canonical_charstring(advance: u16, segments: &[OutlineSegment]) -> Result<Vec
                     x3.checked_sub(x2),
                     y3.checked_sub(y2),
                 ] {
-                    encode_type2_number(value.ok_or(Cff1Error::InvalidSubset)?, &mut output);
+                    encode_type2_number(value.ok_or(Cff1Error::InvalidSubset)?, output);
                 }
                 output.push(8);
                 x = x3;
@@ -4333,10 +4388,10 @@ fn canonical_charstring(advance: u16, segments: &[OutlineSegment]) -> Result<Vec
         }
     }
     output.push(14);
-    Ok(output)
+    Ok(())
 }
 
-fn encode_type2_number(raw: i32, output: &mut Vec<u8>) {
+fn encode_type2_number(raw: i32, output: &mut impl Type2ByteSink) {
     if raw % 65_536 != 0 {
         output.push(255);
         output.extend_from_slice(&raw.to_be_bytes());

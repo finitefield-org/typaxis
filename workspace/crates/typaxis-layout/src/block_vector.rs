@@ -1,3 +1,6 @@
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_blocks.rs"]
+pub mod book_v2;
 use typaxis_core::{
     push_jcs_string, sha256, ImageResourceId, Length, M4EffectiveResourceLimits, NodeId,
     NonNegativeLength, PageName, PositiveLength, SourceSpan,
@@ -648,41 +651,15 @@ fn build_staging_precomposed_vector_blocks(
                 source_span,
             ));
         }
-        let inner_frame_width = body
-            .width()
-            .get()
-            .checked_sub(style_input.start_indent().get())
-            .and_then(|value| value.checked_sub(style_input.end_indent().get()))
-            .and_then(PositiveLength::new)
-            .ok_or(StagingPrecomposedVectorBlockLayoutError::InvalidGeometry(
-                owner,
-                source_span,
-            ))?;
-        if viewport_width.get().raw() > inner_frame_width.get().raw() {
-            return Err(StagingPrecomposedVectorBlockLayoutError::InvalidGeometry(
-                owner,
-                source_span,
-            ));
-        }
-        let inner_frame_left = body
-            .x()
-            .checked_add(style_input.start_indent().get())
-            .ok_or(StagingPrecomposedVectorBlockLayoutError::ArithmeticOverflow)?;
-        let slack = inner_frame_width
-            .get()
-            .checked_sub(viewport_width.get())
-            .ok_or(StagingPrecomposedVectorBlockLayoutError::InvalidGeometry(
-                owner,
-                source_span,
-            ))?;
-        let align_offset = match style_input.text_align() {
-            MachineTextAlign::Start => Length::ZERO,
-            MachineTextAlign::Center => length(slack.raw() / 2)?,
-            MachineTextAlign::End => slack,
-        };
-        let viewport_left = inner_frame_left
-            .checked_add(align_offset)
-            .ok_or(StagingPrecomposedVectorBlockLayoutError::ArithmeticOverflow)?;
+        let (inner_frame_left, inner_frame_width, viewport_left) = horizontal_frame(
+            body,
+            style_input.start_indent(),
+            style_input.end_indent(),
+            style_input.text_align(),
+            viewport_width,
+            owner,
+            source_span,
+        )?;
 
         let (content_height, viewport_top_offset, equation_number, math_flow) = if receipt.kind()
             == PrecomposedVectorKind::MathVectorBlock
@@ -1018,8 +995,41 @@ fn prepare_equation_number(
         .ok_or(StagingPrecomposedVectorBlockLayoutError::FlowMismatch(
             owner,
         ))?;
-    let width = shape.width();
-    let height = shape.height();
+    equation_number_geometry(
+        owner,
+        source_span,
+        number,
+        shape.fingerprint(),
+        shape.width(),
+        shape.height(),
+        inner_frame_left,
+        inner_frame_width,
+        viewport_left,
+        viewport_width,
+        viewport_height,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+fn equation_number_geometry(
+    owner: NodeId,
+    source_span: SourceSpan,
+    number: &typaxis_syntax::ValidatedPrecomposedVectorEquationNumber,
+    shape_fingerprint: [u8; 32],
+    width: PositiveLength,
+    height: PositiveLength,
+    inner_frame_left: Length,
+    inner_frame_width: PositiveLength,
+    viewport_left: Length,
+    viewport_width: PositiveLength,
+    viewport_height: PositiveLength,
+) -> Result<
+    (
+        PositiveLength,
+        NonNegativeLength,
+        Option<StagingPreparedVectorEquationNumber>,
+    ),
+    StagingPrecomposedVectorBlockLayoutError,
+> {
     if width.get().raw() > inner_frame_width.get().raw() {
         return Err(StagingPrecomposedVectorBlockLayoutError::InvalidGeometry(
             owner,
@@ -1057,7 +1067,7 @@ fn prepare_equation_number(
         Some(StagingPreparedVectorEquationNumber {
             owner: number.node_id(),
             source_span: number.span(),
-            shape_fingerprint: shape.fingerprint(),
+            shape_fingerprint: shape_fingerprint,
             minimum_gap: number.minimum_gap(),
             width,
             height,
@@ -1722,4 +1732,52 @@ mod tests {
         );
         assert!(fixture.layout.blocks()[1].equation_number().is_some());
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn horizontal_frame(
+    body: typaxis_core::Rect,
+    start_indent: NonNegativeLength,
+    end_indent: NonNegativeLength,
+    text_align: MachineTextAlign,
+    viewport_width: PositiveLength,
+    owner: NodeId,
+    source_span: SourceSpan,
+) -> Result<(Length, PositiveLength, Length), StagingPrecomposedVectorBlockLayoutError> {
+    let inner_frame_width = body
+        .width()
+        .get()
+        .checked_sub(start_indent.get())
+        .and_then(|value| value.checked_sub(end_indent.get()))
+        .and_then(PositiveLength::new)
+        .ok_or(StagingPrecomposedVectorBlockLayoutError::InvalidGeometry(
+            owner,
+            source_span,
+        ))?;
+    if viewport_width.get().raw() > inner_frame_width.get().raw() {
+        return Err(StagingPrecomposedVectorBlockLayoutError::InvalidGeometry(
+            owner,
+            source_span,
+        ));
+    }
+    let inner_frame_left = body
+        .x()
+        .checked_add(start_indent.get())
+        .ok_or(StagingPrecomposedVectorBlockLayoutError::ArithmeticOverflow)?;
+    let slack = inner_frame_width
+        .get()
+        .checked_sub(viewport_width.get())
+        .ok_or(StagingPrecomposedVectorBlockLayoutError::InvalidGeometry(
+            owner,
+            source_span,
+        ))?;
+    let align_offset = match text_align {
+        MachineTextAlign::Start => Length::ZERO,
+        MachineTextAlign::Center => length(slack.raw() / 2)?,
+        MachineTextAlign::End => slack,
+    };
+    let viewport_left = inner_frame_left
+        .checked_add(align_offset)
+        .ok_or(StagingPrecomposedVectorBlockLayoutError::ArithmeticOverflow)?;
+    Ok((inner_frame_left, inner_frame_width, viewport_left))
 }

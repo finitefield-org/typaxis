@@ -1027,7 +1027,8 @@ fn production_footnote_marker_metrics_join_real_baselines_and_merge_list_extents
                             .checked_add(block.baseline().unwrap().get())
                             .unwrap()
                     }
-                    Source::RasterFigure { .. } => marker.font().ascender(),
+                    Source::NativeMathBlock { block_index } => lines.native_math_blocks()[block_index as usize].baseline(),
+                    Source::Figure { .. } => marker.font().ascender(),
                 };
                 assert_eq!(binding.baseline(), baseline);
                 let font = marker.font();

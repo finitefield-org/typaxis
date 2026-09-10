@@ -1,0 +1,675 @@
+{
+  "kind": "vmb-original-book-raster-resource-snapshot-evidence",
+  "scope": "Exact bytes/header/resource owner only; no figure lowering, pixel decoding, public CLI/PDF or full-book publication gate.",
+  "original_package": {
+    "path": "/private/tmp/vmb-fractions-typaxis-20260905d/document-package.json",
+    "bytes": 10672653,
+    "sha256": "e4fd7415cb33de5afff8c3b2a335c2afa06df1e22780c9913813d95536efffbb"
+  },
+  "original_pngs": [
+    {
+      "image_id": 39,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/c38332b53215d144bdb799dc6e502f6aca52526dd832b63a4b9b144aa4bf016c.png",
+        "bytes": 60252,
+        "sha256": "c38332b53215d144bdb799dc6e502f6aca52526dd832b63a4b9b144aa4bf016c"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/c38332b53215d144bdb799dc6e502f6aca52526dd832b63a4b9b144aa4bf016c.png",
+        "bytes": 60252,
+        "sha256": "c38332b53215d144bdb799dc6e502f6aca52526dd832b63a4b9b144aa4bf016c"
+      }
+    },
+    {
+      "image_id": 64,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/8d7fd5a9bfe9a1df1dd992c2493ab49829ccf20d22828e10770154b22cfd4b48.png",
+        "bytes": 57050,
+        "sha256": "8d7fd5a9bfe9a1df1dd992c2493ab49829ccf20d22828e10770154b22cfd4b48"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/8d7fd5a9bfe9a1df1dd992c2493ab49829ccf20d22828e10770154b22cfd4b48.png",
+        "bytes": 57050,
+        "sha256": "8d7fd5a9bfe9a1df1dd992c2493ab49829ccf20d22828e10770154b22cfd4b48"
+      }
+    },
+    {
+      "image_id": 101,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/551b3c8b4c4397004318da876505bf948099560c9e839c3785e6d5045300ad40.png",
+        "bytes": 59478,
+        "sha256": "551b3c8b4c4397004318da876505bf948099560c9e839c3785e6d5045300ad40"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/551b3c8b4c4397004318da876505bf948099560c9e839c3785e6d5045300ad40.png",
+        "bytes": 59478,
+        "sha256": "551b3c8b4c4397004318da876505bf948099560c9e839c3785e6d5045300ad40"
+      }
+    },
+    {
+      "image_id": 132,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/3045a11f29f48bb990020c494c7b92c24e39d8704284279a95b44e589608f5fc.png",
+        "bytes": 80827,
+        "sha256": "3045a11f29f48bb990020c494c7b92c24e39d8704284279a95b44e589608f5fc"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/3045a11f29f48bb990020c494c7b92c24e39d8704284279a95b44e589608f5fc.png",
+        "bytes": 80827,
+        "sha256": "3045a11f29f48bb990020c494c7b92c24e39d8704284279a95b44e589608f5fc"
+      }
+    },
+    {
+      "image_id": 410,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/f6197e8ffc8027d0f0577455085fe0d790bb9400babe19296e2f99fda10997dd.png",
+        "bytes": 62455,
+        "sha256": "f6197e8ffc8027d0f0577455085fe0d790bb9400babe19296e2f99fda10997dd"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/f6197e8ffc8027d0f0577455085fe0d790bb9400babe19296e2f99fda10997dd.png",
+        "bytes": 62455,
+        "sha256": "f6197e8ffc8027d0f0577455085fe0d790bb9400babe19296e2f99fda10997dd"
+      }
+    },
+    {
+      "image_id": 417,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/1a7c4ea47af6bb7ff71e8ae3b77bbed1508a5ca64526e166d34c2e1994e548e2.png",
+        "bytes": 82354,
+        "sha256": "1a7c4ea47af6bb7ff71e8ae3b77bbed1508a5ca64526e166d34c2e1994e548e2"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/1a7c4ea47af6bb7ff71e8ae3b77bbed1508a5ca64526e166d34c2e1994e548e2.png",
+        "bytes": 82354,
+        "sha256": "1a7c4ea47af6bb7ff71e8ae3b77bbed1508a5ca64526e166d34c2e1994e548e2"
+      }
+    },
+    {
+      "image_id": 572,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/66a6ed179fa60973173dee5dd9ad03fd21f7d5e850ca1df91b9fa164f7db188e.png",
+        "bytes": 84720,
+        "sha256": "66a6ed179fa60973173dee5dd9ad03fd21f7d5e850ca1df91b9fa164f7db188e"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/66a6ed179fa60973173dee5dd9ad03fd21f7d5e850ca1df91b9fa164f7db188e.png",
+        "bytes": 84720,
+        "sha256": "66a6ed179fa60973173dee5dd9ad03fd21f7d5e850ca1df91b9fa164f7db188e"
+      }
+    },
+    {
+      "image_id": 599,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/79964b72c957e04c215c873aa194322be0d656470260ce4b9cba2f47a7f326ca.png",
+        "bytes": 108187,
+        "sha256": "79964b72c957e04c215c873aa194322be0d656470260ce4b9cba2f47a7f326ca"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/79964b72c957e04c215c873aa194322be0d656470260ce4b9cba2f47a7f326ca.png",
+        "bytes": 108187,
+        "sha256": "79964b72c957e04c215c873aa194322be0d656470260ce4b9cba2f47a7f326ca"
+      }
+    },
+    {
+      "image_id": 614,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/679f0dee21e55a99a52d2e72fd16b5b47190d5c02c6a89c5698b5c81a464f311.png",
+        "bytes": 69209,
+        "sha256": "679f0dee21e55a99a52d2e72fd16b5b47190d5c02c6a89c5698b5c81a464f311"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/679f0dee21e55a99a52d2e72fd16b5b47190d5c02c6a89c5698b5c81a464f311.png",
+        "bytes": 69209,
+        "sha256": "679f0dee21e55a99a52d2e72fd16b5b47190d5c02c6a89c5698b5c81a464f311"
+      }
+    },
+    {
+      "image_id": 720,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/b4ae9c612e63041cf72fd0ef5e0df6297c871c7856fe741b6a6199dbf1ac64a1.png",
+        "bytes": 85822,
+        "sha256": "b4ae9c612e63041cf72fd0ef5e0df6297c871c7856fe741b6a6199dbf1ac64a1"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/b4ae9c612e63041cf72fd0ef5e0df6297c871c7856fe741b6a6199dbf1ac64a1.png",
+        "bytes": 85822,
+        "sha256": "b4ae9c612e63041cf72fd0ef5e0df6297c871c7856fe741b6a6199dbf1ac64a1"
+      }
+    },
+    {
+      "image_id": 825,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/45f52d28b9fc1d8b6dc55cdb676dbf8dbcd498b9458a471aae97c04998141971.png",
+        "bytes": 70128,
+        "sha256": "45f52d28b9fc1d8b6dc55cdb676dbf8dbcd498b9458a471aae97c04998141971"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/45f52d28b9fc1d8b6dc55cdb676dbf8dbcd498b9458a471aae97c04998141971.png",
+        "bytes": 70128,
+        "sha256": "45f52d28b9fc1d8b6dc55cdb676dbf8dbcd498b9458a471aae97c04998141971"
+      }
+    },
+    {
+      "image_id": 944,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/9e012ddf22352b18e5b8ce846a57afce90ffed249c209ba819edec1648b7b3d2.png",
+        "bytes": 61179,
+        "sha256": "9e012ddf22352b18e5b8ce846a57afce90ffed249c209ba819edec1648b7b3d2"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/9e012ddf22352b18e5b8ce846a57afce90ffed249c209ba819edec1648b7b3d2.png",
+        "bytes": 61179,
+        "sha256": "9e012ddf22352b18e5b8ce846a57afce90ffed249c209ba819edec1648b7b3d2"
+      }
+    },
+    {
+      "image_id": 966,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/97048fa9d9910109ec9417a2729f592898af56a9f5d26dca67af81f48c886780.png",
+        "bytes": 74606,
+        "sha256": "97048fa9d9910109ec9417a2729f592898af56a9f5d26dca67af81f48c886780"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/97048fa9d9910109ec9417a2729f592898af56a9f5d26dca67af81f48c886780.png",
+        "bytes": 74606,
+        "sha256": "97048fa9d9910109ec9417a2729f592898af56a9f5d26dca67af81f48c886780"
+      }
+    },
+    {
+      "image_id": 1030,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/7ba132db7f242b68e66c9594dbe80f8d4f5f42a5c2196e17141b83bd4b30b188.png",
+        "bytes": 88322,
+        "sha256": "7ba132db7f242b68e66c9594dbe80f8d4f5f42a5c2196e17141b83bd4b30b188"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/7ba132db7f242b68e66c9594dbe80f8d4f5f42a5c2196e17141b83bd4b30b188.png",
+        "bytes": 88322,
+        "sha256": "7ba132db7f242b68e66c9594dbe80f8d4f5f42a5c2196e17141b83bd4b30b188"
+      }
+    },
+    {
+      "image_id": 1148,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/34ccdbe59ac721f9a59fd04eb5f1db0f1a0bc1fc14cb15fdaa04593a687c440e.png",
+        "bytes": 73735,
+        "sha256": "34ccdbe59ac721f9a59fd04eb5f1db0f1a0bc1fc14cb15fdaa04593a687c440e"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/34ccdbe59ac721f9a59fd04eb5f1db0f1a0bc1fc14cb15fdaa04593a687c440e.png",
+        "bytes": 73735,
+        "sha256": "34ccdbe59ac721f9a59fd04eb5f1db0f1a0bc1fc14cb15fdaa04593a687c440e"
+      }
+    },
+    {
+      "image_id": 1191,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/6a3eb11c464337cf400d9f4529a4521533bf26ec5cc2e662bf84c72dfb95c7e5.png",
+        "bytes": 71430,
+        "sha256": "6a3eb11c464337cf400d9f4529a4521533bf26ec5cc2e662bf84c72dfb95c7e5"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/6a3eb11c464337cf400d9f4529a4521533bf26ec5cc2e662bf84c72dfb95c7e5.png",
+        "bytes": 71430,
+        "sha256": "6a3eb11c464337cf400d9f4529a4521533bf26ec5cc2e662bf84c72dfb95c7e5"
+      }
+    },
+    {
+      "image_id": 1243,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/ac8c8c7c704efcb342e0386cf5cc5d7045211e2980939bca1fce43f3de773beb.png",
+        "bytes": 66718,
+        "sha256": "ac8c8c7c704efcb342e0386cf5cc5d7045211e2980939bca1fce43f3de773beb"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/ac8c8c7c704efcb342e0386cf5cc5d7045211e2980939bca1fce43f3de773beb.png",
+        "bytes": 66718,
+        "sha256": "ac8c8c7c704efcb342e0386cf5cc5d7045211e2980939bca1fce43f3de773beb"
+      }
+    },
+    {
+      "image_id": 1438,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/f8394cb7c88d294a2d6f62b02731f383f74ee016e792b46121ee93e41d67adde.png",
+        "bytes": 59509,
+        "sha256": "f8394cb7c88d294a2d6f62b02731f383f74ee016e792b46121ee93e41d67adde"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/f8394cb7c88d294a2d6f62b02731f383f74ee016e792b46121ee93e41d67adde.png",
+        "bytes": 59509,
+        "sha256": "f8394cb7c88d294a2d6f62b02731f383f74ee016e792b46121ee93e41d67adde"
+      }
+    },
+    {
+      "image_id": 1730,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/5c7ab2c85fcbd5b9353c1a2f94e0e8053d71193662de20b4bbb8796d968cdf8c.png",
+        "bytes": 80909,
+        "sha256": "5c7ab2c85fcbd5b9353c1a2f94e0e8053d71193662de20b4bbb8796d968cdf8c"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/5c7ab2c85fcbd5b9353c1a2f94e0e8053d71193662de20b4bbb8796d968cdf8c.png",
+        "bytes": 80909,
+        "sha256": "5c7ab2c85fcbd5b9353c1a2f94e0e8053d71193662de20b4bbb8796d968cdf8c"
+      }
+    },
+    {
+      "image_id": 1832,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/37f38fdbf5f1da1b677525274b91a6e8fd546918a7693ce4b5f82c3842d43463.png",
+        "bytes": 51029,
+        "sha256": "37f38fdbf5f1da1b677525274b91a6e8fd546918a7693ce4b5f82c3842d43463"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/37f38fdbf5f1da1b677525274b91a6e8fd546918a7693ce4b5f82c3842d43463.png",
+        "bytes": 51029,
+        "sha256": "37f38fdbf5f1da1b677525274b91a6e8fd546918a7693ce4b5f82c3842d43463"
+      }
+    },
+    {
+      "image_id": 1933,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/83b1f0a2f879f1b180a9acbafd9716548ea6bc3657de2c7f8d57b5326afe40e6.png",
+        "bytes": 61907,
+        "sha256": "83b1f0a2f879f1b180a9acbafd9716548ea6bc3657de2c7f8d57b5326afe40e6"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/83b1f0a2f879f1b180a9acbafd9716548ea6bc3657de2c7f8d57b5326afe40e6.png",
+        "bytes": 61907,
+        "sha256": "83b1f0a2f879f1b180a9acbafd9716548ea6bc3657de2c7f8d57b5326afe40e6"
+      }
+    },
+    {
+      "image_id": 1994,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/783766b471dba9deb492690e71a44c844bf84b9332c779312ec2916982d17a52.png",
+        "bytes": 57361,
+        "sha256": "783766b471dba9deb492690e71a44c844bf84b9332c779312ec2916982d17a52"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/783766b471dba9deb492690e71a44c844bf84b9332c779312ec2916982d17a52.png",
+        "bytes": 57361,
+        "sha256": "783766b471dba9deb492690e71a44c844bf84b9332c779312ec2916982d17a52"
+      }
+    },
+    {
+      "image_id": 2038,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/440a3a5cb4228c6761405aba5047273560850f0f0ae5403cf5d65e2ef3af995e.png",
+        "bytes": 54093,
+        "sha256": "440a3a5cb4228c6761405aba5047273560850f0f0ae5403cf5d65e2ef3af995e"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/440a3a5cb4228c6761405aba5047273560850f0f0ae5403cf5d65e2ef3af995e.png",
+        "bytes": 54093,
+        "sha256": "440a3a5cb4228c6761405aba5047273560850f0f0ae5403cf5d65e2ef3af995e"
+      }
+    },
+    {
+      "image_id": 2068,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/89448f7ae486306e754a69e4b0cd494169c7f9134db44b8c3e54ae79520f3283.png",
+        "bytes": 80407,
+        "sha256": "89448f7ae486306e754a69e4b0cd494169c7f9134db44b8c3e54ae79520f3283"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/89448f7ae486306e754a69e4b0cd494169c7f9134db44b8c3e54ae79520f3283.png",
+        "bytes": 80407,
+        "sha256": "89448f7ae486306e754a69e4b0cd494169c7f9134db44b8c3e54ae79520f3283"
+      }
+    },
+    {
+      "image_id": 2118,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/cde4e4be5760e5ae0f1095872fc5f6d0cf56f01b9479b154b1bea4ca915afaf3.png",
+        "bytes": 72166,
+        "sha256": "cde4e4be5760e5ae0f1095872fc5f6d0cf56f01b9479b154b1bea4ca915afaf3"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/cde4e4be5760e5ae0f1095872fc5f6d0cf56f01b9479b154b1bea4ca915afaf3.png",
+        "bytes": 72166,
+        "sha256": "cde4e4be5760e5ae0f1095872fc5f6d0cf56f01b9479b154b1bea4ca915afaf3"
+      }
+    },
+    {
+      "image_id": 2196,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/dd6e35f9b10a535104d4421a8f507a0bad6dce8ae72c6a4f25853786ae809f5a.png",
+        "bytes": 70602,
+        "sha256": "dd6e35f9b10a535104d4421a8f507a0bad6dce8ae72c6a4f25853786ae809f5a"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/dd6e35f9b10a535104d4421a8f507a0bad6dce8ae72c6a4f25853786ae809f5a.png",
+        "bytes": 70602,
+        "sha256": "dd6e35f9b10a535104d4421a8f507a0bad6dce8ae72c6a4f25853786ae809f5a"
+      }
+    },
+    {
+      "image_id": 2251,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/b852664c141aa8719dde5124b453ff18c8e5f68f640b3d194afb58d201c143fb.png",
+        "bytes": 79125,
+        "sha256": "b852664c141aa8719dde5124b453ff18c8e5f68f640b3d194afb58d201c143fb"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/b852664c141aa8719dde5124b453ff18c8e5f68f640b3d194afb58d201c143fb.png",
+        "bytes": 79125,
+        "sha256": "b852664c141aa8719dde5124b453ff18c8e5f68f640b3d194afb58d201c143fb"
+      }
+    },
+    {
+      "image_id": 2425,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/4028cafa48f54089dedc7acb04fa36c6ec080be0448abcc8504513c67bb1c158.png",
+        "bytes": 66711,
+        "sha256": "4028cafa48f54089dedc7acb04fa36c6ec080be0448abcc8504513c67bb1c158"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/4028cafa48f54089dedc7acb04fa36c6ec080be0448abcc8504513c67bb1c158.png",
+        "bytes": 66711,
+        "sha256": "4028cafa48f54089dedc7acb04fa36c6ec080be0448abcc8504513c67bb1c158"
+      }
+    },
+    {
+      "image_id": 2609,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/5cc80e6843bdb123606824b43eab7f0522d998eb6cc815a551126a7940409fbb.png",
+        "bytes": 88371,
+        "sha256": "5cc80e6843bdb123606824b43eab7f0522d998eb6cc815a551126a7940409fbb"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/5cc80e6843bdb123606824b43eab7f0522d998eb6cc815a551126a7940409fbb.png",
+        "bytes": 88371,
+        "sha256": "5cc80e6843bdb123606824b43eab7f0522d998eb6cc815a551126a7940409fbb"
+      }
+    },
+    {
+      "image_id": 2684,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/d2ef41cefa736eee9cc16d3636ea5382131721e20ea281332675248bad7af58c.png",
+        "bytes": 62182,
+        "sha256": "d2ef41cefa736eee9cc16d3636ea5382131721e20ea281332675248bad7af58c"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/d2ef41cefa736eee9cc16d3636ea5382131721e20ea281332675248bad7af58c.png",
+        "bytes": 62182,
+        "sha256": "d2ef41cefa736eee9cc16d3636ea5382131721e20ea281332675248bad7af58c"
+      }
+    },
+    {
+      "image_id": 2928,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/4afe7670c7aaee6259bcfb97c9499a78aa1eccce5b22533e1eee616a96630414.png",
+        "bytes": 61977,
+        "sha256": "4afe7670c7aaee6259bcfb97c9499a78aa1eccce5b22533e1eee616a96630414"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/4afe7670c7aaee6259bcfb97c9499a78aa1eccce5b22533e1eee616a96630414.png",
+        "bytes": 61977,
+        "sha256": "4afe7670c7aaee6259bcfb97c9499a78aa1eccce5b22533e1eee616a96630414"
+      }
+    },
+    {
+      "image_id": 3068,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/0b209ddfb4a504847f3f1d9c692f7efcf214b6ff194f99408bbc8530f2d54bfe.png",
+        "bytes": 48600,
+        "sha256": "0b209ddfb4a504847f3f1d9c692f7efcf214b6ff194f99408bbc8530f2d54bfe"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/0b209ddfb4a504847f3f1d9c692f7efcf214b6ff194f99408bbc8530f2d54bfe.png",
+        "bytes": 48600,
+        "sha256": "0b209ddfb4a504847f3f1d9c692f7efcf214b6ff194f99408bbc8530f2d54bfe"
+      }
+    },
+    {
+      "image_id": 3207,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/d8f649d18cc7a111b89379d24bafd2383dd7ff9e11f93dc7199ef73f868c5cb2.png",
+        "bytes": 63630,
+        "sha256": "d8f649d18cc7a111b89379d24bafd2383dd7ff9e11f93dc7199ef73f868c5cb2"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/d8f649d18cc7a111b89379d24bafd2383dd7ff9e11f93dc7199ef73f868c5cb2.png",
+        "bytes": 63630,
+        "sha256": "d8f649d18cc7a111b89379d24bafd2383dd7ff9e11f93dc7199ef73f868c5cb2"
+      }
+    },
+    {
+      "image_id": 3467,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/fc40873761c3f07303cb3ab17afd30062718b8a0b0b31ae3623395c7481a15e9.png",
+        "bytes": 67672,
+        "sha256": "fc40873761c3f07303cb3ab17afd30062718b8a0b0b31ae3623395c7481a15e9"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/fc40873761c3f07303cb3ab17afd30062718b8a0b0b31ae3623395c7481a15e9.png",
+        "bytes": 67672,
+        "sha256": "fc40873761c3f07303cb3ab17afd30062718b8a0b0b31ae3623395c7481a15e9"
+      }
+    },
+    {
+      "image_id": 3499,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/656d021f64f2a8d4a23a925f43d9fd0b6c3ea34979ed398fd23abc45398eb8cf.png",
+        "bytes": 77595,
+        "sha256": "656d021f64f2a8d4a23a925f43d9fd0b6c3ea34979ed398fd23abc45398eb8cf"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/656d021f64f2a8d4a23a925f43d9fd0b6c3ea34979ed398fd23abc45398eb8cf.png",
+        "bytes": 77595,
+        "sha256": "656d021f64f2a8d4a23a925f43d9fd0b6c3ea34979ed398fd23abc45398eb8cf"
+      }
+    },
+    {
+      "image_id": 3526,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/3ab984253715f6c10fbb29ae40a4ae699292254d159b63cb35b6be1fafa1ae09.png",
+        "bytes": 65951,
+        "sha256": "3ab984253715f6c10fbb29ae40a4ae699292254d159b63cb35b6be1fafa1ae09"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/3ab984253715f6c10fbb29ae40a4ae699292254d159b63cb35b6be1fafa1ae09.png",
+        "bytes": 65951,
+        "sha256": "3ab984253715f6c10fbb29ae40a4ae699292254d159b63cb35b6be1fafa1ae09"
+      }
+    },
+    {
+      "image_id": 3580,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/cc0ddd711e5d1a1b6ebc2d7435557c9f9fedda56238e47aad80140ab590cca3e.png",
+        "bytes": 64370,
+        "sha256": "cc0ddd711e5d1a1b6ebc2d7435557c9f9fedda56238e47aad80140ab590cca3e"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/cc0ddd711e5d1a1b6ebc2d7435557c9f9fedda56238e47aad80140ab590cca3e.png",
+        "bytes": 64370,
+        "sha256": "cc0ddd711e5d1a1b6ebc2d7435557c9f9fedda56238e47aad80140ab590cca3e"
+      }
+    },
+    {
+      "image_id": 3601,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/690e60693413cf105dd55efda8d514592e67d6116a2f7e81f53c0ce1498a7719.png",
+        "bytes": 99031,
+        "sha256": "690e60693413cf105dd55efda8d514592e67d6116a2f7e81f53c0ce1498a7719"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/690e60693413cf105dd55efda8d514592e67d6116a2f7e81f53c0ce1498a7719.png",
+        "bytes": 99031,
+        "sha256": "690e60693413cf105dd55efda8d514592e67d6116a2f7e81f53c0ce1498a7719"
+      }
+    },
+    {
+      "image_id": 3701,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/252b7587a5e38b2ea8ae90926c2d18564bd9d3f64e711ee4f1149cad55bd967b.png",
+        "bytes": 62896,
+        "sha256": "252b7587a5e38b2ea8ae90926c2d18564bd9d3f64e711ee4f1149cad55bd967b"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/252b7587a5e38b2ea8ae90926c2d18564bd9d3f64e711ee4f1149cad55bd967b.png",
+        "bytes": 62896,
+        "sha256": "252b7587a5e38b2ea8ae90926c2d18564bd9d3f64e711ee4f1149cad55bd967b"
+      }
+    },
+    {
+      "image_id": 3746,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/725a773c4f24f6da160d44cab1453702a3a52f283666253be0f05f6245f9be07.png",
+        "bytes": 53683,
+        "sha256": "725a773c4f24f6da160d44cab1453702a3a52f283666253be0f05f6245f9be07"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/725a773c4f24f6da160d44cab1453702a3a52f283666253be0f05f6245f9be07.png",
+        "bytes": 53683,
+        "sha256": "725a773c4f24f6da160d44cab1453702a3a52f283666253be0f05f6245f9be07"
+      }
+    },
+    {
+      "image_id": 3802,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/901b1567ea025120a02e4b8d3b7375645efadc34496f55deadc764f95e36c7d7.png",
+        "bytes": 47686,
+        "sha256": "901b1567ea025120a02e4b8d3b7375645efadc34496f55deadc764f95e36c7d7"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/901b1567ea025120a02e4b8d3b7375645efadc34496f55deadc764f95e36c7d7.png",
+        "bytes": 47686,
+        "sha256": "901b1567ea025120a02e4b8d3b7375645efadc34496f55deadc764f95e36c7d7"
+      }
+    },
+    {
+      "image_id": 3872,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/a6a33699c102afd9ef88ce61cb2f0f5082345cc6c80c787cb7ef5112963b197d.png",
+        "bytes": 64961,
+        "sha256": "a6a33699c102afd9ef88ce61cb2f0f5082345cc6c80c787cb7ef5112963b197d"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/a6a33699c102afd9ef88ce61cb2f0f5082345cc6c80c787cb7ef5112963b197d.png",
+        "bytes": 64961,
+        "sha256": "a6a33699c102afd9ef88ce61cb2f0f5082345cc6c80c787cb7ef5112963b197d"
+      }
+    },
+    {
+      "image_id": 4059,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/5d8b5a0d32e9a383febb209963748cb73a69f9d6db62a4d88d02b0ceff52380e.png",
+        "bytes": 102962,
+        "sha256": "5d8b5a0d32e9a383febb209963748cb73a69f9d6db62a4d88d02b0ceff52380e"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/5d8b5a0d32e9a383febb209963748cb73a69f9d6db62a4d88d02b0ceff52380e.png",
+        "bytes": 102962,
+        "sha256": "5d8b5a0d32e9a383febb209963748cb73a69f9d6db62a4d88d02b0ceff52380e"
+      }
+    },
+    {
+      "image_id": 4120,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/0f5bc02ce8faab95666d6216f0af3aa00b1fb9a46136b2f29963285b89149dd8.png",
+        "bytes": 86133,
+        "sha256": "0f5bc02ce8faab95666d6216f0af3aa00b1fb9a46136b2f29963285b89149dd8"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/0f5bc02ce8faab95666d6216f0af3aa00b1fb9a46136b2f29963285b89149dd8.png",
+        "bytes": 86133,
+        "sha256": "0f5bc02ce8faab95666d6216f0af3aa00b1fb9a46136b2f29963285b89149dd8"
+      }
+    },
+    {
+      "image_id": 4227,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/f7454c61e9b69e6d824f2c65138d63e88d9f6b5ba09f068e7f3bd883a837a8fa.png",
+        "bytes": 67074,
+        "sha256": "f7454c61e9b69e6d824f2c65138d63e88d9f6b5ba09f068e7f3bd883a837a8fa"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/f7454c61e9b69e6d824f2c65138d63e88d9f6b5ba09f068e7f3bd883a837a8fa.png",
+        "bytes": 67074,
+        "sha256": "f7454c61e9b69e6d824f2c65138d63e88d9f6b5ba09f068e7f3bd883a837a8fa"
+      }
+    },
+    {
+      "image_id": 4243,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/e68f593c093256e517de3e6bc99634bdb9c4fbebf95cdd1c1aee624e18e3ebaf.png",
+        "bytes": 76209,
+        "sha256": "e68f593c093256e517de3e6bc99634bdb9c4fbebf95cdd1c1aee624e18e3ebaf"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/e68f593c093256e517de3e6bc99634bdb9c4fbebf95cdd1c1aee624e18e3ebaf.png",
+        "bytes": 76209,
+        "sha256": "e68f593c093256e517de3e6bc99634bdb9c4fbebf95cdd1c1aee624e18e3ebaf"
+      }
+    },
+    {
+      "image_id": 4410,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/877e384cd6c4fbdef58c922fd89f4d2e89e0a3581fc0fb103ae63956ecddfecc.png",
+        "bytes": 62235,
+        "sha256": "877e384cd6c4fbdef58c922fd89f4d2e89e0a3581fc0fb103ae63956ecddfecc"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/877e384cd6c4fbdef58c922fd89f4d2e89e0a3581fc0fb103ae63956ecddfecc.png",
+        "bytes": 62235,
+        "sha256": "877e384cd6c4fbdef58c922fd89f4d2e89e0a3581fc0fb103ae63956ecddfecc"
+      }
+    },
+    {
+      "image_id": 4471,
+      "original": {
+        "path": "/private/tmp/vmb-fractions-typaxis-20260905d/resources/d7394a7c5dc2114e22c4deca377fb61cd20718ea09ac6b98f9b460badc6c1ce5.png",
+        "bytes": 92038,
+        "sha256": "d7394a7c5dc2114e22c4deca377fb61cd20718ea09ac6b98f9b460badc6c1ce5"
+      },
+      "staged": {
+        "path": "/private/tmp/vmb-original-raster-snapshots/typaxis-original-raster-1153752773/resources/d7394a7c5dc2114e22c4deca377fb61cd20718ea09ac6b98f9b460badc6c1ce5.png",
+        "bytes": 92038,
+        "sha256": "d7394a7c5dc2114e22c4deca377fb61cd20718ea09ac6b98f9b460badc6c1ce5"
+      }
+    }
+  ],
+  "png_count": 48,
+  "total_bytes": 3405547,
+  "header_pixels": 39708000,
+  "source_code": [
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/raster.go",
+      "bytes": 9112,
+      "sha256": "acebc2214461d056aa3ada228c03221adeee294bc87138d7220b2b35f1cd51d5"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/raster_test.go",
+      "bytes": 11557,
+      "sha256": "e978ad544b7e603fcd1373a3d9dd92beb2e3726ddfd8aa791085f725348ad7ba"
+    }
+  ],
+  "verification": {
+    "command": "go test -C /Users/kazuyoshitoshiya/v/vmb-container/vmb-core ./internal/rendertypaxis -run TestBookRaster -count=1 -v",
+    "environment": {
+      "VMB_TYPAXIS_RASTER_PACKAGE": "/private/tmp/vmb-fractions-typaxis-20260905d/document-package.json",
+      "VMB_TYPAXIS_RASTER_OUTPUT": "/private/tmp/vmb-original-raster-snapshots"
+    },
+    "exit_code": 0,
+    "passed": 5,
+    "seconds": 1.276,
+    "log": {
+      "path": "/private/tmp/vmb-original-raster-snapshots-final.log",
+      "bytes": 12148,
+      "sha256": "bd8d98be7bbdd64f7a7e7e48612b5fa4ac393321ddb048b1394dcb5bead32937"
+    }
+  },
+  "remaining": [
+    "figure lowering",
+    "dense common image IDs and dedupe with math SVG",
+    "source-specific Alt/caption/number/width/style bindings",
+    "51 original figure placement PDF checks",
+    "glossary/bibliography/verification",
+    "formal renderer/ArtifactSink and independent PDF verification",
+    "original full-book and unchanged Harano acceptance"
+  ],
+  "vmb_implementation_commit": "5a716b33"
+}

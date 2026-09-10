@@ -3663,6 +3663,7 @@ impl ManifestPublicationContext {
         admitted: AdmittedResourceLedgerToken<'_>,
         selected_layout_sha256: [u8; 32],
         flow_registry_sha256: [u8; 32],
+        layout_pass_count: NonZeroU16,
         vector_fields: StagingProductionBuildManifestVectorFields,
         pdf: VerifiedPdfBytesReceipt,
     ) -> Result<PreparedBuiltPublication, BuildManifestError> {
@@ -3675,6 +3676,8 @@ impl ManifestPublicationContext {
             || vector_fields.status() != StagingVectorBuildStatus::Built
             || selected_layout_sha256 == [0; 32]
             || flow_registry_sha256 == [0; 32]
+            || layout_pass_count.get() < 2
+            || layout_pass_count.get() > limits.base().get().max_layout_passes
         {
             return Err(BuildManifestError::MachineCapabilityMismatch);
         }
@@ -3702,8 +3705,8 @@ impl ManifestPublicationContext {
         }
         let mut layout = LayoutRecord::new(
             LayoutStatus::Converged,
-            NonZeroU16::new(1).expect("one is nonzero"),
-            NonZeroU16::new(1).expect("one is nonzero"),
+            layout_pass_count,
+            layout_pass_count,
             selected,
         )
         .ok_or(BuildManifestError::IncompleteLayoutAdmission)?;

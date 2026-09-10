@@ -1,3 +1,30 @@
+pub(crate) enum ProductionCommonStablePages<'b, 'f, 's, 'p, 'a> {
+    Ordinary(typaxis_pagination::ProductionBodyFootnoteStablePages<'b, 'f, 's, 'p, 'a>),
+    Mixed(typaxis_pagination::ProductionBodyMixedStablePages<'b, 'f, 's, 'p, 'a>),
+}
+impl ProductionCommonStablePages<'_, '_, '_, '_, '_> {
+    #[cfg(test)]
+    fn page_count(&self) -> usize {
+        match self {
+            Self::Ordinary(p) => p.sequence().pages().len(),
+            Self::Mixed(p) => p.sequence().pages().len(),
+        }
+    }
+    #[cfg(test)]
+    fn work_steps(&self) -> u64 {
+        match self {
+            Self::Ordinary(p) => p.work_steps(),
+            Self::Mixed(p) => p.work_steps(),
+        }
+    }
+    fn passes(&self) -> u16 {
+        match self {
+            Self::Ordinary(p) => p.passes(),
+            Self::Mixed(p) => p.passes(),
+        }
+    }
+}
+
 // Own the common body graph through stable line selection and exact PDF
 // assembly. This is preparation for the public writer, not its publication
 // receipt: page/generated-reference convergence and manifest closure remain.
@@ -138,7 +165,7 @@ pub(crate) fn with_production_common_body_pdf<R>(
             inspect(&pdf, &page_stability, observation)
         },
     )
-    .map_err(map_production_input_error)?
+    .map_err(map_common_reshape_error)?
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -185,7 +212,7 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
             '_,
             '_,
         >,
-        &typaxis_pagination::ProductionBodyFootnoteStablePages<'_, '_, '_, '_, '_>,
+        &ProductionCommonStablePages<'_, '_, '_, '_, '_>,
         &typaxis_display_list::ProductionFootnoteBookNavigation<
             '_,
             '_,
@@ -311,7 +338,79 @@ pub(crate) fn with_production_common_footnote_pdf_candidates<R>(
             '_,
             '_,
         >,
-        &typaxis_pagination::ProductionBodyFootnoteStablePages<'_, '_, '_, '_, '_>,
+        &ProductionCommonStablePages<'_, '_, '_, '_, '_>,
+        &typaxis_display_list::ProductionFootnoteBookNavigation<
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+        >,
+        &typaxis_pdf::ProductionBookPdfObservation,
+        ProductionCommonFootnoteObservation,
+    ) -> Result<R, Failure>,
+) -> Result<R, Failure> {
+    let native_math = typaxis_layout::prepare_production_native_math_context(
+        package,
+        profile.base().base().authorization(),
+        limits,
+        admitted,
+    )
+    .map_err(|e| map_common_reshape_error(e.into()))?;
+    with_production_common_footnote_pdf_candidates_with_native_context(
+        package,
+        navigation,
+        semantics,
+        profile,
+        admitted,
+        limits,
+        japanese_mode,
+        max_candidate_steps,
+        page_values,
+        remaining_page_passes,
+        native_math.as_ref(),
+        inspect,
+    )
+}
+
+fn with_production_common_footnote_pdf_candidates_with_native_context<R>(
+    package: &typaxis_syntax::ValidatedStagingSemanticPackage,
+    navigation: &typaxis_syntax::ValidatedStagingBookNavigationV2,
+    semantics: &typaxis_syntax::ValidatedStagingStructureSemanticsV2,
+    profile: &typaxis_machine_profile::StagingTaggedPdfProfileReceiptV2,
+    admitted: &AdmittedResourceLedger,
+    limits: &typaxis_core::M4EffectiveResourceLimits,
+    japanese_mode: typaxis_linebreak::JapaneseLineBreakMode,
+    max_candidate_steps: u64,
+    page_values: Option<&[(NodeId, u32)]>,
+    remaining_page_passes: u16,
+    native_math: Option<&typaxis_layout::ProductionNativeMathContext<'_>>,
+    inspect: impl FnOnce(
+        &typaxis_pdf::ProductionFootnotePdfAssembly<
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+        >,
+        &ProductionCommonStablePages<'_, '_, '_, '_, '_>,
         &typaxis_display_list::ProductionFootnoteBookNavigation<
             '_,
             '_,
@@ -357,7 +456,7 @@ pub(crate) fn with_production_common_footnote_pdf_candidates<R>(
         &math,
     )
     .map_err(map_production_input_error)?;
-    typaxis_layout::with_converged_production_body_lines(
+    typaxis_layout::with_converged_production_body_lines_with_native_context(
         package,
         navigation,
         authorization,
@@ -368,34 +467,82 @@ pub(crate) fn with_production_common_footnote_pdf_candidates<R>(
         japanese_mode,
         blocks.page_geometry().body(),
         max_candidate_steps,
+        native_math,
         |stable| {
-            let prepared = typaxis_pagination::prepare_production_body_flow(
-                stable.lines(),
-                &blocks,
-                stable.footnotes(),
-                limits,
-            )
-            .map_err(map_common_pagination_error)?;
+            let table_measurements = if stable.lines().source_flow().tables().is_empty() {
+                None
+            } else {
+                Some(
+                    typaxis_pagination::prepare_production_table_measurements(
+                        stable.lines(),
+                        &blocks,
+                        stable.footnotes(),
+                        limits,
+                    )
+                    .map_err(map_common_pagination_error)?,
+                )
+            };
+            let prepared = if table_measurements.is_none() {
+                Some(
+                    typaxis_pagination::prepare_production_body_flow(
+                        stable.lines(),
+                        &blocks,
+                        stable.footnotes(),
+                        limits,
+                    )
+                    .map_err(map_common_pagination_error)?,
+                )
+            } else {
+                None
+            };
             let remaining_steps = max_candidate_steps
                 .checked_sub(stable.candidate_steps())
                 .ok_or_else(|| {
                     Failure::limit("L5110: common footnote candidate budget exhausted")
                 })?;
-            let mut search = typaxis_pagination::prepare_production_footnote_demand_search(
-                &prepared,
-                limits,
-                remaining_steps,
-            )
+            let mut search = match &table_measurements {
+                Some(measured) => typaxis_pagination::prepare_production_table_body_search(
+                    measured,
+                    limits,
+                    remaining_steps,
+                ),
+                None => typaxis_pagination::prepare_production_footnote_demand_search(
+                    prepared.as_ref().unwrap(),
+                    limits,
+                    remaining_steps,
+                ),
+            }
             .map_err(map_common_pagination_error)?;
-            let pages = search
-                .select_stable_pages_with_pass_limit(remaining_page_passes)
-                .map_err(map_common_pagination_error)?;
-            let geometry = search
-                .place_pages_content(pages.sequence())
-                .map_err(map_common_pagination_error)?;
-            let terminals = search
-                .finalize_page_math(&pages, &geometry, &math, limits)
-                .map_err(map_common_pagination_error)?;
+            let pages = if table_measurements.is_some() {
+                ProductionCommonStablePages::Mixed(
+                    search
+                        .select_stable_mixed_pages(remaining_page_passes)
+                        .map_err(map_common_pagination_error)?,
+                )
+            } else {
+                ProductionCommonStablePages::Ordinary(
+                    search
+                        .select_stable_pages_with_pass_limit(remaining_page_passes)
+                        .map_err(map_common_pagination_error)?,
+                )
+            };
+            let ordinary_geometry;
+            let mixed_geometry;
+            let terminals = match &pages {
+                ProductionCommonStablePages::Ordinary(pages) => {
+                    ordinary_geometry = search
+                        .place_pages_content(pages.sequence())
+                        .map_err(map_common_pagination_error)?;
+                    search.finalize_page_math(pages, &ordinary_geometry, &math, limits)
+                }
+                ProductionCommonStablePages::Mixed(pages) => {
+                    mixed_geometry = search
+                        .place_mixed_pages(pages.sequence())
+                        .map_err(map_common_pagination_error)?;
+                    search.finalize_mixed_page_math(pages, &mixed_geometry, &math, limits)
+                }
+            }
+            .map_err(map_common_pagination_error)?;
             terminals
                 .terminals()
                 .verify(&math)
@@ -542,7 +689,7 @@ pub(crate) fn with_converged_production_page_reference_pdf<R>(
             '_,
             '_,
         >,
-        &typaxis_pagination::ProductionBodyFootnoteStablePages<'_, '_, '_, '_, '_>,
+        &ProductionCommonStablePages<'_, '_, '_, '_, '_>,
         &typaxis_display_list::ProductionFootnoteBookNavigation<
             '_,
             '_,
@@ -561,6 +708,13 @@ pub(crate) fn with_converged_production_page_reference_pdf<R>(
         ProductionPageReferenceConvergenceObservation,
     ) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
+    let native_math = typaxis_layout::prepare_production_native_math_context(
+        package,
+        profile.base().base().authorization(),
+        limits,
+        admitted,
+    )
+    .map_err(|e| map_common_reshape_error(e.into()))?;
     let caps = limits.base().get();
     let row_charge = (initial_values.len() as u64)
         .checked_mul(3)
@@ -600,7 +754,7 @@ pub(crate) fn with_converged_production_page_reference_pdf<R>(
             .and_then(|n| n.checked_sub(total.page_work_steps))
             .ok_or_else(|| Failure::limit("L5110: page reference convergence work limit"))?;
         next.clear();
-        let result = with_production_common_footnote_pdf_candidates(
+        let result = with_production_common_footnote_pdf_candidates_with_native_context(
             package,
             navigation,
             semantics,
@@ -611,6 +765,7 @@ pub(crate) fn with_converged_production_page_reference_pdf<R>(
             remaining,
             Some(&values),
             caps.max_layout_passes - total.page_passes,
+            native_math.as_ref(),
             |pdf, pages, book, book_pdf, observation| {
                 total.passes = total
                     .passes
@@ -762,16 +917,21 @@ fn map_common_pagination_error(
 ) -> Failure {
     use typaxis_pagination::ProductionBodyPaginationErrorKind as E;
     match error.kind {
+        E::TableHeaderWidthRequired { .. } => Failure::input(error.to_string()),
         E::PageLimit
         | E::PagePassLimit
         | E::FootnoteSearchLimit
+        | E::TableSearchLimit
         | E::PageBreakLookbackLimit { .. }
         | E::FragmentLimit
         | E::AllocationFailure => Failure::limit(format!("L5110: {error}")),
         E::SpoolLimit => Failure::limit(format!("D8101: {error}")),
-        E::JointPageNoFit | E::Oversize | E::InvalidFootnoteCapacity | E::KeepAcrossForcedBreak => {
-            Failure::input(format!("L5100: {error}"))
-        }
+        E::JointPageNoFit
+        | E::Oversize
+        | E::InvalidFootnoteCapacity
+        | E::InvalidTableCapacity
+        | E::TableHeaderOversize
+        | E::KeepAcrossForcedBreak => Failure::input(format!("L5100: {error}")),
         E::ReceiptMismatch | E::WidthMismatch | E::ArithmeticOverflow => {
             Failure::internal(format!("I9190: {error}"))
         }
@@ -796,12 +956,28 @@ fn map_common_reshape_error(error: typaxis_layout::ProductionBodyReshapeError) -
     use typaxis_layout::{
         ProductionBodyReshapeError as E, ProductionInlinePreparationErrorKind as L,
     };
+    use typaxis_layout::{ProductionNativeMathComputationError as N, StagingMathLayoutError as M};
     use typaxis_linebreak::{AtomicVectorInlineError as A, BreakError as B};
     use typaxis_shaping::ProductionTextShapeErrorKind as S;
     let (kind, code) = match &error {
         E::Layout(e) => match &e.kind {
             L::UnitLimit | L::AllocationFailure => (FailureKind::Limit, "L5110"),
             L::ReceiptMismatch | L::ArithmeticOverflow => (FailureKind::Internal, "I9190"),
+            L::NativeMath(cause) => match cause {
+                N::RecordLimit => (FailureKind::Limit, "L5110"),
+                N::SpoolLimit => (FailureKind::Limit, "D8101"),
+                N::Math(cause) => match cause {
+                    M::LayoutUnitLimit | M::AllocationFailure => (FailureKind::Limit, "L5111"),
+                    M::FragmentLimit => (FailureKind::Limit, "L5110"),
+                    M::PageLimit => (FailureKind::Limit, "L5100"),
+                    M::ProfileMismatch
+                    | M::ParentFlow
+                    | M::ReceiptMismatch
+                    | M::ArithmeticOverflow => (FailureKind::Internal, "I9190"),
+                    M::UnknownMathFont(_) | M::InvalidMathFont(_) => (FailureKind::Input, "R7100"),
+                    M::Oversize(_) => (FailureKind::Input, "L5100"),
+                },
+            },
             L::Atomic(cause) => match cause {
                 A::CandidateLimit | A::SelectionLimit | A::AllocationFailure => {
                     (FailureKind::Limit, "L5110")
@@ -835,11 +1011,51 @@ fn map_common_reshape_error(error: typaxis_layout::ProductionBodyReshapeError) -
         },
     };
     let message = format!("{code}: {error}");
-    match kind {
+    let mut failure = match kind {
         FailureKind::Limit => Failure::limit(message),
         FailureKind::Internal => Failure::internal(message),
         _ => Failure::input(message),
+    };
+    // Preserve typed source owners before the private Debug-rich cause is
+    // rejected by canonical diagnostic text. No message parsing or guessed
+    // original source offsets participates in this mapping.
+    let source = match &error {
+        E::Shape(e) => {
+            let reason = match e.kind {
+                S::ReceiptMismatch => "receipt_mismatch",
+                S::MissingTextStyle => "missing_text_style",
+                S::MissingSelectedFont => "missing_selected_font",
+                S::MissingDeclaredFontCoverage => "missing_declared_font_coverage",
+                S::MissingShapedGlyph { .. } => "missing_shaped_glyph",
+                S::MissingGeneratedGlyph => "missing_generated_glyph",
+                S::InvalidFontMetrics => "invalid_font_metrics",
+                S::InvalidLineContext => "invalid_line_context",
+                S::ContextLimit => "context_limit",
+                S::OutputLimit => "output_limit",
+                S::AllocationFailure => "allocation_failure",
+                S::ArithmeticOverflow => "arithmetic_overflow",
+                S::Itemization(_) => "itemization_failed",
+                S::Backend(_) => "shaping_backend_failed",
+                S::CffV2(_) => "cff_v2_shaping_failed",
+            };
+            let text = match e.kind { S::MissingShapedGlyph { span } => Some(span), _ => None };
+            Some((e.owner, text, "production text shaping failed", "authored-text-shaping", reason))
+        }
+        E::Layout(e) => Some((e.owner, None, "production inline preparation failed", "inline-preparation", "inline_preparation_failed")),
+        E::Feedback(_) => None, // This error does not carry a source owner.
+    };
+    if let Some((owner, text, message, phase, reason)) = source {
+        let location = typaxis_diagnostics::SourceDiagnosticLocation::new(None, text, Some(owner))
+            .expect("a typed node owner makes the source location nonempty");
+        failure.processing_diagnostic = Some(typaxis_diagnostics::DiagnosticBuilder::located(
+            typaxis_diagnostics::DiagnosticCode::new(code).expect("closed production diagnostic code"),
+            typaxis_diagnostics::Severity::Error, message,
+            typaxis_diagnostics::DiagnosticLocation::source(location),
+        ).expect("static production message is canonical")
+            .note(format!("phase={phase}; reason={reason}"))
+            .expect("closed production reason note is canonical").build());
     }
+    failure
 }
 
 fn map_common_display_error(error: typaxis_display_list::ProductionBodyDisplayError) -> Failure {

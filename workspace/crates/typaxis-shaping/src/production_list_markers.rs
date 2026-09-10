@@ -140,7 +140,6 @@ pub(super) fn shape_generated_marker<'a>(
         error(
             owner,
             match kind {
-                #[cfg(feature = "book-v2-staging")]
                 E::CffV2(_) => kind,
                 _ => E::MissingDeclaredFontCoverage,
             },

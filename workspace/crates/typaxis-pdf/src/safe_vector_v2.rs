@@ -604,10 +604,9 @@ fn build_production_vector_projection(
     limits: &M4EffectiveResourceLimits,
     spool_limit: u64,
 ) -> Result<StagingSafeVectorPdfContributionV2, StagingSafeVectorPdfV2Error> {
-    use typaxis_display_list::ProductionBodyDraw;
     let mut inputs = Vec::new();
     for (index, draw) in draws.iter().enumerate() {
-        let ProductionBodyDraw::Vector(vector) = draw else {
+        let Some(vector) = draw.vector_paint() else {
             continue;
         };
         inputs
@@ -616,9 +615,9 @@ fn build_production_vector_projection(
         inputs.push(PdfUsageInput {
             usage_id: u32::try_from(inputs.len())
                 .map_err(|_| StagingSafeVectorPdfV2Error::CountOverflow)?,
-            owner: vector.binding().node_id(),
-            kind: vector.binding().kind().into(),
-            image_id: vector.binding().resource().image_id(),
+            owner: vector.owner(),
+            kind: vector.kind(),
+            image_id: vector.image_id(),
             content_key: vector.content_key(),
             ir_fingerprint: vector.content_key().ir_fingerprint(),
             page_index: vector.page_index(),
@@ -980,15 +979,7 @@ impl SpoolBudget {
         Ok(())
     }
 
-    fn store(&mut self, value: &[u8]) -> Result<Vec<u8>, StagingSafeVectorPdfV2Error> {
-        self.consume(value.len())?;
-        let mut output = Vec::new();
-        output
-            .try_reserve_exact(value.len())
-            .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
-        output.extend_from_slice(value);
-        Ok(output)
-    }
+
 }
 
 struct BoundedPdfContent<'a> {
@@ -1034,15 +1025,9 @@ fn encode_ext_g_state_dictionary_raw(
     stroke_alpha_raw: u32,
     spool: &mut SpoolBudget,
 ) -> Result<Vec<u8>, StagingSafeVectorPdfV2Error> {
-    if fill_alpha_raw > FIXED_ONE as u32 || stroke_alpha_raw > FIXED_ONE as u32 {
-        return Err(StagingSafeVectorPdfV2Error::InvalidIr);
-    }
-    let dictionary = format!(
-        "<< /Type /ExtGState /ca {} /CA {} >>",
-        pdf_fixed(i64::from(fill_alpha_raw)),
-        pdf_fixed(i64::from(stroke_alpha_raw))
-    );
-    spool.store(dictionary.as_bytes())
+    let mut output = BoundedPdfContent::new(spool);
+    encoding::state_dictionary(&mut output, fill_alpha_raw, stroke_alpha_raw)?;
+    Ok(output.finish())
 }
 
 fn encode_form_content_v2(
@@ -1059,27 +1044,33 @@ fn encode_admitted_ir_content(
     spool: &mut SpoolBudget,
 ) -> Result<Vec<u8>, StagingSafeVectorPdfV2Error> {
     let mut output = BoundedPdfContent::new(spool);
-    output.push_str("q\n0 0 ")?;
-    output.push_str(&pdf_fixed(ir.intrinsic_width().get().raw()))?;
-    output.push_str(" ")?;
-    output.push_str(&pdf_fixed(ir.intrinsic_height().get().raw()))?;
-    output.push_str(" re W n\n")?;
-
-    match ir {
-        AdmittedSafeVector::V1(ir) => {
-            encode_root_view_box(&mut output, ir.view_box(), ir.root_scale_raw())?;
-            for draw in ir.draws() {
-                encode_v1_draw(&mut output, ir, draw, ext_g_states)?;
-            }
-        }
-        AdmittedSafeVector::V2(ir) => {
-            encode_root_view_box(&mut output, ir.view_box(), ir.root_scale_raw())?;
-            for draw in ir.draws() {
-                encode_v2_draw(&mut output, ir, draw, ext_g_states)?;
-            }
+    struct Legacy<'s, 'b> {
+        output: &'s mut BoundedPdfContent<'b>,
+        states: &'s [StagingSafeVectorPdfExtGStateV2],
+    }
+    impl crate::font_encoding::Sink for Legacy<'_, '_> {
+        type Error = StagingSafeVectorPdfV2Error;
+        fn extend(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
+            self.output.push_str(
+                std::str::from_utf8(bytes).map_err(|_| StagingSafeVectorPdfV2Error::InvalidIr)?,
+            )
         }
     }
-    output.push_str("Q")?;
+    impl encoding::VectorSink for Legacy<'_, '_> {
+        fn state(&mut self, fill: u32, stroke: u32) -> Result<(), Self::Error> {
+            let ext = ext_g_state_for(self.states, fill, stroke)?;
+            self.output.push_str("/")?;
+            self.output.push_str(ext.resource_name())?;
+            self.output.push_str(" gs\n")
+        }
+    }
+    encoding::encode(
+        ir,
+        &mut Legacy {
+            output: &mut output,
+            states: ext_g_states,
+        },
+    )?;
     let bytes = output.finish();
     if contains_forbidden_form_semantics(&bytes) {
         return Err(StagingSafeVectorPdfV2Error::InvalidIr);
@@ -1105,146 +1096,6 @@ fn contains_forbidden_form_semantics(content: &[u8]) -> bool {
     })
 }
 
-fn encode_root_view_box(
-    output: &mut BoundedPdfContent<'_>,
-    view_box: [i64; 4],
-    root_scale: i32,
-) -> Result<(), StagingSafeVectorPdfV2Error> {
-    let [min_x, min_y, width, height] = view_box;
-    if root_scale <= 0 || width <= 0 || height <= 0 {
-        return Err(StagingSafeVectorPdfV2Error::InvalidIr);
-    }
-    let scale = i64::from(root_scale);
-    let tx = fixed_mul(scale, min_x)?
-        .checked_neg()
-        .ok_or(StagingSafeVectorPdfV2Error::ArithmeticOverflow)?;
-    let ty = fixed_mul(scale, min_y)?
-        .checked_neg()
-        .ok_or(StagingSafeVectorPdfV2Error::ArithmeticOverflow)?;
-    output.push_str(&format!(
-        "{} 0 0 {} {} {} cm\n",
-        pdf_fixed(scale),
-        pdf_fixed(scale),
-        pdf_fixed(tx),
-        pdf_fixed(ty)
-    ))
-}
-
-fn encode_v1_draw(
-    output: &mut BoundedPdfContent<'_>,
-    ir: &SafeVectorIr,
-    draw: &SafeVectorDraw,
-    ext_g_states: &[StagingSafeVectorPdfExtGStateV2],
-) -> Result<(), StagingSafeVectorPdfV2Error> {
-    output.push_str("q\n")?;
-    encode_draw_clips(output, ir.clips(), draw.clips())?;
-    encode_transform(output, draw.transform())?;
-    let ext = ext_g_state_for(ext_g_states, FIXED_ONE as u32, FIXED_ONE as u32)?;
-    output.push_str("/")?;
-    output.push_str(ext.resource_name())?;
-    output.push_str(" gs\n")?;
-    if let Some(fill) = draw.fill() {
-        encode_rgb_operator(output, fill, "rg")?;
-    }
-    if let Some(stroke) = draw.stroke() {
-        encode_rgb_operator(output, stroke.color(), "RG")?;
-        encode_stroke_style(
-            output,
-            stroke.width_raw(),
-            stroke.line_cap(),
-            stroke.line_join(),
-            stroke.miter_limit_raw(),
-        )?;
-    }
-    encode_path(output, draw.path(), None)?;
-    encode_paint_operator(
-        output,
-        draw.fill().is_some(),
-        draw.stroke().is_some(),
-        draw.fill_rule(),
-    )?;
-    output.push_str("Q\n")
-}
-
-fn encode_v2_draw(
-    output: &mut BoundedPdfContent<'_>,
-    ir: &SafeVectorIrV2,
-    draw: &SafeVectorDrawV2,
-    ext_g_states: &[StagingSafeVectorPdfExtGStateV2],
-) -> Result<(), StagingSafeVectorPdfV2Error> {
-    output.push_str("q\n")?;
-    encode_draw_clips(output, ir.clips(), draw.clips())?;
-    encode_transform(output, draw.transform())?;
-    let fill = draw.fill();
-    let stroke = draw.stroke();
-    let ext = ext_g_state_for(
-        ext_g_states,
-        fill.alpha().raw(),
-        stroke.paint().alpha().raw(),
-    )?;
-    output.push_str("/")?;
-    output.push_str(ext.resource_name())?;
-    output.push_str(" gs\n")?;
-    encode_optional_paint(output, fill.paint(), "rg")?;
-    encode_optional_paint(output, stroke.paint().paint(), "RG")?;
-    if stroke.paint().paint().enabled() {
-        encode_stroke_style(
-            output,
-            stroke.width_raw(),
-            stroke.line_cap(),
-            stroke.line_join(),
-            stroke.miter_limit_raw(),
-        )?;
-    }
-    encode_path(output, draw.path(), None)?;
-    encode_paint_operator(
-        output,
-        fill.paint().enabled(),
-        stroke.paint().paint().enabled(),
-        draw.fill_rule(),
-    )?;
-    output.push_str("Q\n")
-}
-
-fn encode_draw_clips(
-    output: &mut BoundedPdfContent<'_>,
-    definitions: &[SafeVectorClipDefinition],
-    uses: &[SafeVectorClipUse],
-) -> Result<(), StagingSafeVectorPdfV2Error> {
-    for clip_use in uses {
-        let definition = definitions
-            .get(clip_use.clip_id() as usize)
-            .filter(|definition| definition.clip_id() == clip_use.clip_id())
-            .ok_or(StagingSafeVectorPdfV2Error::InvalidIr)?;
-        encode_path(
-            output,
-            definition.path(),
-            Some((definition.transform(), clip_use.transform())),
-        )?;
-        output.push_str(match definition.fill_rule() {
-            SafeVectorFillRule::NonZero => "W n\n",
-            SafeVectorFillRule::EvenOdd => "W* n\n",
-        })?;
-    }
-    Ok(())
-}
-
-fn encode_transform(
-    output: &mut BoundedPdfContent<'_>,
-    transform: SafeVectorTransform,
-) -> Result<(), StagingSafeVectorPdfV2Error> {
-    if transform.a_raw() == 0 || transform.d_raw() == 0 {
-        return Err(StagingSafeVectorPdfV2Error::InvalidIr);
-    }
-    output.push_str(&format!(
-        "{} 0 0 {} {} {} cm\n",
-        pdf_fixed(i64::from(transform.a_raw())),
-        pdf_fixed(i64::from(transform.d_raw())),
-        pdf_fixed(transform.e_raw()),
-        pdf_fixed(transform.f_raw())
-    ))
-}
-
 fn ext_g_state_for(
     ext_g_states: &[StagingSafeVectorPdfExtGStateV2],
     fill_alpha_raw: u32,
@@ -1258,273 +1109,7 @@ fn ext_g_state_for(
         .ok_or(StagingSafeVectorPdfV2Error::FormPlanMismatch)
 }
 
-fn encode_optional_paint(
-    output: &mut BoundedPdfContent<'_>,
-    paint: SafeVectorPaint,
-    operator: &str,
-) -> Result<(), StagingSafeVectorPdfV2Error> {
-    match paint {
-        SafeVectorPaint::None | SafeVectorPaint::CurrentColor => Ok(()),
-        SafeVectorPaint::FixedRgb8(color) => encode_rgb_operator(output, color, operator),
-    }
-}
-
-fn encode_rgb_operator(
-    output: &mut BoundedPdfContent<'_>,
-    color: [u8; 3],
-    operator: &str,
-) -> Result<(), StagingSafeVectorPdfV2Error> {
-    output.push_str(&format!(
-        "{} {} {} {}\n",
-        pdf_fixed(color_fixed(color[0])?),
-        pdf_fixed(color_fixed(color[1])?),
-        pdf_fixed(color_fixed(color[2])?),
-        operator
-    ))
-}
-
-fn encode_stroke_style(
-    output: &mut BoundedPdfContent<'_>,
-    width: i64,
-    line_cap: SafeVectorLineCap,
-    line_join: SafeVectorLineJoin,
-    miter_limit: i64,
-) -> Result<(), StagingSafeVectorPdfV2Error> {
-    if width <= 0 || miter_limit <= 0 {
-        return Err(StagingSafeVectorPdfV2Error::InvalidIr);
-    }
-    output.push_str(&format!(
-        "{} w\n{} J\n{} j\n{} M\n",
-        pdf_fixed(width),
-        match line_cap {
-            SafeVectorLineCap::Butt => 0,
-            SafeVectorLineCap::Round => 1,
-            SafeVectorLineCap::Square => 2,
-        },
-        match line_join {
-            SafeVectorLineJoin::Miter => 0,
-            SafeVectorLineJoin::Round => 1,
-            SafeVectorLineJoin::Bevel => 2,
-        },
-        pdf_fixed(miter_limit)
-    ))
-}
-
-fn encode_paint_operator(
-    output: &mut BoundedPdfContent<'_>,
-    fill: bool,
-    stroke: bool,
-    fill_rule: SafeVectorFillRule,
-) -> Result<(), StagingSafeVectorPdfV2Error> {
-    output.push_str(match (fill, stroke, fill_rule) {
-        (true, true, SafeVectorFillRule::NonZero) => "B\n",
-        (true, true, SafeVectorFillRule::EvenOdd) => "B*\n",
-        (true, false, SafeVectorFillRule::NonZero) => "f\n",
-        (true, false, SafeVectorFillRule::EvenOdd) => "f*\n",
-        (false, true, _) => "S\n",
-        (false, false, _) => return Err(StagingSafeVectorPdfV2Error::InvalidIr),
-    })
-}
-
-fn encode_path(
-    output: &mut BoundedPdfContent<'_>,
-    path: &SafeVectorPath,
-    transform: Option<(SafeVectorTransform, SafeVectorTransform)>,
-) -> Result<(), StagingSafeVectorPdfV2Error> {
-    let mut current = None;
-    let mut subpath = None;
-    for segment in path.segments() {
-        match segment {
-            SafeVectorSegment::Move(point) => {
-                let point = maybe_transform(*point, transform)?;
-                output.push_str(&format!(
-                    "{} {} m\n",
-                    pdf_fixed(point.x),
-                    pdf_fixed(point.y)
-                ))?;
-                current = Some(point);
-                subpath = Some(point);
-            }
-            SafeVectorSegment::Line(point) => {
-                let point = maybe_transform(*point, transform)?;
-                output.push_str(&format!(
-                    "{} {} l\n",
-                    pdf_fixed(point.x),
-                    pdf_fixed(point.y)
-                ))?;
-                current = Some(point);
-            }
-            SafeVectorSegment::Quadratic(control, endpoint) => {
-                let start = current.ok_or(StagingSafeVectorPdfV2Error::InvalidIr)?;
-                let control = maybe_transform(*control, transform)?;
-                let endpoint = maybe_transform(*endpoint, transform)?;
-                let first = RawPoint {
-                    x: rational_third(start.x, control.x)?,
-                    y: rational_third(start.y, control.y)?,
-                };
-                let second = RawPoint {
-                    x: rational_third(endpoint.x, control.x)?,
-                    y: rational_third(endpoint.y, control.y)?,
-                };
-                output.push_str(&format!(
-                    "{} {} {} {} {} {} c\n",
-                    pdf_fixed(first.x),
-                    pdf_fixed(first.y),
-                    pdf_fixed(second.x),
-                    pdf_fixed(second.y),
-                    pdf_fixed(endpoint.x),
-                    pdf_fixed(endpoint.y)
-                ))?;
-                current = Some(endpoint);
-            }
-            SafeVectorSegment::Cubic(first, second, endpoint) => {
-                let first = maybe_transform(*first, transform)?;
-                let second = maybe_transform(*second, transform)?;
-                let endpoint = maybe_transform(*endpoint, transform)?;
-                output.push_str(&format!(
-                    "{} {} {} {} {} {} c\n",
-                    pdf_fixed(first.x),
-                    pdf_fixed(first.y),
-                    pdf_fixed(second.x),
-                    pdf_fixed(second.y),
-                    pdf_fixed(endpoint.x),
-                    pdf_fixed(endpoint.y)
-                ))?;
-                current = Some(endpoint);
-            }
-            SafeVectorSegment::Close => {
-                output.push_str("h\n")?;
-                current = subpath;
-            }
-        }
-    }
-    Ok(())
-}
-
-#[derive(Clone, Copy)]
-struct RawPoint {
-    x: i64,
-    y: i64,
-}
-
-fn maybe_transform(
-    point: SafeVectorPoint,
-    transforms: Option<(SafeVectorTransform, SafeVectorTransform)>,
-) -> Result<RawPoint, StagingSafeVectorPdfV2Error> {
-    let point = RawPoint {
-        x: point.x_raw(),
-        y: point.y_raw(),
-    };
-    let Some((definition, use_site)) = transforms else {
-        return Ok(point);
-    };
-    let transform = compose_fixed_transform(raw_transform(use_site), raw_transform(definition))?;
-    apply_fixed_transform(point, transform)
-}
-
-const fn raw_transform(transform: SafeVectorTransform) -> [i64; 4] {
-    [
-        transform.a_raw() as i64,
-        transform.d_raw() as i64,
-        transform.e_raw(),
-        transform.f_raw(),
-    ]
-}
-
-fn compose_fixed_transform(
-    left: [i64; 4],
-    right: [i64; 4],
-) -> Result<[i64; 4], StagingSafeVectorPdfV2Error> {
-    let a = fixed_mul(left[0], right[0])?;
-    let d = fixed_mul(left[1], right[1])?;
-    let e = fixed_mul(left[0], right[2])?
-        .checked_add(left[2])
-        .ok_or(StagingSafeVectorPdfV2Error::ArithmeticOverflow)?;
-    let f = fixed_mul(left[1], right[3])?
-        .checked_add(left[3])
-        .ok_or(StagingSafeVectorPdfV2Error::ArithmeticOverflow)?;
-    if a == 0
-        || d == 0
-        || i32::try_from(a).is_err()
-        || i32::try_from(d).is_err()
-        || e.abs() > MAX_COORDINATE
-        || f.abs() > MAX_COORDINATE
-    {
-        return Err(StagingSafeVectorPdfV2Error::InvalidIr);
-    }
-    Ok([a, d, e, f])
-}
-
-fn apply_fixed_transform(
-    point: RawPoint,
-    transform: [i64; 4],
-) -> Result<RawPoint, StagingSafeVectorPdfV2Error> {
-    let x = fixed_mul(transform[0], point.x)?
-        .checked_add(transform[2])
-        .ok_or(StagingSafeVectorPdfV2Error::ArithmeticOverflow)?;
-    let y = fixed_mul(transform[1], point.y)?
-        .checked_add(transform[3])
-        .ok_or(StagingSafeVectorPdfV2Error::ArithmeticOverflow)?;
-    if x.abs() > MAX_COORDINATE || y.abs() > MAX_COORDINATE {
-        return Err(StagingSafeVectorPdfV2Error::InvalidIr);
-    }
-    Ok(RawPoint { x, y })
-}
-
-fn rational_third(endpoint: i64, control: i64) -> Result<i64, StagingSafeVectorPdfV2Error> {
-    let numerator = i128::from(endpoint)
-        .checked_add(
-            i128::from(control)
-                .checked_mul(2)
-                .ok_or(StagingSafeVectorPdfV2Error::ArithmeticOverflow)?,
-        )
-        .ok_or(StagingSafeVectorPdfV2Error::ArithmeticOverflow)?;
-    i64::try_from(round_ties_even(numerator, 3)?)
-        .map_err(|_| StagingSafeVectorPdfV2Error::ArithmeticOverflow)
-}
-
-fn fixed_mul(left: i64, right: i64) -> Result<i64, StagingSafeVectorPdfV2Error> {
-    let numerator = i128::from(left)
-        .checked_mul(i128::from(right))
-        .ok_or(StagingSafeVectorPdfV2Error::ArithmeticOverflow)?;
-    i64::try_from(round_ties_even(numerator, i128::from(FIXED_ONE))?)
-        .map_err(|_| StagingSafeVectorPdfV2Error::ArithmeticOverflow)
-}
-
-fn color_fixed(byte: u8) -> Result<i64, StagingSafeVectorPdfV2Error> {
-    i64::try_from(round_ties_even(
-        i128::from(byte) * i128::from(FIXED_ONE),
-        255,
-    )?)
-    .map_err(|_| StagingSafeVectorPdfV2Error::ArithmeticOverflow)
-}
-
-fn round_ties_even(
-    numerator: i128,
-    denominator: i128,
-) -> Result<i128, StagingSafeVectorPdfV2Error> {
-    if denominator <= 0 {
-        return Err(StagingSafeVectorPdfV2Error::ArithmeticOverflow);
-    }
-    let quotient = numerator / denominator;
-    let remainder = numerator % denominator;
-    if remainder == 0 {
-        return Ok(quotient);
-    }
-    let twice = remainder
-        .unsigned_abs()
-        .checked_mul(2)
-        .ok_or(StagingSafeVectorPdfV2Error::ArithmeticOverflow)?;
-    let denominator = denominator as u128;
-    if twice < denominator || (twice == denominator && quotient % 2 == 0) {
-        Ok(quotient)
-    } else {
-        quotient
-            .checked_add(if remainder > 0 { 1 } else { -1 })
-            .ok_or(StagingSafeVectorPdfV2Error::ArithmeticOverflow)
-    }
-}
-
+#[cfg(any(test, feature = "staging-fixtures"))]
 fn pdf_fixed(raw: i64) -> String {
     const DECIMAL_SCALE: u64 = 10_000_000_000_000_000;
     const BINARY_TO_DECIMAL: u64 = 152_587_890_625;
@@ -1595,21 +1180,7 @@ fn encode_page_usage_values(
     spool: &mut SpoolBudget,
 ) -> Result<Vec<u8>, StagingSafeVectorPdfV2Error> {
     let mut output = BoundedPdfContent::new(spool);
-    output.push_str("q\n")?;
-    encode_rgb_operator(&mut output, color, "rg")?;
-    encode_rgb_operator(&mut output, color, "RG")?;
-    output.push_str(&format!(
-        "{} {} {} {} {} {} cm\n",
-        pdf_fixed(i64::from(matrix.a.raw())),
-        pdf_fixed(i64::from(matrix.b.raw())),
-        pdf_fixed(i64::from(matrix.c.raw())),
-        pdf_fixed(i64::from(matrix.d.raw())),
-        pdf_fixed(matrix.e.raw()),
-        pdf_fixed(matrix.f.raw())
-    ))?;
-    output.push_str("/")?;
-    output.push_str(&form.resource_name)?;
-    output.push_str(" Do\nQ")?;
+    encoding::placement(&mut output, matrix, color, |out| out.push_str(&form.resource_name))?;
     Ok(output.finish())
 }
 
@@ -3505,5 +3076,21 @@ mod tests {
                 &fixture.figure.layout.limits,
             )
             .unwrap();
+    }
+}
+
+#[path = "vector_encoding.rs"]
+pub(crate) mod encoding;
+use encoding::fixed_mul;
+
+impl crate::font_encoding::Sink for BoundedPdfContent<'_> {
+    type Error = StagingSafeVectorPdfV2Error;
+    fn extend(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.push_str(std::str::from_utf8(bytes).map_err(|_| StagingSafeVectorPdfV2Error::InvalidIr)?)
+    }
+}
+impl encoding::VectorSink for BoundedPdfContent<'_> {
+    fn state(&mut self, _: u32, _: u32) -> Result<(), Self::Error> {
+        Err(StagingSafeVectorPdfV2Error::FormPlanMismatch)
     }
 }

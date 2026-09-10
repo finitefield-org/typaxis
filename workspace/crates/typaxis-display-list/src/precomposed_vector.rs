@@ -918,13 +918,21 @@ pub(crate) fn content_key_for(
     let image = admitted.image(resource.image_id()).ok_or(
         StagingPrecomposedVectorDisplayError::ResourceMismatch(resource.image_id()),
     )?;
+    content_key_for_resource(resource, image)
+}
+
+pub(crate) fn content_key_for_resource(
+    resource: &typaxis_layout::BoundPrecomposedVectorResource,
+    image: &typaxis_resource_admission::AdmittedImage,
+) -> Result<VectorContentKey, StagingPrecomposedVectorDisplayError> {
     let key = VectorContentKey::from_admitted(image)
         .map_err(|_| StagingPrecomposedVectorDisplayError::ResourceMismatch(resource.image_id()))?;
     let expected_media = match resource.admitted_media() {
         BoundPrecomposedVectorMedia::SafeSvg1 => VectorContentMediaType::SafeSvg1,
         BoundPrecomposedVectorMedia::SafeSvg2 => VectorContentMediaType::SafeSvg2,
     };
-    if key.source_sha256() != resource.source_sha256()
+    if image.image_id() != resource.image_id()
+        || key.source_sha256() != resource.source_sha256()
         || key.media_type() != expected_media
         || key.parser_id() != resource.parser_id()
         || key.ir_id() != resource.ir_id()

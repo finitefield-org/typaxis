@@ -369,6 +369,12 @@ pub(super) fn prepare_context(
     lines: &ProductionInlineLineLayout<'_, '_>,
     charge: &mut Charge,
 ) -> Result<(Vec<usize>, BTreeSet<NodeId>), ProductionBodyPaginationError> {
+    prepare_context_shared(BodyLines::Legacy(lines), charge)
+}
+pub(super) fn prepare_context_shared(
+    lines: BodyLines<'_, '_, '_>,
+    charge: &mut Charge,
+) -> Result<(Vec<usize>, BTreeSet<NodeId>), ProductionBodyPaginationError> {
     let mut headings = BTreeSet::new();
     for event in lines.source_flow().events() {
         if let Event::Begin {

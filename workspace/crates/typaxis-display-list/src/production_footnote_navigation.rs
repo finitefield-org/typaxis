@@ -220,7 +220,9 @@ pub fn build_production_footnote_reference_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f
         let (fragment, bounds) = match draw {
             ProductionBodyDraw::Text(t) => (t.fragment_index(), t.logical_bounds()),
             ProductionBodyDraw::Vector(v) => (v.fragment_index(), Some(v.viewport())),
+            ProductionBodyDraw::SvgFigure(r) => (r.fragment_index(), Some(r.viewport())),
             ProductionBodyDraw::Raster(r) => (r.fragment_index(), Some(r.viewport())),
+            ProductionBodyDraw::Math(m) => (m.fragment_index(), Some(m.bounds())),
         };
         if let (Some(&index), Some(bounds)) = (first_by_fragment.get(&fragment), bounds) {
             let first = first_fragments[index]

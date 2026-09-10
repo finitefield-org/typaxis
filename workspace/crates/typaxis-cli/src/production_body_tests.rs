@@ -143,7 +143,7 @@ fn with_production_body_math_resources(
                 let style = prepared.source_flow().semantic_container_style(owner).unwrap().block_style();
                 style.start_indent().get() != Length::ZERO || style.end_indent().get() != Length::ZERO
             });
-            let lines = if prepared.source_flow().lists().is_empty() && !needs_container_frames {
+            let lines = if prepared.source_flow().lists().is_empty() && prepared.source_flow().tables().is_empty() && !needs_container_frames {
                 typaxis_layout::layout_production_inline_lines(prepared, &widths, 100_000).unwrap()
             } else {
                 typaxis_layout::layout_production_body_inline_lines(
@@ -183,8 +183,18 @@ fn production_body_renumber(value: &mut serde_json::Value, next: &mut u32) {
                 *id = (*next).into();
                 *next += 1;
             }
-            for child in fields.values_mut() {
-                production_body_renumber(child, next);
+            // Table source order is head followed by body; JSON object-key
+            // order would visit body first and produce invalid preorder IDs.
+            if fields.get("kind").and_then(|v| v.as_str()) == Some("table") {
+                for key in ["head", "body"] {
+                    if let Some(child) = fields.get_mut(key) {
+                        production_body_renumber(child, next);
+                    }
+                }
+            } else {
+                for child in fields.values_mut() {
+                    production_body_renumber(child, next);
+                }
             }
         }
         serde_json::Value::Array(values) => {
@@ -606,7 +616,7 @@ fn production_body_display_and_pdf_text_use_selected_page_coordinates_and_fonts(
             };
             let (font, cluster) = fonts.text_plan(paint.draw_index()).unwrap();
             assert_eq!(paint.page_index(), draw.page_index());
-            assert_eq!(paint.font_instance_id(), font.pdf_font().font_instance_id());
+            assert_eq!(paint.font_instance_id(), Some(font.pdf_font().font_instance_id()));
             let bytes = std::str::from_utf8(contribution.paint_bytes(index).unwrap()).unwrap();
             assert!(bytes.contains(" 12 Tf 0 Tr\n"));
             assert_eq!(bytes.matches(" Tj\n").count(), draw.glyphs().len());
@@ -699,11 +709,11 @@ fn production_body_fonts_share_repeated_glyphs_across_distinct_source_spans() {
                 && !c.requires_actual_text()));
             for cluster in font.clusters() {
                 assert_eq!(
-                    font.cluster(cluster.text_span(), "A", cluster.glyphs()),
+                    font.cluster(cluster.text_span().expect("body text span"), "A", cluster.glyphs()),
                     Some(cluster)
                 );
                 assert!(font
-                    .cluster(cluster.text_span(), "B", cluster.glyphs())
+                    .cluster(cluster.text_span().expect("body text span"), "B", cluster.glyphs())
                     .is_none());
             }
             let output =
@@ -928,7 +938,7 @@ fn production_body_page_content_interleaves_real_vmb_forms_and_text_at_selected_
             for (ordinal, draw) in page.draws().iter().enumerate() {
                 let original = match draw.source() {
                     typaxis_pdf::ProductionBodyPageDrawSource::Raster { .. } => panic!("this fixture contains only text and vectors"),
-                    S::Text { paint_index } => content.text().paint_bytes(paint_index).unwrap(),
+                    S::Text { paint_index } | S::NativeMath { paint_index } => content.text().paint_bytes(paint_index).unwrap(),
                     S::Vector { usage_index } => {
                         let vector = &content.vectors().usages()[usage_index];
                         let typaxis_display_list::ProductionBodyDraw::Vector(v) =
@@ -2174,4 +2184,254 @@ fn production_body_cost_selected_break_keeps_four_real_vmb_formulas_and_semantic
             assert_eq!(painted, "A BA BA BA B");
         },
     );
+}
+
+#[test]
+fn production_native_math_draw_projects_real_glyphs_to_selected_page() {
+    let value = production_native_math_fixture();
+    with_production_body_resources(&value, &config(), |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display = typaxis_display_list::build_production_body_display(&selected, admitted, limits).unwrap();
+        display.verify(&selected, admitted, limits).unwrap();
+        assert_eq!(display.draws().len(), 1);
+        let typaxis_display_list::ProductionBodyDraw::Math(draw) = &display.draws()[0] else {
+            panic!("expected real native math paint");
+        };
+        let fragment = &selected.fragments()[draw.fragment_index() as usize];
+        assert_eq!(draw.page_index(), fragment.page_index());
+        assert_eq!(Some(draw.baseline()), fragment.baseline());
+        assert_eq!(draw.paints().len(), draw.receipt().computation().paints().len());
+        assert_eq!(draw.paints().len(), 2);
+        let mut sizes = Vec::new();
+        for (actual, source) in draw.paints().iter().zip(draw.receipt().computation().paints()) {
+            match (actual, source) {
+                (typaxis_display_list::ProductionNativeMathPaint::Glyph {
+                    original_gid, unicode, logical_ordinal, x, y, font_size,
+                }, typaxis_math::MathPaint::Glyph(g)) => {
+                    assert_eq!(*original_gid, g.original_gid());
+                    assert_eq!(*unicode, g.unicode());
+                    assert_eq!(*logical_ordinal, g.logical_ordinal());
+                    assert_eq!(x.raw(), draw.origin_x().raw() + g.x());
+                    assert_eq!(y.raw(), draw.baseline().raw() + g.y());
+                    assert_eq!(font_size.get().raw(), g.font_size_raw());
+                    sizes.push(font_size.get().raw());
+                }
+                _ => panic!("native glyph/rule identity changed"),
+            }
+        }
+        assert!(sizes[1] < sizes[0], "superscript must retain its computed size");
+        assert!(draw.bounds().y() < draw.baseline());
+    });
+}
+
+fn production_native_math_fraction_fixture() -> serde_json::Value {
+    let mut value = production_native_math_fixture();
+    let tex = "\\frac{x}{2}";
+    let source_id = value["sources"].as_array().unwrap().len();
+    let text_id = value["text_buffers"].as_array().unwrap().len();
+    let span = serde_json::json!({"source_id":source_id,"start_byte":0,"end_byte":tex.len()});
+    value["sources"].as_array_mut().unwrap().push(serde_json::json!({
+        "source_id":source_id,"uri":"native-fraction.tsf","utf8_byte_length":tex.len(),
+        "sha256":sha256(tex.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>()
+    }));
+    value["text_buffers"].as_array_mut().unwrap().push(serde_json::json!({
+        "text_id":text_id,"utf8":tex,"mappings":[{"kind":"identity","source_span":span,
+        "text_range":{"start_byte":0,"end_byte":tex.len()}}]
+    }));
+    let paragraph = &mut value["document"]["blocks"][0];
+    paragraph["span"] = span.clone();
+    paragraph["children"][0]["span"] = span;
+    paragraph["children"][0]["math_source"]["text_span"] = serde_json::json!({
+        "text_id":text_id,"start_byte":0,"end_byte":tex.len()
+    });
+    paragraph["children"][0]["speech"] = "x divided by two".into();
+    value
+}
+
+#[test]
+fn production_native_math_draw_preserves_fraction_rule_geometry() {
+    let value = production_native_math_fraction_fixture();
+    with_production_body_resources(&value, &config(), |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display = typaxis_display_list::build_production_body_display(&selected, admitted, limits).unwrap();
+        let typaxis_display_list::ProductionBodyDraw::Math(draw) = &display.draws()[0] else { panic!("expected native fraction"); };
+        let mut rules = 0;
+        for (actual, source) in draw.paints().iter().zip(draw.receipt().computation().paints()) {
+            if let typaxis_math::MathPaint::Rule(source) = source {
+                let typaxis_display_list::ProductionNativeMathPaint::Rule(actual) = actual else { panic!("native rule was replaced"); };
+                assert_eq!(actual.x().raw(), draw.origin_x().raw() + source.x());
+                assert_eq!(actual.y().raw(), draw.baseline().raw() + source.y());
+                assert_eq!(actual.width().get().raw(), source.width());
+                assert_eq!(actual.height().get().raw(), source.height());
+                rules += 1;
+            }
+        }
+        assert_eq!(draw.paints().len(), draw.receipt().computation().paints().len());
+        assert_eq!(rules, 1);
+    });
+}
+
+#[test]
+fn production_native_math_structure_binds_formula_and_speech_once() {
+    let value = production_native_math_fixture();
+    with_production_body_structure_resources(&value, &config(), |lines, blocks, limits, admitted, semantics, profile| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display = typaxis_display_list::build_production_body_display(&selected, admitted, limits).unwrap();
+        let structure = typaxis_display_list::build_production_body_structure(
+            &display, semantics, profile.authorization(), profile.base().authorization(), admitted, limits,
+        ).unwrap();
+        structure.verify(&display, admitted, limits).unwrap();
+        assert_eq!(structure.groups().len(), 1);
+        let group = &structure.groups()[0];
+        assert!(group.is_native_math());
+        assert!(!group.is_text());
+        assert_eq!(group.vector_usage_id(), None);
+        assert_eq!(group.draws(), 0..1);
+        assert_eq!(group.mcid(), 0);
+        assert_eq!(group.semantic_fragment_ordinal(), 0);
+        assert_eq!(structure.node_groups(group.node()), Some(&[0][..]));
+        assert_eq!(structure.group_actual_text(0), Some("x squared"));
+        let node = structure.registry().node(group.node()).unwrap();
+        assert_eq!(node.role(), typaxis_layout::StructureRole::Formula);
+        assert_eq!(node.alternative(), Some("x squared"));
+        let typaxis_display_list::ProductionBodyDraw::Math(math) = &display.draws()[0] else { panic!("native math missing"); };
+        assert_eq!(node.owner(), typaxis_layout::StructureOwner::Source(math.owner()));
+        assert_eq!(node.source_span(), Some(math.source_span()));
+        assert_eq!(structure.spool_charge(), 2 * structure.registry().canonical_jcs().len() as u64 + lines.native_math_spool_charge());
+        assert!(lines.native_math_spool_charge() > 0);
+    });
+}
+
+#[test]
+fn production_native_math_structure_preserves_exact_cumulative_budgets() {
+    let value = production_native_math_fixture();
+    let mut charges = None;
+    with_production_body_structure_resources(&value, &config(), |lines, blocks, limits, admitted, semantics, profile| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display = typaxis_display_list::build_production_body_display(&selected, admitted, limits).unwrap();
+        let structure = typaxis_display_list::build_production_body_structure(
+            &display, semantics, profile.authorization(), profile.base().authorization(), admitted, limits,
+        ).unwrap();
+        charges = Some((structure.record_charge(), structure.spool_charge()));
+    });
+    let (records, spool) = charges.unwrap();
+    for (record_limit, spool_limit, expected) in [
+        (records, spool, None),
+        (records - 1, spool, Some(typaxis_display_list::ProductionBodyStructureError::RecordLimit)),
+        (records, spool - 1, Some(typaxis_display_list::ProductionBodyStructureError::SpoolLimit)),
+    ] {
+        let config = config_with_limits(ResourceLimits {
+            max_fragments: record_limit, max_spool_bytes: spool_limit, ..ResourceLimits::default()
+        });
+        with_production_body_structure_resources(&value, &config, |lines, blocks, limits, admitted, semantics, profile| {
+            let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+            let display = typaxis_display_list::build_production_body_display(&selected, admitted, limits).unwrap();
+            match typaxis_display_list::build_production_body_structure(
+                &display, semantics, profile.authorization(), profile.base().authorization(), admitted, limits,
+            ) {
+                Ok(structure) => {
+                    assert_eq!(expected, None);
+                    assert_eq!((structure.record_charge(), structure.spool_charge()), (records, spool));
+                }
+                Err(error) => assert_eq!(Some(error), expected),
+            }
+        });
+    }
+}
+
+#[test]
+fn production_native_math_fonts_share_body_subset_without_text_span_aliases() {
+    let mut value = production_native_math_fixture();
+    let text_span = serde_json::json!({"text_id":12,"start_byte":0,"end_byte":1});
+    value["document"]["blocks"][0]["children"].as_array_mut().unwrap().insert(0, serde_json::json!({
+        "kind":"text","node_id":0,"span":{"source_id":0,"start_byte":0,"end_byte":1},"text_span":text_span
+    }));
+    production_body_renumber(&mut value["document"], &mut 0);
+    with_production_body_resources(&value, &config(), |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display = typaxis_display_list::build_production_body_display(&selected, admitted, limits).unwrap();
+        let fonts = typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        fonts.verify(&display, admitted, limits).unwrap();
+        assert_eq!(fonts.fonts().len(), 1);
+        assert_eq!(fonts.fonts()[0].pdf_font().subset_plan().cids.len(), 2);
+        let typaxis_display_list::ProductionBodyDraw::Text(body) = &display.draws()[0] else { panic!("body missing"); };
+        let typaxis_display_list::ProductionBodyDraw::Math(math) = &display.draws()[1] else { panic!("math missing"); };
+        let (_, body_plan) = fonts.text_plan(0).unwrap();
+        assert_eq!(body_plan.text_span(), Some(body.text_span()));
+        assert!(fonts.fonts()[0].cluster(body.text_span(), body.exact_text(), body_plan.glyphs()).is_some());
+        assert!(fonts.text_plan(1).is_none());
+        assert!(fonts.native_plan(0, 0).is_none());
+        for (index, paint) in math.paints().iter().enumerate() {
+            let typaxis_display_list::ProductionNativeMathPaint::Glyph { original_gid, unicode, logical_ordinal, .. } = paint else { continue; };
+            let (font, plan) = fonts.native_plan(1, index).unwrap();
+            assert!(std::ptr::eq(font, &fonts.fonts()[0]));
+            assert_eq!(plan.text_span(), None);
+            assert_eq!(plan.exact_text(), unicode.to_string());
+            assert_eq!(plan.glyphs(), &[*original_gid]);
+            let typaxis_resources::PdfFontClusterSource::NativeMathGlyph(source) = plan.source() else { panic!("native source lost"); };
+            assert_eq!(source.owner(), math.owner());
+            assert_eq!(source.paint_index(), index as u32);
+            assert_eq!(source.logical_ordinal(), *logical_ordinal);
+            assert_eq!(source.receipt_sha256(), math.receipt().key().bytes());
+            assert_eq!(source.computation_sha256(), math.receipt().computation().fingerprint());
+            if *unicode == 'x' { assert_eq!(plan.cids(), body_plan.cids()); }
+            assert!(font.pdf_font().cluster_plans().iter().any(|p| matches!(p,
+                typaxis_resources::ClusterExtractionPlan::NativeMathGlyph { source: key, cids, unicode: scalars }
+                if key == source && cids == plan.cids() && scalars.len() == 1 && scalars[0].get() == *unicode)));
+        }
+        assert!(fonts.spool_charge() >= selected.spool_charge() + lines.native_math_spool_charge());
+    });
+}
+
+#[test]
+fn production_native_math_font_plans_enforce_cumulative_budgets() {
+    let value = production_native_math_fixture();
+    let mut measured = None;
+    with_production_body_resources(&value, &config(), |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display = typaxis_display_list::build_production_body_display(&selected, admitted, limits).unwrap();
+        let fonts = typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        measured = Some((fonts.record_charge(), fonts.spool_charge()));
+    });
+    let (records, spool) = measured.unwrap();
+    for (record_limit, spool_limit, success) in [(records, spool, true), (records - 1, spool, false), (records, spool - 1, false)] {
+        let config = config_with_limits(ResourceLimits {
+            max_fragments: record_limit, max_spool_bytes: spool_limit, ..ResourceLimits::default()
+        });
+        with_production_body_resources(&value, &config, |lines, blocks, limits, admitted| {
+            let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+            let display = typaxis_display_list::build_production_body_display(&selected, admitted, limits).unwrap();
+            match typaxis_resources::finalize_production_body_fonts(&display, admitted, limits) {
+                Ok(fonts) => {
+                    assert!(success);
+                    assert_eq!((fonts.record_charge(), fonts.spool_charge()), (records, spool));
+                }
+                Err(error) => { assert!(!success); assert_eq!(error, typaxis_resources::ResourceError::ResourceLimit); }
+            }
+        });
+    }
+}
+
+#[test]
+fn production_native_math_marked_commands_keep_shared_spool_once() {
+    let value = production_native_math_fraction_fixture();
+    with_production_body_structure_resources(&value, &config(), |lines, blocks, limits, admitted, semantics, profile| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display = typaxis_display_list::build_production_body_display(&selected, admitted, limits).unwrap();
+        let fonts = typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        let content = typaxis_pdf::build_production_body_page_content(&fonts, admitted, limits).unwrap();
+        let structure = typaxis_display_list::build_production_body_structure(&display, semantics, profile.authorization(), profile.base().authorization(), admitted, limits).unwrap();
+        let marked = typaxis_pdf::build_production_body_marked_content(&content, &structure, admitted, limits).unwrap();
+        assert_eq!(marked.spool_charge(), content.spool_charge() + structure.spool_charge() - lines.native_math_spool_charge()
+            + marked.pages().iter().map(|p| p.content().len() as u64).sum::<u64>());
+        let bytes = std::str::from_utf8(marked.pages()[0].content()).unwrap();
+        assert_eq!(bytes.matches("/ActualText").count(), 1);
+        assert_eq!(bytes.matches("/MCID").count(), 1);
+        assert_eq!(bytes.matches(" re f").count(), 1);
+        assert_eq!(bytes.matches(" Tj").count(), 2);
+        assert!(!bytes.contains("/PBA"));
+        assert!(matches!(content.pages()[0].draws()[0].source(), typaxis_pdf::ProductionBodyPageDrawSource::NativeMath { .. }));
+        let objects = typaxis_pdf::build_production_body_objects(&marked, admitted, limits).unwrap();
+        objects.verify(&marked, admitted, limits).unwrap();
+    });
 }

@@ -191,9 +191,24 @@ pub fn project_production_footnote_book_navigation<'i, 'n, 'v, 'd, 'g, 'q, 'b, '
     child_language_paints
         .try_reserve_exact(navigation.languages().child_records().len())
         .map_err(|_| E::AllocationFailure)?;
-    let mut seen_children = BTreeSet::new();
+    let mut seen_children = BTreeMap::new();
     let mut occurrences = BTreeMap::<NodeId, u32>::new();
+    let mut physical_vector_usage = 0u32;
     for (index, draw) in display.draws().iter().enumerate() {
+        let usage_id = physical_vector_usage;
+        if draw.vector_paint().is_some() {
+            physical_vector_usage = physical_vector_usage
+                .checked_add(1)
+                .ok_or(E::FragmentLimit)?;
+        }
+        // Artifact copies have no reading language or semantic destination.
+        // Retain physical vector usage IDs for later semantic occurrences.
+        if display
+            .table_draw_role(index)
+            .is_some_and(|role| role.repeated_header())
+        {
+            continue;
+        }
         let ordinal = u32::try_from(index).map_err(|_| E::FragmentLimit)?;
         match draw {
             crate::ProductionBodyDraw::Text(text) => {
@@ -206,11 +221,20 @@ pub fn project_production_footnote_book_navigation<'i, 'n, 'v, 'd, 'g, 'q, 'b, '
                         .languages()
                         .record(child.parent_owner_node_id)
                         .ok_or(E::InvalidLanguagePaint)?;
-                    if child.parent_language_record_fingerprint != parent.record_fingerprint
-                        || !seen_children.insert(child.node_id)
-                    {
+                    if child.parent_language_record_fingerprint != parent.record_fingerprint {
                         return Err(E::InvalidLanguagePaint);
                     }
+                    let occurrence = (text.page_index(), text.fragment_index());
+                    if let Some(previous) = seen_children.get(&child.node_id) {
+                        if *previous != occurrence {
+                            return Err(E::InvalidLanguagePaint);
+                        }
+                        // A shaped equation number may contain several text
+                        // clusters in one atomic selected fragment. Its language
+                        // child is observed once, at the first actual draw.
+                        continue;
+                    }
+                    seen_children.insert(child.node_id, occurrence);
                     charge_string(child.effective_language.as_ref())?;
                     child_language_paints.push(BookLanguagePaintV2 {
                         occurrence: 0,
@@ -259,7 +283,7 @@ pub fn project_production_footnote_book_navigation<'i, 'n, 'v, 'd, 'g, 'q, 'b, '
                 let record = &navigation.languages().records()[source_index];
                 charge_string(record.effective_language.as_ref())?;
                 vector_paints.push(BookVectorLanguagePaintV2 {
-                    usage_id: u32::try_from(vector_paints.len()).map_err(|_| E::FragmentLimit)?,
+                    usage_id,
                     owner_node_id: owner,
                     kind: vector.binding().kind(),
                     source_owner_ordinal: u32::try_from(source_index)
@@ -273,14 +297,45 @@ pub fn project_production_footnote_book_navigation<'i, 'n, 'v, 'd, 'g, 'q, 'b, '
                         != navigation.languages().document_language(),
                 });
             }
-            crate::ProductionBodyDraw::Raster(_) => (),
+            crate::ProductionBodyDraw::Math(math) => {
+                let record = navigation
+                    .languages()
+                    .record(math.owner())
+                    .ok_or(E::InvalidLanguagePaint)?;
+                if !matches!(
+                    record.node_kind,
+                    StagingComputedLanguageOwnerKindV2::InlineMath
+                        | StagingComputedLanguageOwnerKindV2::DisplayMath
+                ) {
+                    return Err(E::InvalidLanguagePaint);
+                }
+                if record.effective_language.as_ref() != navigation.languages().document_language()
+                {
+                    charge_string(record.effective_language.as_ref())?;
+                    let occurrence = occurrences.entry(math.owner()).or_default();
+                    language_inputs.push(BookLanguagePaintInputV2 {
+                        owner_node_id: math.owner(),
+                        occurrence: *occurrence,
+                        page_index: math.page_index(),
+                        paint_ordinal: ordinal,
+                    });
+                    *occurrence = occurrence.checked_add(1).ok_or(E::FragmentLimit)?;
+                }
+            }
+            crate::ProductionBodyDraw::Raster(_) | crate::ProductionBodyDraw::SvgFigure(_) => (),
         }
     }
     if seen_children.len() != navigation.languages().child_records().len() {
         return Err(E::InvalidLanguagePaint);
     }
     let language_paints = validate_paints_v2(navigation, &pages, &language_inputs)?;
-    validate_stored_vector_paints_v2(navigation, &pages, &language_paints, &vector_paints)?;
+    validate_stored_vector_paints_with_sparse_usages_v2(
+        navigation,
+        &pages,
+        &language_paints,
+        &vector_paints,
+        true,
+    )?;
     Ok(ProductionFootnoteBookNavigationInputs {
         source,
         pages,

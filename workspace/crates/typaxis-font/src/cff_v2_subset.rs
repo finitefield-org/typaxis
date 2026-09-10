@@ -1,5 +1,11 @@
 //! Canonical dense-CID OpenType subsets produced from sealed /2 selections.
 use super::*;
+#[path = "cff_v2_subset_budget.rs"]
+mod budget;
+use budget::{add, mul, Charge};
+#[cfg(test)]
+#[path = "cff_v2_subset_budget_tests.rs"]
+mod budget_tests;
 
 #[derive(Debug)]
 pub struct Cff1SubsetV2 {
@@ -57,11 +63,42 @@ fn write_subset(
     admission: &Cff1AdmissionV2,
     closure: Cff1GlyphClosureV2,
 ) -> Result<Cff1SubsetV2, Cff1Error> {
+    session.write_prepared_subset_with_charge(admission, closure, &mut |_, _, _| Ok(()))
+}
+impl Cff1SubsetSessionV2 {
+    /// Only writes already evaluated glyphs. The owning book session must
+    /// close all fonts and perform aggregate evaluation before calling this.
+    pub fn write_prepared_subset_with_charge(
+        &self,
+        admission: &Cff1AdmissionV2,
+        closure: Cff1GlyphClosureV2,
+        charge: Charge<'_>,
+    ) -> Result<Cff1SubsetV2, Cff1Error> {
+        self.require_closure(admission, &closure)?;
+        write_subset_charged(self, admission, closure, charge)
+    }
+}
+fn write_subset_charged(
+    session: &Cff1SubsetSessionV2,
+    admission: &Cff1AdmissionV2,
+    closure: Cff1GlyphClosureV2,
+    charge: Charge<'_>,
+) -> Result<Cff1SubsetV2, Cff1Error> {
     let max_bytes = admission
         .effective_limits()
         .extension()
         .get()
         .max_font_subset_bytes;
+    let n = closure.source_gids().len();
+    let headers = mul(
+        n,
+        std::mem::size_of::<Vec<u8>>() + std::mem::size_of::<[i16; 4]>(),
+    )?;
+    charge(
+        add(mul(n, 4)?, 1)?,
+        add(add(headers, mul(n, 256)?)?, 1038)?,
+        mul(n, 256)?,
+    )?;
     let name = subset_postscript_name(closure.font_instance_id())?;
     let mut mapping = BTreeMap::new();
     let mut widths = BTreeMap::new();
@@ -76,6 +113,12 @@ fn write_subset(
     let mut global: Option<[i16; 4]> = None;
     let mut charstring_bytes = 0u64;
     for (dense, gid) in closure.source_gids().iter().enumerate() {
+        let depth = (usize::BITS
+            - session
+                .cached_glyph_count()
+                .saturating_add(1)
+                .leading_zeros()) as usize;
+        charge(0, 0, depth * 12 * 32)?;
         let glyph = session
             .evaluated_glyph(admission, *gid)?
             .ok_or(Cff1Error::InvalidGlyphClosure)?;
@@ -95,11 +138,17 @@ fn write_subset(
                 None => bbox,
             });
         }
-        let encoded = glyph.canonical_charstring()?;
+        charge(0, 0, mul(glyph.commands().len(), 128)?)?;
+        let length = glyph.canonical_charstring_len()?;
         charstring_bytes = charstring_bytes
-            .checked_add(encoded.len() as u64)
+            .checked_add(length as u64)
             .filter(|n| *n <= max_bytes)
             .ok_or(Cff1Error::SubsetByteLimit)?;
+        charge(0, length, add(mul(glyph.commands().len(), 256)?, length)?)?;
+        let encoded = glyph.canonical_charstring()?;
+        if encoded.len() != length {
+            return Err(Cff1Error::InvalidSubset);
+        }
         charstrings.push(encoded);
         bboxes.push(bbox);
         mapping.insert(
@@ -112,8 +161,14 @@ fn write_subset(
     if bbox[0] >= bbox[2] || bbox[1] >= bbox[3] {
         return Err(Cff1Error::InvalidSubset);
     }
+    budget::cid_tables(
+        n,
+        usize::try_from(charstring_bytes).map_err(|_| Cff1Error::SubsetByteLimit)?,
+        charge,
+    )?;
     let cff = build_cid_cff(&name, bbox, &charstrings)?;
-    let cmap = build_cmap(admission.cmap(), &mapping)?;
+    let cmap = build_cmap_with_charge(admission.cmap(), &mapping, charge)?;
+    budget::copied_tables(admission, n, charge)?;
     let head = build_subset_head(admission.table_bytes(b"head")?, bbox)?;
     let (advances, bearings) = admission.horizontal_metrics();
     let (hhea, hmtx) = build_subset_horizontal_metrics_from(
@@ -168,6 +223,8 @@ fn write_subset(
     if size > max_bytes {
         return Err(Cff1Error::SubsetByteLimit);
     }
+    let output_size = usize::try_from(size).map_err(|_| Cff1Error::SubsetByteLimit)?;
+    charge(1, output_size, add(mul(output_size, 4)?, 1024)?)?;
     let bytes = rebuild_sfnt(tables)?;
     if bytes.len() as u64 != size {
         return Err(Cff1Error::InvalidSubset);
@@ -179,7 +236,9 @@ fn write_subset(
         admission.table_bytes(b"post")?,
         bbox,
     )?;
-    let mut identity = String::from("{\"algorithm\":\"typaxis.cff1-subset/2\",\"byte_length\":");
+    charge(1, 532, 1024)?;
+    let mut identity = String::with_capacity(512);
+    identity.push_str("{\"algorithm\":\"typaxis.cff1-subset/2\",\"byte_length\":");
     identity.push_str(&size.to_string());
     identity.push_str(",\"closure_fingerprint\":");
     push_hash(&mut identity, closure.fingerprint());
@@ -202,14 +261,33 @@ fn write_subset(
         canonical_jcs: identity,
     })
 }
+#[cfg(test)]
 pub(super) fn build_cmap(
     source: &CffCmapV2,
     mapping: &BTreeMap<OriginalGlyphId, SubsetGlyphId>,
 ) -> Result<Vec<u8>, Cff1Error> {
+    build_cmap_with_charge(source, mapping, &mut |_, _, _| Ok(()))
+}
+fn build_cmap_with_charge(
+    source: &CffCmapV2,
+    mapping: &BTreeMap<OriginalGlyphId, SubsetGlyphId>,
+    charge: Charge<'_>,
+) -> Result<Vec<u8>, Cff1Error> {
+    let count = source.base_mapping_count();
+    // Existing format-12 encoder reserves source pairs and selected groups;
+    // both are bounded by the real base-map count (8 + 12 + 12 bytes/pair).
+    charge(
+        add(mul(count, 2)?, 1)?,
+        add(mul(count, 32)?, 28)?,
+        add(mul(count, 160)?, 64)?,
+    )?;
     let base = build_subset_cmap_with_empty(source.base_map(), mapping, true)?;
     let mut selectors: BTreeMap<u32, Vec<(u32, u16)>> = BTreeMap::new();
     if let Some(variation) = source.variation_sequences() {
         variation.visit_pairs(|scalar, selector, _| {
+            // Three coverage binary searches, base/selected tree lookups and
+            // the selector map are bounded by the Unicode/16-bit key domains.
+            charge(0, 0, 768)?;
             let gid = source.glyph_for_sequence(
                 char::from_u32(scalar).unwrap(),
                 Some(char::from_u32(selector).unwrap()),
@@ -219,10 +297,18 @@ pub(super) fn build_cmap(
                 .and_then(|g| mapping.get(&OriginalGlyphId::new(g)))
             {
                 if gid.get() != 0 {
+                    if !selectors.contains_key(&selector) {
+                        charge(1, if selectors.is_empty() { 1536 } else { 512 }, 1)?;
+                    }
                     let values = selectors.entry(selector).or_default();
-                    values
-                        .try_reserve(1)
-                        .map_err(|_| Cff1Error::SubsetByteLimit)?;
+                    if values.len() == values.capacity() {
+                        let next = mul(values.capacity(), 2)?.max(4);
+                        let delta = next - values.capacity();
+                        charge(delta, mul(delta, std::mem::size_of::<(u32, u16)>())?, delta)?;
+                        values
+                            .try_reserve_exact(delta)
+                            .map_err(|_| Cff1Error::SubsetByteLimit)?;
+                    }
                     values.push((scalar, gid.get()));
                 }
             }
@@ -237,6 +323,12 @@ pub(super) fn build_cmap(
         sum.checked_add(4 + 5 * v.len())
             .ok_or(Cff1Error::SubsetByteLimit)
     })?;
+    let mut sort_work = 0;
+    for values in selectors.values() {
+        let bits = (usize::BITS - values.len().leading_zeros()) as usize;
+        sort_work = add(sort_work, mul(mul(values.len(), bits + 1)?, 128)?)?;
+    }
+    charge(1, total, add(mul(total, 2)?, sort_work)?)?;
     let mut uvs = Vec::new();
     uvs.try_reserve_exact(total)
         .map_err(|_| Cff1Error::SubsetByteLimit)?;
@@ -269,6 +361,7 @@ pub(super) fn build_cmap(
         .checked_add(base_subtable.len())
         .and_then(|n| n.checked_add(uvs.len()))
         .ok_or(Cff1Error::SubsetByteLimit)?;
+    charge(1, size, size)?;
     let mut out = Vec::new();
     out.try_reserve_exact(size)
         .map_err(|_| Cff1Error::SubsetByteLimit)?;
@@ -365,6 +458,7 @@ mod tests {
             hex(&subset.sha256()),
             "3b9ddbc2e0415a302c95f550113ddacfcc60d2f6fb219ad7f9296753f8823463"
         );
+        budget_tests::verify(&session, &admission, &closure, &subset);
         let work = (session.operations_used(), session.outline_segments_used());
         let repeated = session.subset(&admission, closure).unwrap();
         assert_eq!(subset.bytes(), repeated.bytes());

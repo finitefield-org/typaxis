@@ -14,6 +14,8 @@ mod semantic_container;
 pub mod book_v2;
 
 #[doc(hidden)]
+pub use semantic_container::{SemanticDescriptionItem, SemanticDescriptionTerm};
+#[doc(hidden)]
 pub use semantic_container::{
     SemanticBlock, SemanticDocument, SemanticFootnoteDefinition, SemanticListItem,
     SemanticTableCell, SemanticTableRow,

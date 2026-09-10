@@ -5,14 +5,28 @@ mod advanced_float;
 mod advanced_header_footer;
 mod atomic_vector;
 mod production_body;
+#[cfg(feature = "book-v2-staging")]
+pub mod book_v2 {
+    pub use crate::production_body::body_flow::book_v2::*;
+}
 
 pub use production_body::{
+    prepare_production_table_footnote_search, prepare_production_table_measurements,
+    prepare_production_table_search, ProductionMeasuredTable, ProductionMeasuredTableCell,
+    ProductionMeasuredTableRow, ProductionMeasuredTableCaption, ProductionTableBreakSearch, ProductionTableCellContent,
+    ProductionTableCellSlice, ProductionTableContentSource, ProductionTableCursor,
+    ProductionTableFootnoteSearch, ProductionTableFootnoteSelection, ProductionTableFootnoteState,
+    ProductionTableFragmentSelection, ProductionTableMeasurements,
     finalize_production_body_math_terminals, paginate_production_body,
     paginate_stable_production_body, prepare_production_body_flow,
-    prepare_production_footnote_demand_search, prepare_production_footnote_search,
+    prepare_production_footnote_demand_search, prepare_production_table_body_search,
+    prepare_production_footnote_search, ProductionBodyCandidatePart,
+    ProductionBodyMixedCandidate, ProductionBodyMixedPageState, ProductionBodyMixedPageSelection,
+    ProductionBodyMixedPageSequence, ProductionBodyMixedStablePages, ProductionBodyMixedPlacedSequence,
+    ProductionBodyMixedPlacedPage, ProductionTablePlacedCellRole, ProductionBodySelectedPart,
     ProductionBodyBreakCandidate, ProductionBodyBreakDecision, ProductionBodyBreakReason,
     ProductionBodyEquationNumber, ProductionBodyFlowItem, ProductionBodyFootnoteCandidate,
-    ProductionBodyFootnoteMathTerminals, ProductionBodyFootnotePageSelection,
+    ProductionBodyFootnoteMathTerminals, ProductionFinalPageGeometry, ProductionFinalPage, ProductionFinalPages, ProductionFinalPageIter, ProductionBodyFootnotePageSelection,
     ProductionBodyFootnotePageSequence, ProductionBodyFootnotePageState,
     ProductionBodyFootnotePlacedFragment, ProductionBodyFootnotePlacedMarker,
     ProductionBodyFootnotePlacedPage, ProductionBodyFootnotePlacedSequence,

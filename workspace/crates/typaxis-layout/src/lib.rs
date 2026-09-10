@@ -9,12 +9,16 @@ mod jpeg;
 mod math;
 mod math_vector;
 mod production_inline;
+#[cfg(feature = "book-v2-staging")]
+pub use production_inline::book_v2;
 mod safe_vector;
 mod semantic_container;
 
 pub use production_inline::{
     layout_production_body_inline_lines, layout_production_inline_lines,
-    prepare_production_inline_items, production_selected_line_contexts,
+    prepare_production_inline_items, prepare_production_inline_items_with_native_context,
+    prepare_production_native_math_context, ProductionNativeMathContext,
+    with_converged_production_body_lines_with_native_context, production_selected_line_contexts,
     prepare_production_footnote_lines, ProductionFootnoteDefinitionLines,
     ProductionFootnoteLineReference, ProductionFootnoteLines, ProductionFootnoteReferencePosition,
     with_converged_production_body_lines, ProductionBodyInlineFrames, ProductionBodyReshapeError,
@@ -22,9 +26,9 @@ pub use production_inline::{
     ProductionInlineFrame, ProductionInlineLineLayout, ProductionInlineParagraphLineLayout,
     ProductionInlinePreparationError, ProductionInlinePreparationErrorKind, ProductionListFrame,
     ProductionPlacedGlyph, ProductionPlacedInline, ProductionPlacedInlineAnchor,
-    ProductionPlacedInlineLine, ProductionPlacedInlineVector, ProductionPlacedTextCluster,
+    ProductionPlacedInlineLine, ProductionPlacedInlineMath, ProductionPlacedInlineVector, ProductionPlacedTextCluster,
     ProductionPreparedInlineAnchor, ProductionPreparedInlineParagraph, ProductionPreparedInlines,
-    ProductionPreparedRasterFigure, ProductionSelectedLineContexts,
+    ProductionPreparedFigure, ProductionFigureMedia, ProductionTableFrame, ProductionSelectedLineContexts,
     ProductionSelectedParagraphContext, ProductionShapedClusterItem,
     PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM, PRODUCTION_INLINE_PREPARATION_ALGORITHM,
 };
@@ -84,6 +88,8 @@ pub use jpeg::{
     STAGING_JPEG_SIZING_ALGORITHM,
 };
 pub use math::{
+    compute_production_native_math, ProductionNativeMathComputationError,
+    ProductionNativeMathComputations, ProductionNativeMathDisplayBlock,
     layout_staging_math, BoundPrecomposedMathSource, MathFlowId, MathReceiptKey,
     PrecomposedMathVectorKind, StagingMathFlow, StagingMathLayout, StagingMathLayoutEpoch,
     StagingMathLayoutError, StagingMathPlacement, ValidatedMathReceipt, ValidatedMathVectorReceipt,

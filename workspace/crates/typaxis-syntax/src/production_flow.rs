@@ -8,14 +8,22 @@ use typaxis_document_package::WireStagingM4ReferenceFormat;
 mod table;
 pub use table::{ProductionTable, ProductionTableRow, ProductionTableCell, ProductionTableSection};
 
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_description_flow.rs"]
+mod descriptions;
+#[cfg(feature = "book-v2-staging")]
+pub use descriptions::{BookV2DescriptionList, BookV2DescriptionItem};
+
 pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/7";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionFlowErrorKind {
     ReceiptMismatch,
+    DescriptionListStaging,
     InvalidStyle,
     InvalidTableGrid,
     MissingTextStyle,
+    MissingReferenceLabel,
     TextLimit,
     NodeLimit,
     AllocationFailure,
@@ -29,10 +37,12 @@ pub struct ProductionFlowError {
 impl std::fmt::Display for ProductionFlowError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let reason = match self.kind {
+            ProductionFlowErrorKind::DescriptionListStaging => "description_list_staging",
             ProductionFlowErrorKind::ReceiptMismatch => "receipt_mismatch",
             ProductionFlowErrorKind::InvalidStyle => "invalid_style",
             ProductionFlowErrorKind::InvalidTableGrid => "invalid_table_grid",
             ProductionFlowErrorKind::MissingTextStyle => "missing_text_style",
+            ProductionFlowErrorKind::MissingReferenceLabel => "missing_reference_label",
             ProductionFlowErrorKind::TextLimit => "text_limit",
             ProductionFlowErrorKind::NodeLimit => "node_limit",
             ProductionFlowErrorKind::AllocationFailure => "allocation_failure",
@@ -56,6 +66,12 @@ pub enum ProductionFlowRegionKind {
     Heading,
     List,
     ListItem,
+    #[cfg(feature = "book-v2-staging")]
+    DescriptionList,
+    #[cfg(feature = "book-v2-staging")]
+    DescriptionItem,
+    #[cfg(feature = "book-v2-staging")]
+    DescriptionTerm,
     Table,
     TableHeadRow,
     TableBodyRow,
@@ -75,6 +91,12 @@ impl ProductionFlowRegionKind {
             Self::Heading => "heading",
             Self::List => "list",
             Self::ListItem => "list_item",
+            #[cfg(feature = "book-v2-staging")]
+            Self::DescriptionList => "description_list",
+            #[cfg(feature = "book-v2-staging")]
+            Self::DescriptionItem => "description_item",
+            #[cfg(feature = "book-v2-staging")]
+            Self::DescriptionTerm => "description_term",
             Self::Table => "table",
             Self::TableHeadRow => "table_head_row",
             Self::TableBodyRow => "table_body_row",
@@ -359,10 +381,16 @@ pub struct SourceTextFlow<'a, P, N> {
     events: Vec<ProductionFlowEvent>,
     paragraphs: Vec<ProductionTextParagraph<'a>>,
     figures: Vec<ProductionFigure<'a>>,
+    #[cfg(feature = "book-v2-staging")]
+    named_page_breaks: Vec<(NodeId, typaxis_core::PageName)>,
     tables: Vec<ProductionTable>,
     table_record_charge: u64,
     lists: Vec<ProductionList>,
     list_items: Vec<ProductionListItem<'a>>,
+    #[cfg(feature = "book-v2-staging")]
+    description_lists: Vec<BookV2DescriptionList>,
+    #[cfg(feature = "book-v2-staging")]
+    description_items: Vec<BookV2DescriptionItem<'a>>,
     footnote_definitions: Vec<ProductionFootnoteDefinition<'a>>,
     footnote_base_style: Option<SemanticContainerInheritanceStyle>,
     generated: typaxis_text::GeneratedTextOverlay,
@@ -452,6 +480,29 @@ impl<'a, P, N> SourceTextFlow<'a, P, N> {
             )
             .ok()
     }
+    /// Actual generated reference text. Page candidates and source-derived
+    /// Text/Number labels occupy distinct PageReference/Counter namespaces.
+    pub fn reference_text(&self, owner: NodeId) -> Option<&str> {
+        self.generated
+            .buffer(page_reference_key(owner))
+            .or_else(|| self.generated.buffer(text_reference_key(owner)))
+            .map(|b| b.utf8())
+    }
+    pub fn reference_provenance(&self, owner: NodeId) -> Option<typaxis_text::GeneratedProvenance> {
+        let key = if self.generated.buffer(page_reference_key(owner)).is_some() {
+            page_reference_key(owner)
+        } else {
+            text_reference_key(owner)
+        };
+        let text = self.generated.buffer(key)?.utf8();
+        self.generated
+            .provenance(
+                key,
+                Utf8ByteOffset::new(0),
+                Utf8ByteOffset::new(u32::try_from(text.len()).ok()?),
+            )
+            .ok()
+    }
     pub const fn generated_text_bytes(&self) -> u64 {
         self.generated.generated_bytes()
     }
@@ -466,6 +517,15 @@ impl<'a, P, N> SourceTextFlow<'a, P, N> {
     }
     pub const fn table_record_charge(&self) -> u64 {
         self.table_record_charge
+    }
+    #[cfg(feature = "book-v2-staging")]
+    pub fn named_page_breaks(&self) -> &[(NodeId, typaxis_core::PageName)] {
+        &self.named_page_breaks
+    }
+    #[cfg(feature = "book-v2-staging")]
+    pub fn page_break_name(&self, owner: NodeId) -> Option<&typaxis_core::PageName> {
+        self.named_page_breaks.binary_search_by_key(&owner, |p| p.0).ok()
+            .map(|index| &self.named_page_breaks[index].1)
     }
     pub fn figures(&self) -> &[ProductionFigure<'a>] {
         &self.figures
@@ -514,6 +574,12 @@ impl<'a> ProductionTextFlow<'a> {
             limits,
             self.page_reference_values.as_deref(),
         )?;
+        #[cfg(feature = "book-v2-staging")]
+        if self.description_lists != observed.description_lists
+            || self.description_items != observed.description_items
+        {
+            return Err(failure(ProductionFlowErrorKind::ReceiptMismatch, owner));
+        }
         if self.events != observed.events
             || self.paragraphs != observed.paragraphs
             || self.tables != observed.tables
@@ -627,10 +693,16 @@ fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
         events: Vec::new(),
         paragraphs: Vec::new(),
         figures: Vec::new(),
+        #[cfg(feature = "book-v2-staging")]
+        named_page_breaks: Vec::new(),
         tables: Vec::new(),
         table_record_charge: 0,
         lists: Vec::new(),
         list_items: Vec::new(),
+        #[cfg(feature = "book-v2-staging")]
+        description_lists: Vec::new(),
+        #[cfg(feature = "book-v2-staging")]
+        description_items: Vec::new(),
         footnote_ordinals,
         generated_records: Vec::new(),
         generated_bytes: 0,
@@ -673,6 +745,9 @@ fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
         });
         collector.end(owner)?;
     }
+    #[cfg(feature = "book-v2-staging")]
+    collector.named_page_breaks.sort_unstable_by_key(|p| p.0);
+    add_source_text_references(&mut collector, limits)?;
     let page_reference_values = add_page_reference_values(&mut collector, values, limits)?;
     let generated = typaxis_text::GeneratedTextOverlay::new(
         collector.generated_records,
@@ -686,10 +761,16 @@ fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
         events: collector.events,
         paragraphs: collector.paragraphs,
         figures: collector.figures,
+        #[cfg(feature = "book-v2-staging")]
+        named_page_breaks: collector.named_page_breaks,
         tables: collector.tables,
         table_record_charge: collector.table_record_charge,
         lists: collector.lists,
         list_items: collector.list_items,
+        #[cfg(feature = "book-v2-staging")]
+        description_lists: collector.description_lists,
+        #[cfg(feature = "book-v2-staging")]
+        description_items: collector.description_items,
         footnote_definitions,
         footnote_base_style,
         page_reference_values,
@@ -707,6 +788,18 @@ trait FlowSource<'a> {
         -> Option<&'a SemanticContainerInheritanceStyle>;
     fn language(&self, owner: NodeId) -> Option<&'a str>;
     fn anchors(&self) -> &'a [(AnchorId, NodeId)];
+    fn source_text_references(&self) -> bool {
+        false
+    }
+    fn reference_number(&self, _anchor: &str) -> Option<&'a str> {
+        None
+    }
+    fn reference_label(&self, _target: NodeId) -> Option<&'a str> {
+        None
+    }
+    fn heading_label(&self, _target: NodeId) -> bool {
+        false
+    }
 }
 struct LegacyFlowSource<'a> {
     package: &'a ValidatedStagingSemanticPackage,
@@ -747,10 +840,16 @@ struct Collector<'a, S: FlowSource<'a>> {
     events: Vec<ProductionFlowEvent>,
     paragraphs: Vec<ProductionTextParagraph<'a>>,
     figures: Vec<ProductionFigure<'a>>,
+    #[cfg(feature = "book-v2-staging")]
+    named_page_breaks: Vec<(NodeId, typaxis_core::PageName)>,
     tables: Vec<ProductionTable>,
     table_record_charge: u64,
     lists: Vec<ProductionList>,
     list_items: Vec<ProductionListItem<'a>>,
+    #[cfg(feature = "book-v2-staging")]
+    description_lists: Vec<BookV2DescriptionList>,
+    #[cfg(feature = "book-v2-staging")]
+    description_items: Vec<BookV2DescriptionItem<'a>>,
     footnote_ordinals: Vec<(&'a str, u32)>,
     generated_records: Vec<(typaxis_core::GeneratedBufferKey, String)>,
     generated_bytes: u64,
@@ -873,7 +972,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         classes: &[String],
         parent: Option<&SemanticContainerInheritanceStyle>,
     ) -> Result<SemanticContainerInheritanceStyle, ProductionFlowError> {
-        cascade_staging_semantic_descendant_style(kind, classes, &self.rules.ordinary, parent)
+        self.rules.descendant_style(kind, classes, &self.rules.ordinary, parent)
             .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))
     }
     fn blocks(
@@ -884,9 +983,17 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         use ProductionFlowRegionKind as Kind;
         for block in blocks {
             let owner = NodeId::new(block.node_id());
+            #[cfg(feature = "book-v2-staging")]
+            if let WireSemanticBlock::DescriptionList { items, .. } = block {
+                self.description_list(owner, block.classes(), items, parent)?;
+                continue;
+            }
             let kind = match block {
                 WireSemanticBlock::Paragraph { .. } => Kind::Paragraph,
                 WireSemanticBlock::Heading { .. } => Kind::Heading,
+                WireSemanticBlock::DescriptionList { .. } => {
+                    return Err(failure(ProductionFlowErrorKind::DescriptionListStaging, owner));
+                }
                 WireSemanticBlock::List { .. } => Kind::List,
                 WireSemanticBlock::Table { .. } => Kind::Table,
                 WireSemanticBlock::Figure { .. } => Kind::Figure,
@@ -928,9 +1035,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                         .try_reserve(1)
                         .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
                     let page_name = self
-                        .rules
-                        .ordinary
-                        .cascade_basic_document(kind.as_str(), block.classes())
+                        .rules.cascade_ordinary(kind.as_str(), block.classes())
                         .and_then(|computed| computed.page_name())
                         .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
                     self.paragraphs.push(ProductionTextParagraph {
@@ -948,6 +1053,9 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                         .ok_or_else(|| failure(ProductionFlowErrorKind::ReceiptMismatch, owner))?;
                     self.blocks(blocks, Some(style))?;
                 }
+                WireSemanticBlock::DescriptionList { .. } => {
+                    return Err(failure(ProductionFlowErrorKind::DescriptionListStaging, owner));
+                }
                 WireSemanticBlock::List {
                     ordered,
                     start,
@@ -958,9 +1066,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                     let list_index = u32::try_from(self.lists.len())
                         .map_err(|_| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
                     let page_name = self
-                        .rules
-                        .ordinary
-                        .cascade_basic_document("list", block.classes())
+                        .rules.cascade_ordinary("list", block.classes())
                         .and_then(|s| s.page_name())
                         .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
                     self.lists
@@ -1045,9 +1151,18 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                         self.end(item_owner)?;
                     }
                 }
-                WireSemanticBlock::Table { head, body, .. } => {
+                WireSemanticBlock::Table { caption, head, body, .. } => {
                     let style = self.ordinary(owner, "table", block.classes(), parent)?;
+                    let index = self.tables.len();
                     self.table(block, style.clone())?;
+                    if let Some(caption) = caption {
+                        self.table_record_charge = self.table_record_charge.checked_add(1)
+                            .filter(|n| *n <= self.source.limits().get().max_fragments)
+                            .ok_or_else(|| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
+                        let start = self.events.len();
+                        self.blocks(caption, Some(&style))?;
+                        self.tables[index].caption_events = Some(start..self.events.len());
+                    }
                     for (rows, row_kind) in [(head, Kind::TableHeadRow), (body, Kind::TableBodyRow)]
                     {
                         for row in rows {
@@ -1056,7 +1171,14 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                             for cell in &row.cells {
                                 let cell_owner = NodeId::new(cell.node_id);
                                 self.begin(cell_owner, Kind::TableCell)?;
-                                self.blocks(&cell.blocks, Some(&style))?;
+                                let cell_style = inherit_cell_style(
+                                    cell_owner,
+                                    cell.classes.as_deref().unwrap_or(&[]),
+                                    &self.rules,
+                                    &style,
+                                )
+                                    .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, cell_owner))?;
+                                self.blocks(&cell.blocks, Some(&cell_style))?;
                                 self.end(cell_owner)?;
                             }
                             self.end(row_owner)?;
@@ -1072,9 +1194,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                 } => {
                     let style = self.ordinary(owner, "figure", block.classes(), parent)?;
                     let page_name = self
-                        .rules
-                        .ordinary
-                        .cascade_basic_document("figure", block.classes())
+                        .rules.cascade_ordinary("figure", block.classes())
                         .and_then(|computed| computed.page_name())
                         .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
                     self.figures
@@ -1094,9 +1214,26 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                     self.blocks(caption, Some(&style))?;
                 }
                 WireSemanticBlock::VectorFigure { caption, .. } => self.blocks(caption, parent)?,
+                WireSemanticBlock::PageBreak { .. } => {
+                    #[cfg(feature = "book-v2-staging")]
+                    if self.rules.book_v2 {
+                        if let Some(name) = self.rules.cascade_ordinary("page_break", block.classes())
+                            .and_then(|s| s.page_name())
+                            .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))? {
+                            if self.named_page_breaks.len() as u64 >= self.source.limits().get().max_fragments {
+                                return Err(failure(ProductionFlowErrorKind::NodeLimit, owner));
+                            }
+                            self.retained_text_bytes = self.retained_text_bytes.checked_add(name.as_str().len() as u64)
+                                .filter(|n| *n <= self.source.limits().get().max_text_bytes)
+                                .ok_or_else(|| failure(ProductionFlowErrorKind::TextLimit, owner))?;
+                            self.named_page_breaks.try_reserve(1)
+                                .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+                            self.named_page_breaks.push((owner, name));
+                        }
+                    }
+                }
                 WireSemanticBlock::DisplayMath { .. }
-                | WireSemanticBlock::MathVectorBlock { .. }
-                | WireSemanticBlock::PageBreak { .. } => {}
+                | WireSemanticBlock::MathVectorBlock { .. } => {}
             }
             self.end(owner)?;
         }
@@ -1266,6 +1403,16 @@ fn encode_source_flow<P, N>(
                 s.push_str(&format!("[\"paragraph\",{index}]"))
             }
             ProductionFlowEvent::End { owner } => s.push_str(&format!("[\"end\",{}]", owner.get())),
+        }
+    }
+    #[cfg(feature = "book-v2-staging")]
+    if !flow.named_page_breaks.is_empty() {
+        s.push_str("],\"explicit_page_break_names\":[");
+        for (index, (owner, name)) in flow.named_page_breaks.iter().enumerate() {
+            if index != 0 { s.push(','); }
+            s.push_str(&format!("[{},", owner.get()));
+            push_jcs_string(&mut s, name.as_str());
+            s.push(']');
         }
     }
     s.push_str("],\"footnote_definitions\":[");
@@ -2025,3 +2172,7 @@ mod tests {
 #[path = "production_page_references.rs"]
 mod production_page_references;
 use production_page_references::{add_page_reference_values, page_reference_key};
+
+#[path = "production_text_references.rs"]
+mod production_text_references;
+use production_text_references::{add_source_text_references, text_reference_key};

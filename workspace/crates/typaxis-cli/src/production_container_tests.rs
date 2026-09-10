@@ -98,7 +98,7 @@ fn production_body_container_raster_caption_and_list_share_the_parent_frame() {
             .find(|f| {
                 matches!(
                     f.source(),
-                    typaxis_pagination::ProductionBodyFragmentSource::RasterFigure { .. }
+                    typaxis_pagination::ProductionBodyFragmentSource::Figure { .. }
                 )
             })
             .unwrap();

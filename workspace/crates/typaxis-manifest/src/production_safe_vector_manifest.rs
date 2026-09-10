@@ -121,11 +121,11 @@ pub fn build_production_safe_vector_manifest(
         }
     }
     for draw in display.draws() {
-        if let typaxis_display_list::ProductionBodyDraw::Vector(vector) = draw {
+        if let Some(vector) = draw.vector_paint() {
             charge_text(
                 navigation
                     .languages()
-                    .record(vector.binding().node_id())
+                    .record(vector.owner())
                     .ok_or(E::ReceiptMismatch)?
                     .effective_language
                     .as_ref(),
@@ -163,11 +163,10 @@ pub fn build_production_safe_vector_manifest(
         BTreeMap::<VectorContentKey, Vec<StagingSafeVectorManifestPlacementV2>>::new();
     let mut placement_count = 0u32;
     for (paint, draw) in display.draws().iter().enumerate() {
-        let typaxis_display_list::ProductionBodyDraw::Vector(vector) = draw else {
+        let Some(vector) = draw.vector_paint() else {
             continue;
         };
-        let binding = vector.binding();
-        let owner = binding.node_id();
+        let owner = vector.owner();
         let usage = contribution
             .usages()
             .get(placement_count as usize)
@@ -178,11 +177,11 @@ pub fn build_production_safe_vector_manifest(
             .ok_or(E::ReceiptMismatch)?;
         if usage.usage_id() != placement_count
             || observed.usage_id() != placement_count
-            || usage.image_id() != binding.resource().image_id()
+            || usage.image_id() != vector.image_id()
             || *usage.content_key() != vector.content_key()
             || usage.page_index() != vector.page_index()
             || usage.paint_ordinal() as usize != paint
-            || usage.semantic_hook().kind() != binding.kind().into()
+            || usage.semantic_hook().kind() != vector.kind()
             || usage.semantic_hook().owner() != owner
             || usage.semantic_hook().display_command_fingerprint() != vector.fingerprint()
             || observed.page_index() != vector.page_index()
@@ -191,17 +190,42 @@ pub fn build_production_safe_vector_manifest(
         {
             return Err(E::ReceiptMismatch);
         }
-        let group_index = structure
-            .groups()
-            .partition_point(|g| g.draws().end <= paint);
-        let group = structure
-            .groups()
-            .get(group_index)
-            .ok_or(E::ReceiptMismatch)?;
-        if group.vector_usage_id() != Some(placement_count) || !group.draws().contains(&paint) {
-            return Err(E::ReceiptMismatch);
-        }
-        let kind: StagingCombinedVectorKindV2 = binding.kind().into();
+        let fragment_ordinal = if display
+            .table_draw_role(paint)
+            .is_some_and(|role| role.repeated_header())
+        {
+            if !pdf.tagged_observation().vector_is_artifact(placement_count) {
+                return Err(E::ReceiptMismatch);
+            }
+            // The copy repeats the source fragment; it has no new semantic
+            // fragment or MCID. Its distinct paint/page/usage remain recorded.
+            let node = structure
+                .registry()
+                .source_node(owner)
+                .ok_or(E::ReceiptMismatch)?;
+            let index = *structure
+                .node_groups(node.structure_node_id())
+                .and_then(|groups| groups.first())
+                .ok_or(E::ReceiptMismatch)?;
+            structure
+                .groups()
+                .get(index)
+                .ok_or(E::ReceiptMismatch)?
+                .semantic_fragment_ordinal()
+        } else {
+            let group_index = structure
+                .groups()
+                .partition_point(|g| g.draws().end <= paint);
+            let group = structure
+                .groups()
+                .get(group_index)
+                .ok_or(E::ReceiptMismatch)?;
+            if group.vector_usage_id() != Some(placement_count) || !group.draws().contains(&paint) {
+                return Err(E::ReceiptMismatch);
+            }
+            group.semantic_fragment_ordinal()
+        };
+        let kind = vector.kind();
         let authored_actual_text_sha256 = if kind == StagingCombinedVectorKindV2::InlineVector {
             package
                 .precomposed_vector_metrics_for(owner)
@@ -211,69 +235,88 @@ pub fn build_production_safe_vector_manifest(
         } else {
             None
         };
-        let details = match binding.placement() {
-            PrecomposedVectorPlacementInput::Inline(value) => {
-                StagingSafeVectorPlacementDetailsV2::Inline {
-                    metrics: metric_fact(value.metrics()),
-                    spacing_before: value.spacing_before().get().raw(),
-                    spacing_after: value.spacing_after().get().raw(),
+        let (span, alternative_sha256, metric_receipt_fingerprint, binding_fingerprint, details) =
+            match vector {
+                typaxis_display_list::ProductionVectorPaint::Figure(figure) => (
+                    figure.source().source_span(),
+                    sha256(figure.alternative().as_bytes()),
+                    None,
+                    None,
+                    StagingSafeVectorPlacementDetailsV2::Figure { placement: "block" },
+                ),
+                typaxis_display_list::ProductionVectorPaint::Precomposed(vector) => {
+                    let binding = vector.binding();
+                    let details = match binding.placement() {
+                        PrecomposedVectorPlacementInput::Inline(value) => {
+                            StagingSafeVectorPlacementDetailsV2::Inline {
+                                metrics: metric_fact(value.metrics()),
+                                spacing_before: value.spacing_before().get().raw(),
+                                spacing_after: value.spacing_after().get().raw(),
+                            }
+                        }
+                        PrecomposedVectorPlacementInput::VectorFigure(value) => {
+                            StagingSafeVectorPlacementDetailsV2::VectorFigure {
+                                style_fingerprint: value.style().fingerprint(),
+                                alignment: value.style().text_align().as_str(),
+                                space_before: value.style().space_before().get().raw(),
+                                space_after: value.style().space_after().get().raw(),
+                                start_indent: value.style().start_indent().get().raw(),
+                                end_indent: value.style().end_indent().get().raw(),
+                                keep_caption: value.style().keep_caption(),
+                                keep_with_next: value.style().keep_with_next(),
+                            }
+                        }
+                        PrecomposedVectorPlacementInput::MathVectorBlock(value) => {
+                            let flow = flows.get(&owner).ok_or(E::ReceiptMismatch)?;
+                            let terminal = display
+                                .source()
+                                .terminals()
+                                .receipts()
+                                .get(flow.flow_id().get() as usize)
+                                .ok_or(E::ReceiptMismatch)?;
+                            if terminal.owner() != owner
+                                || terminal.flow_id() != flow.flow_id()
+                                || terminal.flow_fingerprint() != flow.fingerprint()
+                                || terminal.terminal() != flow.terminal()
+                            {
+                                return Err(E::ReceiptMismatch);
+                            }
+                            StagingSafeVectorPlacementDetailsV2::MathVectorBlock {
+                                metrics: metric_fact(value.metrics()),
+                                style_fingerprint: value.style().fingerprint(),
+                                alignment: value.style().text_align().as_str(),
+                                space_before: value.style().space_before().get().raw(),
+                                space_after: value.style().space_after().get().raw(),
+                                start_indent: value.style().start_indent().get().raw(),
+                                end_indent: value.style().end_indent().get().raw(),
+                                keep_with_next: value.style().keep_with_next(),
+                                flow_id: flow.flow_id().get(),
+                                flow_fingerprint: flow.fingerprint(),
+                                parent_flow_id: flow.parent_flow_id().get(),
+                                parent_position: flow.parent_position(),
+                                terminal: terminal.terminal().get(),
+                                terminal_receipt_fingerprint: terminal.fingerprint(),
+                            }
+                        }
+                    };
+                    (
+                        binding.owner_source_span(),
+                        binding.alternative_sha256(),
+                        Some(binding.metrics_fingerprint()),
+                        Some(binding.fingerprint()),
+                        details,
+                    )
                 }
-            }
-            PrecomposedVectorPlacementInput::VectorFigure(value) => {
-                StagingSafeVectorPlacementDetailsV2::VectorFigure {
-                    style_fingerprint: value.style().fingerprint(),
-                    alignment: value.style().text_align().as_str(),
-                    space_before: value.style().space_before().get().raw(),
-                    space_after: value.style().space_after().get().raw(),
-                    start_indent: value.style().start_indent().get().raw(),
-                    end_indent: value.style().end_indent().get().raw(),
-                    keep_caption: value.style().keep_caption(),
-                    keep_with_next: value.style().keep_with_next(),
-                }
-            }
-            PrecomposedVectorPlacementInput::MathVectorBlock(value) => {
-                let flow = flows.get(&owner).ok_or(E::ReceiptMismatch)?;
-                let terminal = display
-                    .source()
-                    .terminals()
-                    .receipts()
-                    .get(flow.flow_id().get() as usize)
-                    .ok_or(E::ReceiptMismatch)?;
-                if terminal.owner() != owner
-                    || terminal.flow_id() != flow.flow_id()
-                    || terminal.flow_fingerprint() != flow.fingerprint()
-                    || terminal.terminal() != flow.terminal()
-                {
-                    return Err(E::ReceiptMismatch);
-                }
-                StagingSafeVectorPlacementDetailsV2::MathVectorBlock {
-                    metrics: metric_fact(value.metrics()),
-                    style_fingerprint: value.style().fingerprint(),
-                    alignment: value.style().text_align().as_str(),
-                    space_before: value.style().space_before().get().raw(),
-                    space_after: value.style().space_after().get().raw(),
-                    start_indent: value.style().start_indent().get().raw(),
-                    end_indent: value.style().end_indent().get().raw(),
-                    keep_with_next: value.style().keep_with_next(),
-                    flow_id: flow.flow_id().get(),
-                    flow_fingerprint: flow.fingerprint(),
-                    parent_flow_id: flow.parent_flow_id().get(),
-                    parent_position: flow.parent_position(),
-                    terminal: terminal.terminal().get(),
-                    terminal_receipt_fingerprint: terminal.fingerprint(),
-                }
-            }
-        };
-        let span = binding.owner_source_span();
+            };
         let mut placement = StagingSafeVectorManifestPlacementV2 {
             usage_id: placement_count,
             owner,
             kind,
-            image_id: binding.resource().image_id(),
+            image_id: vector.image_id(),
             source_id: span.source_id().get(),
             source_start: span.start_byte().get(),
             source_end: span.end_byte().get(),
-            alternative_sha256: binding.alternative_sha256(),
+            alternative_sha256,
             authored_actual_text_sha256,
             language: navigation
                 .languages()
@@ -283,13 +326,13 @@ pub fn build_production_safe_vector_manifest(
                 .to_string(),
             page_index: vector.page_index(),
             frame_index: vector.fragment_index(),
-            fragment_ordinal: group.semantic_fragment_ordinal(),
+            fragment_ordinal,
             paint_ordinal: usage.paint_ordinal(),
             viewport: vector.viewport(),
             scale: vector.scale_raw(),
             matrix: vector.matrix(),
-            metric_receipt_fingerprint: Some(binding.metrics_fingerprint()),
-            binding_fingerprint: Some(binding.fingerprint()),
+            metric_receipt_fingerprint,
+            binding_fingerprint,
             // The common selected draw binds its source and physical placement
             // in one receipt, rather than separate staging placement/paint rows.
             selected_placement_fingerprint: vector.fingerprint(),

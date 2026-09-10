@@ -21,9 +21,13 @@ pub enum BookV2SemanticContainerKind {
     CommonError,
     FormalizationNote,
     Quote,
+    ExercisePart,
+    Choice,
+    Hint,
+    Assumption,
 }
 impl BookV2SemanticContainerKind {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 16] = [
         Self::Result,
         Self::Proof,
         Self::Exercise,
@@ -36,6 +40,10 @@ impl BookV2SemanticContainerKind {
         Self::CommonError,
         Self::FormalizationNote,
         Self::Quote,
+        Self::ExercisePart,
+        Self::Choice,
+        Self::Hint,
+        Self::Assumption,
     ];
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -51,6 +59,10 @@ impl BookV2SemanticContainerKind {
             Self::CommonError => "common_error",
             Self::FormalizationNote => "formalization_note",
             Self::Quote => "quote",
+            Self::ExercisePart => "exercise_part",
+            Self::Choice => "choice",
+            Self::Hint => "hint",
+            Self::Assumption => "assumption",
         }
     }
 }
@@ -61,3 +73,10 @@ pub type BookV2TableCell = SemanticTableCell<BookV2SemanticContainerKind>;
 pub type BookV2TableRow = SemanticTableRow<BookV2SemanticContainerKind>;
 pub type BookV2FootnoteDefinition = SemanticFootnoteDefinition<BookV2SemanticContainerKind>;
 pub type BookV2Document = SemanticDocument<BookV2SemanticContainerKind>;
+
+pub use crate::SemanticDescriptionTerm as BookV2DescriptionTerm;
+pub type BookV2DescriptionItem = crate::SemanticDescriptionItem<BookV2SemanticContainerKind>;
+
+#[path = "book_v2_language.rs"]
+mod language;
+pub use language::BookV2LanguageNodeKind;

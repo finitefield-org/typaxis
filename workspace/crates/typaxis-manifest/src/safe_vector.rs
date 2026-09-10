@@ -429,6 +429,9 @@ fn first_precomposed_vector_owner(blocks: &[StagingM4Block]) -> Option<NodeId> {
             }
             StagingM4Block::VectorFigure { common, .. }
             | StagingM4Block::MathVectorBlock { common, .. } => Some(common.node_id),
+            StagingM4Block::DescriptionList { items, .. } => items.iter().find_map(|item|
+                item.term.inline_vectors.first().map(|v| v.node_id)
+                    .or_else(|| first_precomposed_vector_owner(&item.blocks))),
             StagingM4Block::List { items, .. } => items
                 .iter()
                 .find_map(|item| first_precomposed_vector_owner(&item.blocks)),

@@ -118,6 +118,9 @@ pub struct CffEvaluatedGlyphV2 {
     source_width_fixed: i32,
 }
 impl CffEvaluatedGlyphV2 {
+    pub(super) fn canonical_charstring_len(&self) -> Result<usize, Cff1Error> {
+        canonical_charstring_len(self.advance, &self.outline.segments)
+    }
     pub(super) fn canonical_charstring(&self) -> Result<Vec<u8>, Cff1Error> {
         canonical_charstring(self.advance, &self.outline.segments)
     }
@@ -174,6 +177,17 @@ impl CffProgramEvaluationSessionV2 {
         gid: u16,
         advance: u16,
     ) -> Result<CffEvaluatedGlyphV2, CffGlyphFailureV2> {
+        self.evaluate_with_charge(inspection, gid, advance, &mut |_, _, _| Ok(()))
+    }
+    /// The caller's cumulative allocation/work counters are checked before
+    /// growth and execution; this session's Type2 counters are never reset.
+    pub fn evaluate_with_charge(
+        &mut self,
+        inspection: &CffProgramInspectionV2,
+        gid: u16,
+        advance: u16,
+        charge: &mut dyn FnMut(usize, usize, usize) -> Result<(), Cff1Error>,
+    ) -> Result<CffEvaluatedGlyphV2, CffGlyphFailureV2> {
         let program = &inspection.program;
         let fd = program
             .fd_by_gid
@@ -194,18 +208,23 @@ impl CffProgramEvaluationSessionV2 {
             invalid_width: Cell::new(false),
             source_width: Cell::new(None),
         };
-        let outline = evaluate_type2(&selected, gid, self).map_err(|kind| CffGlyphFailureV2 {
-            kind,
-            reason: if selected.invalid_width.get() {
-                CffGlyphFailureReasonV2::InvalidWidth
-            } else {
-                CffGlyphFailureReasonV2::Execution
-            },
-            gid,
-            fd: Some(fd),
-            table_offset: selected.current.get().map(|v| v.0),
-            operator: selected.current.get().map(|v| v.1),
-        })?;
+        let mut budget = ChargedEvaluation {
+            session: self,
+            charge,
+        };
+        let outline =
+            evaluate_type2(&selected, gid, &mut budget).map_err(|kind| CffGlyphFailureV2 {
+                kind,
+                reason: if selected.invalid_width.get() {
+                    CffGlyphFailureReasonV2::InvalidWidth
+                } else {
+                    CffGlyphFailureReasonV2::Execution
+                },
+                gid,
+                fd: Some(fd),
+                table_offset: selected.current.get().map(|v| v.0),
+                operator: selected.current.get().map(|v| v.1),
+            })?;
         let source_width_fixed = selected.source_width.get().ok_or(CffGlyphFailureV2 {
             kind: Cff1Error::InvalidCharstring,
             reason: CffGlyphFailureReasonV2::InvalidWidth,
@@ -241,5 +260,24 @@ impl Type2WorkBudget for CffProgramEvaluationSessionV2 {
             .ok_or(Cff1Error::OutlineSegmentLimit)?;
         self.segments = next;
         Ok(())
+    }
+}
+
+struct ChargedEvaluation<'a, 'b> {
+    session: &'a mut CffProgramEvaluationSessionV2,
+    charge: &'b mut dyn FnMut(usize, usize, usize) -> Result<(), Cff1Error>,
+}
+impl Type2WorkBudget for ChargedEvaluation<'_, '_> {
+    fn charge_allocation(&mut self, records: usize, bytes: usize) -> Result<(), Cff1Error> {
+        (self.charge)(records, bytes, records + bytes.div_ceil(64))
+    }
+    fn charge_operation(&mut self) -> Result<(), Cff1Error> {
+        self.session.charge_operation()?;
+        // An operator may traverse the bounded 48-operand stack.
+        (self.charge)(0, 0, 64)
+    }
+    fn charge_segment(&mut self) -> Result<(), Cff1Error> {
+        self.session.charge_segment()?;
+        (self.charge)(0, 0, 1)
     }
 }

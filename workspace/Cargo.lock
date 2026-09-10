@@ -425,6 +425,7 @@ dependencies = [
  "typaxis-machine-input",
  "typaxis-machine-profile",
  "typaxis-manifest",
+ "typaxis-math",
  "typaxis-pagination",
  "typaxis-pdf",
  "typaxis-resources",

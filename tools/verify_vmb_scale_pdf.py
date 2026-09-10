@@ -7,9 +7,13 @@ establish full-book convergence, final body shaping or publication typography.
 import argparse
 import hashlib
 import json
+import io
 import subprocess
+from decimal import Decimal, ROUND_HALF_EVEN
 from pathlib import Path
+from xml.etree import ElementTree
 from pypdf import PdfReader
+from PIL import Image
 from pypdf.generic import ContentStream
 
 
@@ -25,6 +29,101 @@ def occurrences(node):
         for key in ('blocks', 'children'):
             for child in node.get(key, []):
                 yield from occurrences(child)
+
+
+def verify_form_geometry(svg, form, reader):
+    """Compare every physical path in this real-engine corpus at PDF fixed precision.
+
+    This deliberately accepts the corpus's explicit M/L/C/Z, identity-transform
+    vocabulary. It is not a replacement for the general Safe-SVG validator.
+    """
+    fixed = lambda value: int((Decimal(str(value)) * 65536).to_integral_value(rounding=ROUND_HALF_EVEN))
+    root = ElementTree.fromstring(svg)
+    require(root.tag.rsplit('}', 1)[-1] == 'svg'
+            and set(root.attrib) == {'width', 'height', 'viewBox'}, 'geometry SVG root')
+    box = root.attrib['viewBox'].split()
+    require(len(box) == 4 and list(map(fixed, box[:2])) == [0, 0], 'geometry SVG viewport')
+    require(root.attrib['width'].endswith('pt') and root.attrib['height'].endswith('pt'), 'geometry physical units')
+    dimensions = list(map(fixed, box[2:]))
+    require(dimensions == [fixed(root.attrib['width'][:-2]), fixed(root.attrib['height'][:-2])], 'geometry uniform unit scale')
+    require(list(map(fixed, form['/BBox'])) == [0, 0, *dimensions], 'geometry Form/source viewport')
+    require(list(map(fixed, form.get('/Matrix', [1, 0, 0, 1, 0, 0])))
+            == [65536, 0, 0, 65536, 0, 0], 'geometry Form matrix')
+    require('/Group' not in form and '/OC' not in form, 'geometry Form visibility')
+    arities = {'M': (2, b'm'), 'L': (2, b'l'), 'C': (6, b'c'), 'Z': (0, b'h')}
+    expected = []
+    for node in root.iter():
+        if node is root:
+            continue
+        tag = node.tag.rsplit('}', 1)[-1]
+        if tag == 'g':
+            require(node.attrib == {'fill': 'currentColor'}, 'geometry group state')
+            continue
+        require(tag == 'path' and set(node.attrib) == {'d'}, 'geometry path vocabulary')
+        tokens = node.attrib['d'].split()
+        path, offset = [], 0
+        while offset < len(tokens):
+            command = tokens[offset]
+            require(command in arities, 'geometry explicit path command')
+            count, operator = arities[command]
+            args = tokens[offset + 1:offset + 1 + count]
+            require(len(args) == count, 'geometry complete path command')
+            path.append((operator, tuple(map(fixed, args))))
+            offset += count + 1
+        require(path and path[0][0] == b'm', 'geometry nonempty path')
+        expected.append(path)
+    require(bool(expected), 'geometry source paths')
+    operations = ContentStream(form, reader).operations
+    require(len(operations) >= 4 and operations[0] == ([], b'q')
+            and operations[1][1] == b're'
+            and list(map(fixed, operations[1][0])) == [0, 0, *dimensions]
+            and operations[2] == ([], b'W') and operations[3] == ([], b'n'), 'geometry root clip')
+    depth, path, index, state = 1, [], 0, [False]
+    for args, op in operations[4:]:
+        if op == b'q':
+            require(depth > 0 and not args, 'geometry graphics-state balance')
+            depth += 1
+            state.append(state[-1])
+        elif op == b'Q':
+            require(depth > 0 and not path and not args, 'geometry graphics-state balance')
+            depth -= 1
+            state.pop()
+        elif op == b'cm':
+            require(depth > 0 and list(map(fixed, args)) == [65536, 0, 0, 65536, 0, 0], 'geometry unexpected transform')
+        elif op == b'gs':
+            require(depth > 0 and len(args) == 1, 'geometry graphics state')
+            gs = form['/Resources']['/ExtGState'][args[0]].get_object()
+            require(set(gs) == {'/Type', '/ca', '/CA'} and gs['/Type'] == '/ExtGState'
+                    and gs['/ca'] == gs['/CA'] == 1, 'geometry opaque paint')
+            state[-1] = True
+        elif op in {b'm', b'l', b'c', b'h'}:
+            require(depth > 0, 'geometry path outside state')
+            path.append((op, tuple(map(fixed, args))))
+        elif op == b'f':
+            require(depth > 0 and state[-1] and not args and index < len(expected)
+                    and path == expected[index], 'geometry path coordinates/order/fill')
+            path = []
+            index += 1
+        else:
+            raise ValueError(f'geometry unsupported PDF operation {op!r}')
+    require(depth == 0 and not path and index == len(expected), 'geometry complete path paint')
+    return len(expected), sum(map(len, expected))
+
+
+def verify_raster_pixels(source, image):
+    """Compare this probe's opaque RGB PNG pixels with the decoded PDF image."""
+    with Image.open(io.BytesIO(source)) as original:
+        original.load()
+        require(original.format == 'PNG' and original.mode == 'RGB'
+                and original.size == (2, 2), 'raster source vocabulary')
+        require(image['/Width'] == image['/Height'] == 2
+                and image['/ColorSpace'] == '/DeviceRGB'
+                and image['/BitsPerComponent'] == 8, 'raster decoded format')
+        require(all(key not in image for key in
+                    ('/Decode', '/Mask', '/SMask', '/ImageMask', '/OC')),
+                'raster unexpected pixel interpretation')
+        require(image.get_data() == original.tobytes(), 'raster source pixel mismatch')
+        return original.width * original.height
 
 
 def verify(job, pdf):
@@ -44,6 +143,7 @@ def verify(job, pdf):
     index = 0
     content_to_object, object_to_content = {}, {}
     form_objects, raster_objects, observed = set(), set(), set()
+    geometry_paths, geometry_segments, raster_pixels = 0, 0, 0
     extracted = []
     for page_index, page in enumerate(reader.pages):
         parent_key = int(page['/StructParents'])
@@ -91,10 +191,19 @@ def verify(job, pdf):
                     viewport = want['metrics']['viewport']
                     require(len(box) == 4 and box[:2] == [0, 0], 'Form BBox origin')
                     require(abs(box[2]-viewport['width']/65536) <= 0.000001 and abs(box[3]-viewport['height']/65536) <= 0.000001, 'Form BBox dimensions')
+                    if key not in form_objects:
+                        svg = (job/image['uri']).read_bytes()
+                        require(hashlib.sha256(svg).hexdigest() == content, 'geometry source hash')
+                        paths, segments = verify_form_geometry(svg, obj, reader)
+                        geometry_paths += paths
+                        geometry_segments += segments
                     form_objects.add(key)
                     extracted.append(want['actual_text'] or want['alt'])
                 else:
-                    require(obj['/Width'] == obj['/Height'] == 2, 'raster dimensions')
+                    if key not in raster_objects:
+                        source = (job/image['uri']).read_bytes()
+                        require(hashlib.sha256(source).hexdigest() == content, 'raster source hash')
+                        raster_pixels += verify_raster_pixels(source, obj)
                     raster_objects.add(key)
                 node = array[current['mcid']].get_object()
                 require(node['/S'] == current['role'] and str(node['/Alt']) == want['alt'], 'ParentTree occurrence semantics')
@@ -114,6 +223,8 @@ def verify(job, pdf):
     return {'scope': 'scale-probe-only', 'case': inventory['case'], 'pdf_sha256': hashlib.sha256(pdf.read_bytes()).hexdigest(),
             'pages': len(reader.pages), 'declarations': 5000, 'placements': index,
             'forms': len(form_objects), 'raster_xobjects': len(raster_objects), 'mcids': len(observed),
+            'verified_raster_pixels': raster_pixels,
+            'verified_paths': geometry_paths, 'verified_source_segments': geometry_segments,
             'extractors': ['Poppler', 'MuPDF']}
 
 

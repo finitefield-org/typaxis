@@ -42,6 +42,24 @@ impl<'a> FlowSource<'a> for BookV2FlowSource<'a> {
     fn anchors(&self) -> &'a [(AnchorId, NodeId)] {
         self.navigation.anchors()
     }
+    fn source_text_references(&self) -> bool {
+        true
+    }
+    fn reference_number(&self, anchor: &str) -> Option<&'a str> {
+        self.navigation.reference_number(anchor)
+    }
+    fn reference_label(&self, target: NodeId) -> Option<&'a str> {
+        self.navigation
+            .outline()
+            .iter()
+            .find(|e| e.source.node_id == target)
+            .map(|e| e.label.as_str())
+    }
+    fn heading_label(&self, target: NodeId) -> bool {
+        self.navigation
+            .language(target)
+            .is_some_and(|r| r.kind() == typaxis_document::book_v2::BookV2LanguageNodeKind::Heading)
+    }
 }
 
 impl<'a> PreparedBookV2TextFlow<'a> {
@@ -79,11 +97,14 @@ impl<'a> PreparedBookV2TextFlow<'a> {
         let observed = prepare_inner(self.package, self.navigation, self.page_reference_values())?;
         if self.events != observed.events
             || self.paragraphs != observed.paragraphs
+            || self.named_page_breaks != observed.named_page_breaks
             || self.figures != observed.figures
             || self.tables != observed.tables
             || self.table_record_charge != observed.table_record_charge
             || self.lists != observed.lists
             || self.list_items != observed.list_items
+            || self.description_lists != observed.description_lists
+            || self.description_items != observed.description_items
             || self.footnote_definitions != observed.footnote_definitions
             || self.footnote_base_style != observed.footnote_base_style
             || self.generated != observed.generated
@@ -124,7 +145,7 @@ fn prepare_inner<'a>(
         .map_err(|_| failure(ProductionFlowErrorKind::ReceiptMismatch, root))?;
     let wire = body.body().wire();
     let limits = body.body().limits();
-    let rules = lower_semantic_style_rules(wire.style_sheet(), limits)
+    let rules = lower_semantic_style_rules_version(wire.style_sheet(), limits, true)
         .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, root))?;
     let mut flow = collect_source_flow(
         BookV2FlowSource { body, navigation },
@@ -171,3 +192,10 @@ fn prepare_inner<'a>(
 #[cfg(test)]
 #[path = "book_v2_flow_tests.rs"]
 mod tests;
+
+#[path = "book_v2_page_region_flow.rs"]
+mod page_regions;
+pub use page_regions::{
+    prepare_book_v2_page_region_text_flow, BookV2PageRegionKind, BookV2PageRegionTextFlow,
+    BOOK_V2_PAGE_REGION_FLOW_ALGORITHM,
+};

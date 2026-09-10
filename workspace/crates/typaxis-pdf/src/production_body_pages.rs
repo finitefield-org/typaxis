@@ -30,6 +30,7 @@ pub enum ProductionBodyPageError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyPageDrawSource {
     Text { paint_index: usize },
+    NativeMath { paint_index: usize },
     Vector { usage_index: usize },
     Raster { plan_index: usize },
 }
@@ -261,7 +262,9 @@ fn build_page_projection<'c>(
             let draw_page = match draw {
                 ProductionBodyDraw::Text(t) => t.page_index(),
                 ProductionBodyDraw::Vector(v) => v.page_index(),
+                ProductionBodyDraw::SvgFigure(r) => r.page_index(),
                 ProductionBodyDraw::Raster(r) => r.page_index(),
+                ProductionBodyDraw::Math(m) => m.page_index(),
             };
             if draw_page > page.page_index {
                 break;
@@ -306,8 +309,23 @@ fn build_page_projection<'c>(
                     separator_index += 1;
                 }
             }
-            let raster_bytes;
+            let mut raster_bytes;
             let (source, bytes) = match draw {
+                ProductionBodyDraw::Math(_) => {
+                    let paint = text_paints.get(text_index).ok_or(E::ReceiptMismatch)?;
+                    if !paint.is_native_math()
+                        || paint.draw_index() != draw_index
+                        || paint.page_index() != page.page_index
+                    {
+                        return Err(E::ReceiptMismatch);
+                    }
+                    let bytes = text_bytes(text_index).ok_or(E::ReceiptMismatch)?;
+                    let source = ProductionBodyPageDrawSource::NativeMath {
+                        paint_index: text_index,
+                    };
+                    text_index += 1;
+                    (source, bytes)
+                }
                 ProductionBodyDraw::Text(_) => {
                     let paint = text_paints.get(text_index).ok_or(E::ReceiptMismatch)?;
                     if paint.draw_index() != draw_index || paint.page_index() != page.page_index {
@@ -320,7 +338,8 @@ fn build_page_projection<'c>(
                     text_index += 1;
                     (source, bytes)
                 }
-                ProductionBodyDraw::Vector(v) => {
+                ProductionBodyDraw::Vector(_) | ProductionBodyDraw::SvgFigure(_) => {
+                    let v = draw.vector_paint().ok_or(E::ReceiptMismatch)?;
                     let usage = vectors
                         .usages()
                         .get(vector_index)
@@ -344,14 +363,31 @@ fn build_page_projection<'c>(
                         .y()
                         .checked_add(viewport.height().get())
                         .ok_or(E::OutputLimit)?;
-                    let n = crate::tagged_pdf_v2::pdf_number_v2;
-                    raster_bytes = format!(
-                        "q\n{} 0 0 -{} {} {} cm\n/PBR{plan_index} Do\nQ\n",
-                        n(viewport.width().get().raw()),
-                        n(viewport.height().get().raw()),
-                        n(viewport.x().raw()),
-                        n(bottom.raw())
-                    );
+                    raster_bytes = String::new();
+                    struct RasterSink<'a>(&'a mut String);
+                    impl crate::font_encoding::Sink for RasterSink<'_> {
+                        type Error = E;
+                        fn extend(&mut self, bytes: &[u8]) -> Result<(), E> {
+                            self.0.push_str(
+                                std::str::from_utf8(bytes).map_err(|_| E::ReceiptMismatch)?,
+                            );
+                            Ok(())
+                        }
+                    }
+                    crate::image_encoding::raster_placement(
+                        &mut RasterSink(&mut raster_bytes),
+                        [
+                            viewport.width().get().raw(),
+                            -viewport.height().get().raw(),
+                            viewport.x().raw(),
+                            bottom.raw(),
+                        ],
+                        |out| {
+                            use crate::font_encoding::Sink;
+                            out.extend(b"PBR")?;
+                            out.unsigned(plan_index as u64)
+                        },
+                    )?;
                     (
                         ProductionBodyPageDrawSource::Raster { plan_index },
                         raster_bytes.as_bytes(),

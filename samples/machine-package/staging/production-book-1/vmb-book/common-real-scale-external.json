@@ -1,0 +1,468 @@
+{
+  "scope": "Real VMB engine diagnostic scale packages through the public common writer; not formal exporter, original full book, managed-host or human acceptance.",
+  "result": "passed",
+  "timing_scope": "Exploratory observations. Mixed and alias builds ran concurrently; checks overlapped validators. Not controlled 1000/2500/5000 baseline.",
+  "limitations": [
+    "Root layout pass_count and selected_state are legacy fixed 1 in these artifacts; cumulative pass accounting remains a finding.",
+    "Independent geometry verifier is scoped to this real-engine M/L/C/Z corpus; it does not reconstruct all page placement geometry.",
+    "Visual inspection sampled distinct pages 1, 193 and 385 only."
+  ],
+  "cases": {
+    "distinct": {
+      "package_sha256": "ed0194b9895697bfc5685fe26955f778294766c8624059d01380ac6d06fb8ccd",
+      "package_path": "/private/tmp/typaxis-real-distinct-5000-v2/document-package.json",
+      "binary_sha256": "9d433a5fdebfd6b303eb35468641ba52d9709640d244fc3523ccfb82a5aa5eb1",
+      "build_exit": 0,
+      "check_exit": 0,
+      "geometry_exit": 0,
+      "verapdf_exit": 0,
+      "manifest_child_closure": "passed",
+      "build_timing": {
+        "real_seconds": 514.81,
+        "user_seconds": 503.11,
+        "sys_seconds": 6.75,
+        "max_rss_bytes": 2002780160
+      },
+      "check_timing": {
+        "real_seconds": 120.76,
+        "user_seconds": 118.83,
+        "sys_seconds": 1.21,
+        "max_rss_bytes": 639008768
+      },
+      "geometry": {
+        "scope": "scale-probe-only",
+        "case": "distinct",
+        "pdf_sha256": "bd2e80d189013fc24011dd9ae1463919e90731de5cb9212f529414303622240d",
+        "pages": 385,
+        "declarations": 5000,
+        "placements": 5000,
+        "forms": 5000,
+        "raster_xobjects": 0,
+        "mcids": 5000,
+        "verified_raster_pixels": 0,
+        "verified_paths": 71682,
+        "verified_source_segments": 1521172,
+        "extractors": [
+          "Poppler",
+          "MuPDF"
+        ]
+      },
+      "output": {
+        "bytes": 138873113,
+        "page_count": 385,
+        "pdf_object_count": 18670,
+        "sha256": "bd2e80d189013fc24011dd9ae1463919e90731de5cb9212f529414303622240d",
+        "sink": "file"
+      },
+      "artifacts": {
+        "book.pdf": {
+          "bytes": 138873113,
+          "sha256": "bd2e80d189013fc24011dd9ae1463919e90731de5cb9212f529414303622240d",
+          "local_path": "/private/tmp/typaxis-common-real-distinct/book.pdf"
+        },
+        "build-manifest.json": {
+          "bytes": 26714541,
+          "sha256": "ec9bb58d75c5564ad7d618c06d0729a9271c0e30d06ed9600fdfae50db65c028",
+          "local_path": "/private/tmp/typaxis-common-real-distinct/build-manifest.json"
+        },
+        "trace.json": {
+          "bytes": 705,
+          "sha256": "d4ff5d3b585beb663fd71bcd2ff7fa81ff8e08a0c2b213e7c64cb170128750c2",
+          "local_path": "/private/tmp/typaxis-common-real-distinct/trace.json"
+        },
+        "build-diagnostics.json": {
+          "bytes": 52,
+          "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+          "local_path": "/private/tmp/typaxis-common-real-distinct/build-diagnostics.json"
+        },
+        "check-diagnostics.json": {
+          "bytes": 52,
+          "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+          "local_path": "/private/tmp/typaxis-common-real-distinct/check-diagnostics.json"
+        },
+        "scale-geometry-final.json": {
+          "bytes": 376,
+          "sha256": "330e59459dd86c289669bbaad55ede5c00bf66ed55e885fb527e2388ada03fb4",
+          "local_path": "/private/tmp/typaxis-common-real-distinct/scale-geometry-final.json"
+        },
+        "verapdf.xml": {
+          "bytes": 1366,
+          "sha256": "356c1aea0c8eb321024918d4530fa440ab182066aa5d1349bab09719002cbe44",
+          "local_path": "/private/tmp/typaxis-common-real-distinct/verapdf.xml"
+        },
+        "scale-geometry-pixels.json": {
+          "bytes": 407,
+          "sha256": "e2eb8bfdf8dff7338f409b6e2778292f2ebea2d9da2f1d0893319fb8c49acc52",
+          "local_path": "/private/tmp/typaxis-common-real-distinct/scale-geometry-pixels.json"
+        }
+      },
+      "build_command": [
+        "/usr/bin/time",
+        "-l",
+        "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+        "build-package",
+        "/private/tmp/typaxis-real-distinct-5000-v2/document-package.json",
+        "-o",
+        "/private/tmp/typaxis-common-real-distinct/book.pdf",
+        "--package-root",
+        "/private/tmp/typaxis-real-distinct-5000-v2",
+        "--resource-root",
+        "/private/tmp/typaxis-real-distinct-5000-v2",
+        "--profile",
+        "typaxis.machine-pdf/production-book-1",
+        "--no-compress",
+        "--trace",
+        "/private/tmp/typaxis-common-real-distinct/trace.json",
+        "--trace-text",
+        "--emit-build-manifest",
+        "/private/tmp/typaxis-common-real-distinct/build-manifest.json",
+        "--emit-diagnostics",
+        "/private/tmp/typaxis-common-real-distinct/build-diagnostics.json"
+      ],
+      "check_command": [
+        "/usr/bin/time",
+        "-l",
+        "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+        "check-package",
+        "/private/tmp/typaxis-real-distinct-5000-v2/document-package.json",
+        "--package-root",
+        "/private/tmp/typaxis-real-distinct-5000-v2",
+        "--resource-root",
+        "/private/tmp/typaxis-real-distinct-5000-v2",
+        "--profile",
+        "typaxis.machine-pdf/production-book-1",
+        "--emit-diagnostics",
+        "/private/tmp/typaxis-common-real-distinct/check-diagnostics.json"
+      ],
+      "geometry_command": [
+        "/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "tools/verify_vmb_scale_pdf.py",
+        "/private/tmp/typaxis-real-distinct-5000-v2",
+        "/private/tmp/typaxis-common-real-distinct/book.pdf"
+      ],
+      "verapdf_command": [
+        "/private/tmp/typaxis-verapdf.GY9HZ2/install/verapdf",
+        "--flavour",
+        "ua1",
+        "--format",
+        "xml",
+        "/private/tmp/typaxis-common-real-distinct/book.pdf"
+      ],
+      "verapdf_details": {
+        "passedRules": "106",
+        "failedRules": "0",
+        "passedChecks": "237131",
+        "failedChecks": "0"
+      }
+    },
+    "mixed": {
+      "package_sha256": "b234766f60cb608bd2fe7f89e1ec6ec30edf8f9a81ed35f8065e505b9b282874",
+      "package_path": "/private/tmp/typaxis-real-mixed-5000-v2/document-package.json",
+      "binary_sha256": "9d433a5fdebfd6b303eb35468641ba52d9709640d244fc3523ccfb82a5aa5eb1",
+      "build_exit": 0,
+      "check_exit": 0,
+      "geometry_exit": 0,
+      "verapdf_exit": 0,
+      "manifest_child_closure": "passed",
+      "build_timing": {
+        "real_seconds": 511.07,
+        "user_seconds": 503.66,
+        "sys_seconds": 5.1,
+        "max_rss_bytes": 1970618368
+      },
+      "check_timing": {
+        "real_seconds": 124.45,
+        "user_seconds": 120.65,
+        "sys_seconds": 1.32,
+        "max_rss_bytes": 625655808
+      },
+      "geometry": {
+        "scope": "scale-probe-only",
+        "case": "mixed",
+        "pdf_sha256": "92a8ea4395f26150708fd2ac2c635587736ca58e63512adec8151995911c95f5",
+        "pages": 387,
+        "declarations": 5000,
+        "placements": 5000,
+        "forms": 4952,
+        "raster_xobjects": 48,
+        "mcids": 5000,
+        "verified_raster_pixels": 192,
+        "verified_paths": 70962,
+        "verified_source_segments": 1505106,
+        "extractors": [
+          "Poppler",
+          "MuPDF"
+        ]
+      },
+      "output": {
+        "bytes": 137483114,
+        "page_count": 387,
+        "pdf_object_count": 18604,
+        "sha256": "92a8ea4395f26150708fd2ac2c635587736ca58e63512adec8151995911c95f5",
+        "sink": "file"
+      },
+      "artifacts": {
+        "book.pdf": {
+          "bytes": 137483114,
+          "sha256": "92a8ea4395f26150708fd2ac2c635587736ca58e63512adec8151995911c95f5",
+          "local_path": "/private/tmp/typaxis-common-real-mixed/book.pdf"
+        },
+        "build-manifest.json": {
+          "bytes": 26470501,
+          "sha256": "71b092e4630b58c09faedeea6d846a9f067e0ae28443c7e2ee096a147c0d0cfa",
+          "local_path": "/private/tmp/typaxis-common-real-mixed/build-manifest.json"
+        },
+        "trace.json": {
+          "bytes": 705,
+          "sha256": "c3ad174b6b7ba53ddb95d73c6a30d576a99a6952a52e636e2dcfa90c688226ea",
+          "local_path": "/private/tmp/typaxis-common-real-mixed/trace.json"
+        },
+        "build-diagnostics.json": {
+          "bytes": 52,
+          "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+          "local_path": "/private/tmp/typaxis-common-real-mixed/build-diagnostics.json"
+        },
+        "check-diagnostics.json": {
+          "bytes": 52,
+          "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+          "local_path": "/private/tmp/typaxis-common-real-mixed/check-diagnostics.json"
+        },
+        "scale-geometry-final.json": {
+          "bytes": 374,
+          "sha256": "36f5719236140fa02bdfc6bc315e0abd1666f7658d39505b88938e2f302be6ff",
+          "local_path": "/private/tmp/typaxis-common-real-mixed/scale-geometry-final.json"
+        },
+        "verapdf.xml": {
+          "bytes": 1363,
+          "sha256": "846a786105e245d174c50fce92efce72acecd0861aeafa477ca6f8756a2e5c81",
+          "local_path": "/private/tmp/typaxis-common-real-mixed/verapdf.xml"
+        },
+        "scale-geometry-pixels.json": {
+          "bytes": 407,
+          "sha256": "6a2831b7490d52dd1afd4913d453c67b7ca87021955a62fc6b340265706229c8",
+          "local_path": "/private/tmp/typaxis-common-real-mixed/scale-geometry-pixels.json"
+        }
+      },
+      "build_command": [
+        "/usr/bin/time",
+        "-l",
+        "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+        "build-package",
+        "/private/tmp/typaxis-real-mixed-5000-v2/document-package.json",
+        "-o",
+        "/private/tmp/typaxis-common-real-mixed/book.pdf",
+        "--package-root",
+        "/private/tmp/typaxis-real-mixed-5000-v2",
+        "--resource-root",
+        "/private/tmp/typaxis-real-mixed-5000-v2",
+        "--profile",
+        "typaxis.machine-pdf/production-book-1",
+        "--no-compress",
+        "--trace",
+        "/private/tmp/typaxis-common-real-mixed/trace.json",
+        "--trace-text",
+        "--emit-build-manifest",
+        "/private/tmp/typaxis-common-real-mixed/build-manifest.json",
+        "--emit-diagnostics",
+        "/private/tmp/typaxis-common-real-mixed/build-diagnostics.json"
+      ],
+      "check_command": [
+        "/usr/bin/time",
+        "-l",
+        "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+        "check-package",
+        "/private/tmp/typaxis-real-mixed-5000-v2/document-package.json",
+        "--package-root",
+        "/private/tmp/typaxis-real-mixed-5000-v2",
+        "--resource-root",
+        "/private/tmp/typaxis-real-mixed-5000-v2",
+        "--profile",
+        "typaxis.machine-pdf/production-book-1",
+        "--emit-diagnostics",
+        "/private/tmp/typaxis-common-real-mixed/check-diagnostics.json"
+      ],
+      "geometry_command": [
+        "/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "tools/verify_vmb_scale_pdf.py",
+        "/private/tmp/typaxis-real-mixed-5000-v2",
+        "/private/tmp/typaxis-common-real-mixed/book.pdf"
+      ],
+      "verapdf_command": [
+        "/private/tmp/typaxis-verapdf.GY9HZ2/install/verapdf",
+        "--flavour",
+        "ua1",
+        "--format",
+        "xml",
+        "/private/tmp/typaxis-common-real-mixed/book.pdf"
+      ],
+      "verapdf_details": {
+        "passedRules": "106",
+        "failedRules": "0",
+        "passedChecks": "235597",
+        "failedChecks": "0"
+      }
+    },
+    "alias": {
+      "package_sha256": "cf76265b0a124b068f6e7ef66a6a87b1b95cb87b633f81b0be6dcc4ad7f1f4c0",
+      "package_path": "/private/tmp/typaxis-real-alias-5000-v2/document-package.json",
+      "binary_sha256": "9d433a5fdebfd6b303eb35468641ba52d9709640d244fc3523ccfb82a5aa5eb1",
+      "build_exit": 0,
+      "check_exit": 0,
+      "geometry_exit": 0,
+      "verapdf_exit": 0,
+      "manifest_child_closure": "passed",
+      "build_timing": {
+        "real_seconds": 477.35,
+        "user_seconds": 470.3,
+        "sys_seconds": 5.22,
+        "max_rss_bytes": 1123778560
+      },
+      "check_timing": {
+        "real_seconds": 154.24,
+        "user_seconds": 149.91,
+        "sys_seconds": 1.53,
+        "max_rss_bytes": 605978624
+      },
+      "geometry": {
+        "scope": "scale-probe-only",
+        "case": "alias",
+        "pdf_sha256": "1b49399543132949e61db2bb00ca1fb727ff9347503cff483538853c6fa4f70b",
+        "pages": 616,
+        "declarations": 5000,
+        "placements": 8000,
+        "forms": 100,
+        "raster_xobjects": 0,
+        "mcids": 8000,
+        "verified_raster_pixels": 0,
+        "verified_paths": 878,
+        "verified_source_segments": 18244,
+        "extractors": [
+          "Poppler",
+          "MuPDF"
+        ]
+      },
+      "output": {
+        "bytes": 8563850,
+        "page_count": 616,
+        "pdf_object_count": 14066,
+        "sha256": "1b49399543132949e61db2bb00ca1fb727ff9347503cff483538853c6fa4f70b",
+        "sink": "file"
+      },
+      "artifacts": {
+        "book.pdf": {
+          "bytes": 8563850,
+          "sha256": "1b49399543132949e61db2bb00ca1fb727ff9347503cff483538853c6fa4f70b",
+          "local_path": "/private/tmp/typaxis-common-real-alias/book.pdf"
+        },
+        "build-manifest.json": {
+          "bytes": 33891075,
+          "sha256": "d98a7ecf8ab959a716726a2c6bcddefed090cabfec46c7c008788e6055baa4e7",
+          "local_path": "/private/tmp/typaxis-common-real-alias/build-manifest.json"
+        },
+        "trace.json": {
+          "bytes": 705,
+          "sha256": "f66f173839c248d1b6cd1016910e80f6590673078cda756520aa0dd5ef49b29d",
+          "local_path": "/private/tmp/typaxis-common-real-alias/trace.json"
+        },
+        "build-diagnostics.json": {
+          "bytes": 52,
+          "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+          "local_path": "/private/tmp/typaxis-common-real-alias/build-diagnostics.json"
+        },
+        "check-diagnostics.json": {
+          "bytes": 52,
+          "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+          "local_path": "/private/tmp/typaxis-common-real-alias/check-diagnostics.json"
+        },
+        "scale-geometry-final.json": {
+          "bytes": 368,
+          "sha256": "b61d54e9a12afe5a9589e7b16c1e6745eeed11af7fa5fef936465e596733904b",
+          "local_path": "/private/tmp/typaxis-common-real-alias/scale-geometry-final.json"
+        },
+        "verapdf.xml": {
+          "bytes": 1361,
+          "sha256": "ec39124bcd6e11a0ffde26aacb9018feb0516f01edb0c4a87a26ff58ef878040",
+          "local_path": "/private/tmp/typaxis-common-real-alias/verapdf.xml"
+        },
+        "scale-geometry-pixels.json": {
+          "bytes": 399,
+          "sha256": "bf3f79dc1e69e53608fdbc6c6b4c6e58396ec11b3058048517fb0b8a11b28bdb",
+          "local_path": "/private/tmp/typaxis-common-real-alias/scale-geometry-pixels.json"
+        }
+      },
+      "build_command": [
+        "/usr/bin/time",
+        "-l",
+        "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+        "build-package",
+        "/private/tmp/typaxis-real-alias-5000-v2/document-package.json",
+        "-o",
+        "/private/tmp/typaxis-common-real-alias/book.pdf",
+        "--package-root",
+        "/private/tmp/typaxis-real-alias-5000-v2",
+        "--resource-root",
+        "/private/tmp/typaxis-real-alias-5000-v2",
+        "--profile",
+        "typaxis.machine-pdf/production-book-1",
+        "--no-compress",
+        "--trace",
+        "/private/tmp/typaxis-common-real-alias/trace.json",
+        "--trace-text",
+        "--emit-build-manifest",
+        "/private/tmp/typaxis-common-real-alias/build-manifest.json",
+        "--emit-diagnostics",
+        "/private/tmp/typaxis-common-real-alias/build-diagnostics.json"
+      ],
+      "check_command": [
+        "/usr/bin/time",
+        "-l",
+        "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+        "check-package",
+        "/private/tmp/typaxis-real-alias-5000-v2/document-package.json",
+        "--package-root",
+        "/private/tmp/typaxis-real-alias-5000-v2",
+        "--resource-root",
+        "/private/tmp/typaxis-real-alias-5000-v2",
+        "--profile",
+        "typaxis.machine-pdf/production-book-1",
+        "--emit-diagnostics",
+        "/private/tmp/typaxis-common-real-alias/check-diagnostics.json"
+      ],
+      "geometry_command": [
+        "/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "tools/verify_vmb_scale_pdf.py",
+        "/private/tmp/typaxis-real-alias-5000-v2",
+        "/private/tmp/typaxis-common-real-alias/book.pdf"
+      ],
+      "verapdf_command": [
+        "/private/tmp/typaxis-verapdf.GY9HZ2/install/verapdf",
+        "--flavour",
+        "ua1",
+        "--format",
+        "xml",
+        "/private/tmp/typaxis-common-real-alias/book.pdf"
+      ],
+      "verapdf_details": {
+        "passedRules": "106",
+        "failedRules": "0",
+        "passedChecks": "265582",
+        "failedChecks": "0"
+      }
+    }
+  },
+  "geometry_verifier_sha256": "9209af8209dc56058ecb80aaf5e5edaf855c4c51738c01a323270436c952f02e",
+  "geometry_tests": {
+    "passed": 6,
+    "log": "/private/tmp/typaxis-common-scale-geometry-pixels-tests.log",
+    "command": [
+      "/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+      "-m",
+      "unittest",
+      "test_vmb_scale_probe",
+      "-v"
+    ],
+    "environment": {
+      "PYTHONPATH": "tools"
+    }
+  }
+}

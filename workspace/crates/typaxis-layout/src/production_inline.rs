@@ -1,6 +1,12 @@
-//! Joins authored shaping and bound inline SVGs in syntax order. This is input
+//! Joins authored shaping, inline SVGs and native math in syntax order. This is input
 //! to line/page selection, not PDF paint authorization or a source-text painter.
 use crate::ValidatedPrecomposedVectorBindings;
+#[path = "production_inline_inputs.rs"]
+mod inputs;
+use inputs::{flow_call, InlineFlow, InlineVectors, InlineNativeMath, NativeReceipt, InlineImages};
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_inline.rs"]
+pub mod book_v2;
 use typaxis_core::{
     sha256, Length, M4EffectiveResourceLimits, NodeId, NonNegativeLength, PositiveLength,
     SourceSpan,
@@ -36,19 +42,24 @@ pub use line_context::{
     ProductionSelectedParagraphContext,
 };
 pub use selected::*;
+#[path = "production_native_math_context.rs"]
+mod native_context;
 #[path = "production_reshape.rs"]
 mod reshape;
+use native_context::PreparedNativeMath;
+pub use native_context::{prepare_production_native_math_context, ProductionNativeMathContext};
 pub use reshape::{
-    with_converged_production_body_lines, ProductionBodyReshapeError, ProductionConvergedBodyLines,
+    with_converged_production_body_lines, with_converged_production_body_lines_with_native_context,
+    ProductionBodyReshapeError, ProductionConvergedBodyLines,
 };
-#[path = "production_raster.rs"]
-mod raster;
-pub use raster::ProductionPreparedRasterFigure;
+#[path = "production_figure.rs"]
+mod figure;
+pub use figure::{ProductionPreparedFigure, ProductionFigureMedia};
 #[path = "production_list_frames.rs"]
 mod list_frames;
 pub use list_frames::{
     layout_production_body_inline_lines, ProductionBodyInlineFrames, ProductionFootnoteFrame,
-    ProductionInlineFrame, ProductionListFrame,
+    ProductionInlineFrame, ProductionListFrame, ProductionTableFrame,
 };
 
 pub const PRODUCTION_INLINE_PREPARATION_ALGORITHM: &str = "typaxis.production-inline-preparation/5";
@@ -65,6 +76,7 @@ pub enum ProductionInlinePreparationErrorKind {
     MissingFigureWidth,
     InvalidFigureGeometry,
     PendingFigurePlacement,
+    InvalidTableColumns,
     InvalidListMarker,
     ListFrameExhausted,
     ContainerFrameExhausted,
@@ -75,6 +87,7 @@ pub enum ProductionInlinePreparationErrorKind {
     AllocationFailure,
     ArithmeticOverflow,
     Atomic(AtomicVectorInlineError),
+    NativeMath(crate::ProductionNativeMathComputationError),
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProductionInlinePreparationError {
@@ -174,10 +187,14 @@ pub struct ProductionPreparedInlines<'a> {
     shaped: &'a ProductionAuthoredTextShape<'a>,
     bindings: &'a ValidatedPrecomposedVectorBindings,
     paragraphs: Vec<ProductionPreparedInlineParagraph>,
-    figures: Vec<ProductionPreparedRasterFigure<'a>>,
+    figures: Vec<ProductionPreparedFigure<'a>>,
+    native_math: Option<PreparedNativeMath<'a>>,
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionPreparedInlines<'a> {
+    pub fn native_math(&self) -> Option<&crate::ProductionNativeMathComputations> {
+        self.native_math.as_deref()
+    }
     pub fn footnote_markers(&self) -> &[typaxis_shaping::ProductionFootnoteMarkerShape<'a>] {
         self.shaped.footnote_markers()
     }
@@ -190,7 +207,7 @@ impl<'a> ProductionPreparedInlines<'a> {
     pub fn paragraphs(&self) -> &[ProductionPreparedInlineParagraph] {
         &self.paragraphs
     }
-    pub fn figures(&self) -> &[ProductionPreparedRasterFigure<'a>] {
+    pub fn figures(&self) -> &[ProductionPreparedFigure<'a>] {
         &self.figures
     }
     pub const fn fingerprint(&self) -> [u8; 32] {
@@ -221,11 +238,76 @@ pub fn prepare_production_inline_items<'a>(
     navigation: &ValidatedStagingBookNavigationV2,
     profile: &StagingPrecomposedVectorProfileAuthorization,
     limits: &M4EffectiveResourceLimits,
+    admitted: &'a AdmittedResourceLedger,
+    flow: &'a ProductionTextFlow<'a>,
+    shaped: &'a ProductionAuthoredTextShape<'a>,
+    bindings: &'a ValidatedPrecomposedVectorBindings,
+    japanese_mode: JapaneseLineBreakMode,
+) -> Result<ProductionPreparedInlines<'a>, ProductionInlinePreparationError> {
+    let native_math = prepare_production_native_math_context(package, profile, limits, admitted)?;
+    prepare_inline_items(
+        package,
+        navigation,
+        profile,
+        limits,
+        admitted,
+        flow,
+        shaped,
+        bindings,
+        japanese_mode,
+        native_math.map(PreparedNativeMath::Owned),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_production_inline_items_with_native_context<'a>(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    profile: &StagingPrecomposedVectorProfileAuthorization,
+    limits: &M4EffectiveResourceLimits,
     admitted: &AdmittedResourceLedger,
     flow: &'a ProductionTextFlow<'a>,
     shaped: &'a ProductionAuthoredTextShape<'a>,
     bindings: &'a ValidatedPrecomposedVectorBindings,
     japanese_mode: JapaneseLineBreakMode,
+    native_math: Option<&'a ProductionNativeMathContext<'a>>,
+) -> Result<ProductionPreparedInlines<'a>, ProductionInlinePreparationError> {
+    match native_math {
+        Some(context) => context.verify_source(package, profile, limits, admitted)?,
+        None if !package.math_nodes().is_empty() => {
+            return Err(error(
+                NodeId::new(0),
+                ProductionInlinePreparationErrorKind::ReceiptMismatch,
+            ))
+        }
+        None => {}
+    }
+    prepare_inline_items(
+        package,
+        navigation,
+        profile,
+        limits,
+        admitted,
+        flow,
+        shaped,
+        bindings,
+        japanese_mode,
+        native_math.map(PreparedNativeMath::Borrowed),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_inline_items<'a>(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    profile: &StagingPrecomposedVectorProfileAuthorization,
+    limits: &M4EffectiveResourceLimits,
+    admitted: &AdmittedResourceLedger,
+    flow: &'a ProductionTextFlow<'a>,
+    shaped: &'a ProductionAuthoredTextShape<'a>,
+    bindings: &'a ValidatedPrecomposedVectorBindings,
+    japanese_mode: JapaneseLineBreakMode,
+    native_math: Option<PreparedNativeMath<'a>>,
 ) -> Result<ProductionPreparedInlines<'a>, ProductionInlinePreparationError> {
     use ProductionInlinePreparationErrorKind as E;
     let root = NodeId::new(0);
@@ -237,15 +319,71 @@ pub fn prepare_production_inline_items<'a>(
     shaped
         .verify(flow, admitted, limits, bindings.epoch().fingerprint())
         .map_err(|e| error(e.owner, E::ReceiptMismatch))?;
-    if flow.paragraphs().len() != shaped.paragraphs().len() {
+    let mut charge = native_math.as_ref().map_or(0, |m| m.record_charge());
+    let paragraphs = prepare_paragraphs(
+        InlineFlow::Legacy(flow), shaped.paragraphs(), Some(InlineVectors::Legacy(bindings)),
+        native_math.as_deref().map(InlineNativeMath::Legacy), limits, japanese_mode, &mut charge,
+    )?;
+    let figures = figure::prepare_figures(
+        InlineFlow::Legacy(flow),
+        InlineImages::Legacy(admitted),
+        &mut charge,
+        limits.base().get().max_fragments,
+    )?;
+    let mut b = Vec::new();
+    b.try_reserve_exact(
+        paragraphs
+            .len()
+            .checked_mul(32)
+            .and_then(|n| n.checked_add(if native_math.is_some() { 160 } else { 128 }))
+            .ok_or_else(|| error(root, E::ArithmeticOverflow))?,
+    )
+    .map_err(|_| error(root, E::AllocationFailure))?;
+    b.extend_from_slice(&sha256(PRODUCTION_INLINE_PREPARATION_ALGORITHM.as_bytes()));
+    b.extend_from_slice(&flow.fingerprint());
+    b.extend_from_slice(&shaped.fingerprint());
+    b.extend_from_slice(&bindings.fingerprint());
+    if let Some(math) = &native_math {
+        b.extend_from_slice(&math.fingerprint());
+    }
+    for p in &paragraphs {
+        b.extend_from_slice(
+            &p.items
+                .as_ref()
+                .map_or([0; 32], ProductionInlineParagraph::fingerprint),
+        );
+    }
+    Ok(ProductionPreparedInlines {
+        max_fragments: limits.base().get().max_fragments,
+        flow,
+        shaped,
+        bindings,
+        paragraphs,
+        figures,
+        native_math,
+        fingerprint: sha256(&b),
+    })
+}
+
+fn prepare_paragraphs<'a>(
+    flow: InlineFlow<'a>,
+    shaped: &[typaxis_shaping::ProductionBodyParagraphShape<'a>],
+    bindings: Option<InlineVectors<'_>>,
+    native_math: Option<InlineNativeMath<'_>>,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: JapaneseLineBreakMode,
+    charge: &mut u64,
+) -> Result<Vec<ProductionPreparedInlineParagraph>, ProductionInlinePreparationError> {
+    use ProductionInlinePreparationErrorKind as E;
+    let root = NodeId::new(0);
+    if flow_call!(flow, paragraphs()).len() != shaped.len() {
         return Err(error(root, E::ReceiptMismatch));
     }
     let mut paragraphs = Vec::new();
     paragraphs
-        .try_reserve_exact(flow.paragraphs().len())
+        .try_reserve_exact(flow_call!(flow, paragraphs()).len())
         .map_err(|_| error(root, E::AllocationFailure))?;
-    let mut charge = 0u64;
-    for (p, shape) in flow.paragraphs().iter().zip(shaped.paragraphs()) {
+    for (p, shape) in flow_call!(flow, paragraphs()).iter().zip(shaped) {
         if p.owner() != shape.owner() {
             return Err(error(p.owner(), E::ReceiptMismatch));
         }
@@ -264,7 +402,7 @@ pub fn prepare_production_inline_items<'a>(
                 | ProductionInlineContent::FootnoteReference
                 | ProductionInlineContent::Reference
                     if !matches!(site.content(), ProductionInlineContent::Reference)
-                        || flow.page_reference_text(owner).is_some() =>
+                        || flow_call!(flow, reference_text(owner)).is_some() =>
                 {
                     let (span, utf8) = inline_shape_text(flow, site)?;
                     if utf8.is_empty() {
@@ -313,7 +451,7 @@ pub fn prepare_production_inline_items<'a>(
                             let advance = NonNegativeLength::new(advance)
                                 .ok_or_else(|| error(owner, E::InvalidHorizontalMetrics))?;
                             let scalar_count = text.chars().count();
-                            charge = charge
+                            *charge = charge
                                 .checked_add(scalar_count as u64 + 1)
                                 .filter(|n| *n <= limits.base().get().max_fragments)
                                 .ok_or_else(|| error(owner, E::UnitLimit))?;
@@ -364,7 +502,7 @@ pub fn prepare_production_inline_items<'a>(
                 }
                 ProductionInlineContent::InlineVector | ProductionInlineContent::MathVector => {
                     let receipt = bindings
-                        .receipt(owner)
+                        .and_then(|b| b.receipt(owner))
                         .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
                     let (kind, expected) =
                         if matches!(site.content(), ProductionInlineContent::InlineVector) {
@@ -396,7 +534,7 @@ pub fn prepare_production_inline_items<'a>(
                         *placement,
                     )
                     .map_err(|e| error(owner, E::Atomic(e)))?;
-                    charge = charge
+                    *charge = charge
                         .checked_add(1)
                         .filter(|n| *n <= limits.base().get().max_fragments)
                         .ok_or_else(|| error(owner, E::UnitLimit))?;
@@ -404,6 +542,33 @@ pub fn prepare_production_inline_items<'a>(
                         .try_reserve(1)
                         .map_err(|_| error(owner, E::AllocationFailure))?;
                     units.push(AtomicVectorInlineLogicalUnit::Vector(item));
+                }
+                ProductionInlineContent::NativeMath => {
+                    let receipt = native_math
+                        .as_ref()
+                        .and_then(|m| m.receipt(owner))
+                        .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                    if native_math.as_ref().and_then(|m| m.source_span(owner))
+                        != Some(site.source_span())
+                    {
+                        return Err(error(owner, E::ReceiptMismatch));
+                    }
+                    let item = typaxis_linebreak::ProductionNativeMathInlineItem::from_computation(
+                        owner,
+                        p.owner(),
+                        site.source_span(),
+                        receipt.fingerprint(),
+                        receipt.computation(),
+                    )
+                    .map_err(|e| error(owner, E::Atomic(e)))?;
+                    *charge = charge
+                        .checked_add(1)
+                        .filter(|n| *n <= limits.base().get().max_fragments)
+                        .ok_or_else(|| error(owner, E::UnitLimit))?;
+                    units
+                        .try_reserve(1)
+                        .map_err(|_| error(owner, E::AllocationFailure))?;
+                    units.push(AtomicVectorInlineLogicalUnit::Math(item));
                 }
                 ProductionInlineContent::SoftBreak | ProductionInlineContent::HardBreak => {
                     let kind = if matches!(site.content(), ProductionInlineContent::SoftBreak) {
@@ -413,7 +578,7 @@ pub fn prepare_production_inline_items<'a>(
                     };
                     let control = ProductionExplicitBreak::new(owner, site.source_span(), kind)
                         .map_err(|e| error(owner, E::Atomic(e)))?;
-                    charge = charge
+                    *charge = charge
                         .checked_add(1)
                         .filter(|n| *n <= limits.base().get().max_fragments)
                         .ok_or_else(|| error(owner, E::UnitLimit))?;
@@ -423,7 +588,7 @@ pub fn prepare_production_inline_items<'a>(
                     units.push(AtomicVectorInlineLogicalUnit::Break(control));
                 }
                 ProductionInlineContent::Anchor => {
-                    charge = charge
+                    *charge = charge
                         .checked_add(1)
                         .filter(|n| *n <= limits.base().get().max_fragments)
                         .ok_or_else(|| error(owner, E::UnitLimit))?;
@@ -447,21 +612,28 @@ pub fn prepare_production_inline_items<'a>(
         if run_cursor != shape.runs().len() {
             return Err(error(p.owner(), E::ReceiptMismatch));
         }
-        let items = if units.is_empty() {
+        let preserve_empty = match flow {
+            InlineFlow::Legacy(_) => false,
+            #[cfg(feature = "book-v2-staging")]
+            InlineFlow::BookV2(_) => true,
+        };
+        let items = if units.is_empty() && !preserve_empty {
             None
         } else {
             if p.style().line_height().is_none() {
                 return Err(error(p.owner(), E::MissingTextStyle));
             }
-            Some(
+            Some(if units.is_empty() {
+                ProductionInlineParagraph::empty(p.owner())
+            } else {
                 ProductionInlineParagraph::itemize_with_breaks(
                     p.owner(),
                     units,
                     cluster_ranges,
                     japanese_mode,
                 )
-                .map_err(|e| error(p.owner(), E::Atomic(e)))?,
-            )
+                .map_err(|e| error(p.owner(), E::Atomic(e)))?
+            })
         };
         paragraphs.push(ProductionPreparedInlineParagraph {
             owner: p.owner(),
@@ -471,46 +643,12 @@ pub fn prepare_production_inline_items<'a>(
             anchors,
         });
     }
-    let figures = raster::prepare_figures(
-        flow,
-        admitted,
-        &mut charge,
-        limits.base().get().max_fragments,
-    )?;
-    let mut b = Vec::new();
-    b.try_reserve_exact(
-        paragraphs
-            .len()
-            .checked_mul(32)
-            .and_then(|n| n.checked_add(128))
-            .ok_or_else(|| error(root, E::ArithmeticOverflow))?,
-    )
-    .map_err(|_| error(root, E::AllocationFailure))?;
-    b.extend_from_slice(&sha256(PRODUCTION_INLINE_PREPARATION_ALGORITHM.as_bytes()));
-    b.extend_from_slice(&flow.fingerprint());
-    b.extend_from_slice(&shaped.fingerprint());
-    b.extend_from_slice(&bindings.fingerprint());
-    for p in &paragraphs {
-        b.extend_from_slice(
-            &p.items
-                .as_ref()
-                .map_or([0; 32], ProductionInlineParagraph::fingerprint),
-        );
-    }
-    Ok(ProductionPreparedInlines {
-        max_fragments: limits.base().get().max_fragments,
-        flow,
-        shaped,
-        bindings,
-        paragraphs,
-        figures,
-        fingerprint: sha256(&b),
-    })
+    Ok(paragraphs)
 }
 
 // Return only source-owned bytes. Generated and parsed spans never alias.
 fn inline_shape_text<'a>(
-    flow: &'a ProductionTextFlow<'a>,
+    flow: InlineFlow<'a>,
     site: &typaxis_syntax::ProductionInlineSite<'a>,
 ) -> Result<(ShapeSourceSpan, &'a str), ProductionInlinePreparationError> {
     let mismatch = || {
@@ -523,18 +661,18 @@ fn inline_shape_text<'a>(
         ProductionInlineContent::Text { span, utf8 } => Ok((ShapeSourceSpan::Parsed(span), utf8)),
         ProductionInlineContent::Reference => Ok((
             ShapeSourceSpan::Generated(
-                flow.page_reference_provenance(site.owner())
+                flow_call!(flow, reference_provenance(site.owner()))
                     .ok_or_else(mismatch)?,
             ),
-            flow.page_reference_text(site.owner())
+            flow_call!(flow, reference_text(site.owner()))
                 .ok_or_else(mismatch)?,
         )),
         ProductionInlineContent::FootnoteReference => Ok((
             ShapeSourceSpan::Generated(
-                flow.footnote_marker_provenance(site.owner())
+                flow_call!(flow, footnote_marker_provenance(site.owner()))
                     .ok_or_else(mismatch)?,
             ),
-            flow.footnote_marker_text(site.owner())
+            flow_call!(flow, footnote_marker_text(site.owner()))
                 .ok_or_else(mismatch)?,
         )),
         _ => Err(mismatch()),
@@ -633,3 +771,7 @@ mod generated_range_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "production_native_math_tests.rs"]
+mod native_math_tests;

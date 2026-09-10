@@ -13,10 +13,11 @@ use typaxis_layout_contract::{
 #[path = "production_inline.rs"]
 mod production_inline;
 pub use production_inline::{
-    break_production_inline, ProductionExplicitBreak, ProductionInlineBreak,
-    ProductionInlineLogicalUnit, ProductionInlineParagraph, ProductionInlineSelectedLine,
-    ProductionLineBreakBudget, ProductionTextClusterRange,
-    PRODUCTION_INLINE_BREAK_ALGORITHM,
+    break_production_inline, break_production_inline_with_source_widths, ProductionExplicitBreak,
+    ProductionInlineBreak, ProductionInlineLogicalUnit, ProductionInlineParagraph,
+    ProductionInlineSelectedLine, ProductionInlineSourceWidths, ProductionLineBreakBudget,
+    ProductionNativeMathInlineItem, ProductionTextClusterRange, PRODUCTION_INLINE_BREAK_ALGORITHM,
+    PRODUCTION_REFINED_WIDTH_BREAK_ALGORITHM, PRODUCTION_SOURCE_WIDTH_BREAK_ALGORITHM,
 };
 
 pub const ATOMIC_VECTOR_INLINE_ALGORITHM: &str = "typaxis.atomic-vector-inline/1";
@@ -1968,4 +1969,78 @@ mod tests {
         assert_eq!(boundaries[0].left_after().get().raw(), 11);
         assert_eq!(boundaries[0].right_before().get().raw(), 13);
     }
+    #[test]
+    fn production_source_widths_preserve_atomic_vector_overhang_and_hard_breaks() {
+        use ProductionInlineLogicalUnit as U;
+        let item = vector(2, 10, 8, 2, -2, 8, 12, 10, 0, 0);
+        let second = vector(4, 10, 8, 2, -2, 8, 12, 10, 0, 0);
+        let control = ProductionExplicitBreak::new(
+            NodeId::new(3),
+            SourceSpan::new(
+                SourceId::new(0),
+                Utf8ByteOffset::new(3),
+                Utf8ByteOffset::new(4),
+            )
+            .unwrap(),
+            BreakKind::Mandatory,
+        )
+        .unwrap();
+        let p = ProductionInlineParagraph::itemize_with_breaks(
+            NodeId::new(1),
+            vec![U::Vector(item), U::Break(control), U::Vector(second)],
+            vec![],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        let sizes = [positive(12), positive(1), positive(20)];
+        let widths = ProductionInlineSourceWidths::new(&p, &sizes).unwrap();
+        let selected = break_production_inline_with_source_widths(
+            &widths,
+            positive(10),
+            &mut ProductionLineBreakBudget::new(100, 10),
+        )
+        .unwrap();
+        assert_eq!(selected.lines().len(), 2);
+        for (line, (start, end, width)) in selected.lines().iter().zip([(0, 2, 12), (2, 3, 20)]) {
+            assert_eq!(
+                (
+                    line.line().start_unit(),
+                    line.line().end_unit(),
+                    line.inline_size().get().raw()
+                ),
+                (start, end, width)
+            );
+            assert_eq!(line.origin_shift().get().raw(), 2);
+            assert_eq!(line.required_inline_size().get().raw(), 12);
+            assert_eq!(
+                line.line().occurrences()[0].item,
+                if start == 0 { item } else { second }
+            );
+        }
+        let narrow = [positive(11), positive(100), positive(100)];
+        let refined = break_production_inline_with_source_widths(
+            &ProductionInlineSourceWidths::with_retained_line_ends(&p, &sizes, &[3]).unwrap(),
+            positive(10),
+            &mut ProductionLineBreakBudget::new(100, 10),
+        ).unwrap();
+        assert_eq!(refined.lines().len(), selected.lines().len());
+        for (a, b) in refined.lines().iter().zip(selected.lines()) {
+            assert_eq!(a.line().start_unit(), b.line().start_unit());
+            assert_eq!(a.line().end_unit(), b.line().end_unit());
+            assert_eq!(a.line().break_kind(), b.line().break_kind());
+            assert_eq!(a.origin_shift(), b.origin_shift());
+            assert_eq!(a.required_inline_size(), b.required_inline_size());
+            assert_eq!(a.line().occurrences()[0].item, b.line().occurrences()[0].item);
+        }
+        assert_ne!(refined.fingerprint(), selected.fingerprint());
+        assert!(matches!(
+            break_production_inline_with_source_widths(
+                &ProductionInlineSourceWidths::new(&p, &narrow).unwrap(),
+                positive(10),
+                &mut ProductionLineBreakBudget::new(100, 10)
+            ),
+            Err(AtomicVectorInlineError::NoFeasibleLine)
+        ));
+    }
+
 }

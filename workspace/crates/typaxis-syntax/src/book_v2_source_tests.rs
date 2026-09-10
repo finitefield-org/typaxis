@@ -196,3 +196,70 @@ fn source_body_rejects_limits_different_from_host_admission() {
         BookV2SourceFailure::ReceiptMismatch
     ));
 }
+
+#[test]
+fn table_caption_checks_original_host_utf8_and_keeps_all_text() {
+    for bad_boundary in [false, true] {
+        let root = Root::new();
+        let mut data = input();
+        let original = data["document"]["blocks"][0].clone();
+        let span = original["span"].clone();
+        data["document"]["blocks"] = json!([{"kind":"table","node_id":1,"span":span,
+            "classes":[],"columns":[{"kind":"fraction","weight":1}],
+            "caption":[original["blocks"][0]],"head":[],"body":[{
+                "node_id":4,"span":span,"cells":[{"node_id":5,"span":span,
+                    "colspan":1,"rowspan":1,"blocks":[original["blocks"][1],original["blocks"][2]]}]}]}]);
+        fn renumber(v: &mut Value, next: &mut u32) {
+            if let Some(a) = v.as_array_mut() {
+                for c in a {
+                    renumber(c, next);
+                }
+            } else if let Some(o) = v.as_object_mut() {
+                if let Some(id) = o.get_mut("node_id") {
+                    *id = (*next).into();
+                    *next += 1;
+                }
+                for key in [
+                    "blocks",
+                    "children",
+                    "caption",
+                    "head",
+                    "body",
+                    "cells",
+                    "footnotes",
+                ] {
+                    if let Some(c) = o.get_mut(key) {
+                        renumber(c, next);
+                    }
+                }
+            }
+        }
+        renumber(&mut data["document"], &mut 0);
+        let source = if bad_boundary {
+            data["text_buffers"][0]["mappings"][0]["kind"] = "replacement".into();
+            data["document"]["blocks"][0]["caption"][0]["children"][0]["span"]["start_byte"] =
+                1.into();
+            "日ultProofExercise\n".as_bytes()
+        } else {
+            SOURCE
+        };
+        let result = prepare_admitted_book_v2_body(admitted(&root, data, source), &limits());
+        if bad_boundary {
+            assert!(matches!(
+                result.unwrap_err().failure(),
+                BookV2SourceFailure::SourceSpan {
+                    node_id: 3,
+                    start_byte: 1,
+                    ..
+                }
+            ));
+        } else {
+            let body = result.unwrap();
+            let nav = prepare_book_v2_navigation(body.styled()).unwrap();
+            let flow = prepare_book_v2_text_flow(body.styled(), &nav).unwrap();
+            assert_eq!(flow.paragraphs().len(), 3);
+            assert!(flow.tables()[0].caption_event_range().is_some());
+            assert_eq!(body.sources()[0].text().as_bytes(), SOURCE);
+        }
+    }
+}

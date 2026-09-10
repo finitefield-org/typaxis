@@ -778,6 +778,38 @@ pub fn observe_staging_book_navigation_pdf_v2(
     selected
         .verify_sealed(navigation, profile, limits)
         .map_err(|_| BookNavigationPdfError::ReceiptMismatch)?;
+    observe_book_pdf_after_selection(navigation, profile, selected, engine, final_writer, final_pdf)
+}
+
+// Common book selection is authenticated by its borrowed source graph. Its
+// semantic vector usages may have gaps occupied by SVG figures or artifacts;
+// the frozen staging selection verifier retains its dense-usage requirement.
+pub(crate) fn observe_production_book_navigation_pdf_v2(
+    navigation: &ValidatedStagingBookNavigationV2,
+    profile: &StagingBookNavigationProfileAuthorizationV2,
+    book: &typaxis_display_list::ProductionFootnoteBookNavigation<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
+    source: &typaxis_display_list::ProductionFootnoteNavigation<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
+    admitted: &typaxis_resource_admission::AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+    engine: &EngineIdentity,
+    final_writer: &BookNavigationPdfFinalWriterObservationV2,
+    final_pdf: &crate::VerifiedPdfBytesReceipt,
+) -> Result<BookNavigationPdfObservationV2, BookNavigationPdfError> {
+    book.verify(source, profile, admitted, limits).map_err(|_| BookNavigationPdfError::ReceiptMismatch)?;
+    if !std::ptr::eq(navigation, source.structure().display().source().line_layout().source_flow().navigation()) {
+        return Err(BookNavigationPdfError::ReceiptMismatch);
+    }
+    observe_book_pdf_after_selection(navigation, profile, book.selected(), engine, final_writer, final_pdf)
+}
+
+fn observe_book_pdf_after_selection(
+    navigation: &ValidatedStagingBookNavigationV2,
+    profile: &StagingBookNavigationProfileAuthorizationV2,
+    selected: &BookNavigationSelectedReceiptV2,
+    engine: &EngineIdentity,
+    final_writer: &BookNavigationPdfFinalWriterObservationV2,
+    final_pdf: &crate::VerifiedPdfBytesReceipt,
+) -> Result<BookNavigationPdfObservationV2, BookNavigationPdfError> {
     validate_final_writer_observation_v2(navigation, selected, engine, final_writer, final_pdf)?;
     let language_paint_count = u32::try_from(final_writer.language_paints.len())
         .map_err(|_| BookNavigationPdfError::ObjectLimit)?;

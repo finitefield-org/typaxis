@@ -123,10 +123,16 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
         .ok_or(E::RecordLimit)?;
     let spool_base = content
         .spool_charge()
-        .checked_add(structure.spool_charge())
+        .checked_add(
+            structure
+                .spool_charge()
+                .checked_sub(display.selected().line_layout().native_math_spool_charge())
+                .ok_or(E::OutputLimit)?,
+        )
         .ok_or(E::OutputLimit)?;
     let projected = project_marked_pages(
         display.draws(),
+        |_| false,
         content.pages(),
         display.selected().page_geometry().page_height().get().raw(),
         structure.registry(),
@@ -158,6 +164,7 @@ struct MarkedProjection {
 }
 fn project_marked_pages<'s>(
     draws: &[ProductionBodyDraw<'_>],
+    is_artifact: impl Fn(usize) -> bool,
     source_pages: &[crate::ProductionBodyPage],
     page_height: i64,
     registry: &typaxis_display_list::StructureRegistryReceiptV2,
@@ -218,6 +225,15 @@ fn project_marked_pages<'s>(
         let mut ordinal = 0usize;
         let mut artifact_index = 0usize;
         for group in page_groups(source.page_index()).ok_or(E::ReceiptMismatch)? {
+            append_header_copies(
+                source,
+                &is_artifact,
+                Some(group.draws().start),
+                &mut ordinal,
+                &mut artifact_index,
+                &mut page.content,
+                &mut append,
+            )?;
             // A separator belongs between source groups, outside every MCID
             // and ActualText scope. Reject an artifact that splits a group.
             if let Some(artifact) = source.artifacts().get(artifact_index) {
@@ -275,7 +291,7 @@ fn project_marked_pages<'s>(
                 }
                 append(&mut page.content, b"> >> BDC\n")?;
             }
-            if actual_text(group_index).is_some() {
+            if actual_text(group_index).is_some() && !group.is_native_math() {
                 // Give the extraction glyph the selected formula's physical
                 // width and height, at its selected baseline. A fixed 1 pt
                 // vertical scale changes extractor word-gap heuristics even
@@ -295,16 +311,20 @@ fn project_marked_pages<'s>(
                 anchors.try_reserve(1).map_err(|_| E::AllocationFailure)?;
                 let viewport = vector.viewport();
                 let baseline = vector.baseline().ok_or(E::ReceiptMismatch)?;
-                append(
-                    &mut page.content,
-                    format!(
-                    "BT /PBA 1 Tf 3 Tr 0 Tc 0 Tw 100 Tz 0 TL 0 Ts {} 0 0 -{} {} {} Tm <00> Tj ET\n",
-                    crate::tagged_pdf_v2::pdf_number_v2(viewport.width().get().raw()),
-                    crate::tagged_pdf_v2::pdf_number_v2(viewport.height().get().raw()),
-                    crate::tagged_pdf_v2::pdf_number_v2(viewport.x().raw()),
-                    crate::tagged_pdf_v2::pdf_number_v2(baseline.raw()),
-                )
-                    .as_bytes(),
+                struct AnchorSink<'a, F>(&'a mut F);
+                impl<F: FnMut(&[u8]) -> Result<(), ProductionBodyMarkedError>>
+                    crate::font_encoding::Sink for AnchorSink<'_, F>
+                {
+                    type Error = ProductionBodyMarkedError;
+                    fn extend(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
+                        (self.0)(bytes)
+                    }
+                }
+                crate::semantic_anchor_encoding::command(
+                    &mut AnchorSink(&mut |bytes: &[u8]| append(&mut page.content, bytes)),
+                    b"PBA",
+                    viewport,
+                    baseline,
                 )?;
                 anchors.push(ProductionBodySemanticAnchor {
                     page_index: page.page_index,
@@ -345,6 +365,26 @@ fn project_marked_pages<'s>(
                             source.draw_content(ordinal).ok_or(E::ReceiptMismatch)?,
                         )?;
                     }
+                    (ProductionBodyPageDrawSource::NativeMath { paint_index }, None)
+                        if group.is_native_math() =>
+                    {
+                        let paint = text_paints.get(paint_index).ok_or(E::ReceiptMismatch)?;
+                        if !paint.is_native_math()
+                            || paint.draw_index() != draw_index
+                            || paint.page_index() != page.page_index
+                            || actual_text(group_index).is_none()
+                        {
+                            return Err(E::ReceiptMismatch);
+                        }
+                        // The outer ActualText scope already owns q/Q. Keep
+                        // the native font active until EMC, as for authored
+                        // text; restoring it first gives extractors a zero-size
+                        // formula box and can reverse their reading order.
+                        append(
+                            &mut page.content,
+                            text_commands(paint_index).ok_or(E::ReceiptMismatch)?,
+                        )?;
+                    }
                     (ProductionBodyPageDrawSource::Raster { plan_index }, None) if !body_text => {
                         if raster_plan(draw_index) != Some(plan_index) {
                             return Err(E::ReceiptMismatch);
@@ -365,6 +405,15 @@ fn project_marked_pages<'s>(
             append(&mut page.content, b"EMC\n")?;
             group_index += 1;
         }
+        append_header_copies(
+            source,
+            &is_artifact,
+            None,
+            &mut ordinal,
+            &mut artifact_index,
+            &mut page.content,
+            &mut append,
+        )?;
         if ordinal != source.draws().len() || artifact_index != source.artifacts().len() {
             return Err(E::ReceiptMismatch);
         }
@@ -380,6 +429,50 @@ fn project_marked_pages<'s>(
         record_charge,
         spool_charge,
     })
+}
+
+// Copy the already encoded paint bytes, retaining their real fonts, Forms and
+// images. Artifacts have no semantic extraction anchor, ActualText or MCID.
+fn append_header_copies(
+    source: &crate::ProductionBodyPage,
+    is_artifact: &impl Fn(usize) -> bool,
+    stop: Option<usize>,
+    ordinal: &mut usize,
+    separator: &mut usize,
+    out: &mut Vec<u8>,
+    append: &mut impl FnMut(&mut Vec<u8>, &[u8]) -> Result<(), ProductionBodyMarkedError>,
+) -> Result<(), ProductionBodyMarkedError> {
+    use ProductionBodyMarkedError as E;
+    while let Some(draw) = source.draws().get(*ordinal) {
+        if stop == Some(draw.draw_index()) {
+            break;
+        }
+        if stop.is_some_and(|end| draw.draw_index() > end) || !is_artifact(draw.draw_index()) {
+            return Err(E::ReceiptMismatch);
+        }
+        if let Some(ink) = source.artifacts().get(*separator) {
+            if ink.before_draw() < draw.draw_index() {
+                return Err(E::ReceiptMismatch);
+            }
+            if ink.before_draw() == draw.draw_index() {
+                append(
+                    out,
+                    source
+                        .artifact_content(*separator)
+                        .ok_or(E::ReceiptMismatch)?,
+                )?;
+                *separator += 1;
+            }
+        }
+        append(out, b"/Artifact BMC\n")?;
+        append(
+            out,
+            source.draw_content(*ordinal).ok_or(E::ReceiptMismatch)?,
+        )?;
+        append(out, b"\nEMC\n")?;
+        *ordinal += 1;
+    }
+    Ok(())
 }
 
 /// Marked content remains bound to the same joint structure through its fonts.
@@ -444,6 +537,11 @@ pub fn build_production_footnote_marked_content<'c, 'e, 't, 'v, 'd, 'g, 'q, 'b, 
     // in page content. Do not add the ordinary-body parallel-branch merge.
     let projection = project_marked_pages(
         display.draws(),
+        |index| {
+            display
+                .table_draw_role(index)
+                .is_some_and(|role| role.repeated_header())
+        },
         content.pages(),
         display
             .source()

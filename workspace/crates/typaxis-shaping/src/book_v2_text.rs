@@ -1,6 +1,12 @@
 //! Source-bound successor paragraphs use the common bidi, grapheme, line-context
 //! and label engine, with CFF /2 coverage and a separate result identity.
 use super::*;
+#[path = "book_v2_equation_numbers.rs"]
+mod equation_numbers;
+pub use equation_numbers::{
+    book_v2_equation_number_font, shape_book_v2_equation_numbers, BookV2EquationNumberError, BookV2EquationNumberErrorKind,
+    BookV2EquationNumberShape, BookV2EquationNumberShapes, BOOK_V2_EQUATION_NUMBER_ALGORITHM,
+};
 use typaxis_resource_admission::{
     AdmittedProductionFontInstancesV3, AdmittedProductionResourceLedgerV3,
 };
@@ -29,6 +35,9 @@ impl<'a> BookV2AuthoredTextShape<'a> {
     }
     pub fn fingerprint(&self) -> [u8; 32] {
         self.output.fingerprint
+    }
+    pub fn binding_epoch(&self) -> [u8; 32] {
+        self.epoch
     }
     pub fn output_records(&self) -> u64 {
         self.output.output_records
@@ -113,3 +122,9 @@ impl std::fmt::Debug for BookV2AuthoredTextShape<'_> {
             .finish_non_exhaustive()
     }
 }
+
+#[path = "book_v2_page_region_text.rs"]
+mod page_regions;
+pub use page_regions::{
+    shape_book_v2_page_region_text, BookV2PageRegionTextShape, BOOK_V2_PAGE_REGION_SHAPE_ALGORITHM,
+};

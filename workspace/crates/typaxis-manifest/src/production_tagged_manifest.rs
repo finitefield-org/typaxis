@@ -58,7 +58,8 @@ pub fn build_production_tagged_manifest(
         || safe.record_charge() < pdf.record_charge()
         || safe.spool_charge() < pdf.spool_charge()
         || observation.selected_binding_sha256() != structure.fingerprint()
-        || observation.vector_records().len() != safe.manifest().placement_count() as usize
+        || observation.vector_records().len() + observation.vector_artifact_count()
+            != safe.manifest().placement_count() as usize
     {
         return Err(E::ReceiptMismatch);
     }
@@ -113,16 +114,36 @@ pub fn build_production_tagged_manifest(
         .iter()
         .flat_map(|r| r.placements())
     {
+        if observation.vector_is_artifact(usage.usage_id()) {
+            continue;
+        }
         let owner = usage.owner();
         let node = registry.source_node(owner).ok_or(E::ReceiptMismatch)?;
-        let binding = node.vector_binding_v2().ok_or(E::ReceiptMismatch)?;
+        let binding = node.vector_binding_v2();
+        match (usage.kind().precomposed(), binding) {
+            (Some(kind), Some(binding))
+                if kind == binding.kind()
+                    && usage.metric_receipt_fingerprint()
+                        == Some(binding.metrics_fingerprint()) =>
+            {
+                ()
+            }
+            (None, None)
+                if usage.kind() == StagingCombinedVectorKindV2::Figure
+                    && node.role() == typaxis_layout::StructureRole::Figure
+                    && usage.metric_receipt_fingerprint().is_none()
+                    && usage.binding_fingerprint().is_none()
+                    && node.alternative().map(|a| sha256(a.as_bytes()))
+                        == Some(usage.alternative_sha256()) =>
+            {
+                ()
+            }
+            _ => return Err(E::ReceiptMismatch),
+        }
         let record = observation
-            .vector_records()
-            .get(usage.usage_id() as usize)
+            .vector_record(usage.usage_id())
             .ok_or(E::ReceiptMismatch)?;
         if node.owner() != StructureOwner::Source(owner)
-            || Some(binding.kind()) != usage.kind().precomposed()
-            || Some(binding.metrics_fingerprint()) != usage.metric_receipt_fingerprint()
             || node.language() != usage.language()
             || record.usage_id() != usage.usage_id()
             || record.structure_node_id() != node.structure_node_id().get()
@@ -132,15 +153,16 @@ pub fn build_production_tagged_manifest(
         {
             return Err(E::ReceiptMismatch);
         }
-        let math_binding_fingerprint = match binding.kind() {
-            PrecomposedVectorKind::MathVector | PrecomposedVectorKind::MathVectorBlock => {
+        let math_binding_fingerprint = match binding.map(|b| b.kind()) {
+            Some(PrecomposedVectorKind::MathVector | PrecomposedVectorKind::MathVectorBlock) => {
                 let fact = math.manifest().fact(owner).ok_or(E::ReceiptMismatch)?;
                 if fact.safe_vector_usage_fingerprint() != usage.fingerprint() {
                     return Err(E::ReceiptMismatch);
                 }
                 Some(fact.math_binding_fingerprint())
             }
-            PrecomposedVectorKind::InlineVector | PrecomposedVectorKind::VectorFigure => None,
+            Some(PrecomposedVectorKind::InlineVector | PrecomposedVectorKind::VectorFigure)
+            | None => None,
         };
         let mut fact = StagingTaggedPdfVectorStructureFactV2 {
             structure_node_id: node.structure_node_id().get(),

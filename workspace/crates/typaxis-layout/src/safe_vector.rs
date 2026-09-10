@@ -1,3 +1,6 @@
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_vectors.rs"]
+pub mod book_v2;
 use std::collections::BTreeSet;
 use typaxis_core::{
     push_jcs_string, sha256, ImageResourceId, Length, M4EffectiveResourceLimits, NodeId,
@@ -598,6 +601,44 @@ fn bind_precomposed_vector_resource(
     profile: &StagingPrecomposedVectorProfileAuthorization,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<BoundPrecomposedVectorResource, PrecomposedVectorBindingError> {
+    let resource = bind_vector_resource_core(owner, kind, declaration, attestation, profile.profile_receipt_fingerprint(), limits)?;
+    let declared_media = resource.declared_media();
+    let declared_domain_media = match declared_media {
+        BoundPrecomposedVectorMedia::SafeSvg1 => ImageMediaType::SvgSafe1,
+        BoundPrecomposedVectorMedia::SafeSvg2 => ImageMediaType::SvgSafe2,
+    };
+    let media_identity_matches = match declared_media {
+        BoundPrecomposedVectorMedia::SafeSvg1 => {
+            media_attestation.safe_vector_parser_id().is_none()
+                && media_attestation.safe_vector_ir_id().is_none()
+        }
+        BoundPrecomposedVectorMedia::SafeSvg2 => {
+            media_attestation.safe_vector_parser_id() == Some(attestation.parser_id())
+                && media_attestation.safe_vector_ir_id() == Some(attestation.ir_id())
+        }
+    };
+    if media_attestation.image_id() != attestation.image_id()
+        || media_attestation.declared() != declared_domain_media
+        || media_attestation.attested() != attestation.media_kind()
+        || media_attestation.content_hash() != attestation.source_sha256()
+        || !media_identity_matches
+        || media_attestation.safe_vector_ir_fingerprint() != Some(attestation.ir_fingerprint())
+        || media_attestation.m4_limits_fingerprint() != Some(limits.fingerprint())
+        || media_attestation.m4_profile_fingerprint() != Some(profile.profile_receipt_fingerprint())
+    {
+        return Err(PrecomposedVectorBindingError::ResourceMismatch(owner));
+    }
+    Ok(resource)
+}
+
+fn bind_vector_resource_core(
+    owner: NodeId,
+    kind: PrecomposedVectorKind,
+    declaration: &typaxis_document::StagingM4ImageDeclaration,
+    attestation: &SafeVectorAdmissionAttestation,
+    profile_fingerprint: [u8; 32],
+    limits: &M4EffectiveResourceLimits,
+) -> Result<BoundPrecomposedVectorResource, PrecomposedVectorBindingError> {
     let declared_media = match declaration.media {
         ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1) => {
             BoundPrecomposedVectorMedia::SafeSvg1
@@ -627,20 +668,6 @@ fn bind_precomposed_vector_resource(
         BoundPrecomposedVectorMedia::SafeSvg1 => declaration.vector_provenance.is_none(),
         BoundPrecomposedVectorMedia::SafeSvg2 => declaration.vector_provenance.is_some(),
     };
-    let declared_domain_media = match declared_media {
-        BoundPrecomposedVectorMedia::SafeSvg1 => ImageMediaType::SvgSafe1,
-        BoundPrecomposedVectorMedia::SafeSvg2 => ImageMediaType::SvgSafe2,
-    };
-    let media_identity_matches = match declared_media {
-        BoundPrecomposedVectorMedia::SafeSvg1 => {
-            media_attestation.safe_vector_parser_id().is_none()
-                && media_attestation.safe_vector_ir_id().is_none()
-        }
-        BoundPrecomposedVectorMedia::SafeSvg2 => {
-            media_attestation.safe_vector_parser_id() == Some(attestation.parser_id())
-                && media_attestation.safe_vector_ir_id() == Some(attestation.ir_id())
-        }
-    };
     let expected_hash_matches = match declared_media {
         BoundPrecomposedVectorMedia::SafeSvg1 => declaration
             .expected_sha256
@@ -650,10 +677,6 @@ fn bind_precomposed_vector_resource(
         }
     };
     if declaration.image_id != attestation.image_id()
-        || media_attestation.image_id() != attestation.image_id()
-        || media_attestation.declared() != declared_domain_media
-        || media_attestation.attested() != attestation.media_kind()
-        || media_attestation.content_hash() != attestation.source_sha256()
         || declared_media != admitted_media
         || !kind_media_matches
         || !provenance_matches
@@ -662,11 +685,7 @@ fn bind_precomposed_vector_resource(
         || attestation.ir_id() != attestation.parser_profile().ir_id()
         || attestation.ir_fingerprint_id() != attestation.parser_profile().ir_fingerprint_id()
         || attestation.limits_fingerprint() != limits.fingerprint()
-        || attestation.profile_fingerprint() != profile.profile_receipt_fingerprint()
-        || !media_identity_matches
-        || media_attestation.safe_vector_ir_fingerprint() != Some(attestation.ir_fingerprint())
-        || media_attestation.m4_limits_fingerprint() != Some(limits.fingerprint())
-        || media_attestation.m4_profile_fingerprint() != Some(profile.profile_receipt_fingerprint())
+        || attestation.profile_fingerprint() != profile_fingerprint
     {
         return Err(PrecomposedVectorBindingError::ResourceMismatch(owner));
     }
@@ -695,8 +714,25 @@ fn bind_precomposed_vector_placement(
 ) -> Result<PrecomposedVectorPlacementInput, PrecomposedVectorBindingError> {
     let package = verifier.package();
     let owner = metrics.node_id();
+    let style = if matches!(metrics.kind(), PrecomposedVectorKind::VectorFigure | PrecomposedVectorKind::MathVectorBlock) {
+        let style = package.precomposed_vector_style(owner)
+            .ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
+        verifier.verify_style(owner, style)
+            .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
+        Some(style)
+    } else { None };
+    bind_vector_placement_core(owner, metrics.kind(), metrics.payload(), style, resource)
+}
+
+fn bind_vector_placement_core(
+    owner: NodeId,
+    kind: PrecomposedVectorKind,
+    payload: PrecomposedVectorMetricPayload,
+    style: Option<&typaxis_style::PrecomposedVectorComputedStyleReceipt>,
+    resource: &BoundPrecomposedVectorResource,
+) -> Result<PrecomposedVectorPlacementInput, PrecomposedVectorBindingError> {
     let paint = ResolvedRgb8::BLACK;
-    let result = match (metrics.kind(), metrics.payload()) {
+    let result = match (kind, payload) {
         (
             PrecomposedVectorKind::InlineVector | PrecomposedVectorKind::MathVector,
             PrecomposedVectorMetricPayload::Inline {
@@ -715,12 +751,7 @@ fn bind_precomposed_vector_placement(
             PrecomposedVectorKind::VectorFigure,
             PrecomposedVectorMetricPayload::Figure { viewport },
         ) => {
-            let style = package
-                .precomposed_vector_style(owner)
-                .ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
-            verifier
-                .verify_style(owner, style)
-                .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
+            let style = style.ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
             let style = VectorFigureStyleInput::from_computed(style)
                 .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
             VectorFigurePlacementInput::from_validated_viewport(
@@ -736,12 +767,7 @@ fn bind_precomposed_vector_placement(
             PrecomposedVectorKind::MathVectorBlock,
             PrecomposedVectorMetricPayload::MathBlock { metrics: values },
         ) => {
-            let style = package
-                .precomposed_vector_style(owner)
-                .ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
-            verifier
-                .verify_style(owner, style)
-                .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
+            let style = style.ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
             let style = MathVectorBlockStyleInput::from_computed(style)
                 .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
             MathVectorBlockPlacementInput::from_validated_metrics(
@@ -1656,6 +1682,9 @@ fn collect_figures<'a>(
                 }
                 collect_figures(caption, vector_ids, output, reject_precomposed)?;
             }
+            StagingM4Block::DescriptionList { .. } => {
+                return Err(StagingSafeVectorLayoutError::ReceiptMismatch);
+            }
             StagingM4Block::List { items, .. } => {
                 for item in items {
                     collect_figures(&item.blocks, vector_ids, output, reject_precomposed)?;
@@ -1770,6 +1799,7 @@ fn placements_match_package(
                         return false;
                     }
                 }
+                StagingM4Block::DescriptionList { .. } => return false,
                 StagingM4Block::List { items, .. } => {
                     for item in items {
                         if !visit(&item.blocks, vector_ids, figure_owners, placements, next) {

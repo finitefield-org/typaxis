@@ -532,6 +532,12 @@ fn project_navigation<'a>(
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
         for draw in &draws[group.draws()] {
             let (bounds, page, fragment) = match draw {
+                ProductionBodyDraw::Math(m) => {
+                    (Some(m.bounds()), m.page_index(), m.fragment_index())
+                }
+                ProductionBodyDraw::SvgFigure(r) => {
+                    (Some(r.viewport()), r.page_index(), r.fragment_index())
+                }
                 ProductionBodyDraw::Raster(r) => {
                     (Some(r.viewport()), r.page_index(), r.fragment_index())
                 }

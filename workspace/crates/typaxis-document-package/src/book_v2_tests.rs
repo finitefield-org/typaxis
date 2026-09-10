@@ -7,6 +7,12 @@ use crate::{
 use serde_json::{json, Value};
 use typaxis_core::{sha256, DocumentPackageContractId, ResourceLimits, ValidatedResourceLimits};
 
+#[path = "book_v2_number_binding_tests.rs"]
+mod number_bindings;
+
+#[path = "book_v2_table_caption_tests.rs"]
+mod table_captions;
+
 const FIXTURE: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../samples/machine-package/staging/production-book-1/semantic-container/job/document-package.json"
@@ -353,3 +359,9 @@ fn successor_preserves_unchanged_native_math_vector_and_media_carriers() {
         assert_eq!(restored.canonical_jcs(), old_canonical);
     }
 }
+
+#[path = "book_v2_description_tests.rs"]
+mod descriptions;
+
+#[path = "book_v2_table_cell_tests.rs"]
+mod table_cells;

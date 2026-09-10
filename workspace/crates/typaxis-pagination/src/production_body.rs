@@ -8,11 +8,17 @@ use typaxis_syntax::{
     ProductionFlowEvent as Event, ProductionFlowRegionKind as Region, StagingM4PageGeometry,
 };
 
+#[path = "production_body_inputs.rs"]
+mod inputs;
+use inputs::{BodyLines, BodyBlocks};
+
 #[path = "production_list.rs"]
 mod list;
 pub use list::ProductionBodyListMarker;
 #[path = "production_breaks.rs"]
 mod page_breaks;
+#[path = "production_table_collection.rs"]
+mod table_collection;
 pub use page_breaks::{
     ProductionBodyBreakCandidate, ProductionBodyBreakDecision, ProductionBodyBreakReason,
     PRODUCTION_BODY_BREAK_POLICY,
@@ -33,20 +39,31 @@ pub use page_feedback::{
 };
 
 #[path = "production_body_flow.rs"]
-mod body_flow;
+pub(crate) mod body_flow;
 pub use body_flow::{
     prepare_production_body_flow, prepare_production_footnote_demand_search,
-    prepare_production_footnote_search, ProductionBodyFootnoteCandidate,
+    prepare_production_footnote_search, prepare_production_table_body_search,
+    prepare_production_table_footnote_search, prepare_production_table_measurements,
+    prepare_production_table_search, ProductionBodyCandidatePart, ProductionBodyFootnoteCandidate,
     ProductionBodyFootnoteMathTerminals, ProductionBodyFootnotePageSelection,
     ProductionBodyFootnotePageSequence, ProductionBodyFootnotePageState,
     ProductionBodyFootnotePlacedFragment, ProductionBodyFootnotePlacedMarker,
     ProductionBodyFootnotePlacedPage, ProductionBodyFootnotePlacedSequence,
-    ProductionBodyFootnoteStablePages, ProductionFootnoteBreakSearch, ProductionFootnoteCursor,
-    ProductionFootnoteDemandSearch, ProductionFootnoteDemandSelection,
-    ProductionFootnoteDemandState, ProductionFootnoteDemandStatus, ProductionFootnoteFlowReference,
+    ProductionBodyFootnoteStablePages, ProductionBodyMixedCandidate,
+    ProductionBodyMixedPageSelection, ProductionBodyMixedPageSequence,
+    ProductionBodyMixedPageState, ProductionBodyMixedPlacedPage, ProductionBodyMixedPlacedSequence,
+    ProductionBodyMixedStablePages, ProductionBodySelectedPart, ProductionFinalPage,
+    ProductionFinalPageGeometry, ProductionFinalPageIter, ProductionFinalPages,
+    ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteDemandSearch,
+    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
+    ProductionFootnoteDemandStatus, ProductionFootnoteFlowReference,
     ProductionFootnoteFragmentSelection, ProductionFootnoteMarkerBinding,
-    ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
-    ProductionPreparedBodyFlow,
+    ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection, ProductionMeasuredTable,
+    ProductionMeasuredTableCell, ProductionMeasuredTableRow, ProductionMeasuredTableCaption, ProductionPreparedBodyFlow,
+    ProductionTableBreakSearch, ProductionTableCellContent, ProductionTableCellSlice,
+    ProductionTableContentSource, ProductionTableCursor, ProductionTableFootnoteSearch,
+    ProductionTableFootnoteSelection, ProductionTableFootnoteState,
+    ProductionTableFragmentSelection, ProductionTableMeasurements, ProductionTablePlacedCellRole,
 };
 
 pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/4";
@@ -55,6 +72,9 @@ pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-
 pub enum ProductionBodyPaginationErrorKind {
     ReceiptMismatch,
     PendingRegion(&'static str),
+    /// The target can be nested; parent_width is its original root table's parent width.
+    /// Reproject ancestors to derive the target cell width; never add the page delta directly.
+    TableHeaderWidthRequired { table_index: usize, parent_width: PositiveLength },
     PendingNamedPage,
     PendingEquationNumber,
     EmptyListItem,
@@ -68,6 +88,9 @@ pub enum ProductionBodyPaginationErrorKind {
     PagePassLimit,
     InvalidFootnoteCapacity,
     FootnoteSearchLimit,
+    TableSearchLimit,
+    InvalidTableCapacity,
+    TableHeaderOversize,
     JointPageNoFit,
     PageBreakLookbackLimit { limit: u16, observed: u32 },
     FragmentLimit,
@@ -106,8 +129,11 @@ pub enum ProductionBodyFragmentSource {
     VectorBlock {
         block_index: u32,
     },
-    RasterFigure {
+    Figure {
         figure_index: u32,
+    },
+    NativeMathBlock {
+        block_index: u32,
     },
 }
 /// Source order is the index in fragments(). Body glyphs and inline SVGs both
@@ -278,8 +304,9 @@ struct Frame {
     start: usize,
     container: Option<ComputedMachineBlockStyle>,
     vector: Option<usize>,
-    raster: Option<usize>,
+    figure: Option<usize>,
     marker: Option<usize>,
+    table_cursor: usize,
 }
 struct Charge {
     remaining: u64,
@@ -296,6 +323,20 @@ impl Charge {
 fn add(a: Length, b: Length, owner: NodeId) -> Result<Length, ProductionBodyPaginationError> {
     a.checked_add(b)
         .ok_or_else(|| error(owner, E::ArithmeticOverflow))
+}
+
+#[cfg(feature = "book-v2-staging")]
+fn translate_page_rect_x(
+    rect: Rect,
+    delta: Length,
+    owner: NodeId,
+) -> Result<Rect, ProductionBodyPaginationError> {
+    Ok(Rect::new(
+        add(rect.x(), delta, owner)?,
+        rect.y(),
+        rect.width(),
+        rect.height(),
+    ))
 }
 
 /// Preserve every source paragraph, block SVG and explicit page break in one
@@ -337,7 +378,7 @@ fn paginate_production_body_with_prior_charge<'s, 'p, 'a>(
         mut items,
         mut marker_bindings,
         ..
-    } = collect_items(lines, blocks, None, &mut charge)?;
+    } = collect_items(lines, blocks, None, &mut charge, false)?;
     list::prepare_metrics(lines, blocks, &mut items, &mut marker_bindings)?;
     // Suffix keep extents are measured from real selected lines/caption lines.
     // Validate hard keep chains before examining soft page-end candidates.
@@ -506,13 +547,36 @@ fn place_flow_item(
     top: Length,
     before: Length,
 ) -> Result<ProductionBodyFragment, ProductionBodyPaginationError> {
+    place_flow_item_shared(BodyLines::Legacy(lines),BodyBlocks::Legacy(blocks.blocks()),item,page_index,top,before)
+}
+fn place_flow_item_shared(
+    lines: BodyLines<'_, '_, '_>, blocks: BodyBlocks<'_>, item: &Item,
+    page_index: u32, top: Length, before: Length,
+) -> Result<ProductionBodyFragment,ProductionBodyPaginationError> {
     let source = item
         .source
         .ok_or_else(|| error(item.owner, E::ReceiptMismatch))?;
     let height =
         PositiveLength::new(item.height).ok_or_else(|| error(item.owner, E::ReceiptMismatch))?;
     let (baseline, viewport) = match source {
-        ProductionBodyFragmentSource::RasterFigure { .. } => {
+        ProductionBodyFragmentSource::NativeMathBlock { block_index } => {
+            let block = lines
+                .native_math_blocks()
+                .get(block_index as usize)
+                .filter(|b| b.owner() == item.owner)
+                .ok_or_else(|| error(item.owner, E::ReceiptMismatch))?;
+            (
+                Some(add(top, block.baseline(), item.owner)?),
+                Some(Rect::new(
+                    item.viewport_left
+                        .ok_or_else(|| error(item.owner, E::ReceiptMismatch))?,
+                    top,
+                    block.width(),
+                    block.height(),
+                )),
+            )
+        }
+        ProductionBodyFragmentSource::Figure { .. } => {
             (None, Some(Rect::new(item.x, top, item.width, height)))
         }
         ProductionBodyFragmentSource::ParagraphLine {
@@ -523,7 +587,7 @@ fn place_flow_item(
             (Some(add(top, local.baseline(), item.owner)?), None)
         }
         ProductionBodyFragmentSource::VectorBlock { block_index } => {
-            let block = &blocks.blocks()[block_index as usize];
+            let block = blocks.get(block_index as usize).ok_or_else(||error(item.owner,E::ReceiptMismatch))?;
             let y = add(top, block.viewport_top_offset().get(), item.owner)?;
             let baseline = block
                 .baseline()
@@ -608,6 +672,7 @@ struct CollectedItems {
     marker_bindings: Vec<list::MarkerBinding>,
     body_end: usize,
     definitions: Vec<std::ops::Range<usize>>,
+    tables: table_collection::Collection,
 }
 
 fn collect_items(
@@ -615,7 +680,22 @@ fn collect_items(
     blocks: &StagingPrecomposedVectorBlockLayout,
     definitions: Option<&[typaxis_layout::ProductionFootnoteDefinitionLines<'_>]>,
     charge: &mut Charge,
+    measure_tables: bool,
 ) -> Result<CollectedItems, ProductionBodyPaginationError> {
+    collect_items_shared(BodyLines::Legacy(lines), BodyBlocks::Legacy(blocks.blocks()),
+        blocks.page_geometry().body(), definitions, charge, measure_tables)
+}
+
+fn collect_items_shared(
+    lines: BodyLines<'_, '_, '_>,
+    blocks: BodyBlocks<'_>,
+    body: Rect,
+    definitions: Option<&[typaxis_layout::ProductionFootnoteDefinitionLines<'_>]>,
+    charge: &mut Charge,
+    measure_tables: bool,
+) -> Result<CollectedItems, ProductionBodyPaginationError> {
+    let named_page_frames = lines.has_named_page_plan();
+    let mut tables = table_collection::Collection::default();
     let mut definition_ranges = Vec::new();
     let mut definition_start = None;
     let mut body_end = None;
@@ -626,13 +706,15 @@ fn collect_items(
             .map_err(|_| error(NodeId::new(0), E::AllocationFailure))?;
     }
     let flow = lines.source_flow();
-    let body = blocks.page_geometry().body();
     let mut items: Vec<Item> = Vec::new();
     let mut stack: Vec<Frame> = Vec::new();
     let mut paragraph_cursor = 0;
     let mut block_cursor = 0;
+    let mut native_math_cursor = 0;
     let mut figure_cursor = 0;
     let mut list_cursor = 0;
+    #[cfg(feature = "book-v2-staging")]
+    let mut description_cursor = 0;
     let mut marker_bindings = Vec::new();
     let push = |items: &mut Vec<Item>,
                 charge: &mut Charge,
@@ -646,6 +728,7 @@ fn collect_items(
         Ok(())
     };
     for (event_index, event) in flow.events().iter().enumerate() {
+        tables.event_boundary(event_index, items.len())?;
         match *event {
             Event::Begin { owner, kind } => {
                 let mut frame = Frame {
@@ -653,10 +736,19 @@ fn collect_items(
                     start: items.len(),
                     container: None,
                     vector: None,
-                    raster: None,
+                    figure: None,
                     marker: None,
+                    table_cursor: tables.tables.len(),
                 };
                 match kind {
+                    Region::Table
+                    | Region::TableCell
+                    | Region::TableHeadRow
+                    | Region::TableBodyRow
+                        if measure_tables =>
+                    {
+                        tables.begin(lines, owner, kind, items.len(), definition_start.map(|_| definition_ranges.len()), charge)?;
+                    }
                     Region::Footnote => {
                         let definition = definitions
                             .ok_or_else(|| error(owner, E::PendingRegion("footnote")))?
@@ -673,6 +765,19 @@ fn collect_items(
                         definition_start = Some(items.len());
                     }
                     Region::Paragraph | Region::Heading => (),
+                    #[cfg(feature = "book-v2-staging")]
+                    Region::DescriptionTerm | Region::DescriptionItem => (),
+                    #[cfg(feature = "book-v2-staging")]
+                    Region::DescriptionList => {
+                        let source = flow.description_lists().get(description_cursor)
+                            .filter(|l| l.owner() == owner)
+                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                        if source.page_name().is_some() && (!named_page_frames || definition_start.is_some()) {
+                            return Err(error(owner, E::PendingNamedPage));
+                        }
+                        frame.container = Some(source.style().block_style());
+                        description_cursor += 1;
+                    }
                     Region::List => {
                         let frames = lines
                             .frames()
@@ -685,7 +790,7 @@ fn collect_items(
                         if frames.lists().get(list_cursor).map(|l| l.owner()) != Some(owner) {
                             return Err(error(owner, E::ReceiptMismatch));
                         }
-                        if source.page_name().is_some() {
+                        if source.page_name().is_some() && (!named_page_frames || definition_start.is_some()) {
                             return Err(error(owner, E::PendingNamedPage));
                         }
                         frame.container = Some(source.style().block_style());
@@ -718,11 +823,11 @@ fn collect_items(
                             .get(figure_cursor)
                             .filter(|f| f.owner() == owner)
                             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                        if figure.source().page_name().is_some() {
+                        if figure.source().page_name().is_some() && (!named_page_frames || definition_start.is_some()) {
                             return Err(error(owner, E::PendingNamedPage));
                         }
                         let style = figure.source().style().block_style();
-                        let (region_left, region_width) = list::region_frame(lines, body, owner)?;
+                        let (region_left, region_width) = list::region_frame_shared(lines, body, owner)?;
                         let available = region_width
                             .get()
                             .checked_sub(style.start_indent().get())
@@ -732,7 +837,7 @@ fn collect_items(
                         if figure.width().get() > available.get() {
                             return Err(error(owner, E::WidthMismatch));
                         }
-                        frame.raster = Some(figure_cursor);
+                        frame.figure = Some(figure_cursor);
                         push(
                             &mut items,
                             charge,
@@ -741,7 +846,7 @@ fn collect_items(
                                 trailing: Length::ZERO,
                                 viewport_left: None,
                                 owner,
-                                source: Some(ProductionBodyFragmentSource::RasterFigure {
+                                source: Some(ProductionBodyFragmentSource::Figure {
                                     figure_index: figure.source_index(),
                                 }),
                                 x: add(region_left, style.start_indent().get(), owner)?,
@@ -755,31 +860,81 @@ fn collect_items(
                         figure_cursor += 1;
                     }
                     Region::SemanticContainer => {
-                        let style = flow
-                            .semantic_container_style(owner)
+                        let (style, has_named_page) = flow
+                            .container(owner)
                             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                        if style.page_name().is_some() {
+                        if has_named_page && (!named_page_frames || definition_start.is_some()) {
                             return Err(error(owner, E::PendingNamedPage));
                         }
-                        if (style.block_style().start_indent().get() != Length::ZERO
-                            || style.block_style().end_indent().get() != Length::ZERO)
+                        if (style.start_indent().get() != Length::ZERO
+                            || style.end_indent().get() != Length::ZERO)
                             && lines.frames().is_none()
                         {
                             return Err(error(owner, E::PendingContainerIndent));
                         }
-                        frame.container = Some(style.block_style());
+                        frame.container = Some(style);
+                    }
+                    Region::DisplayMath => {
+                        let block = lines
+                            .native_math_blocks()
+                            .get(native_math_cursor)
+                            .filter(|b| b.owner() == owner)
+                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                        if block.has_named_page() && (!named_page_frames || definition_start.is_some()) {
+                            return Err(error(owner, E::PendingNamedPage));
+                        }
+                        let style = block.style();
+                        let (region_left, region_width) = list::region_frame_shared(lines, body, owner)?;
+                        let width = region_width
+                            .get()
+                            .checked_sub(style.start_indent().get())
+                            .and_then(|w| w.checked_sub(style.end_indent().get()))
+                            .and_then(PositiveLength::new)
+                            .ok_or_else(|| error(owner, E::WidthMismatch))?;
+                        let left = add(region_left, style.start_indent().get(), owner)?;
+                        let slack = width
+                            .get()
+                            .checked_sub(block.width().get())
+                            .filter(|s| *s >= Length::ZERO)
+                            .ok_or_else(|| error(owner, E::WidthMismatch))?;
+                        let offset = match style.text_align() {
+                            MachineTextAlign::Start => Length::ZERO,
+                            MachineTextAlign::End => slack,
+                            MachineTextAlign::Center => Length::from_raw(slack.raw() / 2)
+                                .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
+                        };
+                        push(
+                            &mut items,
+                            charge,
+                            Item {
+                                owner,
+                                source: Some(ProductionBodyFragmentSource::NativeMathBlock {
+                                    block_index: u32::try_from(native_math_cursor)
+                                        .map_err(|_| error(owner, E::FragmentLimit))?,
+                                }),
+                                x: left,
+                                width,
+                                height: block.height().get(),
+                                before: style.space_before().get(),
+                                after: style.space_after().get(),
+                                keep: style.keep_with_next(),
+                                leading: Length::ZERO,
+                                trailing: Length::ZERO,
+                                viewport_left: Some(add(left, offset, owner)?),
+                            },
+                        )?;
+                        native_math_cursor += 1;
                     }
                     Region::VectorFigure | Region::MathVectorBlock => {
                         let block = blocks
-                            .blocks()
                             .get(block_cursor)
                             .filter(|b| b.owner() == owner)
                             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                        if block.page_name().is_some() {
+                        if block.has_named_page() && (!named_page_frames || definition_start.is_some()) {
                             return Err(error(owner, E::PendingNamedPage));
                         }
                         let (block_left, block_width, viewport_left) =
-                            list::block_frame(lines, body, block)?;
+                            block.frame(lines, body)?;
                         frame.vector = Some(block_cursor);
                         push(
                             &mut items,
@@ -802,7 +957,11 @@ fn collect_items(
                         )?;
                         block_cursor += 1;
                     }
-                    Region::PageBreak => push(
+                    Region::PageBreak => {
+                        if flow.has_named_page_break(owner) && (!named_page_frames || definition_start.is_some()) {
+                            return Err(error(owner, E::PendingNamedPage));
+                        }
+                        push(
                         &mut items,
                         charge,
                         Item {
@@ -818,7 +977,8 @@ fn collect_items(
                             after: Length::ZERO,
                             keep: false,
                         },
-                    )?,
+                    )?;
+                    }
                     other => return Err(error(owner, E::PendingRegion(other.as_str()))),
                 }
                 stack
@@ -841,11 +1001,11 @@ fn collect_items(
                 if selected.owner() != owner {
                     return Err(error(owner, E::ReceiptMismatch));
                 }
-                if p.page_name().is_some() {
+                if p.page_name().is_some() && (!named_page_frames || definition_start.is_some()) {
                     return Err(error(owner, E::PendingNamedPage));
                 }
                 let style = p.style().block_style();
-                let (region_left, region_width) = list::region_frame(lines, body, owner)?;
+                let (region_left, region_width) = list::region_frame_shared(lines, body, owner)?;
                 let width = region_width
                     .get()
                     .checked_sub(style.start_indent().get())
@@ -859,7 +1019,11 @@ fn collect_items(
                     .selected()
                     .ok_or_else(|| error(owner, E::EmptyParagraph))?;
                 for (line_index, line) in selected_lines.lines().iter().enumerate() {
-                    let slack = width
+                    let line_width = line.inline_size();
+                    if line_width.get() > width.get() {
+                        return Err(error(owner, E::WidthMismatch));
+                    }
+                    let slack = line_width
                         .get()
                         .checked_sub(line.required_inline_size().get())
                         .filter(|s| *s >= Length::ZERO)
@@ -874,15 +1038,14 @@ fn collect_items(
                         (false, MachineTextAlign::Center) => Length::from_raw(slack.raw() / 2)
                             .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
                     };
-                    let x = add(
-                        add(region_left, style.start_indent().get(), owner)?,
-                        offset,
-                        owner,
-                    )?;
+                    let original_left = add(region_left, style.start_indent().get(), owner)?;
+                    let line_left = lines.source_unit_start(index as usize, line.line().start_unit())
+                        .map(|start| add(body.x(), start, owner)).transpose()?.unwrap_or(original_left);
+                    let x = add(line_left, offset, owner)?;
                     // Bounds cover the required visual width, avoiding a full
                     // frame rectangle translated beyond its end by alignment.
                     let bounds_width =
-                        PositiveLength::new(line.required_inline_size().get()).unwrap_or(width);
+                        PositiveLength::new(line.required_inline_size().get()).unwrap_or(line_width);
                     let last = line_index + 1 == selected_lines.lines().len();
                     push(
                         &mut items,
@@ -934,7 +1097,7 @@ fn collect_items(
                 if let Some(index) = frame.marker {
                     marker_bindings[index].item_index = Some(
                         (frame.start..items.len())
-                            .find(|i| list::has_paint(&items[*i], lines))
+                            .find(|i| list::has_paint_shared(&items[*i], lines))
                             .ok_or_else(|| error(owner, E::EmptyListItem))?,
                     );
                 }
@@ -946,45 +1109,83 @@ fn collect_items(
                         .rev()
                         .find(|i| items[*i].source.is_some())
                         .unwrap();
-                    items[first].before =
-                        add(items[first].before, style.space_before().get(), owner)?;
-                    items[last].after = add(items[last].after, style.space_after().get(), owner)?;
-                    items[last].keep |= style.keep_with_next();
+                    tables.wrap(
+                        &mut items,
+                        frame.table_cursor,
+                        first,
+                        last,
+                        style.space_before().get(),
+                        style.space_after().get(),
+                        style.keep_with_next(),
+                        owner,
+                    )?;
                 }
                 if let Some(index) = frame.vector {
-                    let block = &blocks.blocks()[index];
+                    let block = blocks.get(index).ok_or_else(|| error(owner, E::ReceiptMismatch))?;
                     let last = (frame.start..items.len())
                         .rev()
                         .find(|i| items[*i].source.is_some())
                         .ok_or_else(|| error(owner, E::EmptyParagraph))?;
                     if block.keep_caption() {
-                        for item in &mut items[frame.start..last] {
-                            item.keep = true;
-                        }
+                        tables.keep_caption(
+                            &mut items,
+                            frame.start,
+                            last,
+                            frame.table_cursor,
+                            charge,
+                            owner,
+                        )?;
                     }
-                    items[last].after = add(items[last].after, block.space_after().get(), owner)?;
-                    items[last].keep |= block.keep_with_next();
+                    tables.wrap(
+                        &mut items,
+                        frame.table_cursor,
+                        frame.start,
+                        last,
+                        Length::ZERO,
+                        block.space_after().get(),
+                        block.keep_with_next(),
+                        owner,
+                    )?;
                 }
-                if let Some(index) = frame.raster {
+                if let Some(index) = frame.figure {
                     let style = lines.figures()[index].source().style().block_style();
                     let last = (frame.start..items.len())
                         .rev()
                         .find(|i| items[*i].source.is_some())
                         .ok_or_else(|| error(owner, E::EmptyParagraph))?;
                     if style.keep_caption() {
-                        for item in &mut items[frame.start..last] {
-                            item.keep = true;
-                        }
+                        tables.keep_caption(
+                            &mut items,
+                            frame.start,
+                            last,
+                            frame.table_cursor,
+                            charge,
+                            owner,
+                        )?;
                     }
-                    items[last].after = add(items[last].after, style.space_after().get(), owner)?;
-                    items[last].keep |= style.keep_with_next();
+                    tables.wrap(
+                        &mut items,
+                        frame.table_cursor,
+                        frame.start,
+                        last,
+                        Length::ZERO,
+                        style.space_after().get(),
+                        style.keep_with_next(),
+                        owner,
+                    )?;
                 }
+                tables.end(owner, items.len(), charge)?;
             }
         }
     }
+    #[cfg(feature = "book-v2-staging")]
+    if description_cursor != flow.description_lists().len() {
+        return Err(error(NodeId::new(0), E::ReceiptMismatch));
+    }
     if !stack.is_empty()
         || paragraph_cursor != lines.paragraphs().len()
-        || block_cursor != blocks.blocks().len()
+        || block_cursor != blocks.len()
+        || native_math_cursor != lines.native_math_blocks().len()
         || figure_cursor != lines.figures().len()
         || list_cursor != flow.lists().len()
         || marker_bindings.len() != flow.list_items().len()
@@ -994,11 +1195,13 @@ fn collect_items(
     if definition_start.is_some() || definition_ranges.len() != definitions.map_or(0, |d| d.len()) {
         return Err(error(NodeId::new(0), E::ReceiptMismatch));
     }
+    tables.verify_closed(lines, measure_tables)?;
     Ok(CollectedItems {
         body_end: body_end.unwrap_or(items.len()),
         items,
         marker_bindings,
         definitions: definition_ranges,
+        tables,
     })
 }
 
@@ -1058,7 +1261,11 @@ fn fingerprint(
                 bytes.push(1);
                 bytes.extend_from_slice(&block_index.to_be_bytes());
             }
-            ProductionBodyFragmentSource::RasterFigure { figure_index } => {
+            ProductionBodyFragmentSource::NativeMathBlock { block_index } => {
+                bytes.push(3);
+                bytes.extend_from_slice(&block_index.to_be_bytes());
+            }
+            ProductionBodyFragmentSource::Figure { figure_index } => {
                 bytes.push(2);
                 bytes.extend_from_slice(&figure_index.to_be_bytes());
             }

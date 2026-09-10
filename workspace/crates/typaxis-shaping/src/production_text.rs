@@ -27,6 +27,8 @@ pub use footnote_markers::ProductionFootnoteMarkerShape;
 pub const PRODUCTION_AUTHORED_TEXT_SHAPE_ALGORITHM: &str =
     "typaxis.production-authored-text-shape/5";
 
+// Shared error variants stay stable when a dependency enables staging without
+// enabling the consuming crate's staging entry points.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionTextShapeErrorKind {
     ReceiptMismatch,
@@ -45,7 +47,6 @@ pub enum ProductionTextShapeErrorKind {
     ArithmeticOverflow,
     Itemization(ItemizationError),
     Backend(LinkedShaperError),
-    #[cfg(feature = "book-v2-staging")]
     CffV2(Cff1ShapeErrorV2),
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -678,8 +679,8 @@ fn site_text<'a>(
     match site.content() {
         ProductionInlineContent::Text { span, utf8 } => Some((ShapeSourceSpan::Parsed(span), utf8)),
         ProductionInlineContent::Reference => Some((
-            ShapeSourceSpan::Generated(flow_call!(flow, page_reference_provenance(site.owner()))?),
-            flow_call!(flow, page_reference_text(site.owner()))?,
+            ShapeSourceSpan::Generated(flow_call!(flow, reference_provenance(site.owner()))?),
+            flow_call!(flow, reference_text(site.owner()))?,
         )),
         ProductionInlineContent::FootnoteReference => Some((
             ShapeSourceSpan::Generated(flow_call!(flow, footnote_marker_provenance(site.owner()))?),
@@ -821,6 +822,7 @@ fn paragraph_fingerprint(
                     b.push(match key.generation_kind() {
                         typaxis_core::GenerationKind::FootnoteMarker => 1,
                         typaxis_core::GenerationKind::PageReference => 2,
+                        typaxis_core::GenerationKind::Counter => 3,
                         _ => return Err(error(r.owner, E::ReceiptMismatch)),
                     });
                     b.extend_from_slice(&key.owner().get().to_be_bytes());
@@ -863,24 +865,41 @@ pub fn production_equation_number_font(
         .font(shape.font_face_id())
         .filter(|f| f.content_hash() == shape.font_sha256() && f.face_index() == shape.face_index())
         .ok_or_else(|| error(owner, E::MissingSelectedFont))?;
-    let face = harfrust::FontRef::from_index(font.bytes(), font.face_index())
+    equation_number_font_metrics(
+        owner,
+        shape.font_face_id(),
+        shape.font_size(),
+        font.bytes(),
+        font.face_index(),
+        font.content_hash(),
+        font.metadata().units_per_em,
+    )
+}
+
+fn equation_number_font_metrics(
+    owner: NodeId,
+    face_id: FontFaceId,
+    size: PositiveLength,
+    bytes: &[u8],
+    face_index: u32,
+    content_hash: [u8; 32],
+    units_per_em: u16,
+) -> Result<ProductionBodyFont, ProductionTextShapeError> {
+    use ProductionTextShapeErrorKind as E;
+    let face = harfrust::FontRef::from_index(bytes, face_index)
         .map_err(|_| error(owner, E::InvalidFontMetrics))?;
     let hhea = face
         .hhea()
         .map_err(|_| error(owner, E::InvalidFontMetrics))?;
     let scale = |v| {
-        scale_design_units(
-            i32::from(v),
-            shape.font_size().get(),
-            font.metadata().units_per_em,
-        )
-        .map_err(|e| error(owner, E::Backend(e)))
+        scale_design_units(i32::from(v), size.get(), units_per_em)
+            .map_err(|e| error(owner, E::Backend(e)))
     };
     let metrics = ProductionBodyFont {
-        face_id: shape.font_face_id(),
-        content_hash: font.content_hash(),
-        face_index: font.face_index(),
-        size: shape.font_size(),
+        face_id: face_id,
+        content_hash: content_hash,
+        face_index: face_index,
+        size: size,
         ascender: scale(hhea.ascender().to_i16())?,
         descender: scale(hhea.descender().to_i16())?,
         line_gap: scale(hhea.line_gap().to_i16())?,

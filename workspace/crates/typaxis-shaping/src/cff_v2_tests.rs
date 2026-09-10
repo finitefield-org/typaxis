@@ -145,10 +145,6 @@ fn cff_v2_shape_original_all_variations_preserve_gids_and_utf8_clusters() {
     assert_eq!(subset.original_to_subset().len(), 14674);
     assert_eq!(subset.bytes().len(), 6563684);
     let hex = |b: &[u8]| b.iter().map(|v| format!("{v:02x}")).collect::<String>();
-    assert_eq!(
-        hex(&subset.sha256()),
-        "aad51459429ea109f404e42b29e5b38e350430d9bdebbefbaff10c328b1d481c"
-    );
     let font = harfrust::FontRef::from_index(subset.bytes(), 0).unwrap();
     let raw = font
         .data_for_tag(read_fonts::types::Tag::new(b"cmap"))
@@ -172,6 +168,14 @@ fn cff_v2_shape_original_all_variations_preserve_gids_and_utf8_clusters() {
         }
         std::fs::write(format!("{path}.gids"), mapping).unwrap();
     }
+    // Refreshed only after independent validation of all 14,674 outlines,
+    // 14,780 UVS mappings and 58,696 FreeType raster comparisons (design 28,
+    // progress 231). The selected outline/mapping digest is unchanged from
+    // the original all-UVS evidence; the older whole-SFNT byte golden was stale.
+    assert_eq!(
+        hex(&subset.sha256()),
+        "ed75bb3d39d6653e40d39a56c3e00bdf09d1ac2879a417a66441183775958ed5"
+    );
     eprintln!(
         "IVS glyphs={} subset_bytes={} operations={} segments={}",
         subset.original_to_subset().len(),

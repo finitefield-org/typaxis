@@ -693,6 +693,9 @@ fn build_flow(
                 blocks,
                 flows,
             )?),
+            StagingM4Block::DescriptionList { .. } => {
+                return Err(StagingSemanticContainerLayoutError::ReceiptMismatch);
+            }
             StagingM4Block::List {
                 items: list_items, ..
             } => {
@@ -770,6 +773,9 @@ fn block_item_kind(
     Ok(match block {
         StagingM4Block::Paragraph { .. } => StagingSemanticContainerFlowItemKind::Paragraph,
         StagingM4Block::Heading { .. } => StagingSemanticContainerFlowItemKind::Heading,
+        StagingM4Block::DescriptionList { .. } => {
+            return Err(StagingSemanticContainerLayoutError::ReceiptMismatch);
+        }
         StagingM4Block::List { .. } => StagingSemanticContainerFlowItemKind::List,
         StagingM4Block::Table { .. } => StagingSemanticContainerFlowItemKind::Table,
         StagingM4Block::Figure { .. } | StagingM4Block::VectorFigure { .. } => {
@@ -960,6 +966,8 @@ fn find_block(document: &StagingM4Document, owner: NodeId) -> Option<&StagingM4B
             }
             let found = match block {
                 StagingM4Block::SemanticContainer { blocks, .. } => find(blocks, owner),
+                StagingM4Block::DescriptionList { items, .. } =>
+                    items.iter().find_map(|item| find(&item.blocks, owner)),
                 StagingM4Block::List { items, .. } => {
                     items.iter().find_map(|item| find(&item.blocks, owner))
                 }

@@ -1,5 +1,10 @@
 #![forbid(unsafe_code)]
 
+mod font_encoding;
+mod image_encoding;
+mod text_encoding;
+mod semantic_anchor_encoding;
+mod font_dictionary;
 mod production_body_pages;
 mod production_body_assembly;
 pub use production_body_assembly::{
@@ -3425,134 +3430,10 @@ fn insert_font_objects(
     ids: FontObjectIds,
 ) -> Result<(), PdfError> {
     let program_kind = plan.program_kind();
-    let base_font = subset_base_font_name(plan.embedded_postscript_name())?;
-    let mut type0 = PdfDictionary::new();
-    type0.insert(pdf_name(b"Type")?, PdfValue::Name(pdf_name(b"Font")?));
-    type0.insert(pdf_name(b"Subtype")?, PdfValue::Name(pdf_name(b"Type0")?));
-    type0.insert(pdf_name(b"BaseFont")?, PdfValue::Name(base_font.clone()));
-    type0.insert(
-        pdf_name(b"Encoding")?,
-        PdfValue::Name(pdf_name(b"Identity-H")?),
-    );
-    type0.insert(
-        pdf_name(b"DescendantFonts")?,
-        PdfValue::Array(vec![PdfValue::Reference(ids.cid_font)]),
-    );
-    type0.insert(pdf_name(b"ToUnicode")?, PdfValue::Reference(ids.to_unicode));
-
-    let mut cid_system_info = PdfDictionary::new();
-    cid_system_info.insert(
-        pdf_name(b"Registry")?,
-        PdfValue::ByteString(b"Adobe".to_vec()),
-    );
-    cid_system_info.insert(
-        pdf_name(b"Ordering")?,
-        PdfValue::ByteString(b"Identity".to_vec()),
-    );
-    cid_system_info.insert(pdf_name(b"Supplement")?, PdfValue::Integer(0));
-    let widths = match plan.program_kind() {
-        PdfFontProgramKind::TrueTypeGlyf => {
-            let mut widths = Vec::new();
-            for binding in &plan.subset_plan().cids {
-                widths.push(PdfValue::Integer(i64::from(binding.cid.get())));
-                widths.push(PdfValue::Array(vec![PdfValue::Integer(i64::from(
-                    binding.width_1000,
-                ))]));
-            }
-            widths
-        }
-        PdfFontProgramKind::OpenTypeCff1 => {
-            let cff = plan.cff1_plan().ok_or(PdfError::ResourcePlanMismatch)?;
-            vec![
-                PdfValue::Integer(0),
-                PdfValue::Array(
-                    cff.dense_widths_1000()
-                        .iter()
-                        .map(|width| PdfValue::Integer(i64::from(*width)))
-                        .collect(),
-                ),
-            ]
-        }
-    };
-    let mut cid_font = PdfDictionary::new();
-    cid_font.insert(pdf_name(b"Type")?, PdfValue::Name(pdf_name(b"Font")?));
-    cid_font.insert(
-        pdf_name(b"Subtype")?,
-        PdfValue::Name(pdf_name(match plan.program_kind() {
-            PdfFontProgramKind::TrueTypeGlyf => b"CIDFontType2",
-            PdfFontProgramKind::OpenTypeCff1 => b"CIDFontType0",
-        })?),
-    );
-    cid_font.insert(pdf_name(b"BaseFont")?, PdfValue::Name(base_font.clone()));
-    cid_font.insert(
-        pdf_name(b"CIDSystemInfo")?,
-        PdfValue::Dictionary(cid_system_info),
-    );
-    cid_font.insert(
-        pdf_name(b"FontDescriptor")?,
-        PdfValue::Reference(ids.descriptor),
-    );
-    cid_font.insert(pdf_name(b"DW")?, PdfValue::Integer(1_000));
-    if !widths.is_empty() {
-        cid_font.insert(pdf_name(b"W")?, PdfValue::Array(widths));
-    }
-    if plan.program_kind() == PdfFontProgramKind::TrueTypeGlyf {
-        cid_font.insert(
-            pdf_name(b"CIDToGIDMap")?,
-            PdfValue::Reference(ids.auxiliary),
-        );
-    }
-
-    let metrics = plan.metrics();
-    let mut descriptor = PdfDictionary::new();
-    descriptor.insert(
-        pdf_name(b"Type")?,
-        PdfValue::Name(pdf_name(b"FontDescriptor")?),
-    );
-    descriptor.insert(pdf_name(b"FontName")?, PdfValue::Name(base_font));
-    descriptor.insert(
-        pdf_name(b"Flags")?,
-        PdfValue::Integer(i64::from(metrics.flags)),
-    );
-    descriptor.insert(
-        pdf_name(b"FontBBox")?,
-        PdfValue::Array(
-            metrics
-                .bbox_1000
-                .iter()
-                .map(|value| PdfValue::Integer(i64::from(*value)))
-                .collect(),
-        ),
-    );
-    let italic_angle =
-        pdf_font_italic_angle(plan.program_kind(), metrics.italic_angle_fixed_16_16)?;
-    descriptor.insert(pdf_name(b"ItalicAngle")?, PdfValue::Decimal(italic_angle));
-    descriptor.insert(
-        pdf_name(b"Ascent")?,
-        PdfValue::Integer(i64::from(metrics.ascent_1000)),
-    );
-    descriptor.insert(
-        pdf_name(b"Descent")?,
-        PdfValue::Integer(i64::from(metrics.descent_1000)),
-    );
-    descriptor.insert(
-        pdf_name(b"CapHeight")?,
-        PdfValue::Integer(i64::from(metrics.cap_height_1000)),
-    );
-    descriptor.insert(
-        pdf_name(b"StemV")?,
-        PdfValue::Integer(i64::from(metrics.stem_v_1000)),
-    );
-    descriptor.insert(
-        pdf_name(match plan.program_kind() {
-            PdfFontProgramKind::TrueTypeGlyf => b"FontFile2",
-            PdfFontProgramKind::OpenTypeCff1 => b"FontFile3",
-        })?,
-        PdfValue::Reference(ids.font_program),
-    );
-    if plan.program_kind() == PdfFontProgramKind::OpenTypeCff1 {
-        descriptor.insert(pdf_name(b"CIDSet")?, PdfValue::Reference(ids.auxiliary));
-    }
+    let fields = font_dictionary::FontDictionaryFields::from_legacy(&plan, ids)?;
+    let type0 = fields.dictionary(font_dictionary::Role::Type0)?;
+    let cid_font = fields.dictionary(font_dictionary::Role::CidFont)?;
+    let descriptor = fields.dictionary(font_dictionary::Role::Descriptor)?;
 
     builder.insert(
         ids.type0,
@@ -3593,14 +3474,14 @@ fn insert_font_objects(
 fn pdf_font_italic_angle(
     program_kind: PdfFontProgramKind,
     fixed_16_16: i32,
-) -> Result<PdfDecimal, PdfError> {
+) -> PdfDecimal {
     match program_kind {
         // This conversion is the frozen public TrueType policy. In particular,
         // values below one millidegree still serialize as zero.
         PdfFontProgramKind::TrueTypeGlyf => {
-            PdfDecimal::new(i128::from(fixed_16_16) * 1_000 / 65_536, 3)
+            PdfDecimal { coefficient: i128::from(fixed_16_16) * 1_000 / 65_536, scale: 3 }
         }
-        PdfFontProgramKind::OpenTypeCff1 => Ok(PdfDecimal::from_fixed_16_16(fixed_16_16)),
+        PdfFontProgramKind::OpenTypeCff1 => PdfDecimal::from_fixed_16_16(fixed_16_16),
     }
 }
 
@@ -4287,7 +4168,6 @@ fn write_pdf_value(output: &mut LimitedPdfBuffer, value: &PdfValue) -> Result<()
 }
 
 fn write_pdf_name(output: &mut LimitedPdfBuffer, name: &PdfName) -> Result<(), PdfError> {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let encoded_len = name.0.iter().try_fold(1u64, |length, byte| {
         let regular = (33..=126).contains(byte) && !b"()<>[]{}/%#".contains(byte);
         length.checked_add(if regular { 1 } else { 3 })
@@ -4295,63 +4175,11 @@ fn write_pdf_name(output: &mut LimitedPdfBuffer, name: &PdfName) -> Result<(), P
     if encoded_len.ok_or(PdfError::OutputTooLarge)? > output.remaining()? {
         return Err(PdfError::OutputTooLarge);
     }
-    output.push(b'/')?;
-    for byte in &name.0 {
-        let regular = (33..=126).contains(byte) && !b"()<>[]{}/%#".contains(byte);
-        if regular {
-            output.push(*byte)?;
-        } else {
-            output.push(b'#')?;
-            output.push(HEX[usize::from(byte >> 4)])?;
-            output.push(HEX[usize::from(byte & 0x0f)])?;
-        }
-    }
-    Ok(())
+    font_encoding::name(output, &name.0)
 }
 
 fn write_pdf_decimal(output: &mut LimitedPdfBuffer, decimal: PdfDecimal) -> Result<(), PdfError> {
-    if decimal.coefficient == 0 {
-        return output.push(b'0');
-    }
-    let (digits, start) = decimal_digits(decimal.coefficient.unsigned_abs());
-    let digits = &digits[start..];
-    let scale = usize::from(decimal.scale);
-    let mut token = [0u8; 57];
-    let mut length = 0usize;
-    if decimal.coefficient.is_negative() {
-        token[length] = b'-';
-        length += 1;
-    }
-    if scale == 0 {
-        token[length..length + digits.len()].copy_from_slice(digits);
-        length += digits.len();
-    } else if digits.len() <= scale {
-        token[length] = b'0';
-        token[length + 1] = b'.';
-        length += 2;
-        let zeroes = scale - digits.len();
-        token[length..length + zeroes].fill(b'0');
-        length += zeroes;
-        token[length..length + digits.len()].copy_from_slice(digits);
-        length += digits.len();
-    } else {
-        let split = digits.len() - scale;
-        token[length..length + split].copy_from_slice(&digits[..split]);
-        length += split;
-        token[length] = b'.';
-        length += 1;
-        token[length..length + scale].copy_from_slice(&digits[split..]);
-        length += scale;
-    }
-    if scale > 0 {
-        while token.get(length.wrapping_sub(1)) == Some(&b'0') {
-            length -= 1;
-        }
-        if token.get(length.wrapping_sub(1)) == Some(&b'.') {
-            length -= 1;
-        }
-    }
-    output.extend(&token[..length])
+    font_encoding::decimal(output, decimal)
 }
 
 fn write_dictionary(
@@ -4703,83 +4531,28 @@ fn to_unicode_cmap(plan: &FrozenPdfFontPlan, max_len: u64) -> Result<Vec<u8>, Pd
     to_unicode_bindings(&plan.subset_plan().cids, max_len)
 }
 fn to_unicode_bindings(bindings: &[typaxis_font::CidBinding], max_len: u64) -> Result<Vec<u8>, PdfError> {
-    let mut output = LimitedPdfBuffer::new(max_len);
-    output.extend(
-        b"/CIDInit /ProcSet findresource begin\n\
-12 dict begin\n\
-begincmap\n\
-/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> def\n\
-/CMapName /Typaxis-Identity-UCS def\n\
-/CMapType 2 def\n\
-1 begincodespacerange\n\
-<0000> <FFFF>\n\
-endcodespacerange\n",
-    )?;
-    let mapping_count = bindings
-        .iter()
-        .filter(|binding| !binding.unicode.is_empty())
-        .count();
-    // A bfchar entry has at least a four-hex-digit source and destination.
-    let minimum_mapping_bytes = u64::try_from(mapping_count)
+    let mapping_count = bindings.iter().filter(|b| !b.unicode.is_empty()).count();
+    let minimum = u64::try_from(mapping_count)
         .ok()
-        .and_then(|count| count.checked_mul(14))
+        .and_then(|n| n.checked_mul(14))
         .ok_or(PdfError::OutputTooLarge)?;
-    if minimum_mapping_bytes > output.remaining()? {
+    if minimum > max_len.saturating_sub(font_encoding::HEADER.len() as u64) {
         return Err(PdfError::OutputTooLarge);
     }
-    let mut mappings = Vec::new();
-    mappings
-        .try_reserve_exact(mapping_count)
-        .map_err(|_| PdfError::OutputTooLarge)?;
-    mappings.extend(
-        bindings
-            .iter()
-            .filter(|binding| !binding.unicode.is_empty()),
-    );
-    for chunk in mappings.chunks(100) {
-        output.unsigned(u64::try_from(chunk.len()).map_err(|_| PdfError::OutputTooLarge)?)?;
-        output.extend(b" beginbfchar\n")?;
-        for binding in chunk {
-            write_hex_string(&mut output, &binding.cid.get().to_be_bytes())?;
-            output.push(b' ')?;
-            write_utf16be_hex(
-                &mut output,
-                binding.unicode.iter().map(|scalar| scalar.get()),
-                false,
-            )?;
-            output.push(b'\n')?;
-        }
-        output.extend(b"endbfchar\n")?;
-    }
-    output.extend(
-        b"endcmap\n\
-CMapName currentdict /CMap defineresource pop\n\
-end\n\
-end\n",
+    let mut output = LimitedPdfBuffer::new(max_len);
+    font_encoding::to_unicode(
+        bindings.iter().filter(|b| !b.unicode.is_empty())
+            .map(|b| (b.cid.get(), b.unicode.iter().map(|s| s.get()))),
+        &mut output,
     )?;
     Ok(output.into_bytes())
 }
-
 fn write_utf16be_hex(
     output: &mut LimitedPdfBuffer,
     scalars: impl IntoIterator<Item = char>,
     bom: bool,
 ) -> Result<(), PdfError> {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    output.push(b'<')?;
-    if bom {
-        output.extend(b"FEFF")?;
-    }
-    for scalar in scalars {
-        let mut units = [0u16; 2];
-        for unit in scalar.encode_utf16(&mut units) {
-            for byte in unit.to_be_bytes() {
-                output.push(HEX[usize::from(byte >> 4)])?;
-                output.push(HEX[usize::from(byte & 0x0f)])?;
-            }
-        }
-    }
-    output.push(b'>')
+    font_encoding::utf16(output, scalars, bom)
 }
 
 fn cid_to_gid_map(plan: &FrozenPdfFontPlan, max_len: u64) -> Result<Vec<u8>, PdfError> {
@@ -4797,13 +4570,15 @@ fn cid_to_gid_map(plan: &FrozenPdfFontPlan, max_len: u64) -> Result<Vec<u8>, Pdf
     output
         .try_reserve_exact(byte_len)
         .map_err(|_| PdfError::OutputTooLarge)?;
-    output.extend_from_slice(&0u16.to_be_bytes());
     for (index, binding) in plan.subset_plan().cids.iter().enumerate() {
         if usize::from(binding.cid.get()) != index + 1 {
             return Err(PdfError::ResourcePlanMismatch);
         }
-        output.extend_from_slice(&binding.subset_gid.get().to_be_bytes());
     }
+    font_encoding::gid_map(
+        &mut output,
+        plan.subset_plan().cids.iter().map(|b| b.subset_gid.get()),
+    )?;
     Ok(output)
 }
 
@@ -4827,11 +4602,9 @@ fn dense_cid_set(glyph_count: usize, max_len: u64) -> Result<Vec<u8>, PdfError> 
     {
         return Err(PdfError::OutputTooLarge);
     }
-    let mut output = vec![0xff; byte_len];
-    let used_bits = glyph_count % 8;
-    if used_bits != 0 {
-        output[byte_len - 1] = u8::MAX << (8 - used_bits);
-    }
+    let mut output = Vec::new();
+    output.try_reserve_exact(byte_len).map_err(|_| PdfError::OutputTooLarge)?;
+    font_encoding::cid_set(&mut output, glyph_count)?;
     Ok(output)
 }
 
@@ -5242,6 +5015,7 @@ fn write_glyph_run(
                 output.extend(b"/Artifact << /ActualText <> >> BDC\n")?;
             }
             ClusterExtractionPlan::PerCid { .. } => {}
+            ClusterExtractionPlan::NativeMathGlyph { .. } => return Err(PdfError::ResourcePlanMismatch),
         }
         let cid_count = cluster_plan_cid_count(extraction);
         if cid_count != cluster_glyphs.len() {
@@ -5275,7 +5049,8 @@ fn cluster_plan_cid_count(plan: &ClusterExtractionPlan) -> usize {
     match plan {
         ClusterExtractionPlan::PerCid { cids, .. }
         | ClusterExtractionPlan::ActualText { cids, .. }
-        | ClusterExtractionPlan::Artifact { cids } => cids.len(),
+        | ClusterExtractionPlan::Artifact { cids }
+        | ClusterExtractionPlan::NativeMathGlyph { cids, .. } => cids.len(),
     }
 }
 
@@ -5283,7 +5058,8 @@ fn cluster_plan_cid(plan: &ClusterExtractionPlan, index: usize) -> Option<u16> {
     match plan {
         ClusterExtractionPlan::PerCid { cids, .. }
         | ClusterExtractionPlan::ActualText { cids, .. }
-        | ClusterExtractionPlan::Artifact { cids } => cids.get(index).map(|cid| cid.get()),
+        | ClusterExtractionPlan::Artifact { cids }
+        | ClusterExtractionPlan::NativeMathGlyph { cids, .. } => cids.get(index).map(|cid| cid.get()),
     }
 }
 
@@ -6230,19 +6006,16 @@ mod tests {
         );
         assert_eq!(
             pdf_font_italic_angle(PdfFontProgramKind::TrueTypeGlyf, 1)
-                .unwrap()
                 .canonical(),
             "0"
         );
         assert_eq!(
             pdf_font_italic_angle(PdfFontProgramKind::TrueTypeGlyf, 98_304)
-                .unwrap()
                 .canonical(),
             "1.5"
         );
         assert_eq!(
             pdf_font_italic_angle(PdfFontProgramKind::OpenTypeCff1, 1)
-                .unwrap()
                 .canonical(),
             "0.0000152587890625"
         );
@@ -7280,3 +7053,7 @@ mod tests {
         assert!(pdf.canonical_jcs().contains("\"produced_page_index\":1"));
     }
 }
+
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_font_streams.rs"]
+pub mod book_v2;

@@ -199,7 +199,27 @@ pub(super) fn consume_selected_fragment(
     ledger: &mut typaxis_layout::StagingMathVectorTerminalLedger,
     numbers: &mut Vec<ProductionBodyEquationNumber>,
 ) -> Result<(), ProductionBodyPaginationError> {
-    let root = NodeId::new(0);
+    place_selected_math_fragment(
+        fragment_index,
+        fragment,
+        blocks,
+        page_count,
+        registry,
+        ledger,
+        numbers,
+        true,
+    )
+}
+pub(super) fn place_selected_math_fragment(
+    fragment_index: usize,
+    fragment: &ProductionBodyFragment,
+    blocks: &StagingPrecomposedVectorBlockLayout,
+    page_count: usize,
+    registry: &StagingMathVectorFlowRegistry,
+    ledger: &mut typaxis_layout::StagingMathVectorTerminalLedger,
+    numbers: &mut Vec<ProductionBodyEquationNumber>,
+    consume: bool,
+) -> Result<(), ProductionBodyPaginationError> {
     let ProductionBodyFragmentSource::VectorBlock { block_index } = fragment.source else {
         return Ok(());
     };
@@ -251,40 +271,54 @@ pub(super) fn consume_selected_fragment(
             {
                 return Err(error(block.owner(), E::ReceiptMismatch));
             }
-            let left = add(
-                fragment.bounds.x(),
-                fragment.bounds.width().get(),
-                block.owner(),
-            )?
-            .checked_sub(number.width().get())
-            .ok_or_else(|| error(block.owner(), E::ArithmeticOverflow))?;
-            let required = add(
-                add(viewport.x(), viewport.width().get(), block.owner())?,
-                number.minimum_gap().get(),
-                block.owner(),
-            )?;
-            if left < required {
-                return Err(error(block.owner(), E::WidthMismatch));
-            }
-            let top = add(
-                fragment.bounds.y(),
-                number.top_offset().get(),
-                block.owner(),
-            )?;
-            numbers.push(ProductionBodyEquationNumber {
-                owner: number.owner(),
-                parent_owner: block.owner(),
-                fragment_index: u32::try_from(fragment_index)
-                    .map_err(|_| error(root, E::FragmentLimit))?,
-                page_index: fragment.page_index,
-                bounds: Rect::new(left, top, number.width(), number.height()),
-                shape_fingerprint: shape.fingerprint(),
-            });
+            numbers.push(place_equation_number(fragment_index, fragment, number)?);
         }
         _ => return Err(error(block.owner(), E::ReceiptMismatch)),
     }
-    ledger
-        .consume_selected(source.flow_id(), block.owner())
-        .map_err(|cause| error(block.owner(), E::MathTerminal(cause)))?;
+    if consume {
+        ledger
+            .consume_selected(source.flow_id(), block.owner())
+            .map_err(|cause| error(block.owner(), E::MathTerminal(cause)))?;
+    }
     Ok(())
+}
+
+/// Shared geometry only; versioned callers verify their actual source/shape.
+pub(super) fn place_equation_number(
+    fragment_index: usize,
+    fragment: &ProductionBodyFragment,
+    number: &typaxis_layout::StagingPreparedVectorEquationNumber,
+) -> Result<ProductionBodyEquationNumber, ProductionBodyPaginationError> {
+    let root = NodeId::new(0);
+    let viewport = fragment
+        .viewport
+        .ok_or_else(|| error(fragment.owner, E::ReceiptMismatch))?;
+    let left = add(
+        fragment.bounds.x(),
+        fragment.bounds.width().get(),
+        fragment.owner,
+    )?
+    .checked_sub(number.width().get())
+    .ok_or_else(|| error(fragment.owner, E::ArithmeticOverflow))?;
+    let required = add(
+        add(viewport.x(), viewport.width().get(), fragment.owner)?,
+        number.minimum_gap().get(),
+        fragment.owner,
+    )?;
+    if left < required {
+        return Err(error(fragment.owner, E::WidthMismatch));
+    }
+    let top = add(
+        fragment.bounds.y(),
+        number.top_offset().get(),
+        fragment.owner,
+    )?;
+    Ok(ProductionBodyEquationNumber {
+        owner: number.owner(),
+        parent_owner: fragment.owner,
+        fragment_index: u32::try_from(fragment_index).map_err(|_| error(root, E::FragmentLimit))?,
+        page_index: fragment.page_index,
+        bounds: Rect::new(left, top, number.width(), number.height()),
+        shape_fingerprint: number.shape_fingerprint(),
+    })
 }

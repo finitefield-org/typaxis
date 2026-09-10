@@ -50,8 +50,8 @@ fn production_body_raster_keeps_pixel_aspect_and_real_caption_flow() {
             assert_eq!(lines.figures().len(), 1);
             let measured = &lines.figures()[0];
             assert_eq!(
-                (measured.pixel_width(), measured.pixel_height()),
-                (1200, 720)
+                measured.media(),
+                typaxis_layout::ProductionFigureMedia::Raster { pixel_width: 1200, pixel_height: 720 }
             );
             assert_eq!(measured.width().get().raw(), 2_000_001);
             assert_eq!(measured.height().get().raw(), 1_200_001);
@@ -59,7 +59,7 @@ fn production_body_raster_keeps_pixel_aspect_and_real_caption_flow() {
                 typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
             let fragments = selected.fragments();
             assert_eq!(fragments.len(), 4);
-            assert_eq!(fragments[1].source(), S::RasterFigure { figure_index: 0 });
+            assert_eq!(fragments[1].source(), S::Figure { figure_index: 0 });
             assert_eq!(fragments[1].viewport(), Some(fragments[1].bounds()));
             assert_eq!(fragments[2].bounds().height().get().raw(), 917_504);
             assert_eq!(

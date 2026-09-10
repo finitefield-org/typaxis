@@ -137,62 +137,29 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         }
         Ok(true)
     }
-    fn same_records<T: PartialEq>(
+    pub(in crate::production_body::body_flow::footnote_breaks::demand) fn same_records<
+        T: PartialEq,
+    >(
         &mut self,
         left: &[T],
         right: &[T],
     ) -> Result<bool, ProductionBodyPaginationError> {
-        if left.len() != right.len() {
-            return Ok(false);
-        }
-        for (l, r) in left.iter().zip(right) {
-            self.step(NodeId::new(0))?;
-            if l != r {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        kernel::same_records(&mut self.content, left, right)
     }
-    fn same_demand(
+    pub(in crate::production_body::body_flow::footnote_breaks::demand) fn same_demand(
         &mut self,
         left: &ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>,
         right: &ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>,
     ) -> Result<bool, ProductionBodyPaginationError> {
         self.verify_state(left)?;
         self.verify_state(right)?;
-        if !self.same_records(&left.pending, &right.pending)?
-            || left.definitions.len() != right.definitions.len()
-        {
-            return Ok(false);
-        }
-        for (l, r) in left.definitions.iter().zip(&right.definitions) {
-            self.step(NodeId::new(0))?;
-            let equal = match (l, r) {
-                (Demand::Unreferenced, Demand::Unreferenced) => true,
-                (
-                    Demand::Complete { first_reference: l },
-                    Demand::Complete { first_reference: r },
-                ) => l == r,
-                (
-                    Demand::Pending {
-                        first_reference: l,
-                        cursor: lc,
-                    },
-                    Demand::Pending {
-                        first_reference: r,
-                        cursor: rc,
-                    },
-                ) => {
-                    l == r
-                        && lc.definition_index == rc.definition_index
-                        && lc.next_item == rc.next_item
-                }
-                _ => false,
-            };
-            if !equal {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        kernel::same_demand(
+            &mut self.content,
+            &left.pending,
+            &right.pending,
+            &left.definitions,
+            &right.definitions,
+            |cursor| (cursor.definition_index, cursor.next_item),
+        )
     }
 }

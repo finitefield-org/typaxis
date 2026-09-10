@@ -1,4 +1,10 @@
 use super::*;
+#[path = "book_v2_cid_shaping_tests.rs"]
+mod cid_shaping;
+#[path = "book_v2_font_closure_limit_tests.rs"]
+mod font_closure_limits;
+#[path = "book_v2_font_selection_mixed_tests.rs"]
+mod font_selection_mixed;
 use typaxis_shaping::{
     book_v2::shape_book_v2_authored_text, ProductionParagraphLineContext,
     ProductionTextShapeErrorKind, ShapeSourceSpan,
@@ -208,6 +214,30 @@ fn book_v2_body_shapes_generated_list_and_footnote_labels() {
         shaped.footnote_markers()[0].glyph_run().source_span,
         ShapeSourceSpan::Generated(_)
     ));
+    let inlines = typaxis_layout::book_v2::prepare_book_v2_text_inlines(
+        &flow,
+        &shaped,
+        input.resources(),
+        &limits,
+        EPOCH,
+        typaxis_linebreak::JapaneseLineBreakMode::Normal,
+    )
+    .unwrap();
+    let width =
+        typaxis_core::PositiveLength::new(typaxis_core::Length::from_raw(10_000_000).unwrap())
+            .unwrap();
+    let widths = vec![width; inlines.paragraphs().len()];
+    let selected =
+        typaxis_layout::book_v2::layout_book_v2_text_lines(&inlines, &widths, 1_000_000).unwrap();
+    assert!(selected
+        .paragraphs()
+        .iter()
+        .flat_map(|p| p.lines())
+        .flat_map(|l| l.items())
+        .any(|item| {
+            matches!(item, typaxis_layout::ProductionPlacedInline::Text(t)
+            if t.utf8() == "1" && matches!(t.source_span(), ShapeSourceSpan::Generated(_)))
+        }));
 }
 #[test]
 #[ignore = "requires explicit TYPAXIS_HARANO_FONT pointing to the original font"]
@@ -225,6 +255,11 @@ fn book_v2_body_shapes_original_harano_japanese_ivs_and_rejects_missing_sequence
         let root = Root::new();
         let limits = limits();
         let mut d = source_data(text);
+        let master = &mut d["page_masters"]["masters"][0];
+        master["width"] = 12_000_000.into();
+        master["height"] = 12_000_000.into();
+        master["trim"] = json!({"x":0,"y":0,"width":12_000_000,"height":12_000_000});
+        master["body"] = json!({"x":500_000,"y":500_000,"width":10_000_000,"height":10_000_000});
         d["resources"]["font_faces"][0]["media_type"] = "sfnt-cff1".into();
         d["resources"]["font_faces"][0]["expected_sha256"] = hash.clone().into();
         let body = body_with_source(&root, d, text.as_bytes(), &limits);
@@ -279,6 +314,93 @@ fn book_v2_body_shapes_original_harano_japanese_ivs_and_rejects_missing_sequence
             }
         }
         assert!(saw_ivs);
+        let raw = |n| typaxis_core::Length::from_raw(n).unwrap();
+        let body = typaxis_core::Rect::new(
+            raw(500_000),
+            raw(500_000),
+            typaxis_core::PositiveLength::new(raw(10_000_000)).unwrap(),
+            typaxis_core::PositiveLength::new(raw(10_000_000)).unwrap(),
+        );
+        let bindings =
+            typaxis_layout::book_v2::bind_book_v2_vectors(&policy, input.resources(), &limits)
+                .unwrap();
+        typaxis_layout::book_v2::with_converged_book_v2_body_lines(
+            &policy,
+            &flow,
+            input.resources(),
+            &bindings,
+            &limits,
+            typaxis_linebreak::JapaneseLineBreakMode::Normal,
+            body,
+            1_000_000,
+            |lines| {
+                let measured = typaxis_pagination::book_v2::prepare_book_v2_table_measurements(
+                    typaxis_pagination::book_v2::prepare_book_v2_body_flow(
+                        lines.lines(),
+                        None,
+                        lines.footnotes(),
+                        &limits,
+                        0,
+                    )
+                    .unwrap(),
+                    &limits,
+                )
+                .unwrap();
+                let mut search = typaxis_pagination::book_v2::prepare_book_v2_table_body_search(
+                    &measured, &limits, 1_000_000, 0,
+                )
+                .unwrap();
+                let stable = search.select_stable_mixed_pages(2).unwrap();
+                let placed = search.place_mixed_pages(stable.sequence()).unwrap();
+                let closure = search.close_mixed_page_sources(&stable, &placed).unwrap();
+                let terminals = search
+                    .finalize_mixed_page_math(closure, &limits, 0)
+                    .unwrap();
+                assert_math_display(&terminals, input.resources(), &limits);
+                let mut builder = typaxis_display_list::book_v2::BookV2MathDisplayBuilder::new(
+                    &terminals,
+                    input.resources(),
+                    &limits,
+                    1_000_000,
+                    0,
+                    0,
+                )
+                .unwrap();
+                let display = builder.build_text().unwrap();
+                assert_eq!(
+                    display
+                        .draws()
+                        .iter()
+                        .map(|d| d.exact_text())
+                        .collect::<String>(),
+                    text
+                );
+                let variation = display
+                    .draws()
+                    .iter()
+                    .find(|d| d.exact_text() == "日\u{e0100}")
+                    .unwrap();
+                assert!(variation
+                    .glyphs()
+                    .iter()
+                    .any(|g| g.original_gid().get() == gid));
+                assert_eq!(
+                    variation.font().content_hash(),
+                    typaxis_core::sha256(&bytes)
+                );
+            },
+        )
+        .unwrap();
+
+        let actual_lines = inline_tests::check_actual_lines(
+            &flow,
+            &shaped,
+            input.resources(),
+            &limits,
+            text,
+            1_600_000,
+        );
+        assert!(!actual_lines.paragraphs()[0].ends().contains(&13));
         let ends = [ProductionParagraphLineContext {
             owner: flow.paragraphs()[0].owner(),
             ends: &[13, 17],
@@ -294,3 +416,76 @@ fn book_v2_body_shapes_original_harano_japanese_ivs_and_rejects_missing_sequence
         .is_err());
     }
 }
+
+#[path = "book_v2_inline_tests.rs"]
+mod inline_tests;
+
+#[path = "book_v2_vector_tests.rs"]
+mod vector_tests;
+
+#[path = "book_v2_native_tests.rs"]
+mod native_tests;
+
+#[path = "book_v2_figure_tests.rs"]
+mod figures;
+#[path = "book_v2_footnote_tests.rs"]
+mod footnotes;
+#[path = "book_v2_frame_tests.rs"]
+mod frames;
+#[path = "book_v2_reshape_tests.rs"]
+mod reshape;
+
+#[path = "book_v2_table_caption_measurement_tests.rs"]
+mod table_caption_measurements;
+
+#[path = "book_v2_table_cell_alignment_tests.rs"]
+mod table_cell_alignment;
+
+#[path = "book_v2_table_caption_break_tests.rs"]
+mod table_caption_breaks;
+
+#[path = "book_v2_table_cell_break_tests.rs"]
+mod table_cell_breaks;
+
+#[path = "book_v2_table_rowspan_break_tests.rs"]
+mod table_rowspan_breaks;
+
+#[path = "book_v2_nested_keep_tests.rs"]
+mod nested_keeps;
+#[path = "book_v2_nested_table_tests.rs"]
+mod nested_tables;
+#[path = "book_v2_table_header_break_tests.rs"]
+mod table_header_breaks;
+
+#[path = "book_v2_nested_caption_tests.rs"]
+mod nested_captions;
+
+#[path = "book_v2_nested_header_tests.rs"]
+mod nested_headers;
+
+#[path = "book_v2_nested_span_tests.rs"]
+mod nested_spans;
+
+#[path = "book_v2_definition_table_tests.rs"]
+mod definition_tables;
+
+#[path = "book_v2_definition_table_demand_tests.rs"]
+mod definition_table_demands;
+
+#[path = "book_v2_definition_mixed_tests.rs"]
+mod definition_mixed;
+
+#[path = "book_v2_definition_reservation_tests.rs"]
+mod definition_reservations;
+
+#[path = "book_v2_source_width_tests.rs"]
+mod source_widths;
+
+#[path = "book_v2_page_width_feedback_tests.rs"]
+mod page_width_feedback;
+
+#[path = "book_v2_table_width_frame_tests.rs"]
+mod table_width_frames;
+
+#[path = "book_v2_page_region_flow_tests.rs"]
+mod page_regions;

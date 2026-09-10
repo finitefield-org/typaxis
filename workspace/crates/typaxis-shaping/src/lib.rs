@@ -1341,95 +1341,12 @@ pub fn shape_staging_equation_number_in_scope(
         return Err(StagingEquationNumberShapeError::ContextLimit);
     }
     validate_admitted_font_coverage(font, exact_text)?;
-    let (paragraph_level, specs) =
-        itemize_run_specs(exact_text).map_err(map_equation_number_itemization_error)?;
-    if specs.is_empty() {
-        return Err(StagingEquationNumberShapeError::NonPositiveShape);
-    }
-
-    let mut runs = Vec::new();
-    runs.try_reserve_exact(specs.len())
-        .map_err(|_| StagingEquationNumberShapeError::AllocationFailure)?;
-    for (index, spec) in specs.into_iter().enumerate() {
-        let run_text =
-            itemized_run_utf8(exact_text, spec).map_err(map_equation_number_itemization_error)?;
-        let backend_bound = linked_backend_record_bound(run_text)
-            .map_err(StagingEquationNumberShapeError::Backend)?;
-        if backend_bound > maximum_records {
-            return Err(StagingEquationNumberShapeError::ContextLimit);
-        }
-        let run_id = GlyphRunId::new(
-            u32::try_from(index)
-                .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?,
-        );
-        let source = source_subspan(ShapeSourceSpan::Parsed(text_span), spec.start, spec.end)
-            .map_err(StagingEquationNumberShapeError::Backend)?;
-        let mut budget = ShapeOutputBudget::new(maximum_records);
-        let raw = shape_linked(
-            LinkedBackendInput {
-                run_id,
-                font: FontInstanceId::new(font_face_id.get()),
-                source,
-                utf8: run_text,
-                font_bytes: font.bytes(),
-                face_index: font.face_index(),
-                admitted_units_per_em: font.metadata().units_per_em,
-                admitted_glyph_count: font.metadata().glyph_count,
-                font_size: font_size.get(),
-                bidi_level: spec.bidi_level,
-                script: spec.script,
-                language: None,
-                pre_context: if spec.start == 0 {
-                    None
-                } else {
-                    exact_text.get(
-                        ..usize::try_from(spec.start)
-                            .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?,
-                    )
-                },
-                post_context: if spec.end == exact_len {
-                    None
-                } else {
-                    exact_text.get(
-                        usize::try_from(spec.end)
-                            .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?..,
-                    )
-                },
-                max_output_records: maximum_records,
-            },
-            &mut budget,
-        )
-        .map_err(StagingEquationNumberShapeError::Backend)?;
-        if !budget.matches_output(&raw) {
-            return Err(StagingEquationNumberShapeError::ReceiptMismatch);
-        }
-        let expected = ExpectedGlyphRun {
-            run_id,
-            font: FontInstanceId::new(font_face_id.get()),
-            bidi_level: spec.bidi_level,
-            source,
-            utf8_boundaries: utf8_boundaries(source, run_text)
-                .ok_or(StagingEquationNumberShapeError::ReceiptMismatch)?,
-            glyph_count: font.metadata().glyph_count,
-            max_output_records: maximum_records,
-        };
-        validate_glyph_run(&expected, &raw)
-            .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
-        let ShapeSourceSpan::Parsed(source_span) = raw.source_span else {
-            return Err(StagingEquationNumberShapeError::ReceiptMismatch);
-        };
-        runs.push(StagingEquationNumberGlyphRun {
-            run_id: raw.run_id,
-            bidi_level: raw.bidi_level,
-            script: spec.script,
-            source_span,
-            glyphs: raw.glyphs,
-            clusters: raw.clusters,
-        });
-    }
-
-    let width = equation_number_runs_width(&runs)
-        .ok_or(StagingEquationNumberShapeError::NonPositiveShape)?;
+    let (paragraph_level, runs, width) = shape_equation_number_runs(EquationNumberRunInput {
+        exact_text, text_span, font_bytes: font.bytes(), face_index: font.face_index(),
+        units_per_em: font.metadata().units_per_em, glyph_count: font.metadata().glyph_count,
+        font_instance: FontInstanceId::new(font_face_id.get()), font_size,
+        language: None, maximum_records, total_records: None,
+    })?;
     let glyph_jcs = encode_equation_number_glyph_receipt(&runs);
     let shaper = ShaperIdentity::linked_reference();
     let mut receipt = StagingEquationNumberShapeReceipt {
@@ -1466,6 +1383,140 @@ pub fn shape_staging_equation_number_in_scope(
         return Err(StagingEquationNumberShapeError::ReceiptMismatch);
     }
     Ok(Some(receipt))
+}
+
+struct EquationNumberRunInput<'a> {
+    exact_text: &'a str,
+    text_span: TextSpan,
+    font_bytes: &'a [u8],
+    face_index: u32,
+    units_per_em: u16,
+    glyph_count: u32,
+    font_instance: FontInstanceId,
+    font_size: PositiveLength,
+    language: Option<&'a str>,
+    maximum_records: u32,
+    total_records: Option<u64>,
+}
+fn shape_equation_number_runs(
+    input: EquationNumberRunInput<'_>,
+) -> Result<
+    (
+        BidiLevel,
+        Vec<StagingEquationNumberGlyphRun>,
+        PositiveLength,
+    ),
+    StagingEquationNumberShapeError,
+> {
+    let exact_text = input.exact_text;
+    let text_span = input.text_span;
+    let maximum_records = input.maximum_records;
+    let exact_len = u32::try_from(exact_text.len())
+        .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?;
+    let (paragraph_level, specs) =
+        itemize_run_specs(exact_text).map_err(map_equation_number_itemization_error)?;
+    if specs.is_empty() {
+        return Err(StagingEquationNumberShapeError::NonPositiveShape);
+    }
+
+    let mut remaining = input.total_records.unwrap_or(u64::MAX);
+    remaining = remaining
+        .checked_sub(specs.len() as u64)
+        .ok_or(StagingEquationNumberShapeError::ContextLimit)?;
+    let mut runs = Vec::new();
+    runs.try_reserve_exact(specs.len())
+        .map_err(|_| StagingEquationNumberShapeError::AllocationFailure)?;
+    for (index, spec) in specs.into_iter().enumerate() {
+        let run_text =
+            itemized_run_utf8(exact_text, spec).map_err(map_equation_number_itemization_error)?;
+        let backend_bound = linked_backend_record_bound(run_text)
+            .map_err(StagingEquationNumberShapeError::Backend)?;
+        if backend_bound > maximum_records {
+            return Err(StagingEquationNumberShapeError::ContextLimit);
+        }
+        let run_id = GlyphRunId::new(
+            u32::try_from(index)
+                .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?,
+        );
+        let source = source_subspan(ShapeSourceSpan::Parsed(text_span), spec.start, spec.end)
+            .map_err(StagingEquationNumberShapeError::Backend)?;
+        // Backend scratch has its own context ceiling; only validated retained
+        // glyph/cluster records consume the enclosing document record quota.
+        let run_maximum = maximum_records;
+        if remaining < 2 {
+            return Err(StagingEquationNumberShapeError::ContextLimit);
+        }
+        let mut budget = ShapeOutputBudget::new(run_maximum);
+        let raw = shape_linked(
+            LinkedBackendInput {
+                run_id,
+                font: input.font_instance,
+                source,
+                utf8: run_text,
+                font_bytes: input.font_bytes,
+                face_index: input.face_index,
+                admitted_units_per_em: input.units_per_em,
+                admitted_glyph_count: input.glyph_count,
+                font_size: input.font_size.get(),
+                bidi_level: spec.bidi_level,
+                script: spec.script,
+                language: input.language,
+                pre_context: if spec.start == 0 {
+                    None
+                } else {
+                    exact_text.get(
+                        ..usize::try_from(spec.start)
+                            .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?,
+                    )
+                },
+                post_context: if spec.end == exact_len {
+                    None
+                } else {
+                    exact_text.get(
+                        usize::try_from(spec.end)
+                            .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?..,
+                    )
+                },
+                max_output_records: run_maximum,
+            },
+            &mut budget,
+        )
+        .map_err(StagingEquationNumberShapeError::Backend)?;
+        if !budget.matches_output(&raw) {
+            return Err(StagingEquationNumberShapeError::ReceiptMismatch);
+        }
+        let expected = ExpectedGlyphRun {
+            run_id,
+            font: input.font_instance,
+            bidi_level: spec.bidi_level,
+            source,
+            utf8_boundaries: utf8_boundaries(source, run_text)
+                .ok_or(StagingEquationNumberShapeError::ReceiptMismatch)?,
+            glyph_count: input.glyph_count,
+            max_output_records: run_maximum,
+        };
+        validate_glyph_run(&expected, &raw)
+            .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
+        let ShapeSourceSpan::Parsed(source_span) = raw.source_span else {
+            return Err(StagingEquationNumberShapeError::ReceiptMismatch);
+        };
+        remaining = remaining
+            .checked_sub(raw.glyphs.len() as u64)
+            .and_then(|n| n.checked_sub(raw.clusters.len() as u64))
+            .ok_or(StagingEquationNumberShapeError::ContextLimit)?;
+        runs.push(StagingEquationNumberGlyphRun {
+            run_id: raw.run_id,
+            bidi_level: raw.bidi_level,
+            script: spec.script,
+            source_span,
+            glyphs: raw.glyphs,
+            clusters: raw.clusters,
+        });
+    }
+
+    let width = equation_number_runs_width(&runs)
+        .ok_or(StagingEquationNumberShapeError::NonPositiveShape)?;
+    Ok((paragraph_level, runs, width))
 }
 
 fn validate_admitted_font_coverage(
@@ -1524,6 +1575,13 @@ fn equation_number_runs_width(runs: &[StagingEquationNumberGlyphRun]) -> Option<
 }
 
 fn equation_number_runs_cover(text_span: TextSpan, runs: &[StagingEquationNumberGlyphRun]) -> bool {
+    // Preserve the frozen legacy receipt's base-level restriction.
+    equation_number_runs_cover_with_level(text_span, runs, 1)
+}
+
+fn equation_number_runs_cover_with_level(
+    text_span: TextSpan, runs: &[StagingEquationNumberGlyphRun], maximum_level: u8,
+) -> bool {
     let mut expected_start = text_span.start_byte().get();
     for (index, run) in runs.iter().enumerate() {
         if usize::try_from(run.run_id.get()) != Ok(index)
@@ -1532,7 +1590,7 @@ fn equation_number_runs_cover(text_span: TextSpan, runs: &[StagingEquationNumber
             || run.source_span.end_byte().get() <= expected_start
             || run.glyphs.is_empty()
             || run.clusters.is_empty()
-            || run.bidi_level.get() > 1
+            || run.bidi_level.get() > maximum_level
         {
             return false;
         }

@@ -1218,6 +1218,16 @@ fn validate_stored_vector_paints_v2(
     language_paints: &[BookLanguagePaintV2],
     vector_paints: &[BookVectorLanguagePaintV2],
 ) -> Result<(), BookNavigationSelectedError> {
+    validate_stored_vector_paints_with_sparse_usages_v2(navigation, pages, language_paints, vector_paints, false)
+}
+
+fn validate_stored_vector_paints_with_sparse_usages_v2(
+    navigation: &ValidatedStagingBookNavigationV2,
+    pages: &[BookNavigationSelectedPage],
+    language_paints: &[BookLanguagePaintV2],
+    vector_paints: &[BookVectorLanguagePaintV2],
+    sparse: bool,
+) -> Result<(), BookNavigationSelectedError> {
     let required_owners = navigation
         .languages()
         .records()
@@ -1231,6 +1241,7 @@ fn validate_stored_vector_paints_v2(
         .map(|paint| (paint.page_index, paint.paint_ordinal))
         .collect::<BTreeSet<_>>();
     let mut previous = None;
+    let mut previous_usage = None;
     for (index, paint) in vector_paints.iter().enumerate() {
         let source_index = usize::try_from(paint.source_owner_ordinal)
             .map_err(|_| BookNavigationSelectedError::InvalidLanguagePaint)?;
@@ -1240,7 +1251,8 @@ fn validate_stored_vector_paints_v2(
             .get(source_index)
             .ok_or(BookNavigationSelectedError::InvalidLanguagePaint)?;
         let order = (paint.page_index, paint.paint_ordinal);
-        if usize::try_from(paint.usage_id) != Ok(index)
+        if (!sparse && usize::try_from(paint.usage_id) != Ok(index))
+            || previous_usage.is_some_and(|prior| prior >= paint.usage_id)
             || paint.page_index as usize >= pages.len()
             || previous.is_some_and(|prior| prior >= order)
             || !occupied.insert(order)
@@ -1258,6 +1270,7 @@ fn validate_stored_vector_paints_v2(
             return Err(BookNavigationSelectedError::InvalidLanguagePaint);
         }
         previous = Some(order);
+        previous_usage = Some(paint.usage_id);
     }
     if seen != required_owners {
         return Err(BookNavigationSelectedError::InvalidLanguagePaint);

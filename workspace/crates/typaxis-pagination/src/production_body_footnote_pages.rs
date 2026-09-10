@@ -47,6 +47,12 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         &mut self,
     ) -> Result<ProductionBodyFootnotePageState<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError>
     {
+        if let Some(tables) = &self.tables {
+            return Err(error(
+                tables.table(0).owner(),
+                E::PendingRegion("table_page_selection"),
+            ));
+        }
         for pair in self.content.flow.body_items().windows(2) {
             self.step(pair[0].owner)?;
             if pair[0].keep && pair[1].source.is_none() {
@@ -62,9 +68,9 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         })
     }
 
-    /// All legal body alternatives are evaluated before selecting the lowest
-    /// common boundary cost (then source offset). Exhaustion is an error, never
-    /// permission to accept a prefix of the alternatives. None means complete
+    /// Enumerate every legal boundary before checking simultaneous fits in
+    /// increasing cost/source order. Enumeration exhaustion is never permission
+    /// to accept a partial candidate set. None means complete
     /// or no simultaneous fit; distinguish using state.is_complete().
     pub fn select_page(
         &mut self,
@@ -85,11 +91,10 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         let items = self.content.flow.body_items();
         let start = state.body_start;
         let mut best = None;
-        let mut best_key = None;
         let mut attempts = 0u32;
         if items.get(start).is_some_and(|i| i.source.is_some()) {
             let content = &mut self.content;
-            let boundaries = page_breaks::all_boundaries(
+            let mut boundaries = page_breaks::all_boundaries(
                 items,
                 start,
                 content.flow.blocks.page_geometry().body().height().get(),
@@ -99,6 +104,21 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 &mut content.charge,
                 |owner| visit(&mut content.steps, content.maximum_steps, owner),
             )?;
+            for end in 1..boundaries.candidates.len() {
+                let mut index = end;
+                while index > 0 {
+                    self.step(boundaries.candidates[index].owner())?;
+                    let left = &boundaries.candidates[index - 1];
+                    let right = &boundaries.candidates[index];
+                    if (left.costs().total(), left.end_item())
+                        <= (right.costs().total(), right.end_item())
+                    {
+                        break;
+                    }
+                    boundaries.candidates.swap(index - 1, index);
+                    index -= 1;
+                }
+            }
             for boundary in boundaries.candidates {
                 attempts += 1;
                 if attempts > u32::from(self.maximum_reflows) {
@@ -108,11 +128,8 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 if let Some(candidate) = self
                     .evaluate_body_candidate(&state.demand, start..boundary.end_item() as usize)?
                 {
-                    let key = (boundary.costs().total(), boundary.end_item());
-                    if best_key.is_none_or(|old| key < old) {
-                        best_key = Some(key);
-                        best = Some(candidate);
-                    }
+                    best = Some(candidate);
+                    break;
                 }
             }
         }

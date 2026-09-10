@@ -31,9 +31,13 @@ pub enum WireBookV2SemanticContainerKind {
     CommonError,
     FormalizationNote,
     Quote,
+    ExercisePart,
+    Choice,
+    Hint,
+    Assumption,
 }
 impl WireBookV2SemanticContainerKind {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 16] = [
         Self::Result,
         Self::Proof,
         Self::Exercise,
@@ -46,6 +50,10 @@ impl WireBookV2SemanticContainerKind {
         Self::CommonError,
         Self::FormalizationNote,
         Self::Quote,
+        Self::ExercisePart,
+        Self::Choice,
+        Self::Hint,
+        Self::Assumption,
     ];
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -61,12 +69,20 @@ impl WireBookV2SemanticContainerKind {
             Self::CommonError => "common_error",
             Self::FormalizationNote => "formalization_note",
             Self::Quote => "quote",
+            Self::ExercisePart => "exercise_part",
+            Self::Choice => "choice",
+            Self::Hint => "hint",
+            Self::Assumption => "assumption",
         }
     }
 }
 impl sealed_semantic_kind::Sealed for WireBookV2SemanticContainerKind {}
 impl WireSemanticKind for WireBookV2SemanticContainerKind {
     const CONTRACT: &'static str = BOOK_V2_DOCUMENT_PACKAGE_CONTRACT;
+    const DESCRIPTION_LISTS: bool = true;
+    const NUMBER_BINDINGS: bool = true;
+    const TABLE_CAPTIONS: bool = true;
+    const TABLE_CELL_STYLES: bool = true;
     const DEBUG_NAME: &'static str = "DecodedBookV2DocumentPackage";
     const ROOT_SHAPE_ERROR: &'static str = "root members differ from the contract-1.5 scaffold";
     fn contract_error() -> StagingSemanticDecodeError {
@@ -75,6 +91,9 @@ impl WireSemanticKind for WireBookV2SemanticContainerKind {
 }
 
 pub type WireBookV2Block = WireSemanticBlock<WireBookV2SemanticContainerKind>;
+pub use crate::semantic_container::WireDescriptionTerm as WireBookV2DescriptionTerm;
+pub type WireBookV2DescriptionItem =
+    crate::semantic_container::WireSemanticDescriptionItem<WireBookV2SemanticContainerKind>;
 pub type WireBookV2ListItem = WireSemanticListItem<WireBookV2SemanticContainerKind>;
 pub type WireBookV2TableCell = WireSemanticTableCell<WireBookV2SemanticContainerKind>;
 pub type WireBookV2TableRow = WireSemanticTableRow<WireBookV2SemanticContainerKind>;
@@ -159,3 +178,5 @@ pub fn book_v2_wire_ast_node_count(
 ) -> Result<u64, StagingSemanticDecodeError> {
     crate::semantic_container::semantic_wire_ast_node_count(package, max_depth)
 }
+
+pub use crate::semantic_container::WireBookV2NumberBinding;

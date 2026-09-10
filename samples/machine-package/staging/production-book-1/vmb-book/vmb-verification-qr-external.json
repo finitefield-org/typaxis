@@ -1,0 +1,140 @@
+{
+  "scope": "Generated verification QR resource plus authored Figure public PDF; formal companion lowering not yet implemented",
+  "input": "/private/tmp/vmb-verification-qr-public/typaxis-body-3826766605",
+  "run": "/private/tmp/vmb-verification-qr-public/typaxis-run-3805719837",
+  "final_regression_input": "/private/tmp/vmb-verification-qr-public/typaxis-body-3928221821",
+  "final_regression_run": "/private/tmp/vmb-verification-qr-public/typaxis-run-3252672992",
+  "final_pdf_byte_identical": true,
+  "go_version": "go1.23.2 darwin/arm64",
+  "files": [
+    {
+      "path": "/private/tmp/vmb-verification-qr-public/typaxis-body-3826766605/document-package.json",
+      "bytes": 8618,
+      "sha256": "89d749aaccb0fe241ba7b39723a1595c95c62790f2513829cff8a73f095f8411"
+    },
+    {
+      "path": "/private/tmp/vmb-verification-qr-public/typaxis-run-3805719837/output.pdf",
+      "bytes": 54670,
+      "sha256": "d0fd819c50bbcb440bbf59957048cf11ae096407324ca71c03c64de3f0c4eee0"
+    },
+    {
+      "path": "/private/tmp/vmb-verification-qr-public/typaxis-run-3805719837/build-manifest.json",
+      "bytes": 17295,
+      "sha256": "9b644592d0bc05c117877d04bd4cd97c57632b8d58e151740e022c1fbc43498c"
+    },
+    {
+      "path": "/private/tmp/vmb-verification-qr-public/typaxis-run-3805719837/trace.json",
+      "bytes": 736,
+      "sha256": "b678c9a0d1f9d708489c5c8479a4d4d111a8aff06605e964ff8f295c5b1bbe2b"
+    },
+    {
+      "path": "/private/tmp/vmb-verification-qr-public/typaxis-run-3805719837/page-300dpi.png",
+      "bytes": 68990,
+      "sha256": "8848d696849e5e32e3b9e8ed0c704d51fe34c6eb132d873cdd623464bb630025"
+    },
+    {
+      "path": "/private/tmp/vmb-verification-qr-public/typaxis-qr-2845204835/qr.json",
+      "bytes": 404,
+      "sha256": "d75e9cc0c94ec32cc1cca31a245cbde6b2ffc6350648dbb1cb771e4757d3ce0c"
+    },
+    {
+      "path": "/private/tmp/vmb-qr-decode",
+      "bytes": 99104,
+      "sha256": "a754d549a7ef24efffe948ce493f92eea395457c2810be30848837a25dcebe20"
+    },
+    {
+      "path": "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+      "bytes": 73517640,
+      "sha256": "08e3b3008e85efcc669f0df68982dab106cfddcc535b90da996a6a52bace526a"
+    },
+    {
+      "path": "/private/tmp/vmb-verification-qr-final-regression.log",
+      "bytes": 70260,
+      "sha256": "072cc312e16bfd4ebf53b7ad2e9d1a1d3ac4baf26b0d82ca446a53478539ce4b"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-verification-qr-check.py",
+      "bytes": 3285,
+      "sha256": "9542b151b99dedb7d4d045f10bc9bb8a62eca721bb9f785587c3232fe298a5dc"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-verification-qr-decode.swift",
+      "bytes": 566,
+      "sha256": "e95c3e2dd099ea385e0bb34eaf2cd4a0d5ec10e06a892d450646f119ee3ce424"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-verification-qr-content.json",
+      "bytes": 1285,
+      "sha256": "f68aad137bb6956d2772364f2e51658cf94229dc08aafb4171a3e7efe9d9473d"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-verification-qr-verapdf.xml",
+      "bytes": 1382,
+      "sha256": "543cf12ade1c8ec61d2af779b73a0903d44a1b3cd0ae86f1910f652728bf720d"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-verification-qr-source-decoded.json",
+      "bytes": 90,
+      "sha256": "3b7c15fa102e2f4dd27ba530c64850a6d1ae002f958ddebd0c7cfeff72e4083e"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-verification-qr-page-decoded.json",
+      "bytes": 90,
+      "sha256": "3b7c15fa102e2f4dd27ba530c64850a6d1ae002f958ddebd0c7cfeff72e4083e"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/go.mod",
+      "bytes": 284,
+      "sha256": "4494d71a640688cbbc3fa560278bc608680bc011986440a0b96189b738f468c3"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/go.sum",
+      "bytes": 907,
+      "sha256": "ff8250887547ab80c8d034f52f3ff119e28885b262a0398e2d79c5bb9e34da88"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/verification_qr.go",
+      "bytes": 5698,
+      "sha256": "a4f4a57a3e33d2977017811f73150ff02e538902cae306f1b46927a498cf91e6"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/verification_qr_test.go",
+      "bytes": 6066,
+      "sha256": "1415273459929c953904d581daeb43dd29bd6108a86fda03aac2f30be03c650b"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/go-qrcode/LICENSE",
+      "bytes": 1055,
+      "sha256": "4cdab772de606bdf53e174b2f5d6a2c398156380ca1f763122198cece531d02c"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/go-qrcode/README.md",
+      "bytes": 562,
+      "sha256": "bd8e1e93bed58b55b9ab706578dbfb268d3fd3601a222078f7625655920d4a95"
+    }
+  ],
+  "go_tests": {
+    "passed": 108,
+    "skipped": 2,
+    "seconds": 106.836
+  },
+  "module_verification": "go mod verify: all modules verified",
+  "independent_decode": {
+    "implementation": "macOS Vision VNDetectBarcodesRequest, CPU mode",
+    "source_png": "one QR; exact source URL",
+    "pdf_render": "one QR; exact source URL from full page rendered by Poppler at 300 dpi",
+    "execution": "Outside sandbox after sandboxed ANE/CVPixelBuffer failures; no URL was opened."
+  },
+  "pdf_ua1": {
+    "passed_rules": 106,
+    "passed_checks": 491,
+    "failed_rules": 0,
+    "failed_checks": 0
+  },
+  "limitations": [
+    "Formal chapter/result QR placement, companion HTML and source/result metadata join remain open.",
+    "No formal proof validation or publication authorization is implied by a decodable QR.",
+    "Cross-host performance/reproducibility, full-book/Harano and human acceptance remain open."
+  ],
+  "vmb_implementation_commit": "a422ce3c"
+}

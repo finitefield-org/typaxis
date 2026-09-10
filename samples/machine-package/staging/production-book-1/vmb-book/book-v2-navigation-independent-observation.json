@@ -1,0 +1,172 @@
+{
+  "algorithm": "typaxis.pdf-structure-observation/1",
+  "catalog_language": "en-US",
+  "destinations": [
+    {
+      "name": "chapter-1",
+      "page_index": 0,
+      "view": {
+        "kind": "xyz",
+        "x": 6553600,
+        "y": 6553600
+      }
+    },
+    {
+      "name": "exercise-1",
+      "page_index": 1,
+      "view": {
+        "kind": "xyz",
+        "x": 6553600,
+        "y": 6553600
+      }
+    },
+    {
+      "name": "part-1",
+      "page_index": 0,
+      "view": {
+        "kind": "xyz",
+        "x": 0,
+        "y": 0
+      }
+    }
+  ],
+  "info": {
+    "Author": "Ada Example",
+    "CreationDate": "D:20260828000000Z",
+    "Keywords": "determinism; typesetting",
+    "ModDate": "D:20260829000000Z",
+    "Producer": "typaxis 0.1.0",
+    "Subject": "Metadata & navigation <proof>",
+    "Title": "Typaxis Book"
+  },
+  "language_paints": [
+    {
+      "actual_text": null,
+      "language": "fr-Latn-FR",
+      "page_index": 0
+    },
+    {
+      "actual_text": null,
+      "language": "de-DE",
+      "page_index": 0
+    },
+    {
+      "actual_text": null,
+      "language": "zh-Hant-TW",
+      "page_index": 1
+    }
+  ],
+  "links": [
+    {
+      "destination": "chapter-1",
+      "object_number": 8,
+      "page_index": 0,
+      "rect": [
+        6553600,
+        8519680,
+        10485760,
+        9830400
+      ]
+    }
+  ],
+  "objects": [
+    {
+      "object_number": 1,
+      "role": "catalog",
+      "sha256": "d1d4ef95df666f1d24468ee825f2d4a170e02f004adda53cfb90f14e30a053f8"
+    },
+    {
+      "object_number": 2,
+      "role": "pages",
+      "sha256": "2dd62792fa94f828387607fb66f803e0acbcd23083f5018fe5f191ff758713ca"
+    },
+    {
+      "object_number": 3,
+      "role": "destination_name_tree",
+      "sha256": "0766e5ff5a025f2f6862ea74069c640fb75d7fdab22fe855d93e9a8a1929a753"
+    },
+    {
+      "object_number": 4,
+      "role": "page_content:0",
+      "sha256": "9217038f0240f78faf6c569c3615e424d5ee3a6c879c1cfe0299dda117bde190"
+    },
+    {
+      "object_number": 5,
+      "role": "page:0",
+      "sha256": "fb5ded828bc7f5f11e9ee9520033634798116616faff4c10d4531cb4f7c43e3b"
+    },
+    {
+      "object_number": 6,
+      "role": "page_content:1",
+      "sha256": "42d939d0c4fcf84df249645dca4eb69e965fb26014e68ad42e98bfc54bad15ae"
+    },
+    {
+      "object_number": 7,
+      "role": "page:1",
+      "sha256": "1bb5c62ba8d8c8d8ab92e4416633bcee6353e00c70e0562293914328b5b68d0a"
+    },
+    {
+      "object_number": 8,
+      "role": "link_annotation:0",
+      "sha256": "9a81acee85e5677f5a380d5e124436961e70cf279adb81789d50ef6497113720"
+    },
+    {
+      "object_number": 9,
+      "role": "info",
+      "sha256": "a5b099a7122be1709dc9c7f75420410e7a012e02c8be22db4852ba271e4242a8"
+    },
+    {
+      "object_number": 10,
+      "role": "metadata",
+      "sha256": "f915ef558e36328093a4e61bf35bafa5b89291e8b70823836fac927f543f3445"
+    },
+    {
+      "object_number": 11,
+      "role": "outline_root",
+      "sha256": "7a43a0755c24612ee2d38f04bb05641fc2a5804f739faadec6b065aaf9eefb31"
+    },
+    {
+      "object_number": 12,
+      "role": "outline_item:0",
+      "sha256": "29ca7cbf3755d81f83e5a61460489e9831ec5d5f49527b6af3b7a4eab9c69cba"
+    },
+    {
+      "object_number": 13,
+      "role": "outline_item:1",
+      "sha256": "0740c5f12cb9217d64c8f5bbf0f6e728338234001a452532c3410a17af3e6acc"
+    },
+    {
+      "object_number": 14,
+      "role": "outline_item:2",
+      "sha256": "36ea6d4cf4590a98347cdebde63c36978e7ca23c568a1f5334ed692e38e26b34"
+    }
+  ],
+  "outline": [
+    {
+      "destination": "part-1",
+      "object_number": 12,
+      "outline_id": 0,
+      "parent_outline_id": null,
+      "source_node_id": 1,
+      "title": "Part I"
+    },
+    {
+      "destination": "chapter-1",
+      "object_number": 13,
+      "outline_id": 1,
+      "parent_outline_id": 0,
+      "source_node_id": 2,
+      "title": "Chapitre 1"
+    },
+    {
+      "destination": "exercise-1",
+      "object_number": 14,
+      "outline_id": 2,
+      "parent_outline_id": 0,
+      "source_node_id": 7,
+      "title": "Exercise 1"
+    }
+  ],
+  "pdf_sha256": "b05b8fdfbb8ac63c9241c4c524c9b681129d95d3c12428d16c652f0eb04f70a4",
+  "xmp_sha256": "73fefbf7acccec896fff7cba5740b47bb5e9c3484e10f9ce1400fef49c471729"
+}

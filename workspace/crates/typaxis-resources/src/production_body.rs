@@ -18,10 +18,22 @@ pub struct ProductionBodyFontPlans<'v, 'd, 's, 'p, 'a> {
     fonts: Vec<FrozenStagingPdfTextFontPlan>,
     // One slot per draw. Vector draws deliberately have no font usage.
     draw_clusters: Vec<Option<(usize, usize)>>,
+    native_clusters: Vec<(usize, usize, usize, usize)>,
     record_charge: u64,
     spool_charge: u64,
 }
 impl<'v, 'd, 's, 'p, 'a> ProductionBodyFontPlans<'v, 'd, 's, 'p, 'a> {
+    pub fn native_plan(
+        &self,
+        draw_index: usize,
+        paint_index: usize,
+    ) -> Option<(
+        &FrozenStagingPdfTextFontPlan,
+        &FrozenStagingPdfTextClusterPlan,
+    )> {
+        native_plan_for(&self.fonts, &self.native_clusters, draw_index, paint_index)
+    }
+
     pub fn fonts(&self) -> &[FrozenStagingPdfTextFontPlan] {
         &self.fonts
     }
@@ -71,7 +83,11 @@ pub fn finalize_production_body_fonts<'v, 'd, 's, 'p, 'a>(
     let projection = finalize_font_projection(
         display.draws(),
         display.record_charge(),
-        display.selected().spool_charge(),
+        display
+            .selected()
+            .spool_charge()
+            .checked_add(display.selected().line_layout().native_math_spool_charge())
+            .ok_or(ResourceError::ResourceLimit)?,
         admitted,
         limits,
     )?;
@@ -79,6 +95,7 @@ pub fn finalize_production_body_fonts<'v, 'd, 's, 'p, 'a>(
         display,
         fonts: projection.fonts,
         draw_clusters: projection.draw_clusters,
+        native_clusters: projection.native_clusters,
         record_charge: projection.record_charge,
         spool_charge: projection.spool_charge,
     })
@@ -87,6 +104,7 @@ pub fn finalize_production_body_fonts<'v, 'd, 's, 'p, 'a>(
 struct FontProjection {
     fonts: Vec<FrozenStagingPdfTextFontPlan>,
     draw_clusters: Vec<Option<(usize, usize)>>,
+    native_clusters: Vec<(usize, usize, usize, usize)>,
     record_charge: u64,
     spool_charge: u64,
 }
@@ -105,6 +123,7 @@ fn finalize_font_projection(
         return Err(ResourceError::ResourceLimit);
     }
     let mut text_count = 0usize;
+    let mut native_count = 0usize;
     for draw in draws {
         record_charge = record_charge
             .checked_add(1)
@@ -126,6 +145,27 @@ fn finalize_font_projection(
                 .and_then(|n| copied_bytes.checked_add(n))
                 .ok_or(ResourceError::ResourceLimit)?;
         }
+        if let ProductionBodyDraw::Math(math) = draw {
+            for paint in math.paints() {
+                if matches!(
+                    paint,
+                    typaxis_display_list::ProductionNativeMathPaint::Glyph { .. }
+                ) {
+                    native_count = native_count
+                        .checked_add(1)
+                        .ok_or(ResourceError::ResourceLimit)?;
+                    text_count = text_count
+                        .checked_add(1)
+                        .ok_or(ResourceError::ResourceLimit)?;
+                    record_charge = record_charge
+                        .checked_add(18)
+                        .ok_or(ResourceError::ResourceLimit)?;
+                    copied_bytes = copied_bytes
+                        .checked_add(4096)
+                        .ok_or(ResourceError::ResourceLimit)?;
+                }
+            }
+        }
         if record_charge > limits.base().get().max_fragments
             || copied_bytes > limits.base().get().max_spool_bytes
         {
@@ -144,6 +184,19 @@ fn finalize_font_projection(
                 text.exact_text().to_owned(),
                 text.glyphs().iter().map(|g| g.original_gid()).collect(),
             )?);
+        }
+        if let ProductionBodyDraw::Math(math) = draw {
+            for (paint_index, paint) in math.paints().iter().enumerate() {
+                if matches!(
+                    paint,
+                    typaxis_display_list::ProductionNativeMathPaint::Glyph { .. }
+                ) {
+                    usages.push(StagingPdfTextClusterUsage::from_native_math_glyph(
+                        math,
+                        paint_index,
+                    )?);
+                }
+            }
         }
     }
     let fonts =
@@ -170,32 +223,59 @@ fn finalize_font_projection(
     draw_clusters
         .try_reserve_exact(draws.len())
         .map_err(|_| ResourceError::ResourceLimit)?;
+    let mut native_clusters = Vec::new();
+    native_clusters
+        .try_reserve_exact(native_count)
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    let resolve = |usage: &StagingPdfTextClusterUsage| -> Result<(usize, usize), ResourceError> {
+        let index = *face_indices
+            .get(&usage.font_face_id())
+            .ok_or(ResourceError::MissingLogicalResource)?;
+        let cluster = fonts[index]
+            .clusters()
+            .binary_search_by(|c| {
+                c.source()
+                    .cmp(usage.source())
+                    .then_with(|| c.exact_text().cmp(usage.exact_text()))
+                    .then_with(|| c.glyphs().cmp(usage.glyphs()))
+            })
+            .map_err(|_| ResourceError::IncompleteUsagePlan)?;
+        Ok((index, cluster))
+    };
     let mut usage_iter = usages.iter();
-    for draw in draws {
+    for (draw_index, draw) in draws.iter().enumerate() {
         draw_clusters.push(if matches!(draw, ProductionBodyDraw::Text(_)) {
-            let usage = usage_iter
-                .next()
-                .ok_or(ResourceError::IncompleteUsagePlan)?;
-            let index = *face_indices
-                .get(&usage.font_face_id())
-                .ok_or(ResourceError::MissingLogicalResource)?;
-            let cluster = fonts[index]
-                .clusters()
-                .binary_search_by(|c| {
-                    c.text_span()
-                        .cmp(&usage.text_span())
-                        .then_with(|| c.exact_text().cmp(usage.exact_text()))
-                        .then_with(|| c.glyphs().cmp(usage.glyphs()))
-                })
-                .map_err(|_| ResourceError::IncompleteUsagePlan)?;
-            Some((index, cluster))
+            Some(resolve(
+                usage_iter
+                    .next()
+                    .ok_or(ResourceError::IncompleteUsagePlan)?,
+            )?)
         } else {
             None
         });
+        if let ProductionBodyDraw::Math(math) = draw {
+            for (paint_index, paint) in math.paints().iter().enumerate() {
+                if matches!(
+                    paint,
+                    typaxis_display_list::ProductionNativeMathPaint::Glyph { .. }
+                ) {
+                    let (font, cluster) = resolve(
+                        usage_iter
+                            .next()
+                            .ok_or(ResourceError::IncompleteUsagePlan)?,
+                    )?;
+                    native_clusters.push((draw_index, paint_index, font, cluster));
+                }
+            }
+        }
+    }
+    if usage_iter.next().is_some() {
+        return Err(ResourceError::IncompleteUsagePlan);
     }
     Ok(FontProjection {
         fonts,
         draw_clusters,
+        native_clusters,
         record_charge,
         spool_charge: copied_bytes,
     })
@@ -211,6 +291,21 @@ pub struct ProductionFootnoteFontPlans<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
 impl<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
     ProductionFootnoteFontPlans<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
 {
+    pub fn native_plan(
+        &self,
+        draw_index: usize,
+        paint_index: usize,
+    ) -> Option<(
+        &FrozenStagingPdfTextFontPlan,
+        &FrozenStagingPdfTextClusterPlan,
+    )> {
+        native_plan_for(
+            &self.projection.fonts,
+            &self.projection.native_clusters,
+            draw_index,
+            paint_index,
+        )
+    }
     pub fn structure(
         &self,
     ) -> &'t typaxis_display_list::ProductionFootnoteStructure<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
@@ -299,4 +394,21 @@ pub fn finalize_production_footnote_fonts<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a
         structure,
         projection,
     })
+}
+
+fn native_plan_for<'a>(
+    fonts: &'a [FrozenStagingPdfTextFontPlan],
+    indices: &[(usize, usize, usize, usize)],
+    draw_index: usize,
+    paint_index: usize,
+) -> Option<(
+    &'a FrozenStagingPdfTextFontPlan,
+    &'a FrozenStagingPdfTextClusterPlan,
+)> {
+    let index = indices
+        .binary_search_by_key(&(draw_index, paint_index), |row| (row.0, row.1))
+        .ok()?;
+    let (_, _, font, cluster) = indices[index];
+    let font = fonts.get(font)?;
+    Some((font, font.clusters().get(cluster)?))
 }

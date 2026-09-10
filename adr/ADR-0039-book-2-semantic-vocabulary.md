@@ -42,6 +42,10 @@ warning
 common_error
 formalization_note
 quote
+exercise_part
+choice
+hint
+assumption
 ```
 
 These are closed typed alternatives. VMB `commonError` and `formalizationNote`
@@ -85,9 +89,10 @@ The feature grants no renderer/PDF authority. It must be removed or absorbed
 into the single complete publication change set, together with all other private
 successor entry points, when section 9.1's gates are actually proved.
 
-Description lists (30 in the original book), remaining teaching fields and
-ordinary reference/renderer support remain necessary work in the unpublished
-successor. This container decision does not call their existing rejection a
+Description lists (30 in the original book; their separate authored-term carrier
+is specified in [ADR-0040](ADR-0040-book-2-description-lists.md)), remaining teaching
+fields and ordinary reference/renderer support remain necessary work in the
+unpublished successor. This container decision does not call their existing rejection a
 successful full-book export and does not reduce the original scope.
 
 ## Required evidence
@@ -104,3 +109,41 @@ successful full-book export and does not reduce the original scope.
 - Existing document-package, syntax and public production compatibility tests
   remain successful. Full successor layout/structure/PDF/CLI and full-book gates
   must be separately demonstrated before publication.
+
+## Teaching-unit amendment (2026-09-09)
+
+The unpublished vocabulary additionally includes `exercise_part`, `choice`, and
+`hint`. These are VMB units with their own authored IDs, ordered content and
+teaching metadata, not aliases for exercises, notes or anonymous paragraphs.
+Their standard PDF grouping role is `Sect`, as for the parent exercise. Visible
+part/choice labels and hint-level labels are explicit producer presentation;
+the renderer does not infer labels or numbering from a class or an anchor ID.
+Each group retains its own anchor and source owner and can contain ordinary
+recursive blocks. A producer may combine these semantic units with an explicitly
+selected list presentation; the typed unit is never inferred from a list marker.
+
+The VMB book exporter emits prompt, parts, choices, hints, the optional solution
+link, verification and formal contributions in that order. It preserves part
+titles and bodies, choices' content, and hints' bodies. Part answer type and
+formal reference, plus hint level, remain bounded, owner-bound source metadata.
+Hint/part/choice display must be explicitly resolved by the producer. An exercise
+solution link must name an actual exported solution solving that same exercise.
+No absent solution, hidden source material, choice correctness, or proof result
+is fabricated. The 1.4 grammar remains the original three closed kinds.
+
+## Assumptions and quotations (2026-09-09)
+
+The unpublished vocabulary includes `assumption` for each authored assumption
+unit of a result. Each condition retains its own typed grouping owner and ordered
+inline content; it is not converted to an anonymous statement paragraph or given
+an invented VMB anchor. The group has a null anchor when the original unit has no
+block ID. Its standard PDF role is `Sect`. The producer preserves the originating
+result and assumption-unit reference location and places assumptions before the
+statement. It does not invent condition labels, numbering, or a logical formula.
+
+The existing `quote` kind retains the authored quotation followed by its optional
+attribution. Both keep their original rich inline content; no fabricated heading,
+quotation mark or attribution prefix is required. The original quote block ID
+remains its anchor, with standard `BlockQuote` PDF role. A nonempty authored quote
+is required, and present attribution must have actual content. Original inline
+links and mathematical replacements retain their own source owners.

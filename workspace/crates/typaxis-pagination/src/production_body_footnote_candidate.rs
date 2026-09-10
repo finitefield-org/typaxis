@@ -2,10 +2,15 @@
 use super::*;
 
 pub struct ProductionBodyFootnoteCandidate<'b, 'f, 's, 'p, 'a> {
-    owner_id: u64,
-    state_id: u64,
     body: std::ops::Range<usize>,
     body_height: Length,
+    fit: ProductionBodyFootnoteFit<'b, 'f, 's, 'p, 'a>,
+}
+/// Shared measured reservation. Carries no body range or table cursor, so a
+/// caller must retain its own real source selection alongside this fit.
+pub(in crate::production_body::body_flow) struct ProductionBodyFootnoteFit<'b, 'f, 's, 'p, 'a> {
+    owner_id: u64,
+    state_id: u64,
     demanded: ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>,
     footnotes: Option<ProductionFootnoteRegionSelection<'b, 'f, 's, 'p, 'a>>,
     footnote_bounds: Option<Rect>,
@@ -17,7 +22,36 @@ impl<'b, 'f, 's, 'p, 'a> ProductionBodyFootnoteCandidate<'b, 'f, 's, 'p, 'a> {
     pub const fn body_height(&self) -> Length {
         self.body_height
     }
-    /// Includes the existing separator band, bottom-aligned in the declared region.
+    /// Includes the separator band, bottom-aligned in the declared region.
+    pub const fn footnote_bounds(&self) -> Option<Rect> {
+        self.fit.footnote_bounds()
+    }
+    pub fn footnotes(&self) -> Option<&ProductionFootnoteRegionSelection<'b, 'f, 's, 'p, 'a>> {
+        self.fit.footnotes()
+    }
+    pub fn next_state(&self) -> &ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a> {
+        self.fit.next_state()
+    }
+    pub fn verify(
+        &self,
+        state: &ProductionFootnoteDemandState<'_, '_, '_, '_, '_>,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        self.fit.verify(state)
+    }
+}
+impl<'b, 'f, 's, 'p, 'a> ProductionBodyFootnoteFit<'b, 'f, 's, 'p, 'a> {
+    pub(super) fn from_projection(
+        state: &ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>,
+        projection: fit_kernel::Fit<ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a>>,
+    ) -> Self {
+        Self {
+            owner_id: state.owner_id,
+            state_id: state.state_id,
+            demanded: projection.demanded,
+            footnotes: projection.footnotes,
+            footnote_bounds: projection.footnote_bounds,
+        }
+    }
     pub const fn footnote_bounds(&self) -> Option<Rect> {
         self.footnote_bounds
     }
@@ -55,119 +89,147 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         Option<ProductionBodyFootnoteCandidate<'b, 'f, 's, 'p, 'a>>,
         ProductionBodyPaginationError,
     > {
-        self.verify_state(state)?;
-        let root = NodeId::new(0);
-        let flow = self.content.flow;
-        let items = flow.body_items();
-        if range.start > range.end || range.end > items.len() {
-            return Err(error(root, E::ReceiptMismatch));
-        }
-        self.content.charge.take(1, root)?;
-        if (!range.is_empty() && range.start > 0 && items[range.start - 1].keep)
-            || (range.end > range.start && range.end < items.len() && items[range.end - 1].keep)
-        {
-            return Ok(None);
-        }
-        let mut height = Length::ZERO;
-        for index in range.clone() {
-            let item = &items[index];
-            self.step(item.owner)?;
-            if item.source.is_none() {
-                return Ok(None);
-            }
-            let gap = if index == range.start {
-                Length::ZERO
-            } else {
-                add(items[index - 1].after, item.before, item.owner)?
-            };
-            height = add(add(height, gap, item.owner)?, item.consumed()?, item.owner)?;
-        }
-        let body = flow.blocks.page_geometry().body();
-        if height > body.height().get() {
-            return Ok(None);
-        }
-        self.query_work()?;
-        for reference in flow.references_in_items(None, range.clone()) {
-            self.step(reference.source().owner())?;
-            if reference.first_item_index() < range.start
-                || reference.last_item_index() >= range.end
-            {
-                return Ok(None);
-            }
-        }
-        let demanded = self.require_body(state, range.clone())?;
-        if demanded.pending.is_empty() {
-            return Ok(Some(ProductionBodyFootnoteCandidate {
-                owner_id: self.owner_id,
-                state_id: state.state_id,
-                body: range,
-                body_height: height,
-                demanded,
-                footnotes: None,
-                footnote_bounds: None,
-            }));
-        }
-        let maximum = flow
-            .footnote_region()
-            .ok_or_else(|| error(root, E::PendingRegion("footnote_frame")))?;
-        let bottom = add(maximum.y(), maximum.height().get(), root)?;
-        let body_bottom = add(body.y(), height, root)?;
-        let horizontal_overlap = body.x() < add(maximum.x(), maximum.width().get(), root)?
-            && maximum.x() < add(body.x(), body.width().get(), root)?;
-        let reservation_capacity =
-            if height > Length::ZERO && horizontal_overlap && bottom > body.y() {
-                bottom
-                    .checked_sub(body_bottom)
-                    .ok_or_else(|| error(root, E::ArithmeticOverflow))?
-                    .max(Length::ZERO)
-                    .min(maximum.height().get())
-            } else {
-                maximum.height().get()
-            };
-        let separator = Length::from_raw(typaxis_layout::FOOTNOTE_SEPARATOR_BAND_RAW)
-            .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
-        let capacity = reservation_capacity
-            .checked_sub(separator)
-            .ok_or_else(|| error(root, E::ArithmeticOverflow))?
-            .max(Length::ZERO);
-        let Some(footnotes) = self.select_required_region(&demanded, capacity)? else {
-            return Ok(None);
-        };
-        for selected in footnotes.fragments() {
-            self.query_work()?;
-            for reference in selected.fragment().references() {
-                self.step(reference.source().owner())?;
-                if matches!(footnotes.next_state().definitions[reference.source().definition_index()], Demand::Pending { cursor, .. } if cursor.next_item == 0)
-                {
-                    return Ok(None);
+        Ok(
+            fit_kernel::body_candidate(self, state, range.clone())?.map(|(height, projection)| {
+                ProductionBodyFootnoteCandidate {
+                    body: range,
+                    body_height: height,
+                    fit: ProductionBodyFootnoteFit::from_projection(state, projection),
                 }
-            }
+            }),
+        )
+    }
+}
+
+impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
+    pub(in crate::production_body::body_flow) fn evaluate_table_demand(
+        &mut self,
+        state: &ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>,
+        fragment: Option<&ProductionTableFragmentSelection<'b, 'f, 's, 'p, 'a>>,
+    ) -> Result<Option<ProductionBodyFootnoteFit<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError>
+    {
+        Ok(fit_kernel::table_demand(self, state, fragment)?
+            .map(|projection| ProductionBodyFootnoteFit::from_projection(state, projection)))
+    }
+}
+
+impl<'b, 'f, 's, 'p, 'a> fit_kernel::FitSearch
+    for ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a>
+{
+    type Region = ProductionFootnoteRegionSelection<'b, 'f, 's, 'p, 'a>;
+    fn body(&self) -> Rect {
+        self.content.flow.blocks.page_geometry().body()
+    }
+    fn footnote_region(&self) -> Option<Rect> {
+        self.content.flow.footnote_region()
+    }
+    fn pending(&self, state: &Self::State) -> bool {
+        !state.pending.is_empty()
+    }
+    fn required(
+        &mut self,
+        state: &Self::State,
+        capacity: Length,
+    ) -> Result<Option<Self::Region>, ProductionBodyPaginationError> {
+        self.select_required_region(state, capacity)
+    }
+    fn fragments(region: &Self::Region) -> &[Self::Fragment] {
+        region.fragments()
+    }
+    fn references(fragment: &Self::Fragment) -> impl Iterator<Item = (NodeId, usize)> {
+        fragment
+            .fragment()
+            .references()
+            .map(|r| (r.source().owner(), r.source().definition_index()))
+    }
+    fn unstarted(region: &Self::Region, definition: usize) -> bool {
+        matches!(region.next_state().definitions[definition], Demand::Pending { cursor, .. } if cursor.next_item()==0)
+    }
+    fn height(region: &Self::Region) -> Length {
+        region.used_height()
+    }
+    fn query_work(&mut self) -> Result<(), ProductionBodyPaginationError> {
+        self.query_work()
+    }
+}
+impl<'b, 'f, 's, 'p, 'a> fit_kernel::BodySearch<'b>
+    for ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a>
+{
+    fn items(&self) -> &'b [ProductionBodyFlowItem] {
+        self.content.flow.body_items()
+    }
+    fn allow_range(
+        &mut self,
+        range: std::ops::Range<usize>,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        self.table_query_work()?;
+        if self.tables.as_ref().is_some_and(|t| t.contains(range)) {
+            return Err(error(NodeId::new(0), E::ReceiptMismatch));
         }
-        let footnote_bounds = if footnotes.used_height() > Length::ZERO {
-            let reservation = add(separator, footnotes.used_height(), root)?;
-            if reservation > reservation_capacity {
-                return Ok(None);
-            }
-            let y = bottom
-                .checked_sub(reservation)
-                .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
-            Some(Rect::new(
-                maximum.x(),
-                y,
-                maximum.width(),
-                PositiveLength::new(reservation).ok_or_else(|| error(root, E::ReceiptMismatch))?,
-            ))
-        } else {
-            None
-        };
-        Ok(Some(ProductionBodyFootnoteCandidate {
-            owner_id: self.owner_id,
-            state_id: state.state_id,
-            body: range,
-            body_height: height,
-            demanded,
-            footnotes: Some(footnotes),
-            footnote_bounds,
-        }))
+        Ok(())
+    }
+    fn keep_before(&mut self, start: usize) -> Result<bool, ProductionBodyPaginationError> {
+        self.body_keep_before(start)
+    }
+    fn complete_references(
+        &mut self,
+        range: std::ops::Range<usize>,
+    ) -> Result<bool, ProductionBodyPaginationError> {
+        self.query_work()?;
+        fit_kernel::complete_references(
+            self.content.flow.references_in_items(None, range.clone()),
+            range,
+            &mut self.content.steps,
+            self.content.maximum_steps,
+        )
+    }
+    fn require_body(
+        &mut self,
+        state: &Self::State,
+        range: std::ops::Range<usize>,
+    ) -> Result<Self::State, ProductionBodyPaginationError> {
+        self.require_body(state, range)
+    }
+}
+
+impl<'b, 'f, 's, 'p, 'a> fit_kernel::TableSearch
+    for ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a>
+{
+    type TableFragment = ProductionTableFragmentSelection<'b, 'f, 's, 'p, 'a>;
+    fn verify_table(
+        &self,
+        fragment: &Self::TableFragment,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        fragment.verify_demand_flow(self.content.flow)
+    }
+    fn ranges(fragment: &Self::TableFragment) -> impl Iterator<Item = std::ops::Range<usize>> {
+        fragment.semantic_leaf_ranges()
+    }
+    fn table_height(fragment: &Self::TableFragment) -> Length {
+        fragment.used_height()
+    }
+    fn fork_table(
+        &mut self,
+        state: &Self::State,
+    ) -> Result<Self::State, ProductionBodyPaginationError> {
+        self.fork(state, self.content.flow.footnotes.definitions().len())
+    }
+    fn require_range(
+        &mut self,
+        state: &mut Self::State,
+        range: std::ops::Range<usize>,
+    ) -> Result<bool, ProductionBodyPaginationError> {
+        self.query_work()?;
+        let references = self.content.flow.references_in_items(None, range.clone());
+        if !fit_kernel::complete_references(
+            references,
+            range,
+            &mut self.content.steps,
+            self.content.maximum_steps,
+        )? {
+            return Ok(false);
+        }
+        self.require(state, references)?;
+        Ok(true)
     }
 }

@@ -115,14 +115,39 @@ pub fn prepare_production_footnote_lines<'s, 'p, 'a>(
     if lines.binding_epoch().limits_fingerprint() != limits.fingerprint() {
         return Err(error(root, E::ReceiptMismatch));
     }
-    let flow = lines.source_flow();
-    let wire = flow
-        .package()
-        .checked_wire()
-        .map_err(|_| error(root, E::ReceiptMismatch))?;
-    let sources = &wire.document().footnotes;
-    let reference_count = flow
-        .paragraphs()
+    let projection = project_footnote_lines(
+        InlineFlow::Legacy(lines.source_flow()),
+        lines.paragraphs(),
+        lines.output_records(),
+        limits,
+    )?;
+    Ok(ProductionFootnoteLines {
+        lines,
+        definitions: projection.definitions,
+        references: projection.references,
+        record_charge: projection.record_charge,
+        limits_fingerprint: limits.fingerprint(),
+    })
+}
+
+pub(super) struct FootnoteLineProjection<'a> {
+    pub(super) definitions: Vec<ProductionFootnoteDefinitionLines<'a>>,
+    pub(super) references: Vec<ProductionFootnoteLineReference>,
+    pub(super) record_charge: u64,
+}
+pub(super) fn project_footnote_lines<'a>(
+    flow: InlineFlow<'a>,
+    paragraphs: &[ProductionInlineParagraphLineLayout<'_, 'a>],
+    prior_records: u64,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<FootnoteLineProjection<'a>, ProductionInlinePreparationError> {
+    use ProductionInlinePreparationErrorKind as E;
+    let root = NodeId::new(0);
+    let sources = flow_call!(flow, footnote_definitions());
+    // Definition order determines numbering; identifiers need not be sorted.
+    // Keep an index only when direct binary search would use the wrong order.
+    let definitions_sorted = sources.windows(2).all(|p| p[0].id() < p[1].id());
+    let reference_count = flow_call!(flow, paragraphs())
         .iter()
         .flat_map(|p| p.items())
         .filter(|site| {
@@ -132,18 +157,33 @@ pub fn prepare_production_footnote_lines<'s, 'p, 'a>(
             )
         })
         .count();
-    let record_charge = lines
-        .output_records()
+    let record_charge = prior_records
         .checked_add(sources.len() as u64)
+        .and_then(|n| {
+            n.checked_add(if definitions_sorted {
+                0
+            } else {
+                sources.len() as u64
+            })
+        })
         .and_then(|n| n.checked_add((reference_count as u64).checked_mul(2)?))
         .filter(|n| *n <= limits.base().get().max_fragments)
         .ok_or_else(|| error(root, E::UnitLimit))?;
-    let mut result = ProductionFootnoteLines {
-        lines,
+    let definition_order = if definitions_sorted {
+        None
+    } else {
+        let mut order = Vec::new();
+        order
+            .try_reserve_exact(sources.len())
+            .map_err(|_| error(root, E::AllocationFailure))?;
+        order.extend(0..sources.len());
+        order.sort_unstable_by(|a, b| sources[*a].id().cmp(sources[*b].id()));
+        Some(order)
+    };
+    let mut result = FootnoteLineProjection {
         definitions: Vec::new(),
         references: Vec::new(),
         record_charge,
-        limits_fingerprint: limits.fingerprint(),
     };
     result
         .definitions
@@ -161,7 +201,7 @@ pub fn prepare_production_footnote_lines<'s, 'p, 'a>(
     let mut depth = 0usize;
     let mut active = None;
     let mut paragraph_cursor = 0usize;
-    for (event_index, event) in flow.events().iter().enumerate() {
+    for (event_index, event) in flow_call!(flow, events()).iter().enumerate() {
         match *event {
             Event::Begin { owner, kind } => {
                 if kind == Region::Footnote {
@@ -171,11 +211,11 @@ pub fn prepare_production_footnote_lines<'s, 'p, 'a>(
                     let index = result.definitions.len();
                     let source = sources
                         .get(index)
-                        .filter(|s| s.node_id == owner.get())
+                        .filter(|s| s.owner() == owner)
                         .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
                     result.definitions.push(ProductionFootnoteDefinitionLines {
                         owner,
-                        id: &source.footnote_id,
+                        id: source.id(),
                         number: u32::try_from(index)
                             .ok()
                             .and_then(|n| n.checked_add(1))
@@ -215,12 +255,12 @@ pub fn prepare_production_footnote_lines<'s, 'p, 'a>(
     if depth != 0
         || active.is_some()
         || result.definitions.len() != sources.len()
-        || paragraph_cursor != flow.paragraphs().len()
+        || paragraph_cursor != flow_call!(flow, paragraphs()).len()
     {
         return Err(error(root, E::ReceiptMismatch));
     }
     let mut scope_index = 0;
-    for (paragraph_index, paragraph) in flow.paragraphs().iter().enumerate() {
+    for (paragraph_index, paragraph) in flow_call!(flow, paragraphs()).iter().enumerate() {
         while result
             .definitions
             .get(scope_index)
@@ -235,9 +275,16 @@ pub fn prepare_production_footnote_lines<'s, 'p, 'a>(
             .map(|_| scope_index);
         for site in paragraph.items() {
             if let Some(ProductionInlineReference::Footnote { footnote_id }) = site.reference() {
-                let definition_index = sources
-                    .binary_search_by(|d| d.footnote_id.as_str().cmp(footnote_id))
-                    .map_err(|_| error(site.owner(), E::ReceiptMismatch))?;
+                let definition_index = if let Some(order) = &definition_order {
+                    let index = order
+                        .binary_search_by(|index| sources[*index].id().cmp(footnote_id))
+                        .map_err(|_| error(site.owner(), E::ReceiptMismatch))?;
+                    order[index]
+                } else {
+                    sources
+                        .binary_search_by(|d| d.id().cmp(footnote_id))
+                        .map_err(|_| error(site.owner(), E::ReceiptMismatch))?
+                };
                 if result
                     .references
                     .last()
@@ -255,7 +302,7 @@ pub fn prepare_production_footnote_lines<'s, 'p, 'a>(
             }
         }
     }
-    for (paragraph_index, paragraph) in lines.paragraphs().iter().enumerate() {
+    for (paragraph_index, paragraph) in paragraphs.iter().enumerate() {
         for (line_index, line) in paragraph.lines().iter().enumerate() {
             for (item_index, item) in line.items().iter().enumerate() {
                 let ProductionPlacedInline::Text(cluster) = item else {
@@ -267,20 +314,19 @@ pub fn prepare_production_footnote_lines<'s, 'p, 'a>(
                 let owner = cluster.run().owner();
                 match part.buffer_key().generation_kind() {
                     typaxis_core::GenerationKind::FootnoteMarker => {}
-                    // Page candidates are already checked by line selection;
+                    // Anchor-reference labels are checked by line selection;
                     // they do not create a footnote demand or definition edge.
-                    typaxis_core::GenerationKind::PageReference => continue,
+                    typaxis_core::GenerationKind::PageReference
+                    | typaxis_core::GenerationKind::Counter => continue,
                     _ => return Err(error(owner, E::ReceiptMismatch)),
                 }
                 let reference_index = result
                     .references
                     .binary_search_by_key(&owner, |r| r.owner)
                     .map_err(|_| error(owner, E::ReceiptMismatch))?;
-                let whole = flow
-                    .footnote_marker_provenance(owner)
+                let whole = flow_call!(flow, footnote_marker_provenance(owner))
                     .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                let text = flow
-                    .footnote_marker_text(owner)
+                let text = flow_call!(flow, footnote_marker_text(owner))
                     .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
                 let (start, end) = relative_shape_range(
                     ShapeSourceSpan::Generated(part),
@@ -308,8 +354,7 @@ pub fn prepare_production_footnote_lines<'s, 'p, 'a>(
         }
     }
     for (reference, covered) in result.references.iter().zip(covered) {
-        let text = flow
-            .footnote_marker_text(reference.owner)
+        let text = flow_call!(flow, footnote_marker_text(reference.owner))
             .ok_or_else(|| error(reference.owner, E::ReceiptMismatch))?;
         if covered as usize != text.len() || reference.first.is_none() || reference.last.is_none() {
             return Err(error(reference.owner, E::ReceiptMismatch));

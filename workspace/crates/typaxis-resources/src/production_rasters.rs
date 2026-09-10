@@ -237,18 +237,30 @@ fn finalize_raster_projection(
 }
 
 fn compress(bytes: &[u8], maximum: u64) -> Result<Vec<u8>, ResourceError> {
-    struct Bounded {
+    compress_with_charge(bytes, maximum, &mut |_| Ok(()))
+}
+pub(super) fn compress_with_charge(
+    bytes: &[u8],
+    maximum: u64,
+    charge: &mut impl FnMut(usize) -> Result<(), ResourceError>,
+) -> Result<Vec<u8>, ResourceError> {
+    struct Bounded<'a, C> {
+        charge: &'a mut C,
         bytes: Vec<u8>,
         maximum: u64,
     }
-    impl Write for Bounded {
+    impl<C: FnMut(usize) -> Result<(), ResourceError>> Write for Bounded<'_, C> {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
             let length = self
                 .bytes
                 .len()
                 .checked_add(bytes.len())
-                .filter(|n| *n as u64 <= self.maximum)
                 .ok_or_else(|| std::io::Error::other("raster output limit"))?;
+            (self.charge)(bytes.len())
+                .map_err(|_| std::io::Error::other("raster allocation charge"))?;
+            if length as u64 > self.maximum {
+                return Err(std::io::Error::other("raster output limit"));
+            }
             self.bytes
                 .try_reserve_exact(length - self.bytes.len())
                 .map_err(|_| std::io::Error::other("raster allocation limit"))?;
@@ -261,6 +273,7 @@ fn compress(bytes: &[u8], maximum: u64) -> Result<Vec<u8>, ResourceError> {
     }
     let mut encoder = flate2::write::ZlibEncoder::new(
         Bounded {
+            charge,
             bytes: Vec::new(),
             maximum,
         },

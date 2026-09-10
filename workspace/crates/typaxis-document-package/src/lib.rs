@@ -43,6 +43,8 @@ pub use preflight::{
 };
 #[doc(hidden)]
 pub use semantic_container::{WireSemanticBlock, WireSemanticDocument, WireSemanticFootnote, WireSemanticTableRow};
+#[doc(hidden)]
+pub use semantic_container::{WireDescriptionTerm, WireSemanticDescriptionItem};
 
 pub use semantic_container::{
     encode_reference_document_package_v1_4, staging_m4_wire_ast_node_count,

@@ -12,6 +12,10 @@ use typaxis_resources::{
 };
 use typaxis_syntax::book_v2::SourceAdmittedBookV2Body;
 
+#[path = "book_v2_converged_pdf.rs"]
+mod converged_pdf;
+pub use converged_pdf::*;
+
 #[derive(Debug)]
 pub enum BookV2ResourceFailure {
     Policy(BookV2ResourcePolicyError),

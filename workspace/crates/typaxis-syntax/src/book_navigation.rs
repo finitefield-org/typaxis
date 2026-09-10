@@ -26,16 +26,30 @@ use typaxis_document_package::{
 use crate::{StagingSemanticSyntaxError, ValidatedStagingSemanticPackage};
 use typaxis_document_package::{WireSemanticBlock, WireSemanticDocument, WireSemanticFootnote, WireSemanticTableRow};
 
+trait NavigationLanguageKind: Copy + From<StagingLanguageNodeKind> {
+    fn description_kinds() -> Option<[Self; 3]> { None }
+}
+impl NavigationLanguageKind for StagingLanguageNodeKind {}
+#[cfg(feature = "book-v2-staging")]
+impl NavigationLanguageKind for typaxis_document::book_v2::BookV2LanguageNodeKind {
+    fn description_kinds() -> Option<[Self; 3]> {
+        Some([Self::DescriptionList, Self::DescriptionItem, Self::DescriptionTerm])
+    }
+}
+
 trait NavigationSemanticKind: Copy {
+    type LanguageKind: NavigationLanguageKind;
     fn navigation_name(self) -> &'static str;
 }
 impl NavigationSemanticKind for typaxis_document_package::WireStagingSemanticContainerKind {
+    type LanguageKind = StagingLanguageNodeKind;
     fn navigation_name(self) -> &'static str {
         self.as_str()
     }
 }
 #[cfg(feature = "book-v2-staging")]
 impl NavigationSemanticKind for typaxis_document_package::book_v2::WireBookV2SemanticContainerKind {
+    type LanguageKind = typaxis_document::book_v2::BookV2LanguageNodeKind;
     fn navigation_name(self) -> &'static str {
         self.as_str()
     }
@@ -82,7 +96,10 @@ const GRANDFATHERED: &[&str] = &[
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BookNavigationSyntaxErrorKind {
     #[cfg(feature = "book-v2-staging")]
+    InvalidNumberBinding,
+    #[cfg(feature = "book-v2-staging")]
     InvalidSourceSpan,
+    DescriptionListStaging,
     InvalidMetadata,
     InvalidTimestamp,
     InvalidLanguage,
@@ -788,9 +805,9 @@ impl LanguageRegistryGeneration {
 }
 
 #[derive(Clone, Debug)]
-struct LanguageSite {
+struct LanguageSite<L = StagingLanguageNodeKind> {
     node_id: u32,
-    kind: StagingLanguageNodeKind,
+    kind: L,
     parent: Option<u32>,
     span: Option<WireStagingSourceSpan>,
     raw: Option<String>,
@@ -1023,6 +1040,13 @@ fn collect_internal_links<K>(
                 | WireSemanticBlock::Heading { children, .. } => {
                     inlines(children, &format!("{base}/children"), generation, output)?;
                 }
+                WireSemanticBlock::DescriptionList { items, .. } => {
+                    for (item_index, item) in items.iter().enumerate() {
+                        let at = format!("{base}/items/{item_index}");
+                        inlines(&item.term.children, &format!("{at}/term/children"), generation, output)?;
+                        blocks(&item.blocks, &format!("{at}/blocks"), generation, output)?;
+                    }
+                }
                 WireSemanticBlock::List { items, .. } => {
                     for (item_index, item) in items.iter().enumerate() {
                         blocks(
@@ -1033,7 +1057,8 @@ fn collect_internal_links<K>(
                         )?;
                     }
                 }
-                WireSemanticBlock::Table { head, body, .. } => {
+                WireSemanticBlock::Table { caption, head, body, .. } => {
+                    if let Some(caption) = caption { blocks(caption, &format!("{base}/caption"), generation, output)?; }
                     for (collection, rows) in [("head", head), ("body", body)] {
                         for (row_index, row) in rows.iter().enumerate() {
                             for (cell_index, cell) in row.cells.iter().enumerate() {
@@ -1282,13 +1307,13 @@ fn collect_document<K: NavigationSemanticKind>(
     document: &WireSemanticDocument<K>,
     page_masters: &WireAdvancedPageMasterSet,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<K::LanguageKind>>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
     sites.push(LanguageSite {
         node_id: document.node_id,
-        kind: StagingLanguageNodeKind::Document,
+        kind: StagingLanguageNodeKind::Document.into(),
         parent: None,
         span: None,
         raw: Some(document.language.clone()),
@@ -1326,10 +1351,10 @@ fn collect_document<K: NavigationSemanticKind>(
     Ok(())
 }
 
-fn collect_page_regions(
+fn collect_page_regions<L: NavigationLanguageKind>(
     page_masters: &WireAdvancedPageMasterSet,
     document_node_id: u32,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<L>>,
 ) -> Result<(), BookNavigationSyntaxError> {
     for (master_index, master) in page_masters.masters.iter().enumerate() {
         for (name, region) in [
@@ -1349,11 +1374,11 @@ fn collect_page_regions(
     Ok(())
 }
 
-fn collect_page_region(
+fn collect_page_region<L: NavigationLanguageKind>(
     region: &WirePageRegion,
     document_node_id: u32,
     pointer: &str,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<L>>,
 ) -> Result<(), BookNavigationSyntaxError> {
     for (block_index, block) in region.blocks.iter().enumerate() {
         let block_pointer = format!("{pointer}/blocks/{block_index}");
@@ -1378,7 +1403,7 @@ fn collect_page_region(
         };
         sites.push(LanguageSite {
             node_id,
-            kind,
+            kind: kind.into(),
             parent: Some(document_node_id),
             span: Some(staging_span(span)),
             raw: None,
@@ -1393,7 +1418,7 @@ fn collect_page_region(
             {
                 sites.push(LanguageSite {
                     node_id: *child,
-                    kind: StagingLanguageNodeKind::Text,
+                    kind: StagingLanguageNodeKind::Text.into(),
                     parent: Some(node_id),
                     span: Some(staging_span(*span)),
                     raw: None,
@@ -1418,13 +1443,13 @@ fn collect_footnote<K: NavigationSemanticKind>(
     parent: u32,
     pointer: &str,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<K::LanguageKind>>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
     sites.push(LanguageSite {
         node_id: footnote.node_id,
-        kind: StagingLanguageNodeKind::FootnoteDefinition,
+        kind: StagingLanguageNodeKind::FootnoteDefinition.into(),
         parent: Some(parent),
         span: Some(footnote.span),
         raw: footnote.language.clone(),
@@ -1449,7 +1474,7 @@ fn collect_blocks<K: NavigationSemanticKind>(
     pointer: &str,
     outline_eligible: bool,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<K::LanguageKind>>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
@@ -1457,6 +1482,28 @@ fn collect_blocks<K: NavigationSemanticKind>(
         let base = format!("{pointer}/{index}");
         let node_id = block.node_id();
         let span = raw_block_span(block);
+        if let WireSemanticBlock::DescriptionList { language, items, .. } = block {
+            let [list_kind, item_kind, term_kind] = K::LanguageKind::description_kinds()
+                .ok_or_else(|| BookNavigationSyntaxError::producer(
+                    BookNavigationSyntaxErrorKind::DescriptionListStaging, &base))?;
+            sites.push(LanguageSite { node_id, kind: list_kind, parent: Some(parent),
+                span: Some(span), raw: language.clone(), pointer: format!("{base}/language") });
+            for (index, item) in items.iter().enumerate() {
+                let at = format!("{base}/items/{index}");
+                sites.push(LanguageSite { node_id: item.node_id, kind: item_kind,
+                    parent: Some(node_id), span: Some(item.span), raw: item.language.clone(),
+                    pointer: format!("{at}/language") });
+                let term = &item.term;
+                sites.push(LanguageSite { node_id: term.node_id, kind: term_kind,
+                    parent: Some(item.node_id), span: Some(term.span), raw: term.language.clone(),
+                    pointer: format!("{at}/term/language") });
+                collect_inlines(&term.children, term.node_id, &format!("{at}/term/children"),
+                    generation, sites, anchors)?;
+                collect_blocks(&item.blocks, item.node_id, &format!("{at}/blocks"),
+                    outline_eligible, generation, sites, owners, anchors)?;
+            }
+            continue;
+        }
         let (kind, raw) = match block {
             WireSemanticBlock::Paragraph { language, .. } => {
                 (Some(StagingLanguageNodeKind::Paragraph), language)
@@ -1484,6 +1531,10 @@ fn collect_blocks<K: NavigationSemanticKind>(
                     );
                 }
                 (Some(StagingLanguageNodeKind::Heading), language)
+            }
+            WireSemanticBlock::DescriptionList { .. } => {
+                return Err(BookNavigationSyntaxError::producer(
+                    BookNavigationSyntaxErrorKind::DescriptionListStaging, &base));
             }
             WireSemanticBlock::List { language, .. } => {
                 (Some(StagingLanguageNodeKind::List), language)
@@ -1544,7 +1595,7 @@ fn collect_blocks<K: NavigationSemanticKind>(
         if let Some(kind) = kind {
             sites.push(LanguageSite {
                 node_id,
-                kind,
+                kind: kind.into(),
                 parent: Some(parent),
                 span: Some(span),
                 raw: raw.clone(),
@@ -1561,12 +1612,16 @@ fn collect_blocks<K: NavigationSemanticKind>(
                 sites,
                 anchors,
             )?,
+            WireSemanticBlock::DescriptionList { .. } => {
+                return Err(BookNavigationSyntaxError::producer(
+                    BookNavigationSyntaxErrorKind::DescriptionListStaging, &base));
+            }
             WireSemanticBlock::List { items, .. } => {
                 for (item_index, item) in items.iter().enumerate() {
                     let item_pointer = format!("{base}/items/{item_index}");
                     sites.push(LanguageSite {
                         node_id: item.node_id,
-                        kind: StagingLanguageNodeKind::ListItem,
+                        kind: StagingLanguageNodeKind::ListItem.into(),
                         parent: Some(node_id),
                         span: Some(item.span),
                         raw: item.language.clone(),
@@ -1584,7 +1639,11 @@ fn collect_blocks<K: NavigationSemanticKind>(
                     )?;
                 }
             }
-            WireSemanticBlock::Table { head, body, .. } => {
+            WireSemanticBlock::Table { caption, head, body, .. } => {
+                if let Some(caption) = caption {
+                    collect_blocks(caption, node_id, &format!("{base}/caption"), outline_eligible,
+                        generation, sites, owners, anchors)?;
+                }
                 collect_rows(
                     head,
                     node_id,
@@ -1650,7 +1709,7 @@ fn collect_rows<K: NavigationSemanticKind>(
     pointer: &str,
     outline_eligible: bool,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<K::LanguageKind>>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
@@ -1658,7 +1717,7 @@ fn collect_rows<K: NavigationSemanticKind>(
         let row_pointer = format!("{pointer}/{row_index}");
         sites.push(LanguageSite {
             node_id: row.node_id,
-            kind: StagingLanguageNodeKind::TableRow,
+            kind: StagingLanguageNodeKind::TableRow.into(),
             parent: Some(parent),
             span: Some(row.span),
             raw: row.language.clone(),
@@ -1668,7 +1727,7 @@ fn collect_rows<K: NavigationSemanticKind>(
             let cell_pointer = format!("{row_pointer}/cells/{cell_index}");
             sites.push(LanguageSite {
                 node_id: cell.node_id,
-                kind: StagingLanguageNodeKind::TableCell,
+                kind: StagingLanguageNodeKind::TableCell.into(),
                 parent: Some(row.node_id),
                 span: Some(cell.span),
                 raw: cell.language.clone(),
@@ -1689,12 +1748,12 @@ fn collect_rows<K: NavigationSemanticKind>(
     Ok(())
 }
 
-fn collect_inlines(
+fn collect_inlines<L: NavigationLanguageKind>(
     inlines: &[WireStagingM4Inline],
     parent: u32,
     pointer: &str,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<L>>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
     for (index, inline) in inlines.iter().enumerate() {
@@ -1737,7 +1796,7 @@ fn collect_inlines(
         if let Some(kind) = kind {
             sites.push(LanguageSite {
                 node_id,
-                kind,
+                kind: kind.into(),
                 parent: Some(parent),
                 span: Some(inline.span()),
                 raw: inline.language().map(str::to_owned),
@@ -2752,6 +2811,8 @@ fn math_speech_bytes(document: &WireStagingM4Document) -> u64 {
             .map(|value| match value {
                 WireStagingM4Block::Paragraph { children, .. }
                 | WireStagingM4Block::Heading { children, .. } => inlines(children),
+                WireStagingM4Block::DescriptionList { items, .. } => items.iter()
+                    .map(|item| inlines(&item.term.children) + blocks(&item.blocks)).sum(),
                 WireStagingM4Block::List { items, .. } => {
                     items.iter().map(|item| blocks(&item.blocks)).sum()
                 }
@@ -2782,6 +2843,7 @@ fn math_speech_bytes(document: &WireStagingM4Document) -> u64 {
 
 fn raw_block_span<K>(block: &WireSemanticBlock<K>) -> WireStagingSourceSpan {
     match block {
+        WireSemanticBlock::DescriptionList { span, .. } => *span,
         WireSemanticBlock::Paragraph { span, .. }
         | WireSemanticBlock::Heading { span, .. }
         | WireSemanticBlock::List { span, .. }

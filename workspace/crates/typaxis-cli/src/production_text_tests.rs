@@ -104,6 +104,7 @@ fn production_text_fixture_at_with_accessibility_check(
             "vmb-block-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-block-720896.svg"),
             "body-context.ttf" => job.join("../../../../staging/production-book-1/vmb-book/reshape/context.ttf"),
             "vmb-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-inline-720896.svg"),
+            "collection-conflicting-cmap.ttc" => job.join("../../../../staging/production-book-1/accessibility/job/collection.ttc"),
             "body-no-math.ttf" => job.join("../../../basic-document-1/combined/job/body.ttf"),
             "collection-no-math.ttc" => {
                 job.join("../../../basic-document-1/combined/job/collection.ttc")
@@ -843,6 +844,7 @@ fn production_line_projection_keeps_real_vmb_body_glyphs_and_formula_on_one_base
                     assert_eq!(vector.occurrence().item().node_id().get(), 4);
                 }
                 P::Break(_) => panic!("no break node in fixture"),
+                _ => panic!("no native math node in fixture"),
             }
         }
         assert_eq!(text, "A B");
@@ -1923,8 +1925,16 @@ fn production_authored_text_cff_without_native_math_uses_font_advances_and_sourc
 
 #[test]
 fn production_authored_text_rejects_notdef_from_conflicting_cmap_subtables() {
+    let mut value: serde_json::Value = serde_json::from_slice(PRODUCTION_TEXT_COMBINED).unwrap();
+    // Keep the malformed cmap corpus explicit instead of depending on the
+    // public success fixture's fonts being unsuitable for authored body text.
+    let bad = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/accessibility/job/collection.ttc"));
+    let font = &mut value["resources"]["font_faces"][1];
+    font["uri"] = "collection-conflicting-cmap.ttc".into();
+    font["expected_sha256"] = sha256(bad).iter().map(|b| format!("{b:02x}")).collect::<String>().into();
     let (package, navigation, limits, admitted) =
-        production_text_fixture(PRODUCTION_TEXT_COMBINED, &config());
+        production_text_fixture(&serde_json::to_vec(&value).unwrap(), &config());
     let flow =
         typaxis_syntax::prepare_production_text_flow(&package, &navigation, &limits).unwrap();
     let result = typaxis_shaping::shape_production_authored_text(
@@ -2079,3 +2089,77 @@ include!("production_reshape_tests.rs");
 include!("production_common_pipeline_tests.rs");
 
 include!("production_page_feedback_tests.rs");
+
+fn production_native_math_fixture() -> serde_json::Value {
+    // Retain the real native paragraph, fonts, source buffers and styles from
+    // the combined input. The unchanged combined fixture remains the full gate.
+    let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/profiles/production-book-1/combined/job/document-package.json"
+    ))).unwrap();
+    fn find_native_paragraph(value: &serde_json::Value) -> Option<serde_json::Value> {
+        match value {
+            serde_json::Value::Object(object) => {
+                if object.get("children").and_then(|v| v.as_array()).is_some_and(|children|
+                    children.iter().any(|child| child["kind"] == "inline_math")) {
+                    return Some(value.clone());
+                }
+                object.values().find_map(find_native_paragraph)
+            }
+            serde_json::Value::Array(items) => items.iter().find_map(find_native_paragraph),
+            _ => None,
+        }
+    }
+    let paragraph = find_native_paragraph(&value["document"]).unwrap();
+    value["document"]["blocks"] = serde_json::json!([paragraph]);
+    value["document"]["footnotes"] = serde_json::json!([]);
+    value["outline"]["entries"] = serde_json::json!([]);
+    production_body_renumber(&mut value["document"], &mut 0);
+    value
+}
+
+#[test]
+fn production_native_math_selection_retains_authorized_receipt_and_real_baseline() {
+    let value = production_native_math_fixture();
+    with_production_inline_tagged_context(
+        &serde_json::to_vec(&value).unwrap(), &config(),
+        |prepared, package, _, _, _, _, _, _| {
+            let store = prepared.native_math().unwrap();
+            let width = PositiveLength::new(Length::from_raw(20_000_000).unwrap()).unwrap();
+            let widths = vec![width; prepared.paragraphs().len()];
+            let selected = typaxis_layout::layout_production_inline_lines(prepared, &widths, 100_000).unwrap();
+            let mut count = 0;
+            for paragraph in selected.paragraphs() {
+                for line in paragraph.lines() {
+                    for item in line.items() {
+                        if let typaxis_layout::ProductionPlacedInline::Math(math) = item {
+                            count += 1;
+                            let receipt = store.receipt(math.owner()).unwrap();
+                            assert!(std::ptr::eq(math.receipt(), receipt));
+                            assert_eq!(math.source_span(), package.math_node(math.owner()).unwrap().domain().span);
+                            assert_eq!(math.baseline(), line.baseline());
+                            assert!(math.pen_x() >= Length::ZERO);
+                            assert!(!receipt.computation().paints().is_empty());
+                        }
+                    }
+                }
+            }
+            assert_eq!(count, 1);
+            assert!(selected.output_records() >= store.record_charge());
+            typaxis_layout::production_selected_line_contexts(&selected).unwrap();
+        },
+    );
+}
+
+include!("production_native_display_tests.rs");
+
+include!("production_svg_figure_tests.rs");
+
+include!("production_table_tests.rs");
+include!("production_table_break_tests.rs");
+
+include!("production_table_footnote_tests.rs");
+
+include!("production_body_mixed_tests.rs");
+
+include!("production_body_mixed_page_tests.rs");

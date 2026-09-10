@@ -1,6 +1,7 @@
 //! Successor source navigation, owned by the exact styled body. No legacy
 //! navigation, syntax, profile or layout receipt is issued here.
 use super::*;
+pub use typaxis_document::book_v2::BookV2LanguageNodeKind;
 use crate::book_v2::{PreparedBookVector, StyledBookV2Body};
 use typaxis_document_package::book_v2::{book_v2_wire_ast_node_count, WireBookV2Block};
 use typaxis_document_package::WireStagingM4ReferenceFormat;
@@ -9,7 +10,7 @@ use typaxis_style::book_v2::BookV2SemanticContainerStyleKind;
 #[derive(Debug)]
 pub struct PreparedBookV2Language<'a> {
     node: NodeId,
-    kind: StagingLanguageNodeKind,
+    kind: BookV2LanguageNodeKind,
     parent: Option<NodeId>,
     span: Option<SourceSpan>,
     explicit: Option<Arc<str>>,
@@ -20,7 +21,7 @@ impl<'a> PreparedBookV2Language<'a> {
     pub const fn node_id(&self) -> NodeId {
         self.node
     }
-    pub const fn kind(&self) -> StagingLanguageNodeKind {
+    pub const fn kind(&self) -> BookV2LanguageNodeKind {
         self.kind
     }
     pub const fn parent(&self) -> Option<NodeId> {
@@ -89,8 +90,19 @@ pub struct PreparedBookV2Navigation<'a> {
     references: Vec<(NodeId, BookV2ReferenceTarget)>,
     outline: Vec<StagingOutlineEntry>,
     retained_text_bytes: u64,
+    ast_node_count: u64,
+    number_bindings: Vec<PreparedBookV2NumberBinding<'a>>,
 }
 impl<'a> PreparedBookV2Navigation<'a> {
+    pub fn number_bindings(&self) -> &[PreparedBookV2NumberBinding<'a>] {
+        &self.number_bindings
+    }
+    pub fn reference_number(&self, anchor: &str) -> Option<&'a str> {
+        self.number_bindings
+            .binary_search_by(|b| b.anchor_id().as_str().cmp(anchor))
+            .ok()
+            .map(|i| self.number_bindings[i].label())
+    }
     pub const fn body(&self) -> &'a StyledBookV2Body {
         self.body
     }
@@ -120,6 +132,11 @@ impl<'a> PreparedBookV2Navigation<'a> {
     }
     pub fn outline(&self) -> &[StagingOutlineEntry] {
         &self.outline
+    }
+    /// Validated source AST total, including native math, page rules,
+    /// metadata and outline records. Generated structure nodes are additional.
+    pub const fn ast_node_count(&self) -> u64 {
+        self.ast_node_count
     }
     pub const fn retained_text_bytes(&self) -> u64 {
         self.retained_text_bytes
@@ -246,7 +263,7 @@ pub fn prepare_book_v2_navigation(
                 .as_deref()
                 .filter(|raw| *raw != effective.as_ref())
                 .map_or(0, |raw| raw.len() as u64);
-        let vector = if StagingComputedLanguageOwnerKindV2::from(site.kind).is_precomposed_vector()
+        let vector = if site.kind.is_precomposed_vector()
         {
             let vector = prepared
                 .vectors()
@@ -254,8 +271,7 @@ pub fn prepare_book_v2_navigation(
                 .ok_or_else(BookNavigationSyntaxError::mismatch)?;
             if vector.node_id().get() != site.node_id
                 || Some(vector.owner_source_span()) != span
-                || language_owner_kind_for_vector(vector.kind())
-                    != StagingComputedLanguageOwnerKindV2::from(site.kind)
+                || book_language_kind_for_vector(vector.kind()) != site.kind
             {
                 return Err(BookNavigationSyntaxError::mismatch());
             }
@@ -305,7 +321,7 @@ pub fn prepare_book_v2_navigation(
                 .ok()
                 .map(|i| &records[i])
                 .ok_or_else(BookNavigationSyntaxError::mismatch)?;
-            if parent.kind != StagingLanguageNodeKind::MathVectorBlock
+            if parent.kind != BookV2LanguageNodeKind::MathVectorBlock
                 || records
                     .binary_search_by_key(&number.node_id(), |r| r.node)
                     .is_ok()
@@ -323,6 +339,7 @@ pub fn prepare_book_v2_navigation(
             });
         }
     }
+    let number_bindings = number_bindings::prepare(body, &mut raw_anchors, &mut total)?;
     let mut anchors = Vec::new();
     anchors
         .try_reserve_exact(raw_anchors.len())
@@ -366,6 +383,8 @@ pub fn prepare_book_v2_navigation(
         references,
         outline,
         retained_text_bytes: total,
+        ast_node_count: nodes,
+        number_bindings,
     })
 }
 fn charge(
@@ -467,12 +486,20 @@ fn collect_references(
                 | WireBookV2Block::VectorFigure { caption, .. } => {
                     blocks(caption, &format!("{path}/caption"), output)?
                 }
+                WireBookV2Block::DescriptionList { items, .. } => {
+                    for (i, item) in items.iter().enumerate() {
+                        let at = format!("{path}/items/{i}");
+                        inlines(&item.term.children, &format!("{at}/term/children"), output)?;
+                        blocks(&item.blocks, &format!("{at}/blocks"), output)?;
+                    }
+                }
                 WireBookV2Block::List { items, .. } => {
                     for (i, item) in items.iter().enumerate() {
                         blocks(&item.blocks, &format!("{path}/items/{i}/blocks"), output)?;
                     }
                 }
-                WireBookV2Block::Table { head, body, .. } => {
+                WireBookV2Block::Table { caption, head, body, .. } => {
+                    if let Some(caption) = caption { blocks(caption, &format!("{path}/caption"), output)?; }
                     for (name, rows) in [("head", head), ("body", body)] {
                         for (i, row) in rows.iter().enumerate() {
                             for (j, cell) in row.cells.iter().enumerate() {
@@ -551,3 +578,17 @@ fn source_span_error(language_pointer: &str) -> BookNavigationSyntaxError {
         format!("{owner}/span"),
     )
 }
+
+fn book_language_kind_for_vector(kind: crate::PrecomposedVectorKind) -> BookV2LanguageNodeKind {
+    use crate::PrecomposedVectorKind as V;
+    match kind {
+        V::InlineVector => BookV2LanguageNodeKind::InlineVector,
+        V::MathVector => BookV2LanguageNodeKind::MathVector,
+        V::VectorFigure => BookV2LanguageNodeKind::VectorFigure,
+        V::MathVectorBlock => BookV2LanguageNodeKind::MathVectorBlock,
+    }
+}
+
+#[path = "book_v2_number_bindings.rs"]
+mod number_bindings;
+pub use number_bindings::PreparedBookV2NumberBinding;

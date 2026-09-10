@@ -1,3 +1,6 @@
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_native_math.rs"]
+pub mod book_v2;
 use std::collections::BTreeMap;
 
 use typaxis_core::{
@@ -19,6 +22,13 @@ use typaxis_syntax::{
 };
 
 use crate::layout_staging_semantic_containers;
+
+#[path = "production_native_math_computations.rs"]
+mod production_computations;
+pub use production_computations::{
+    compute_production_native_math, ProductionNativeMathComputationError,
+    ProductionNativeMathComputations, ProductionNativeMathDisplayBlock,
+};
 
 pub const MATH_BINDING_ALGORITHM: &str = "typaxis.math-binding/1";
 pub const PRECOMPOSED_MATH_BINDING_ALGORITHM: &str = "typaxis.precomposed-math-binding/1";
@@ -747,11 +757,85 @@ pub fn layout_staging_math(
     let epoch = StagingMathLayoutEpoch::new(package, profile, admitted);
     let profile_progress = profile.progress_token();
     let admission_progress = admitted.progress_token();
+    let (receipts, total_layout_work) =
+        compute_math_receipts(package, profile, limits, &epoch, admitted)?;
+    let mut display_flows = Vec::new();
+    for (node, receipt) in package.math_nodes().iter().zip(&receipts) {
+        if receipt.kind == MathNodeKind::Display {
+            let (parent_flow_id, parent_position) =
+                parent_flow_for_node(node, semantic.registry())?;
+            let flow_id = MathFlowId::new(
+                u32::try_from(display_flows.len())
+                    .map_err(|_| StagingMathLayoutError::FragmentLimit)?,
+            );
+            let mut flow = StagingMathFlow {
+                flow_id,
+                owner: node.domain().node_id,
+                parent_flow_id,
+                parent_position,
+                receipt_key: receipt.key,
+                terminal: 1,
+                fingerprint: [0; 32],
+            };
+            flow.fingerprint = sha256(encode_flow(&flow).as_bytes());
+            display_flows.push(flow);
+        }
+    }
+    let placements = select_math_placements(
+        package,
+        profile.view(),
+        &receipts,
+        &display_flows,
+        semantic.registry(),
+        limits,
+    )?;
+    let semantic_flow_registry_fingerprint = semantic.registry().receipt().fingerprint();
+    let canonical_jcs = encode_layout(
+        &epoch,
+        semantic_flow_registry_fingerprint,
+        &receipts,
+        &display_flows,
+        &placements,
+        total_layout_work,
+    );
+    let layout = StagingMathLayout {
+        epoch,
+        profile_progress,
+        admission_progress,
+        semantic_flow_registry_fingerprint,
+        receipts,
+        display_flows,
+        placements,
+        total_layout_work,
+        fingerprint: sha256(canonical_jcs.as_bytes()),
+        canonical_jcs,
+    };
+    layout.verify(package, profile, limits, admitted)?;
+    Ok(layout)
+}
+
+/// Compute source-bound native math without assigning lines, pages, or parent flows.
+/// Common line selection can consume these computations independently of the
+/// legacy placement recipe.
+fn compute_math_receipts(
+    package: &ValidatedStagingSemanticPackage,
+    profile: &StagingMathProfileAuthorization,
+    limits: &M4EffectiveResourceLimits,
+    epoch: &StagingMathLayoutEpoch,
+    admitted: &AdmittedResourceLedger,
+) -> Result<(Vec<ValidatedMathReceipt>, u64), StagingMathLayoutError> {
     let mut layout_budget = profile
         .layout_budget(package, limits)
         .map_err(|_| StagingMathLayoutError::ProfileMismatch)?;
+    if u64::try_from(package.math_nodes().len())
+        .map_or(true, |count| count > limits.base().get().max_fragments)
+    {
+        return Err(StagingMathLayoutError::FragmentLimit);
+    }
     let mut receipts = Vec::new();
-    let mut display_flows = Vec::new();
+    receipts
+        .try_reserve_exact(package.math_nodes().len())
+        .map_err(|_| StagingMathLayoutError::AllocationFailure)?;
     let mut total_layout_work = 0u64;
     let mut parsed_faces = BTreeMap::new();
     for node in package.math_nodes() {
@@ -807,7 +891,7 @@ pub fn layout_staging_math(
             package,
             profile,
             limits,
-            &epoch,
+            epoch,
             admitted,
             node,
             selected_face,
@@ -829,59 +913,10 @@ pub fn layout_staging_math(
             computation,
             canonical_jcs,
         };
-        if kind == MathNodeKind::Display {
-            let (parent_flow_id, parent_position) =
-                parent_flow_for_node(node, semantic.registry())?;
-            let flow_id = MathFlowId::new(
-                u32::try_from(display_flows.len())
-                    .map_err(|_| StagingMathLayoutError::FragmentLimit)?,
-            );
-            let mut flow = StagingMathFlow {
-                flow_id,
-                owner: node.domain().node_id,
-                parent_flow_id,
-                parent_position,
-                receipt_key: receipt.key,
-                terminal: 1,
-                fingerprint: [0; 32],
-            };
-            flow.fingerprint = sha256(encode_flow(&flow).as_bytes());
-            display_flows.push(flow);
-        }
         receipts.push(receipt);
     }
     drop(layout_budget);
-    let placements = select_math_placements(
-        package,
-        profile.view(),
-        &receipts,
-        &display_flows,
-        semantic.registry(),
-        limits,
-    )?;
-    let semantic_flow_registry_fingerprint = semantic.registry().receipt().fingerprint();
-    let canonical_jcs = encode_layout(
-        &epoch,
-        semantic_flow_registry_fingerprint,
-        &receipts,
-        &display_flows,
-        &placements,
-        total_layout_work,
-    );
-    let layout = StagingMathLayout {
-        epoch,
-        profile_progress,
-        admission_progress,
-        semantic_flow_registry_fingerprint,
-        receipts,
-        display_flows,
-        placements,
-        total_layout_work,
-        fingerprint: sha256(canonical_jcs.as_bytes()),
-        canonical_jcs,
-    };
-    layout.verify(package, profile, limits, admitted)?;
-    Ok(layout)
+    Ok((receipts, total_layout_work))
 }
 
 fn map_math_error(error: MathComputationError) -> StagingMathLayoutError {
@@ -1663,6 +1698,30 @@ mod tests {
         let mut wrong_kind = fixture.bindings.clone();
         wrong_kind.math_receipts[0].kind = PrecomposedMathVectorKind::Block;
         assert_precomposed_math_tamper_fails(&fixture, wrong_kind);
+    }
+
+    #[test]
+    fn math_computations_are_identical_without_legacy_placement() {
+        for name in [
+            "document-package.json",
+            "page-document-package.json",
+            "keep-document-package.json",
+        ] {
+            let fixture = staging_math_layout_fixture_for(name).unwrap();
+            let epoch =
+                StagingMathLayoutEpoch::new(&fixture.package, &fixture.profile, &fixture.admitted);
+            let (receipts, work) = compute_math_receipts(
+                &fixture.package,
+                &fixture.profile,
+                &fixture.limits,
+                &epoch,
+                &fixture.admitted,
+            )
+            .unwrap();
+            assert_eq!(receipts, fixture.layout.receipts());
+            assert_eq!(work, fixture.layout.total_layout_work());
+            assert_eq!(epoch, *fixture.layout.epoch());
+        }
     }
 
     #[test]

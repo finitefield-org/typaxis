@@ -1175,6 +1175,16 @@ pub(crate) fn write_book_xmp(
     pdfua: bool,
 ) -> std::fmt::Result {
     let metadata = metadata.metadata();
+    write_book_xmp_fields(output, metadata, language, engine, pdfua)
+}
+
+pub(crate) fn write_book_xmp_fields(
+    output: &mut impl std::fmt::Write,
+    metadata: &typaxis_syntax::StagingDocumentMetadata,
+    language: &str,
+    engine: &EngineIdentity,
+    pdfua: bool,
+) -> std::fmt::Result {
     output.write_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:pdfuaid=\"http://www.aiim.org/pdfua/ns/id/\">")?;
     if let Some(title) = &metadata.title {
         write_xmp_alt(output, "dc:title", title, language)?;

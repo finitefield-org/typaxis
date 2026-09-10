@@ -170,6 +170,12 @@ impl StyleSheet {
     /// their applicability rules; `table` accepts only the already-typed
     /// block placement properties fixed by ADR-0029.
     pub fn validate_table_document_styles(&self) -> Result<(), StyleValidationError> {
+        self.validate_table_document_styles_version(false)
+    }
+    fn validate_table_document_styles_version(
+        &self,
+        named_tables: bool,
+    ) -> Result<(), StyleValidationError> {
         self.validate_contract_for(true, STYLEABLE_BLOCK_TYPES)?;
         for rule in &self.rules {
             let block_type = rule.selector.split('.').next().unwrap_or_default();
@@ -188,7 +194,8 @@ impl StyleSheet {
                 if !applies {
                     return Err(StyleValidationError::InapplicableProperty);
                 }
-                if block_type == "table"
+                if !named_tables
+                    && block_type == "table"
                     && property == BasicStyleProperty::Page
                     && !matches!(
                         &declaration.value,
@@ -1160,7 +1167,8 @@ impl SemanticContainerInheritanceStyle {
     }
 }
 
-pub type SemanticContainerComputedStyle = ComputedSemanticContainerStyle<SemanticContainerStyleKind>;
+pub type SemanticContainerComputedStyle =
+    ComputedSemanticContainerStyle<SemanticContainerStyleKind>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComputedSemanticContainerStyle<K> {
@@ -2020,17 +2028,20 @@ impl PageMasterSet {
         let winner = self
             .selection_rules
             .iter()
-            .filter(|rule| page_rule_matches(rule, context))
-            .max_by_key(|rule| {
-                (
-                    (
-                        u8::from(rule.named_page.is_some()),
-                        u8::from(rule.first.is_some()),
-                        u8::from(rule.parity != PageParity::Any),
-                    ),
+            .filter_map(|rule| {
+                page_master_rule_priority(
+                    context.page_index(),
+                    context.named_page().map(|name| name.as_str()),
+                    rule.parity,
+                    rule.first,
+                    rule.named_page.as_ref().map(|name| name.as_str()),
                     rule.source_order,
                 )
-            });
+                .expect("validated physical page number")
+                .map(|priority| (priority, rule))
+            })
+            .max_by_key(|(priority, _)| *priority)
+            .map(|(_, rule)| rule);
         let master_id = winner
             .map(|rule| &rule.master_id)
             .unwrap_or(&self.default_master_id);
@@ -2041,18 +2052,35 @@ impl PageMasterSet {
     }
 }
 
-fn page_rule_matches(rule: &PageMasterRule, context: &PageSelectionContext) -> bool {
-    let parity_matches = match rule.parity {
+/// Shared rule ordering for typed and source-bound page-master selection.
+/// Physical parity is one-based; first means the first physical page.
+pub fn page_master_rule_priority(
+    page_index: u32,
+    named_page: Option<&str>,
+    parity: PageParity,
+    first: Option<bool>,
+    rule_name: Option<&str>,
+    source_order: u32,
+) -> Result<Option<((u8, u8, u8), u32)>, PageSelectionError> {
+    let physical = page_index
+        .checked_add(1)
+        .ok_or(PageSelectionError::PageNumberOverflow)?;
+    let parity_matches = match parity {
         PageParity::Any => true,
-        PageParity::Odd => context.is_odd(),
-        PageParity::Even => !context.is_odd(),
+        PageParity::Odd => physical % 2 == 1,
+        PageParity::Even => physical % 2 == 0,
     };
-    let first_matches = rule.first.map_or(true, |first| first == context.is_first());
-    let name_matches = rule
-        .named_page
-        .as_ref()
-        .map_or(true, |name| Some(name) == context.named_page());
-    parity_matches && first_matches && name_matches
+    Ok((parity_matches
+        && first.is_none_or(|first| first == (page_index == 0))
+        && rule_name.is_none_or(|name| Some(name) == named_page))
+    .then_some((
+        (
+            u8::from(rule_name.is_some()),
+            u8::from(first.is_some()),
+            u8::from(parity != PageParity::Any),
+        ),
+        source_order,
+    )))
 }
 
 fn frame_is_within_page(master: &PageMaster, frame: Rect) -> bool {

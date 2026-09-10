@@ -315,10 +315,12 @@ fn write_common_tagged_pdf_with_base(
         stream_compression: PdfStreamCompression::None,
         config_fingerprint: config,
     };
-    let book_navigation = crate::observe_staging_book_navigation_pdf_v2(
+    let book_navigation = crate::book_navigation::observe_production_book_navigation_pdf_v2(
         navigation,
         book_profile,
-        book.selected(),
+        &book,
+        annotations.navigation(),
+        admitted,
         limits,
         &EngineIdentity::compiled(),
         observed.writer(),

@@ -168,7 +168,11 @@ impl Builder<'_> {
         Ok(())
     }
     fn start(&mut self, role: R) -> Result<(), E> {
-        if self.objects.len().checked_add(self.object_base).ok_or(E::ObjectLimit)? as u64
+        if self
+            .objects
+            .len()
+            .checked_add(self.object_base)
+            .ok_or(E::ObjectLimit)? as u64
             >= u64::from(self.limits.base().get().max_pdf_objects)
         {
             return Err(E::ObjectLimit);
@@ -271,9 +275,16 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
         limits,
     };
     b.record(navigation.additional_records())?;
-    project_resource_objects(&mut b, marked.content().plans().fonts().fonts(),
-        marked.content().vectors(), marked.content().rasters().plans(), marked.pages(),
-        marked.content().pages(), marked.content().text().paints(), marked.anchors())?;
+    project_resource_objects(
+        &mut b,
+        marked.content().plans().fonts().fonts(),
+        marked.content().vectors(),
+        marked.content().rasters().plans(),
+        marked.pages(),
+        marked.content().pages(),
+        marked.content().text().paints(),
+        marked.anchors(),
+    )?;
     navigation_objects(&mut b, &navigation)?;
     structure_objects(&mut b, marked, &navigation)?;
     for object in &b.objects {
@@ -313,17 +324,18 @@ fn project_resource_objects(
     }
     if !anchors.is_empty() {
         b.start(R::SemanticAnchorFont)?;
-        b.bytes("<< /Type /Font /Subtype /Type3 /Name /PBA /FontBBox [0 0 1000 1000] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /anchor ")?;
-        b.reference(R::SemanticAnchorGlyph)?;
-        b.bytes(" >> /Encoding << /Type /Encoding /Differences [0 /anchor] >> /FirstChar 0 /LastChar 0 /Widths [1000] /Resources << >> /ToUnicode ")?;
-        b.reference(R::SemanticAnchorToUnicode)?;
-        b.bytes(" >>")?;
+        crate::semantic_anchor_encoding::font(b, b"PBA", |out, reference| {
+            out.reference(match reference {
+                crate::semantic_anchor_encoding::Reference::Glyph => R::SemanticAnchorGlyph,
+                crate::semantic_anchor_encoding::Reference::ToUnicode => R::SemanticAnchorToUnicode,
+            })
+        })?;
         b.start(R::SemanticAnchorGlyph)?;
         // A declared bounding box/advance with no paint operator. Tr=3 gives a
         // second, independent guarantee that this usage cannot add visible ink.
-        b.stream("", b"1000 0 0 0 1000 1000 d1\n")?;
+        b.stream("", crate::semantic_anchor_encoding::GLYPH)?;
         b.start(R::SemanticAnchorToUnicode)?;
-        b.stream("", b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Typaxis) /Ordering (SemanticAnchor) /Supplement 0 >> def\n/CMapName /TypaxisSemanticAnchor def\n/CMapType 2 def\n1 begincodespacerange\n<00> <00>\nendcodespacerange\n1 beginbfchar\n<00> <FFFC>\nendbfchar\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")?;
+        b.stream("", crate::semantic_anchor_encoding::TO_UNICODE)?;
     }
     for ext in vectors.ext_g_states() {
         b.start(R::Vector(ext.relative_object_role()))?;
@@ -331,9 +343,7 @@ fn project_resource_objects(
     }
     for form in vectors.forms() {
         b.start(R::Vector(form.relative_object_role()))?;
-        let bbox = form.bbox();
-        b.bytes(format!("<< /Type /XObject /Subtype /Form /FormType 1 /BBox [{} {} {} {}] /Resources << /ExtGState <<",
-            number(bbox[0]), number(bbox[1]), number(bbox[2]), number(bbox[3])))?;
+        crate::image_encoding::form_header(b, form.bbox())?;
         for (name, role) in form.ext_g_state_roles() {
             b.bytes(format!(" /{name} "))?;
             b.reference(R::Vector(*role))?;
@@ -369,8 +379,16 @@ fn project_resource_objects(
         }
         let mut fonts = BTreeSet::new();
         for draw in source_pages[page.page_index() as usize].draws() {
-            if let ProductionBodyPageDrawSource::Text { paint_index } = draw.source() {
-                let id = text_paints[paint_index].font_instance_id();
+            if let ProductionBodyPageDrawSource::Text { paint_index }
+            | ProductionBodyPageDrawSource::NativeMath { paint_index } = draw.source()
+            {
+                let paint = text_paints.get(paint_index).ok_or(E::ReceiptMismatch)?;
+                let Some(id) = paint.font_instance_id() else {
+                    if !paint.is_native_math() {
+                        return Err(E::ReceiptMismatch);
+                    }
+                    continue;
+                };
                 if !fonts.contains(&id) {
                     b.record(1)?;
                     fonts.insert(id);
@@ -412,17 +430,30 @@ fn number(raw: i64) -> String {
     crate::tagged_pdf_v2::pdf_number_v2(raw)
 }
 
+impl crate::font_encoding::Sink for Builder<'_> {
+    type Error = E;
+    fn extend(&mut self, bytes: &[u8]) -> Result<(), E> {
+        self.bytes(bytes)
+    }
+}
+
 fn raster_objects(b: &mut Builder<'_>, index: u32, plan: &FrozenPdfImagePlan) -> Result<(), E> {
     let color = match plan.color_space() {
-        ImageColorSpace::Gray => "DeviceGray",
-        ImageColorSpace::Rgb => "DeviceRGB",
+        ImageColorSpace::Gray => crate::image_encoding::Color::Gray,
+        ImageColorSpace::Rgb => crate::image_encoding::Color::Rgb,
         ImageColorSpace::Cmyk => return Err(E::ReceiptMismatch),
     };
     b.start(R::Raster(index))?;
-    b.bytes(format!("<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /{color} /BitsPerComponent {}",
-        plan.width(), plan.height(), plan.bits_per_component()))?;
+    b.bytes("<<")?;
+    crate::image_encoding::raster_fields(
+        b,
+        plan.width().get(),
+        plan.height().get(),
+        color,
+        plan.bits_per_component(),
+    )?;
     match plan.encoding() {
-        ImageEncoding::Flate => b.bytes(" /Filter /FlateDecode")?,
+        ImageEncoding::Flate => crate::image_encoding::filter(b, None)?,
         ImageEncoding::Jpeg => {
             let jpeg = plan.jpeg_plan().ok_or(E::ReceiptMismatch)?;
             let transform = u8::from(plan.color_space() == ImageColorSpace::Rgb);
@@ -432,9 +463,7 @@ fn raster_objects(b: &mut Builder<'_>, index: u32, plan: &FrozenPdfImagePlan) ->
             {
                 return Err(E::ReceiptMismatch);
             }
-            b.bytes(format!(
-                " /Filter /DCTDecode /DecodeParms << /ColorTransform {transform} >>"
-            ))?;
+            crate::image_encoding::filter(b, Some(transform))?;
         }
         ImageEncoding::Raw => return Err(E::ReceiptMismatch),
     }
@@ -456,8 +485,22 @@ fn raster_objects(b: &mut Builder<'_>, index: u32, plan: &FrozenPdfImagePlan) ->
             return Err(E::ReceiptMismatch);
         }
         b.start(R::RasterMask(index))?;
-        b.stream(&format!(" /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceGray /BitsPerComponent {} /Filter /FlateDecode",
-            mask.width(), mask.height(), mask.bits_per_component()), mask.encoded_bytes())?;
+        // Preserve the frozen mask dictionary's spacing and field order.
+        b.bytes("<< ")?;
+        crate::image_encoding::raster_fields(
+            b,
+            mask.width().get(),
+            mask.height().get(),
+            crate::image_encoding::Color::Gray,
+            mask.bits_per_component(),
+        )?;
+        crate::image_encoding::filter(b, None)?;
+        b.bytes(format!(
+            "/Length {} >>\nstream\n",
+            mask.encoded_bytes().len()
+        ))?;
+        b.bytes(mask.encoded_bytes())?;
+        b.bytes("\nendstream")?;
     }
     Ok(())
 }
@@ -733,12 +776,17 @@ fn navigation_objects(
         height,
         navigation.destinations(),
         |i| navigation.destination_name(i).map(|n| n.as_str()),
-        navigation
-            .outline_entries()
-            .iter()
-            .map(|e| (e.outline_id, e.label.as_str(), e.destination.as_str())),
+        navigation.outline_entries().iter().map(|e| {
+            (
+                e.outline_id,
+                e.label.as_str(),
+                e.destination.as_str(),
+                e.source.node_id,
+            )
+        }),
         navigation.outline(),
         navigation.outline_root(),
+        structure.registry(),
     )?;
     for (index, link) in navigation.links().iter().enumerate() {
         let index32 = u32::try_from(index).map_err(|_| E::ObjectLimit)?;
@@ -792,9 +840,10 @@ fn project_navigation_targets<'s>(
     height: typaxis_core::Length,
     destinations: &[typaxis_display_list::ProductionBodyDestination],
     destination_name: impl Fn(u32) -> Option<&'s str>,
-    entries: impl Iterator<Item = (u32, &'s str, &'s str)>,
+    entries: impl Iterator<Item = (u32, &'s str, &'s str, typaxis_core::NodeId)>,
     outline: &[typaxis_display_list::ProductionBodyOutlineTopology],
     outline_root: &typaxis_display_list::ProductionBodyOutlineTopology,
+    structure: &typaxis_display_list::StructureRegistryReceiptV2,
 ) -> Result<(), E> {
     if !destinations.is_empty() {
         b.record(destinations.len() as u64)?;
@@ -827,6 +876,19 @@ fn project_navigation_targets<'s>(
         b.bytes("] >>")?;
     }
     if !outline.is_empty() {
+        // Resolve source owners once, rather than scanning the complete
+        // structure registry for every outline entry in a large book.
+        b.record(structure.nodes().len() as u64)?;
+        let mut source_nodes = Vec::new();
+        source_nodes
+            .try_reserve_exact(structure.nodes().len())
+            .map_err(|_| E::AllocationFailure)?;
+        for node in structure.nodes() {
+            if let typaxis_display_list::StructureOwner::Source(owner) = node.owner() {
+                source_nodes.push((owner, node.structure_node_id()));
+            }
+        }
+        source_nodes.sort_unstable_by_key(|entry| entry.0);
         let root = outline_root;
         b.start(R::Outlines)?;
         b.bytes(format!(
@@ -837,7 +899,10 @@ fn project_navigation_targets<'s>(
         b.bytes(" /Last ")?;
         b.reference(R::Outline(root.last().ok_or(E::ReceiptMismatch)?))?;
         b.bytes(" >>")?;
-        for ((outline_id, label, destination), topology) in entries.zip(outline) {
+        for ((outline_id, label, destination, owner), topology) in entries.zip(outline) {
+            let index = source_nodes
+                .binary_search_by_key(&owner, |entry| entry.0)
+                .map_err(|_| E::ReceiptMismatch)?;
             b.start(R::Outline(outline_id))?;
             b.bytes("<< /Title ")?;
             b.text(label)?;
@@ -859,6 +924,8 @@ fn project_navigation_targets<'s>(
             }
             b.bytes(" /Dest ")?;
             b.text(destination)?;
+            b.bytes(" /SE ")?;
+            b.reference(R::StructureNode(source_nodes[index].1))?;
             b.bytes(" >>")?;
         }
     }
@@ -868,17 +935,15 @@ fn project_navigation_targets<'s>(
 #[path = "production_footnote_annotations.rs"]
 mod production_footnote_annotations;
 pub use production_footnote_annotations::{
-    build_production_footnote_annotations, ProductionFootnoteAnnotations,
-    ProductionFootnoteAnnotationBinding, ProductionFootnoteAnnotationSource,
+    build_production_footnote_annotations, ProductionFootnoteAnnotationBinding,
+    ProductionFootnoteAnnotationSource, ProductionFootnoteAnnotations,
 };
-
 
 #[path = "production_footnote_structure_objects.rs"]
 mod production_footnote_structure_objects;
 pub use production_footnote_structure_objects::{
     build_production_footnote_structure_objects, ProductionFootnoteStructureObjects,
 };
-
 
 #[path = "production_footnote_resource_objects.rs"]
 mod production_footnote_resource_objects;

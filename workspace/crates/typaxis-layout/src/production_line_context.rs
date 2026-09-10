@@ -34,22 +34,30 @@ impl ProductionSelectedLineContexts {
 pub fn production_selected_line_contexts(
     selected: &ProductionInlineLineLayout<'_, '_>,
 ) -> Result<ProductionSelectedLineContexts, ProductionInlinePreparationError> {
+    selected_contexts(selected.paragraphs(), selected.output_records(), selected.prepared_limit(), selected.fingerprint())
+}
+pub(super) fn selected_contexts(
+    selected_paragraphs: &[ProductionInlineParagraphLineLayout<'_, '_>],
+    output_records: u64,
+    max_fragments: u64,
+    fingerprint: [u8; 32],
+) -> Result<ProductionSelectedLineContexts, ProductionInlinePreparationError> {
     use ProductionInlinePreparationErrorKind as E;
     let root = NodeId::new(0);
-    let mut record_charge = selected.output_records();
+    let mut record_charge = output_records;
     // An owned paragraph record, a borrowed shaper input view, and each line end.
-    for paragraph in selected.paragraphs() {
+    for paragraph in selected_paragraphs {
         record_charge = record_charge
             .checked_add(paragraph.lines().len() as u64)
             .and_then(|n| n.checked_add(2))
-            .filter(|n| *n <= selected.prepared_limit())
+            .filter(|n| *n <= max_fragments)
             .ok_or_else(|| error(paragraph.owner(), E::UnitLimit))?;
     }
     let mut paragraphs = Vec::new();
     paragraphs
-        .try_reserve_exact(selected.paragraphs().len())
+        .try_reserve_exact(selected_paragraphs.len())
         .map_err(|_| error(root, E::AllocationFailure))?;
-    for paragraph in selected.paragraphs() {
+    for paragraph in selected_paragraphs {
         let mut ends = Vec::new();
         ends.try_reserve_exact(paragraph.lines().len())
             .map_err(|_| error(paragraph.owner(), E::AllocationFailure))?;
@@ -59,7 +67,9 @@ pub fn production_selected_line_contexts(
                 let count = match item {
                     ProductionPlacedInline::Text(t) => u32::try_from(t.utf8().len())
                         .map_err(|_| error(paragraph.owner(), E::ArithmeticOverflow))?,
-                    ProductionPlacedInline::Vector(_) => 3, // U+FFFC
+                    ProductionPlacedInline::Vector(_) | ProductionPlacedInline::Math(_) => 3, // U+FFFC
+                    #[cfg(feature = "book-v2-staging")]
+                    ProductionPlacedInline::BookV2Math(_) => 3,
                     ProductionPlacedInline::Break(b) if b.kind() == BreakKind::Mandatory => 3, // U+2028
                     ProductionPlacedInline::Break(_) => 0,
                 };
@@ -76,7 +86,7 @@ pub fn production_selected_line_contexts(
     }
     Ok(ProductionSelectedLineContexts {
         paragraphs,
-        source_fingerprint: selected.fingerprint(),
+        source_fingerprint: fingerprint,
         record_charge,
     })
 }

@@ -1,0 +1,1 @@
+{"contract":"typaxis.contract/1.4","diagnostics":[{"code":"P1103","location":{"byte_offset":null,"json_pointer":"","kind":"package_json","uri":"document-package.json"},"message":"DocumentPackage contract is unsupported","notes":[],"severity":"error"}]}

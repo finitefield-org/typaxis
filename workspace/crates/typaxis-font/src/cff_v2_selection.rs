@@ -153,9 +153,17 @@ impl Cff1SubsetSessionV2 {
         admission: &Cff1AdmissionV2,
         closure: &Cff1GlyphClosureV2,
     ) -> Result<(), CffSelectionFailureV2> {
+        self.prepare_closure_with_charge(admission, closure, &mut |_, _, _| Ok(()))
+    }
+    pub fn prepare_closure_with_charge(
+        &mut self,
+        admission: &Cff1AdmissionV2,
+        closure: &Cff1GlyphClosureV2,
+        charge: &mut dyn FnMut(usize, usize, usize) -> Result<(), Cff1Error>,
+    ) -> Result<(), CffSelectionFailureV2> {
         self.require_closure(admission, closure)?;
         for gid in &closure.source_gids {
-            self.evaluate(admission, gid.get())?;
+            self.evaluate_with_charge(admission, gid.get(), charge)?;
         }
         Ok(())
     }
@@ -173,7 +181,7 @@ impl Cff1SubsetSessionV2 {
         }
         Ok(())
     }
-    fn require_closure(
+    pub(super) fn require_closure(
         &self,
         admission: &Cff1AdmissionV2,
         closure: &Cff1GlyphClosureV2,
@@ -189,17 +197,36 @@ impl Cff1SubsetSessionV2 {
         admission: &Cff1AdmissionV2,
         gid: u16,
     ) -> Result<(), CffSelectionFailureV2> {
+        self.evaluate_with_charge(admission, gid, &mut |_, _, _| Ok(()))
+    }
+    fn evaluate_with_charge(
+        &mut self,
+        admission: &Cff1AdmissionV2,
+        gid: u16,
+        charge: &mut dyn FnMut(usize, usize, usize) -> Result<(), Cff1Error>,
+    ) -> Result<(), CffSelectionFailureV2> {
+        let depth = (usize::BITS - self.evaluated.len().saturating_add(1).leading_zeros()) as usize;
+        let lookup = depth * 12 * 32;
+        charge(0, 0, lookup)?;
         let key = (admission.source_sha256(), gid);
         if self.evaluated.contains_key(&key) {
             return Ok(());
         }
+        let entry = std::mem::size_of::<(([u8; 32], u16), CffEvaluatedGlyphV2)>();
+        let storage = entry * 4
+            + if self.evaluated.is_empty() {
+                entry * 24 + 512
+            } else {
+                0
+            };
+        charge(1, storage, lookup)?;
         let advance = admission
             .horizontal_metric(gid)
             .ok_or(Cff1Error::InvalidSelectedGlyph)?
             .0;
         let result = self
             .evaluator
-            .evaluate(admission.program(), gid, advance)
+            .evaluate_with_charge(admission.program(), gid, advance, charge)
             .map_err(CffSelectionFailureV2::Glyph)?;
         self.evaluated.insert(key, result);
         Ok(())
@@ -291,6 +318,17 @@ mod tests {
         assert!(work.0 > 0 && work.1 > 0);
         assert_eq!(session.cached_glyph_count(), 3);
         session.prepare_closure(&admission, &second).unwrap();
+        let mut alias_charge = (0, 0, 0);
+        session
+            .prepare_closure_with_charge(&admission, &second, &mut |records, bytes, work| {
+                alias_charge.0 += records;
+                alias_charge.1 += bytes;
+                alias_charge.2 += work;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!((alias_charge.0, alias_charge.1), (0, 0));
+        assert!(alias_charge.2 > 0);
         session.prepare_face(&admission, &gids).unwrap();
         assert_eq!(
             (session.operations_used(), session.outline_segments_used()),

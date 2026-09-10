@@ -1,0 +1,11 @@
+{
+  "algorithm": "vmb.typaxis-verification-qr/1",
+  "producer": "skip2/go-qrcode@v0.0.0-20200617195104-da1b6568686e",
+  "url": "https://verify.example/books/fractions/1/verification/chapter.introduction.html",
+  "recovery": "medium",
+  "version": 5,
+  "modules": 45,
+  "quiet_zone_modules": 4,
+  "pixels_per_module": 4,
+  "png_sha256": "434641d97e7d1e4b6f6cad5d0ab8c65925b30561f98888129eea17e9eae34a38"
+}

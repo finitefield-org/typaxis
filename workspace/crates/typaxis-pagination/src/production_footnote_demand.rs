@@ -2,8 +2,35 @@
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[path = "production_body_footnote_fit_kernel.rs"]
+mod fit_kernel;
 #[path = "production_body_footnote_candidate.rs"]
 mod body_candidate;
+#[path = "production_body_mixed_kernel.rs"]
+mod mixed_kernel;
+#[path = "production_body_mixed_candidate.rs"]
+mod mixed_candidate;
+#[path = "production_body_mixed_pages.rs"]
+mod mixed_pages;
+#[path = "production_body_page_ranking.rs"]
+mod page_ranking;
+#[path = "production_body_mixed_placement.rs"]
+mod mixed_placement;
+#[path = "production_body_mixed_stability.rs"]
+mod mixed_stability;
+#[path="production_body_page_stability_kernel.rs"]
+mod page_stability_kernel;
+pub use mixed_candidate::{
+    prepare_production_table_body_search, ProductionBodyCandidatePart,
+    ProductionBodyMixedCandidate, ProductionBodySelectedPart,
+};
+pub use mixed_pages::{
+    ProductionBodyMixedPageSelection, ProductionBodyMixedPageSequence, ProductionBodyMixedPageState,
+};
+pub use mixed_placement::{
+    ProductionBodyMixedPlacedPage, ProductionBodyMixedPlacedSequence, ProductionTablePlacedCellRole,
+};
+pub use mixed_stability::ProductionBodyMixedStablePages;
 #[path = "production_body_footnote_pages.rs"]
 mod pages;
 #[path = "production_body_footnote_placement.rs"]
@@ -11,15 +38,28 @@ mod placement;
 pub use placement::{
     ProductionBodyFootnoteMathTerminals, ProductionBodyFootnotePlacedFragment,
     ProductionBodyFootnotePlacedMarker, ProductionBodyFootnotePlacedPage,
-    ProductionBodyFootnotePlacedSequence, ProductionBodyFootnoteStablePages,
+    ProductionBodyFootnotePlacedSequence, ProductionBodyFootnoteStablePages, ProductionFinalPage,
+    ProductionFinalPageGeometry, ProductionFinalPageIter, ProductionFinalPages,
 };
+#[path = "production_footnote_required_kernel.rs"]
+mod required_kernel;
 #[path = "production_footnote_required_region.rs"]
 mod required_region;
 pub use body_candidate::ProductionBodyFootnoteCandidate;
+pub(in crate::production_body::body_flow) use body_candidate::ProductionBodyFootnoteFit;
 pub use pages::{
     ProductionBodyFootnotePageSelection, ProductionBodyFootnotePageSequence,
     ProductionBodyFootnotePageState,
 };
+
+#[path = "production_footnote_demand_kernel.rs"]
+mod kernel;
+#[path = "production_footnote_region_kernel.rs"]
+mod region_kernel;
+use kernel::DemandValue;
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_footnote_demand.rs"]
+pub(super) mod book_v2;
 
 static NEXT_SEARCH: AtomicU64 = AtomicU64::new(1);
 
@@ -30,28 +70,7 @@ pub enum ProductionFootnoteDemandStatus {
     Complete,
 }
 
-#[derive(Clone, Copy)]
-enum Demand<'b, 'f, 's, 'p, 'a> {
-    Unreferenced,
-    Pending {
-        first_reference: NodeId,
-        cursor: ProductionFootnoteCursor<'b, 'f, 's, 'p, 'a>,
-    },
-    Complete {
-        first_reference: NodeId,
-    },
-}
-impl Demand<'_, '_, '_, '_, '_> {
-    fn first_reference(&self) -> Option<NodeId> {
-        match self {
-            Self::Unreferenced => None,
-            Self::Pending {
-                first_reference, ..
-            }
-            | Self::Complete { first_reference } => Some(*first_reference),
-        }
-    }
-}
+type Demand<'b, 'f, 's, 'p, 'a> = DemandValue<ProductionFootnoteCursor<'b, 'f, 's, 'p, 'a>>;
 
 /// Immutable branch state. Constructed only by its search owner, never a page
 /// receipt. Keeping an earlier state permits another candidate evaluation.
@@ -98,6 +117,8 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSelection<'b, 'f, 's, 'p, 'a> {
 /// Failed/dropped candidates do not change their input state or refund work.
 pub struct ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     content: ProductionFootnoteBreakSearch<'b, 'f, 's, 'p, 'a>,
+    tables:
+        Option<super::super::table_measurements::ProductionTableBodyContext<'b, 'f, 's, 'p, 'a>>,
     owner_id: u64,
     next_state: u64,
     maximum_pages: u32,
@@ -109,6 +130,28 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     pub fn record_charge(&self) -> u64 {
         self.content.record_charge()
     }
+    pub(in crate::production_body::body_flow) fn swap_table_budget(
+        &mut self,
+        charge: &mut Charge,
+        steps: &mut u64,
+    ) {
+        std::mem::swap(&mut self.content.charge, charge);
+        std::mem::swap(&mut self.content.steps, steps);
+    }
+    pub(in crate::production_body::body_flow) fn fork_table_state(
+        &mut self,
+        state: &ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>,
+    ) -> Result<ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError>
+    {
+        self.fork(state, 0)
+    }
+    pub(in crate::production_body::body_flow) fn verify_table_state(
+        &self,
+        state: &ProductionFootnoteDemandState<'_, '_, '_, '_, '_>,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        self.verify_state(state)
+    }
+
     pub fn work_steps(&self) -> u64 {
         self.content.visited_items()
     }
@@ -135,20 +178,8 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         &mut self,
     ) -> Result<ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError>
     {
-        let root = NodeId::new(0);
         let flow = self.content.flow;
-        self.content.charge.take(1, root)?;
-        self.content
-            .charge
-            .take(flow.footnotes.definitions().len(), root)?;
-        let mut definitions = Vec::new();
-        definitions
-            .try_reserve_exact(flow.footnotes.definitions().len())
-            .map_err(|_| error(root, E::AllocationFailure))?;
-        for definition in flow.footnotes.definitions() {
-            self.step(definition.owner())?;
-            definitions.push(Demand::Unreferenced);
-        }
+        let definitions = kernel::begin_definitions(&mut self.content)?;
         Ok(ProductionFootnoteDemandState {
             flow,
             owner_id: self.owner_id,
@@ -164,32 +195,12 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     ) -> Result<ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError>
     {
         self.verify_state(state)?;
-        let root = NodeId::new(0);
-        self.content.charge.take(1, root)?;
-        self.content.charge.take(state.definitions.len(), root)?;
-        self.content.charge.take(state.pending.len(), root)?;
-        let mut definitions = Vec::new();
-        definitions
-            .try_reserve_exact(state.definitions.len())
-            .map_err(|_| error(root, E::AllocationFailure))?;
-        for (index, demand) in state.definitions.iter().enumerate() {
-            self.step(state.flow.footnotes.definitions()[index].owner())?;
-            definitions.push(*demand);
-        }
-        let capacity = state
-            .pending
-            .len()
-            .checked_add(additional.min(state.definitions.len()))
-            .ok_or_else(|| error(root, E::ArithmeticOverflow))?
-            .min(state.definitions.len());
-        let mut pending = Vec::new();
-        pending
-            .try_reserve_exact(capacity)
-            .map_err(|_| error(root, E::AllocationFailure))?;
-        for index in &state.pending {
-            self.step(state.flow.footnotes.definitions()[*index].owner())?;
-            pending.push(*index);
-        }
+        let (definitions, pending) = kernel::fork_definitions(
+            &mut self.content,
+            &state.definitions,
+            &state.pending,
+            additional,
+        )?;
         Ok(ProductionFootnoteDemandState {
             flow: state.flow,
             owner_id: self.owner_id,
@@ -203,23 +214,34 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         state: &mut ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>,
         references: &[ProductionFootnoteFlowReference<'f>],
     ) -> Result<(), ProductionBodyPaginationError> {
-        for reference in references {
-            let source = reference.source();
-            self.step(source.owner())?;
-            let index = source.definition_index();
-            let slot = state
-                .definitions
-                .get_mut(index)
-                .ok_or_else(|| error(source.owner(), E::ReceiptMismatch))?;
-            if matches!(slot, Demand::Unreferenced) {
-                let cursor = self.content.begin(index)?;
-                self.content.charge.take(1, source.owner())?;
-                *slot = Demand::Pending {
-                    first_reference: source.owner(),
-                    cursor,
-                };
-                state.pending.push(index);
-            }
+        kernel::require(
+            &mut self.content,
+            &mut state.definitions,
+            &mut state.pending,
+            references,
+        )
+    }
+    fn body_keep_before(&mut self, start: usize) -> Result<bool, ProductionBodyPaginationError> {
+        if start == 0 {
+            return Ok(false);
+        }
+        self.table_query_work()?;
+        if self.tables.as_ref().is_some_and(|t| t.keep_before(start)) {
+            return Ok(true);
+        }
+        if !self.content.flow.body_items()[start - 1].keep {
+            return Ok(false);
+        }
+        self.table_query_work()?;
+        Ok(self
+            .tables
+            .as_ref()
+            .is_none_or(|t| !t.contains(start - 1..start)))
+    }
+    fn table_query_work(&mut self) -> Result<(), ProductionBodyPaginationError> {
+        let steps = self.tables.as_ref().map_or(0, |t| t.query_steps());
+        for _ in 0..steps {
+            self.step(NodeId::new(0))?;
         }
         Ok(())
     }
@@ -241,6 +263,14 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     {
         self.verify_state(state)?;
         if range.start > range.end || range.end > self.content.flow.body_items().len() {
+            return Err(error(NodeId::new(0), E::ReceiptMismatch));
+        }
+        self.table_query_work()?;
+        if self
+            .tables
+            .as_ref()
+            .is_some_and(|t| t.contains(range.clone()))
+        {
             return Err(error(NodeId::new(0), E::ReceiptMismatch));
         }
         self.query_work()?;
@@ -318,19 +348,15 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             .flow
             .references_in_items(Some(index), fragment.cursor.next_item..fragment.content_end);
         let mut result = self.fork(state, references.len())?;
-        if let Some(cursor) = fragment.continuation() {
-            result.definitions[index] = Demand::Pending {
-                first_reference,
-                cursor,
-            };
-        } else {
-            result.definitions[index] = Demand::Complete { first_reference };
-            // Charge the records shifted by removal as work, not new retention.
-            for pending in result.pending.iter().skip(pending_position + 1) {
-                self.step(state.flow.footnotes.definitions()[*pending].owner())?;
-            }
-            result.pending.remove(pending_position);
-        }
+        kernel::advance_definition(
+            &mut self.content,
+            &mut result.definitions,
+            &mut result.pending,
+            index,
+            pending_position,
+            first_reference,
+            fragment.continuation(),
+        )?;
         self.require(&mut result, references)?;
         Ok(result)
     }
@@ -341,13 +367,31 @@ pub fn prepare_production_footnote_demand_search<'b, 'f, 's, 'p, 'a>(
     limits: &M4EffectiveResourceLimits,
     maximum_work_steps: u64,
 ) -> Result<ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    let mut content = prepare_production_footnote_search(flow, limits, maximum_work_steps)?;
+    let content = prepare_production_footnote_search(flow, limits, maximum_work_steps)?;
+    finish_demand_search(content, limits)
+}
+pub(in crate::production_body::body_flow) fn prepare_table_demand_search<'b, 'f, 's, 'p, 'a>(
+    flow: &'b ProductionPreparedBodyFlow<'f, 's, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    maximum_work_steps: u64,
+    charge: Charge,
+    steps: u64,
+) -> Result<ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    let content =
+        prepare_footnote_search_with_budget(flow, limits, maximum_work_steps, charge, steps)?;
+    finish_demand_search(content, limits)
+}
+fn finish_demand_search<'b, 'f, 's, 'p, 'a>(
+    mut content: ProductionFootnoteBreakSearch<'b, 'f, 's, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
     content.charge.take(1, NodeId::new(0))?;
     let owner_id = NEXT_SEARCH
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
         .map_err(|_| error(NodeId::new(0), E::ArithmeticOverflow))?;
     Ok(ProductionFootnoteDemandSearch {
         content,
+        tables: None,
         owner_id,
         next_state: 0,
         terminal_spool: 0,
@@ -424,78 +468,18 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         Option<ProductionFootnoteRegionSelection<'b, 'f, 's, 'p, 'a>>,
         ProductionBodyPaginationError,
     > {
-        self.verify_state(state)?;
-        let root = NodeId::new(0);
-        if available < Length::ZERO || available > self.content.maximum_height {
-            return Err(error(root, E::InvalidFootnoteCapacity));
-        }
-        self.content.charge.take(1, root)?;
-        if state.pending.is_empty() {
-            return Ok(None);
-        }
-        let mut fragments: Vec<ProductionFootnoteRegionFragment<'b, 'f, 's, 'p, 'a>> = Vec::new();
-        let mut current = None;
-        let mut used = Length::ZERO;
-        let mut forced_break_owner = None;
-        loop {
-            let before = current.as_ref().unwrap_or(state);
-            let Some(index) = before.pending.first().copied() else {
-                break;
-            };
-            let Demand::Pending { cursor, .. } = before.definitions[index] else {
-                return Err(error(root, E::ReceiptMismatch));
-            };
-            let next = &before
-                .flow
-                .definition_items(index)
-                .ok_or_else(|| error(root, E::ReceiptMismatch))?[cursor.next_item];
-            self.step(next.owner)?;
-            let gap = if next.source.is_some() {
-                fragments
-                    .last()
-                    .and_then(|f| f.fragment().items().last())
-                    .map(|previous| add(previous.after, next.before, next.owner))
-                    .transpose()?
-                    .unwrap_or(Length::ZERO)
-            } else {
-                Length::ZERO
-            };
-            let offset = add(used, gap, next.owner)?;
-            if offset > available {
-                break;
-            }
-            let remaining = available
-                .checked_sub(offset)
-                .ok_or_else(|| error(next.owner, E::ArithmeticOverflow))?;
-            let Some(selected) = self.evaluate_next(before, remaining)? else {
-                break;
-            };
-            let end = add(offset, selected.fragment.used_height, next.owner)?;
-            if end > available {
-                return Err(error(next.owner, E::ReceiptMismatch));
-            }
-            let stop = selected.fragment.reason != ProductionBodyBreakReason::End;
-            forced_break_owner = selected.fragment.forced_break_owner;
-            let after = self.advance(before, &selected)?;
-            self.content.charge.take(1, next.owner)?;
-            fragments
-                .try_reserve(1)
-                .map_err(|_| error(next.owner, E::AllocationFailure))?;
-            fragments.push(ProductionFootnoteRegionFragment { offset, selected });
-            current = Some(after);
-            used = end;
-            if stop {
-                break;
-            }
-        }
-        Ok(current.map(|next_state| ProductionFootnoteRegionSelection {
-            owner_id: self.owner_id,
-            state_id: state.state_id,
-            fragments,
-            used_height: used,
-            available_height: available,
-            forced_break_owner,
-            next_state,
-        }))
+        Ok(
+            region_kernel::select(self, state, available)?.map(|region| {
+                ProductionFootnoteRegionSelection {
+                    owner_id: self.owner_id,
+                    state_id: state.state_id,
+                    fragments: region.fragments,
+                    used_height: region.used_height,
+                    available_height: available,
+                    forced_break_owner: region.forced_break_owner,
+                    next_state: region.next_state,
+                }
+            }),
+        )
     }
 }

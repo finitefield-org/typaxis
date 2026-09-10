@@ -2,7 +2,7 @@
 
 Status: In progress. This ledger does not narrow the scope of
 [design 28](28-vmb-book-production-compatibility.md). No full-book success or
-Harano support is claimed until the corresponding gates have evidence.
+public Harano support is claimed until the corresponding gates have evidence.
 
 | Requirement | Current evidence / remaining work |
 | --- | --- |
@@ -12,24 +12,30 @@ Harano support is claimed until the corresponding gates have evidence.
 | Count/analyze/build internal mismatch diagnostic | Changed to receipt invariant / I9190; verification pending |
 | Profile defaults and override precedence | Implemented; config tests and CLI negative boundaries passed |
 | Original image/font count diagnostic pointer | Unit and both CLI runner boundary tests passed |
-| Resolver cursor and finalized dense image lookup | Existing aggregate/order/admission regressions passed; mixed/5,000 performance evidence pending |
+| Resolver cursor and finalized dense image lookup | Aggregate/order/admission regressions passed; actual common public distinct/mixed/alias scale builds and exploratory timing/RSS now passed (latest scale record below); controlled scaling baseline remains pending |
 | Real VMB fixtures and provenance ledger | Unchanged chapter SVG plus 20 actual-engine conversions, original/derived hashes and font notices stored; original maximum-complexity book cases and full provenance runner still pending |
-| 300–500 chapter and 5,000 placed distinct images / mixed aliases | 5,000 actual-SVG aliases and 5,000 synthetic distinct-paint Forms pass selected placement/structure/object tests; required engine-generated distinct formulas, mixed PNG and public check/build gates remain pending |
+| 300–500 chapter and 5,000 placed distinct images / mixed aliases | Actual VMB engine packages passed public check/build: 5,000 distinct SVG, 4,952 SVG + 48 PNG, and 5,000 aliases / 8,000 placements over 100 SVG. All source path coordinates and extraction/structure/UA checks passed; formal chapter/full-book exporter gates remain pending |
 | 8,192 / 8,193 and explicit lower-limit CLI tests | Both public check/build positive 8,192 and explicit 1,024 boundaries, and negative 8,193 / 1,025 boundaries passed; see 2026-09-07 record |
 | Detailed font diagnostics and TTC face list | Admission/table/permission and bounded container/face notes connected to both public runners; unchanged Harano negative gate passed below. Detailed selected-glyph/charstring/subset failures and all TrueType metadata stages remain pending. |
 | CID CFF /2, FD-aware evaluator, subset / PDF integration | CID structure, FD-bound Type2 and internal whole-sfnt /2 admission verified on unchanged original Harano; selected closure/cache and real dense-CID subset verified internally, including independent outlines/UVS/raster comparison; name-keyed /2, aggregate resource owner and public PDF integration pending (checkpoint below) |
 | Vertical tables, cmap 14, IVS shaping/extraction | Internal /2 admission and actual linked shaping preserve every original UVS and source cluster through dense subset mapping; independent full-UVS subset/render checks passed; package selection, ToUnicode/ActualText and public extraction binding pending (checkpoint below) |
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
+| Book-2 source-owned references, structure and PDF assembly | Private source-to-PDF driver rebuilds Page-reference labels to an observed fixed point. Empty paragraphs and break-only lines now retain real height and destinations without synthetic paint. 36 source PDFs / 213 pages independently verified, including 9 real driver callbacks and original Harano CFF/Japanese/IVS. Remaining source/page forms and public/full-book gates remain open; see §14.154–157 |
+| Book-2 description lists | Typed term/definition domain, styles, language/navigation, authored term flow, real frames/page splitting and Lbl/LBody PDF connected. Long Latin/original-Harano Japanese terms, 11 recursive math/vector placements, term Page/footnote references, and private VMB successor export through real Harano PDF/extraction pass. Full-book export and public runner remain pending (§14.158–162, ADR-0040) |
+| Book-2 table captions and cell alignment | Private caption/number/cell-style inheritance and nested parent captions, headers, keeps and rowspans now reach original-Harano PDFs. Original forced breaks and repeated-header source roles pass 142 integration tests and 332 independent PDFs (§14.169–184). Footnote-table placement and full-book/public acceptance remain pending. |
+| Book-2 assumptions and quotations | Original assumption units retain typed owners and null anchors; quote text/attribution preserve rich inline content and BlockQuote structure. Private export, exact 6-math extraction and 94-test integration pass (§14.165). Full-book/public gates remain pending. |
+| Book-2 exercise teaching units | Dedicated part/choice/hint kinds, exact titles/content/source metadata, hint-level binding and reciprocal solution links pass private export, original-Harano PDF/extraction and 93-test integration. Full-book and public successor gates remain pending (§14.164). |
+| Book-2 VMB admonitions and solutions | Seven dedicated admonition kinds, solution→exercise forward links, verification ordering and formal/NPA ownership now pass private export and real original-Harano PDFs. Full 328 admonitions / 260 solutions and remaining authored fields remain pending (§14.163). |
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering, source projection and production math-adapter→per-occurrence wire/resource/semantic binding implemented in VMB; a real prepared-example public check gate passed below. Full RenderBook traversal, raster integration and final package/sidecar publication remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
-| Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
-| Shared body/math flow and selected text placement | Authored shaping and LTR body/SVG line placement, measured paragraph/block/caption/raster/list placement, shared body fonts, Forms and selected PDF contributions verified below. Page-end candidate costs are now connected to the internal body cursor; Selected-line LTR shaping now has an actual bounded shape/rebreak owner (checkpoint below); final bidi, cumulative allocation, generated references, remaining subflows and public convergence/terminal/paint/manifest connection remain pending. |
-| Measured body page-break candidates | Internal policy /1 enumerates all feasible non-keep boundaries, applies widow/orphan/heading/unused-space costs, retains candidates in pagination /4 fingerprints and rejects max+1 before evaluation. Generic trace/budget receipts and public runner integration remain pending. |
-| Selected production structure / MCID page contributions | Source registry binding, page-local MCIDs, per-occurrence Formula ActualText and cumulative budgets verified below, including 5,000 aliases; final structure objects/public PDF connection pending |
-| Selected production PDF object contributions | Frozen body fonts, shared Forms and structure objects verified below, including 5,000 aliases; diagnostic page/catalog/xref assembly and selected internal/URI links, destinations and outlines connected; public terminal/manifest closure pending |
-| Selected production lists | Syntax-generated markers, admitted-font shaping, real nested item frames, one label on the first actual fragment, marker height, Lbl/LBody and diagnostic PDF now connected; 11 focused tests and 4 independent probes pass below. Numbered math, final generated-store convergence, public/full-book integration remain pending. |
-| Selected ordinary raster figures | Explicit width/pixel aspect, shared PNG/JPEG Image payloads, alpha masks, real captions/keep and per-occurrence Figure/Alt connected to diagnostic PDF; three independent raster probes pass. Public/full-book integration remains pending. |
-| Selected production navigation positions | Inline source-gap anchors and logical bounds now feed selected destinations, per-line internal/URI annotations, outline topology and OBJR/ParentTree objects; three independent navigation PDF probes pass. Anchor-only paragraph and public terminal/manifest closure remain pending; see the checkpoint below. |
+| Production with no native math | Empty native authorization and body-font independence now pass the common public writer, including the real-engine scale packages |
+| Shared body/math flow and selected text placement | Common public selection/display/structure/font/PDF/four-manifest route now handles body, vector/native math, lists, raster/SVG figures, top-level table fragmentation and ordinary footnotes. Generated Page-reference feedback is connected. Nested table fragmentation, forced cell breaks, tables inside footnotes, named pages, Text/Number references and remaining allocation/trace integration are pending |
+| Measured body page-break candidates | Common ordinary/mixed selection enumerates and ranks legal candidates before fitting, preserves cumulative work/lookback limits and verifies stable actual geometry. Public root pass-summary propagation and 2/4/6-pass cases passed; complete generic per-pass trace/budget receipt integration remains pending |
+| Selected production structure / MCID page contributions | Common public structure/MCID/ActualText and all four manifest closures passed combined and real-engine scale gates; repeated headers paint as Artifact. Full-book/human acceptance remains pending |
+| Selected production PDF object contributions | Common public PDF, fonts, Forms, raster, navigation and final manifest closure are connected; combined and scale source/extraction/UA checks passed. Remaining input forms and full-book gates remain pending |
+| Selected production lists | Generated markers, admitted shaping, nested frames, Lbl/LBody and common public PDF are connected; combined independent gate passed. Full-book integration remains pending |
+| Selected ordinary raster figures | Common public PNG/JPEG payloads, alpha, captions and Figure/Alt are connected; combined gate and 48 distinct PNG scale placements passed. Full-book integration remains pending |
+| Selected production navigation positions | Common public links, footnote reference/return annotations, named destinations, outlines and source-bound /SE are connected. Combined independent structure gate passed; Text/Number references and full-book acceptance remain pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Eight diagnostic PDF probes now pass structure/nonpainting and exact extraction, including the previously failing explicit post-formula space; full SVG/reference and full-book gates pending |
@@ -6150,3 +6156,9356 @@ Public `build_production_book_pdf` still uses the legacy writer. Root manifest
 retention/copies and trace costs must be integrated before routing that public
 entry through the new driver. Formal exporter and original/Harano full-book,
 scale, host, allocation and human PDF/UA acceptance are not closed by this change.
+
+
+## Public common-driver routing in progress (2026-09-08, uncommitted)
+
+The working tree replaces `build_production_book_pdf`'s separate native/vector
+recipe with `with_production_common_tagged_pdf` and the four common manifest
+builders. Root member copies and a bounded fixed-field trace are precharged.
+The final layout identity comes from the actual final PDF receipt, and fragment
+count comes from the selected physical page fragments. Trace inline/display
+hashes refer to common receipts; its block-layout hash currently refers to the
+prepared block-layout receipt and still needs a contract-semantics audit.
+
+A saved VMB/Arial Unicode input now succeeds through the actual public
+`build-package` binary, producing `status=built` plus PDF, manifest, diagnostics
+and trace. Output directory: `/private/tmp/typaxis-public-common-vmb-smoke`.
+The exact invocation uses package/root/resource-root
+`/private/tmp/vmb-assembled-package-smoke/typaxis-body-2451059118`, profile
+`typaxis.machine-pdf/production-book-1`, its `check-config.toml`, `--no-compress`,
+`--emit-build-manifest`, `--emit-diagnostics`, and `--trace`.
+
+- Input package SHA-256: `fe97596c3c205df5f8ca1c4242b6013f267a8f7bc73a01a64490937c70975a02`.
+- Public binary SHA-256: `5a87d0e59be76087a4a3f53f2b3800704293aa4c4336b55d89bf80558c558497`.
+- PDF: 48,241 bytes, SHA-256 `2185915066484ae1162c59a8d623d275757c8359707dcd859138d420a780cb47`.
+- veraPDF 1.30.2 UA-1: compliant, stderr empty; raw `verapdf.xml` and artifact
+  hashes in `evidence.json` in that output directory.
+- Build manifest and trace pass their registered contract-1.4 JSON Schemas.
+- Poppler extracts the Japanese heading, body/list text and authored formula
+  alternative. This is one small saved VMB input, not full-book acceptance.
+
+Public mixed-content compatibility is NOT complete. The old combined fixture's
+TTF/TTC fonts contain ASCII glyphs but have conflicting cmaps selecting only math
+symbols. The generator now preserves MATH/glyphs, restores the existing ASCII
+maps and appends the repository-authored bullet. The malformed cmap negative
+test explicitly uses the unchanged accessibility TTC; the hash-failure test now
+reads its declared hash instead of hardcoding the old font hash.
+
+With these font fixes, the combined public fixture and image-count boundary
+build fail at `NodeId(47), PendingInline("native_math")`: native math is not yet
+connected to common inline preparation. Do not replace native expressions with
+SVG, omit them, weaken the positive fixture, or claim the public migration
+complete. Its table and ordinary SVG Figure paths also need assessment after
+native math is connected. The working changes remain uncommitted while this
+compatibility failure is unresolved.
+
+Current evidence:
+
+- New public-builder positive test (vector/body and page-reference inputs):
+  **1 passed**, 0.47 seconds, `/private/tmp/typaxis-public-common-positive.log`.
+- Full CLI after font update: **335 passed, 4 failed, 4 ignored**, 16.93 seconds,
+  `/private/tmp/typaxis-public-common-current-regression.log`. Two failures were
+  the now-fixed negative-test dependencies described above; the two mixed-native
+  failures remain.
+- Latest `production_ -- --skip 5000`, after those negative-test fixes:
+  **175 passed, 1 failed, 1 ignored**, 13.24 seconds,
+  `/private/tmp/typaxis-public-common-production-regression.log`. Its sole failure
+  is the combined native-math case; the image-count test is outside this filter.
+- All command handles have exited. No full-scale or full-book result is claimed.
+
+### Native math common-line kernel in progress (2026-09-08, uncommitted)
+
+Native inline math now has a distinct `ProductionNativeMathInlineItem` in the
+common line-breaking kernel. It takes advance, ascent, descent, and horizontal
+paint bounds from an issued native `MathComputationReceipt`, retains the source
+occurrence and native receipt hashes, and participates as one indivisible unit.
+It does not manufacture a precomposed SVG occurrence. The layout layer still
+must bind that occurrence to its source-authorized native receipt before issuing
+selected paint; the line-breaking constructor alone does not authorize paint.
+
+The existing native computation loop is extracted from `layout_staging_math`
+into `compute_math_receipts`. This helper does not select parent flows, lines,
+or pages. The legacy layout consumes its results and retains its existing
+placement behavior. A regression compares the complete native receipts, work
+count, and epoch for the ordinary, page-move, and keep fixtures. Receipt storage
+uses fallible reservation and the fragment limit is checked before reservation.
+
+Local verification:
+
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-linebreak -p typaxis-layout --lib`: 68 layout tests and 44 line-breaking tests passed; log `/private/tmp/typaxis-native-inline-layout-regression.log`.
+- The native kernel test checks exact required width, one-unit atomic selection,
+  ascent/descent, a one-unit-too-narrow frame, candidate exhaustion, movement
+  between surrounding text, duplicate owner and wrong parent rejection,
+  receipt-dependent fingerprints, and rejection of display math as inline.
+- `/usr/bin/git diff --check`: passed.
+
+This is not completion of the common native math pipeline. Production inline
+preparation does not yet issue these native units, and selected paint explicitly
+rejects them with `native_math_selected_paint` until the source binding, common
+font plan, glyph/rule paint, tagged Formula content, and budget propagation are
+connected. The public combined fixture's previously recorded native-math failure
+remains a required compatibility gate. No full-book success is claimed.
+
+The CLI production-filter regression after this kernel/refactor change finished
+with 175 passed, 1 failed, and 1 ignored (14.50 seconds):
+`cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli production_ -- --skip 5000`
+with the same external target directory. The remaining failure is
+`machine_production_book_1_combined_public_profile`; log
+`/private/tmp/typaxis-native-kernel-cli-regression.log`. It remains a failure,
+not an accepted baseline or permission to publish the incomplete public switch.
+
+### Native math source preparation (2026-09-08, uncommitted)
+
+`compute_production_native_math` now owns source-bound native receipts without
+legacy placements. It verifies the profile authorization, preflights aggregate
+records and spool bytes before invoking native computation, retains cumulative
+charges, and indexes receipts and source spans by owner with binary search.
+The index is sorted without allocation; duplicate owners are rejected. Its
+fingerprint binds the native epoch, limits and ordered receipt keys. The source
+verification checks package, profile, admitted resources and limits.
+
+`prepare_production_inline_items` invokes this factory for packages containing
+native math and joins each inline occurrence to the indexed receipt and exact
+source span. It constructs the common native atomic unit from the real native
+computation. Native-free preparation keeps its existing fingerprint bytes.
+Prepared native records are retained in selected-line accounting. The spool
+charge is retained on the computation owner; propagation into the later
+pagination/PDF cumulative spool budget is still required before native paint
+can be enabled. Native display math has not yet been connected to common block
+placement. The earlier paragraph saying preparation does not issue native units
+is superseded by this implementation.
+
+The computation-store boundary test verifies complete receipt equality with the
+legacy computation, owner lookup, foreign-source rejection, exact cumulative
+record/spool ceilings, one-unit excess of either budget, and overflow. Its
+initial run passed (`/private/tmp/typaxis-native-computation-store.log`); the
+following regression reruns cover the final source changes.
+
+Final local checks for this preparation step:
+
+- `cargo check --manifest-path workspace/Cargo.toml -p typaxis-cli`: passed;
+  `/private/tmp/typaxis-native-preparation-check.log`.
+- CLI production regression: 175 passed, 1 failed, 1 ignored, 27.11 seconds;
+  `/private/tmp/typaxis-native-preparation-cli.log`. The unchanged combined
+  public fixture now reaches `NodeId(82), UnsupportedFigureMedia`, after native
+  inline source preparation. This is the ordinary SafeVector-1 Figure still
+  routed through raster-only preparation. It does not demonstrate native
+  selected paint or a completed combined build.
+- Layout/linebreak library regression after final source changes: 69 layout
+  tests and 44 line-breaking tests passed;
+  `/private/tmp/typaxis-native-preparation-layout.log`.
+
+The public CLI switch and this integration remain uncommitted while the mixed
+input compatibility gate is failing. The required next work includes native
+selected glyph/rule paint and font/tag mapping, cumulative native spool/work
+propagation, native display blocks, and ordinary SVG figures.
+
+### Selected native math origins (2026-09-08, uncommitted)
+
+Common line selection now constructs `ProductionPlacedInlineMath` from the
+prepared native computation owner. Before construction it rebinds the exact
+source span and receipt/computation hashes and compares the complete atomic
+item with the selected unit. The selected item borrows the authorized native
+receipt and retains its real line-local pen and baseline. Native math remains
+one item in source order, with no synthesized SVG occurrence or text glyphs.
+
+Selected-line context counts a native math object as the three UTF-8 bytes of
+U+FFFC used by shaping. A native-math-only list line counts as content for list
+marker placement. Common display projection explicitly returns
+`PendingNativeMathPaint` until native font planning, glyph/rule projection and
+Formula extraction/tag mapping are connected. The earlier selected-line
+`native_math_selected_paint` rejection is superseded by this later boundary.
+
+The new public-input preparation/selection test retains the native paragraph,
+fonts, styles and source buffers from the combined fixture, omitting unrelated
+blocks, footnotes and outline entries in this focused test only. It verifies
+that the selected item borrows the exact authorized receipt, its source span
+matches the parsed math node, its baseline matches the selected line, it has
+real paints, native records remain charged, and selected reshape contexts can
+be built. The unchanged combined public fixture remains the full gate.
+
+`CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli production_native_math_selection -- --nocapture`
+passed one test (0.08 seconds), with terminal exit 0; log
+`/private/tmp/typaxis-native-selected-test.log`. Initial compile checks found
+exhaustive enum consumers in the display error mapper and a vector-only test;
+both were updated explicitly. `/usr/bin/git diff --check` passed.
+
+The production-filter CLI regression finished with 176 passed, 1 failed and
+1 ignored (21.46 seconds), terminal exit 101;
+`/private/tmp/typaxis-native-selected-cli-regression.log`. The sole failure is
+the unchanged combined public fixture at SVG Figure node 82
+(`UnsupportedFigureMedia`). This remains an unresolved compatibility failure;
+no final public switch, full-book build or PDF/UA completion is asserted.
+
+### Common native glyph/rule projection (2026-09-08, uncommitted)
+
+`ProductionBodyDraw::Math` now carries a native computation projected from the
+actual selected paragraph line and page fragment. Its separate glyph/rule paint
+type retains original glyph IDs, Unicode, logical ordinals, per-glyph sizes,
+and exact rule rectangles. Projection validates the admitted native font's face
+and hash, uses checked fixed-point addition at the selected pen/baseline, and
+charges paint records before fallible allocation. Native layout bounds are
+translated in the same coordinate system. It does not reuse the body's uniform
+font size or convert the equation to a producer SVG binding.
+
+Footnote draw ordering and body/footnote link-bound calculations handle the
+native draw's real fragment and bounds. Native structure mapping, language
+observation and PDF encoding remain unimplemented: structure and PDF page
+encoding explicitly reject native draws with `PendingNativeMath`, and native
+language observation rejects them. The former display-stage
+`PendingNativeMathPaint` variant has been removed. No writer can silently omit
+these draws and return a completed common PDF through the current graph.
+Native font/CID planning and cumulative spool/work propagation remain required.
+
+Three native integration tests passed (0.11 seconds), terminal exit 0, in
+`/private/tmp/typaxis-native-draw-test.log`. The tests exercise real admitted
+math fonts and common selection/pagination/display. They compare the x-squared
+paint's IDs, Unicode, logical order, sizes, and translated coordinates to its
+native computation, including the smaller superscript size. A separate fraction
+uses an explicitly added source and identity-mapped text buffer and checks the
+fraction rule's exact translated position, width and thickness. The CLI adds
+only a local path dev-dependency on `typaxis-math` for these comparisons.
+
+The production-filter CLI regression completed with 178 passed, 1 failed and
+1 ignored (14.18 seconds), terminal exit 101;
+`/private/tmp/typaxis-native-draw-cli-regression.log`. The required unchanged
+combined public fixture remains failing; native-only projection tests do not
+replace this gate. `/usr/bin/git diff --check` passed.
+
+Related library regression also finished with terminal exit 0:
+`cargo test --manifest-path workspace/Cargo.toml -p typaxis-display-list -p typaxis-resources -p typaxis-pdf --lib`
+using the same external target directory; log
+`/private/tmp/typaxis-native-draw-library-regression.log`. Display-list: 57
+passed; PDF: 85 passed, 1 ignored; resources: 32 passed, 2 ignored. Ignored gates
+were not executed. Native full PDF publication and the mixed fixture remain
+unresolved despite these regression successes.
+
+### Common native Formula structure (2026-09-08, uncommitted)
+
+Common structure projection now maps native math draws to their source Formula
+nodes. It requires the exact source owner/span, a Formula role, no vector or
+equation-number binding, identical Alt and ActualText, and a speech hash matching
+the validated native receipt. A second group for the same atomic native source
+is rejected. Native groups have an explicit `is_native_math` flag; they are not
+body-text groups and do not consume SVG usage IDs. Both body and joint-footnote
+structure accessors expose the native Formula's whole ActualText once.
+
+The native computation owner's retained spool charge now enters the shared
+structure projection before its spool ceiling check, alongside the existing
+registry strings/canonical allowance. Native records were already retained by
+selected-line accounting. This connects the retained native computation charge
+to the structure-to-font/PDF cumulative budget handoff; aggregate native work
+across reshape/convergence passes and later glyph/CID copies still need audit.
+
+Five focused native integration tests passed (0.34 seconds), terminal exit 0;
+`/private/tmp/typaxis-native-structure-test.log`. The two new tests verify one
+Formula/MCID/group, source identity, Alt/ActualText, no SVG usage, the exact
+native-plus-registry spool sum, success at both exact cumulative record/spool
+ceilings, and rejection when either ceiling is one unit too small. The test
+process had an observation delay after compilation; the same handle was polled
+to completion without restarting it. `/usr/bin/git diff --check` passed.
+
+The former structure-stage `PendingNativeMath` rejection is superseded by this
+mapping. Native font/CID planning, language observation, marked-content writing
+and PDF encoding remain required; the PDF page writer still explicitly rejects
+native draws. This is a structure projection result, not a generated native
+common PDF or a completed production-book compatibility gate.
+
+The production-filter CLI regression completed with 180 passed, 1 failed and
+1 ignored (15.49 seconds), terminal exit 101;
+`/private/tmp/typaxis-native-structure-cli-regression.log`. The failure remains
+the unchanged combined public fixture at ordinary SVG Figure node 82
+(`UnsupportedFigureMedia`). Existing common body/footnote/vector cases passed;
+no full native PDF or full-book completion is claimed.
+
+### Native glyph provenance and shared font planning (2026-09-08, uncommitted)
+
+Font cluster usages now distinguish `PdfFontClusterSource::Text` from
+`NativeMathGlyph`. Native identity contains the source owner, validated receipt
+and computation hashes, paint index and logical ordinal; its constructor reads
+an issued native draw and rejects non-glyph/out-of-range paints. Native glyphs
+have no `DisplayTextSpan`. The usage/frozen-cluster `text_span()` accessor now
+returns `Option<DisplayTextSpan>`; existing body/footnote callers explicitly
+handle their `Some` text spans. Text cluster lookup compares the nominal source
+key, preserving the actual sorted usage order when native and text clusters
+share a font.
+
+The TrueType/CFF cluster planners retain native extraction as a distinct
+`ClusterExtractionPlan::NativeMathGlyph` instead of inventing a text range or
+marking the equation as an artifact. The legacy generic body-text writer does
+not authorize this native variant. Common body and joint-footnote font planning
+collect real native glyph usages, share the existing per-face subset/CID pool
+with body text, and retain indexed `(draw, paint)` lookups through `native_plan`.
+Per-native-glyph records and copy allowance are charged before usage creation;
+body font planning also carries the retained native computation spool in
+addition to the selected-pagination spool. Joint font planning receives it via
+the prior structure charge.
+
+The mixed body/native test verifies one font subset with two CIDs for body `x`
+and native `x^2`, reuse of the `x` CID, preserved native source hashes/ordinals,
+no text-span aliases, correct body-only and native-only lookups, and the typed
+native extraction plan. Native font budget testing verifies exact cumulative
+record/spool limits and one-unit-too-small failures. Six focused native tests
+passed before the additional font-budget test; the subsequent production-filter
+regression includes all seven native tests.
+
+Local CLI production regression: 182 passed, 1 failed, 1 ignored, 16.47 seconds,
+terminal exit 101; `/private/tmp/typaxis-native-font-cli-regression.log`. The
+unchanged combined public fixture is still a failing gate, not a permitted
+publication baseline. `/usr/bin/git diff --check` passed. Native PDF commands,
+marked-content encoding, language observation, display math, ordinary SVG
+figures, and full-book gates remain required.
+
+Resource/PDF library regression finished with terminal exit 0:
+`cargo test --manifest-path workspace/Cargo.toml -p typaxis-resources -p typaxis-pdf --lib`
+with the external target directory. PDF: 85 passed, 1 ignored; resources: 32
+passed, 2 ignored. Log: `/private/tmp/typaxis-native-font-library-regression.log`.
+These checks cover existing font/extraction behavior; ignored gates were not run
+and no native common PDF has yet been emitted.
+
+### Native inline math common PDF output (2026-09-08, uncommitted)
+
+The common PDF contribution now encodes native glyphs with their frozen CIDs,
+actual per-glyph sizes and selected page coordinates, and emits native rules as
+filled rectangles. Each glyph plan is checked against the native owner,
+receipt/computation hashes, paint index, logical ordinal, glyph and Unicode.
+Native page-draw records remain distinct from body text and SVG usage records.
+The page font dictionary binds each used native font once. Paint font identity
+is optional so a rule does not invent a font reference. Body text still requires
+its actual font identity.
+
+Marked content surrounds each native Formula once with its source ActualText.
+Native glyphs provide the extraction paint, so the SVG-only invisible anchor is
+not emitted for native formulas. Native language observations come from the
+validated source language records. The previous native PDF/language rejection
+is removed for this inline path. The direct body marked-content merge subtracts
+the shared retained native-computation spool once instead of charging the same
+owner through both the font/content and structure branches.
+
+Nine focused native tests passed (0.35 seconds), terminal exit 0;
+`/private/tmp/typaxis-native-pdf-final-test.log`. They now cover public builder
+output for x-squared and a fraction, Formula/ActualText/font presence, and direct
+body fraction commands/object construction. The direct merge test verifies one
+MCID and ActualText, two glyph commands, one fraction-rule command, no SVG
+extraction anchor, and the exact spool sum with the shared owner counted once.
+The preceding production-filter regression was 183 passed, 1 failed, 1 ignored
+(15.07 seconds), with the unchanged combined fixture still failing at ordinary
+SVG Figure node 82. Log: `/private/tmp/typaxis-native-pdf-cli-regression.log`.
+PDF library regression: 85 passed, 1 ignored (0.37 seconds), terminal exit 0;
+`/private/tmp/typaxis-native-pdf-library-regression.log`.
+
+Actual CLI smoke, using a copied executable snapshot and source files verified
+against the package's SHA-256/byte lengths:
+
+- Executable: `/private/tmp/typaxis-native-common-cli/typaxis-snapshot`.
+- Input: `/private/tmp/typaxis-native-common-cli/job/document-package.json`.
+- `build-package` with explicit package/resource roots, full production-book-1
+  profile, `--no-compress`, PDF/manifest/diagnostics/trace paths: exit 0, `built`.
+- Final outputs: `/private/tmp/typaxis-native-common-cli/final/`.
+- PDF: 5,490 bytes, SHA-256
+  `ca2ce7cfb1d225f1adeae86d156220e74d1b8cbf03bd4f1626d755f6fc8f88e2`.
+- Poppler extraction: `x squared`; one tagged PDF 1.7 page.
+- The final PDF bytes match the independently validated `run-2/native.pdf`.
+  veraPDF 1.30.2 PDF/UA-1: compliant, 106 rules/72 checks passed, zero failed,
+  zero stderr bytes. The API-produced fraction also passed (106 rules/73 checks)
+  and extracts `x divided by two`.
+- Final manifest and layout trace: zero errors against the registered 1.4
+  schemas. Hashes, executable snapshot identity, and validation basis are in
+  `/private/tmp/typaxis-native-common-cli/final/evidence.json`.
+
+The first CLI staging attempt lacked the original source file and was rejected;
+a retry using existing sidecar names was also refused. The source was copied
+and hash-checked, and fresh output directories were used. Those failed artifacts
+remain outside the successful `final` directory.
+
+This corpus font deliberately draws `x` (GID 89) and `2` (GID 19) as rectangles;
+FontTools confirms their 500-by-700 outlines. The rendered result verifies
+placement and superscript scale, not ordinary mathematical typography. Native
+display blocks, ordinary SVG figures, full mixed-input compatibility, aggregate
+native work across convergence, remaining allocation audits, and the original
+full-book/exporter/real-font acceptance gates remain incomplete. A small
+native-inline PDF/UA smoke does not complete the design.
+
+### Native computations shared across line and page-reference convergence
+
+`ProductionNativeMathContext` now owns the source-bound computation receipts
+once before line reshaping. The page-reference convergence owner retains the
+same context across candidate labels and passes it through common footnote/PDF
+preparation. Both the initial shape and every selected-line reshape borrow the
+original receipts. Direct preparation retains an owning compatibility wrapper.
+Native-free documents return no native context and keep their prior fingerprint
+and verification path.
+
+The context binds the package canonical and semantic hashes, exact profile
+session/progress token and limits fingerprint, and immutably borrows the exact
+admitted resource ledger. Its reuse check is constant-size and allocates no
+resource snapshot or ledger canonical. A copied ledger and a separately issued
+profile session are rejected. The borrowed lifetime keeps the admitted owner
+alive throughout all computation use. The context itself cannot be cloned.
+
+Native computation preflight now rejects aggregate math work above the declared
+limit before allocating receipt storage or parsing fonts. The per-node owned
+math budget remains a second check. Common CLI error mapping preserves native
+work/allocation (`L5111`), records (`L5110`) and spool (`D8101`) as limit failures,
+rather than flattening native errors into generic input failures. Existing
+record/spool charges continue through the selected graph and cumulative outer
+pass accounting; sharing does not refund previously completed passes.
+
+New regressions verify receipt pointer identity through repeated line
+convergence, shared-context candidate PDF construction, missing-context
+rejection, copied-ledger rejection, and foreign-profile-session rejection. A
+native x-squared paragraph also contains an anchor and page reference: candidate
+99 changes to its actual page and reaches stability in at least three completed
+passes, with the native math limit set to the exact required computation work.
+The public PDF builder also succeeds at that limit; one less rejects the input
+without exposing a stable callback. The error must be a limit failure with
+`L5111`, not merely any failure.
+
+The broad CLI production regression (before the additional up-front math-work admission
+check) completed with 188 passed, 1 failed, 1 ignored in 255.06 seconds. Both
+5,000 SVG placement tests passed. The remaining failure is the unchanged
+combined input at ordinary SVG Figure node 82 (`UnsupportedFigureMedia`).
+Log: `/private/tmp/typaxis-native-context-final-regression.log`.
+
+After the final work-admission check, all 11 focused native CLI tests passed
+(0.43 seconds, exit 0). Layout and linebreak library tests passed, 69 and 44
+respectively (0.31/0.01 seconds, terminal exit 0). Logs:
+`/private/tmp/typaxis-native-context-verified-tests.log` and
+`/private/tmp/typaxis-native-context-kernel-regression.log`.
+
+Actual CLI verification uses the new copied executable snapshot at
+`/private/tmp/typaxis-native-context-cli/typaxis-snapshot` and staged input at
+`/private/tmp/typaxis-native-context-cli/job/document-package.json` (SHA-256
+`ffca474fd32182a1a4edb54669871c76c72b5d6e97df6a89540661616f36b023`).
+All eight source/font/image files were staged with matching declared hashes.
+`build-package` used explicit package/resource roots, production-book-1,
+`--no-compress`, PDF/manifest/diagnostics/trace paths and
+`--max-math-layout-units 10`: exit 0, a 6,123-byte PDF. With the same input and
+`--max-math-layout-units 9`, it returned exit 5 with `L5111` and no PDF file.
+
+The successful PDF is
+`/private/tmp/typaxis-native-context-cli/final/native-page-reference.pdf`, SHA-256
+`deeee5ad1d118d1ee4d4b298828722538774b952025637587e9f1553e9283680`.
+Its manifest, trace and diagnostics have zero 1.4 schema validation errors.
+veraPDF 1.30.2 PDF/UA-1 reports compliant: 106 rules/98 checks passed, zero failed
+and zero stderr bytes. Poppler extracts `x squared` followed by page label `1`.
+Exact commands, executable/input/output hashes, schema results and independent
+PDF validation evidence are recorded in
+`/private/tmp/typaxis-native-context-cli/cli-evidence.json`; raw reports remain
+beside the successful PDF. This still uses the corpus's rectangular test glyphs,
+so it verifies native placement/extraction/structure and page-reference joining,
+not real mathematical typography.
+
+Native display blocks, ordinary SVG figures and remaining mixed-input common
+compatibility, full allocation accounting, the formal exporter/adapter and
+original full-book/real-font/host acceptance gates remain open. Shared native
+work across convergence and this small CLI proof do not complete the design.
+
+### Native display math in common block and PDF placement
+
+`ProductionNativeMathComputations` now retains immutable display-block metrics
+alongside its issued computation receipts. Each record binds the source owner
+and span, typed block style, named-page presence, logical horizontal extents,
+content height and baseline. Height is the maximum of natural ascent/descent
+and the declared line height; excess leading uses ties-to-even division. The
+logical width covers both the advance and ink bounds, including overhangs.
+These records are computed once and fit the existing per-node admission for
+receipts, owner lookup, cached font faces and display metrics.
+
+Common pagination has a distinct `NativeMathBlock` fragment. It consumes actual
+containing frames for body, lists and footnotes, applies start/end indents and
+start/center/end alignment, preserves before/after spacing and keep-with-next,
+and places a single atomic fragment. Exact-width/height fits succeed; a frame
+one raw unit too narrow or short is rejected. All native display records must
+be consumed in source order. List and footnote labels use the native block's
+actual baseline. Named-page selection retains the existing explicit unsupported
+boundary shared by other common blocks.
+
+The display list projects glyphs and rules from the real selected fragment and
+its issued native receipt. Common font subsetting, Formula structure, language,
+ActualText and final tagged-PDF serialization consume this same draw. A document
+containing only display math also reaches the public builder with zero authored
+paragraphs. Tests cover mixed inline/display/body text, standalone display,
+display in a list, display in a footnote, and a display fraction whose natural
+height exceeds its declared line height. Fraction rule position and dimensions
+are checked against the real computation.
+
+Independent extraction exposed a native ActualText issue: restoring the paint's
+font before closing ActualText produced a zero-height replacement word in
+Poppler and could reverse its default reading order. Native marked content now
+uses the admitted paint commands inside the existing outer graphics-state
+scope, retaining the native font until `EMC`. A regression tracks font state
+through `q`/`Q` and requires an active font at native ActualText closure. Mixed
+body/display extraction now gives `x squared`, `x plus one`, `alpha` in order.
+
+Verification:
+
+- Native regression after the extraction repair: 15 passed, exit 0, 0.60 seconds;
+  `/private/tmp/typaxis-native-display-extraction-tests.log`.
+- Final display suite, including the additional fraction and single-source
+  fixture: 5 passed, exit 0, 0.64 seconds;
+  `/private/tmp/typaxis-native-display-single-source-tests.log`.
+- Library regression: display-list 57, layout 69, pagination 92, PDF 85 passed;
+  one PDF test ignored, terminal exit 0;
+  `/private/tmp/typaxis-native-display-library-regression.log`.
+- CLI production regression: 190 passed, 1 failed, 1 ignored, 14.58 seconds.
+  Command used `production_ -- --skip production_body_page_content_places_5000`;
+  the two previously verified 5,000-image tests were explicitly excluded from
+  this run. The failure remains the unchanged combined package at ordinary SVG
+  Figure node 82 (`UnsupportedFigureMedia`).
+  `/private/tmp/typaxis-native-display-production-regression.log`.
+- `/usr/bin/git diff --check`: clean.
+
+Actual CLI builds use the copied executable
+`/private/tmp/typaxis-native-display-cli/typaxis-snapshot`, explicit package and
+resource roots, production-book-1, `--no-compress`, and PDF/manifest/diagnostics/
+trace outputs. All five final inputs returned exit 0. Every final manifest,
+diagnostic document and trace has zero errors against the registered 1.4
+schemas. Each final PDF passed veraPDF 1.30.2 PDF/UA-1: 106 rules, zero failed
+rules/checks and zero stderr bytes.
+
+| CLI case | PDF bytes | Passed checks |
+| --- | ---: | ---: |
+| Inline math, display math and body text | 9,125 | 176 |
+| Display math only | 5,543 | 71 |
+| Display math in a list | 10,142 | 238 |
+| Display math in a footnote | 11,478 | 280 |
+| Display fraction, one source | 5,530 | 65 |
+
+The mixed PDF is
+`/private/tmp/typaxis-native-display-cli/native-display/out/output.pdf`, SHA-256
+`0d6a8248844e50729ca3994e5b2e90997bb5e663668895ca378fc49526528d83`.
+The fraction PDF is
+`/private/tmp/typaxis-native-display-cli/native-display-fraction-single-source/out/output.pdf`,
+SHA-256 `dcb262ed34000e333d99a3a4d0cfef9e872b170d998dd117f960f77b5d1842ca`.
+Exact commands, executable/package/source/resource/output hashes, schema
+results, raw veraPDF reports, default/raw extraction and rendered-image hashes
+are recorded in `/private/tmp/typaxis-native-display-cli/cli-evidence.json`.
+The mixed and fraction rasterizations were inspected. Their rectangular glyphs
+are intentional corpus outlines and prove placement/rule geometry, not ordinary
+mathematical typography.
+
+The initial fraction API fixture declared two sources and the CLI correctly
+rejected it with `P1110`. The final fixture preserves the original source bytes
+and appends the fraction, updates its real span and source hash/length, and uses
+one source. The rejected attempt remains separately recorded in the evidence;
+its output directory is not a successful PDF result.
+
+Poppler default extraction treats the centered formula in the list fixture as a
+separate column and places it after the following left-aligned paragraph. Raw
+extraction retains `x squared`, `1. x plus one`, `alpha`; the tagged hierarchy
+and marked-content order retain that same source order. Both observations are
+recorded rather than treating heuristic default extraction as a proof of every
+reading-order scenario.
+
+Ordinary SVG figures and remaining mixed-input common compatibility, named-page
+handling, full allocation/trace-field audits, formal exporter/adapter completion
+and original full-book/real-font/host acceptance gates remain open. These native
+display cases do not complete the full design or the combined public-profile
+gate.
+
+### Ordinary SVG Figure in the common selected flow
+
+The common figure measurement now retains a typed `ProductionFigureMedia`:
+PNG/JPEG keep pixel dimensions; admitted SVG keeps its real content key and
+uniform scale. `ProductionPreparedFigure` and the `Figure` fragment source cover
+both media. SVG uses the admitted physical intrinsic dimensions, including
+`width:auto`; an explicit width uses the existing Safe-SVG fit convention
+(floor the uniform 16.16 scale, then multiply both dimensions with ties-to-even).
+The selected viewport therefore matches the actual PDF matrix. For example,
+the 80 × 40 pt fixture at a requested 32 pt width becomes 2,097,120 × 1,048,560
+raw units at scale 26,214. No independent axis scale is introduced. Collapsed
+or unrepresentable positive geometry is rejected.
+
+`ProductionBodyDraw::SvgFigure` borrows the ordinary source Figure and binds its
+actual selected fragment/page and admitted content identity. Its borrowed
+`ProductionVectorPaint` view joins the existing shared Form planning and PDF
+usage emission without manufacturing a precomposed-vector binding. Source
+Figure/Alt, navigation bounds, body/footnote draw order and the final writer's
+usage records remain connected. Safe-vector and tagged manifests explicitly
+retain kind `Figure` with absent producer metrics/binding hashes; the final
+tagged manifest checks the real Figure role and alternative hash. Raster
+payload planning continues to consume only Raster draws.
+
+The unchanged production combined test has advanced from
+`UnsupportedFigureMedia` at node 82 to `PendingRegion("table")` at node 23.
+The table is not flattened, skipped or routed through the old independent
+layout. The public production route remains unfinished and is not ready to
+commit/push as a completed compatibility switch. Common tables, named pages,
+remaining reference/trace/allocation audits, formal VMB integration and all
+original full-book/Harano/host/human acceptance gates still remain.
+
+Verification for this change:
+
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`: **194 passed, 1 failed, 1 ignored**, terminal exit 101, 14.88 s test time. The only failure is the unchanged combined package's pending table region. All three new SVG Figure tests pass (shared Forms/occurrences; public body, footnote and container-only PDFs; intrinsic dimensions/indents). The two expensive 5,000-placement tests were explicitly excluded from this run. Log: `/private/tmp/typaxis-svg-figure-production-final.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-layout -p typaxis-pagination -p typaxis-display-list -p typaxis-resources -p typaxis-pdf -p typaxis-manifest --lib --locked`: **373 passed, 3 ignored**, terminal exit 0 (layout 69, pagination 92, display 57, resources 32, PDF 85, manifest 38). Log: `/private/tmp/typaxis-svg-figure-library-regression.log`.
+- The final CLI build and `/usr/bin/git diff --check` exited 0. No GitHub Actions were used.
+
+Actual CLI evidence is under `/private/tmp/typaxis-svg-figure-cli/`, with the
+frozen executable, source/resource files, exact commands, input/output hashes,
+JSON schema validation, extraction and independent PDF results in
+`evidence.json`. All three `build-package` and `check-package` calls succeeded.
+Check uses `check-config.toml` because its CLI does not accept `--no-compress`;
+rebuilding with that same config produced the identical effective config hash
+and byte-identical PDF for every case. All emitted diagnostics, build manifests
+and traces validate against their 1.4 schemas. Initial staging/unsupported CLI
+flag attempts are retained in the local logs and are not successful checks.
+
+| Actual CLI case | PDF bytes | SHA-256 | veraPDF UA1 checks |
+| --- | ---: | --- | ---: |
+| `svg-figure` | 26,450 | `2b78da934b69123e2d0aa3656ba693aaf375ca1b02217bbb017933420c8c0917` | 290 |
+| `svg-figure-footnote` | 28,751 | `2cc2dc7147c482110d46f9e4d4fe62c9d70455b19555bae9143835f9af71ec30` | 394 |
+| `svg-figure-container-only` | 4,460 | `1f0bcc4df7628e721cd237bb4675230bf6843698bd2760b5bdb486e8b4b95e90` | 51 |
+
+veraPDF 1.30.2 reports compliant for each PDF, with 106 passed rules and no failed
+rules/checks or stderr. `mutool show` independently confirms the actual shared
+Form object; the manifest joins two logical image IDs to that one Form while
+retaining separate Figure/Alt and usage fingerprints. The container-only case
+selects one Form, emits no raster Image or body text, and has empty ordinary
+text extraction as expected for an Alt-only Figure. The positive fixture keeps
+its authored semantic container; a bare root Figure still fails the existing
+semantic parser's slice restriction and is not claimed as newly supported.
+
+Both the mixed and container-only actual CLI PDFs were rendered and inspected.
+The admitted blue SVG shapes are present, and the mixed case has both ordinary
+occurrences after the actual engine formulas. Synthetic body font outlines do
+not establish production typography. Default Poppler extraction still reorders
+some text on the mixed formula pages, while `-raw` retains the selected content
+sequence; both outputs are preserved. These are small local compatibility
+checks, not full-book visual/reading-order acceptance or a release gate.
+
+### Table source topology and common column/cell frames
+
+The common source flow now retains each table's typed fixed/fraction columns,
+head/body rows, source cell owners and spans, and exact row/column indices with
+colspan/rowspan. This topology is recomputed during source-flow verification.
+The collector rejects grid holes, overlapping cells, and row spans crossing a
+section boundary. It charges the occupancy work and retained topology before
+allocating either: `rows * columns + 2 * columns + rows + cells + 1` per table,
+accumulated under the source package's fragment limit. Occupancy scratch is one
+vector of columns; the collector does not allocate a complete cell matrix.
+
+Common inline preparation now resolves table columns inside the actual parent
+frame and the table's own start/end indents. It reuses the existing pure
+fixed/fraction column solver, including ties-to-even shares and assignment of
+the complete rounding residual to the last fractional column. Every resulting
+column must remain positive, and fixed-only columns must exactly fill the
+available width. Prefix offsets are computed once; source cell owners are
+looked up by binary search and colspan widths use two prefix entries.
+
+Table cells now provide the actual frame for their paragraphs, inline formulas,
+block math, nested tables, lists and semantic containers. The traversal restores
+both the enclosing frame and active table at region end. Retained column/frame
+records and source topology charges continue into selected inline preparation.
+The frame fingerprint binds the resolved widths and rounding decision in
+addition to the source/preparation fingerprints. No-table fingerprints and
+record charges are unchanged.
+
+The test fixture preserves its real VMB inline and block formulas, includes
+rowspan and colspan, and verifies nested and sibling tables with nonempty head
+and body rows. An earlier experimental fixture was rejected by the tagged
+profile because it lacked head rows; that result was not a ban on nesting.
+The source tests additionally verify rejection of modified topology and the
+exact topology budget boundary (23 succeeds; 22 rejects at table owner 23).
+
+This is column/cell preparation, not completed vertical table layout. The
+common body paginator still reports `PendingRegion("table")` instead of issuing
+partial fragments. Cell heights, row-span deficit allocation, page splitting,
+repeated headers and their actual draw/structure observations remain to be
+connected to the shared body/footnote selection. No actual table PDF, combined
+package success, or full-book acceptance is claimed by this change.
+
+Verification for table source/column preparation:
+
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-syntax -p typaxis-cli production_table --locked`: **3 source tests and 3 initial CLI tests passed**, including nested/sibling tables, topology mutation and the exact source-budget boundary. Log: `/private/tmp/typaxis-table-focused.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_table --locked`: **4 passed**, terminal exit 0, including the additional exhausted-fraction and fixed-total boundary cases. Log: `/private/tmp/typaxis-table-focused-final.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`: **198 passed, 1 failed, 1 ignored**, terminal exit 101, 14.68 s test time. The sole failure remains the combined package's pending table region at node 23. The two expensive 5,000-placement tests were excluded explicitly; their full-book acceptance is not inferred. Log: `/private/tmp/typaxis-table-production-regression.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-syntax -p typaxis-layout -p typaxis-pagination -p typaxis-display-list -p typaxis-resources -p typaxis-pdf -p typaxis-manifest --lib --locked`: **445 passed, 3 ignored**, terminal exit 0 (syntax 72, layout 69, pagination 92, display 57, resources 32, PDF 85, manifest 38). Log: `/private/tmp/typaxis-table-library-regression.log`.
+- `/usr/bin/git diff --check` exited 0. Verification was local; no GitHub Actions were used.
+
+### Common table cell and row-height measurement
+
+`prepare_production_table_measurements` now obtains cell contents from the same
+leaf collector used by common body/footnote preparation. It reuses the actual
+selected paragraph lines, precomposed block dimensions, ordinary Figure/native
+math branches, and list/definition marker metrics. Table and cell boundaries
+remain attached to their immutable source owners. The returned measurement
+owns the underlying body/definition stream privately; it does not expose that
+stream as an authorized sequence of page fragments.
+
+Each cell retains direct leaf indices or child-table indices with cell-relative
+content tops and cumulative endpoints. Its natural height includes authored
+spacing and marker leading/trailing. A nested table contributes its measured
+row total once, rather than summing all of its parallel cell streams. Wrapper
+spacing at a table boundary belongs to the table's outside spacing and does not
+inflate the first or last cell. Source-order row-span deficits are assigned
+wholly to the last covered row, matching the existing row-band policy; a final
+prefix check verifies that every cell fits the sum of its covered row heights.
+
+An enclosing keep-caption records that the complete table must stay together
+and separately records any keep to a following caption sibling. It does not
+create a keep chain from one parallel cell to another. These constraints are
+measurements for later selection, not claims that table splitting is complete.
+
+The measurement carries the original line/block/limit bindings and a geometry
+fingerprint. Existing collection and marker/reference charges are retained;
+additional table/cell/row/content records and rowspan work are precharged before
+allocation. Direct cell-content capacities subtract nested table leaf ranges,
+so nested descendants are not repeatedly reserved in ancestor cells. Tests
+cover the exact cumulative limit and reject measurements borrowed from another
+preparation session.
+
+The caption test exposed an existing profile bug:
+`collect_precomposed_vector_domain_uses` recorded a VectorFigure itself but did
+not traverse its caption. It now visits the caption after the parent, preserving
+all nested inline/block formula owners in canonical order. The fixture retains
+the real VMB formulas and explicitly verifies all three vector owners.
+
+Common table page selection remains incomplete. The ordinary public body
+preparer/paginator still rejects the table region; the new measurement owner
+does not authorize a flattened body stream, repeat header paint, PDF structure,
+or a completed table page selection. Connecting these measured cell endpoints
+and row heights to shared body/footnote pagination is the next required step.
+No combined-package or full-book success is claimed.
+
+Verification for cell/row measurement and the caption-domain fix:
+
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_table --locked`: **9 passed**, terminal exit 0. The cases include real inline/block formula heights, source-order rowspan deficits, nested parallel cells and wrapper margins, list-marker expansion, definition frames/markers, caption keeps, and the exact cumulative budget. Log: `/private/tmp/typaxis-table-measure-final.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`: **204 passed, 1 failed, 1 ignored**, terminal exit 101, 14.27 s test time. The only failure remains `PendingRegion("table")` at combined owner 23. The two 5,000-placement tests were explicitly excluded. Log: `/private/tmp/typaxis-table-measure-production-regression.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-syntax -p typaxis-layout -p typaxis-machine-profile -p typaxis-pagination -p typaxis-display-list -p typaxis-resources -p typaxis-pdf -p typaxis-manifest --lib --locked`: **495 passed, 3 ignored**, terminal exit 0 (syntax 72, layout 69, machine-profile 50, pagination 92, display 57, resources 32, PDF 85, manifest 38). Log: `/private/tmp/typaxis-table-measure-library-regression.log`.
+- `/usr/bin/git diff --check` exited 0; all verification was local.
+
+The separate `production_vector_caption_math_reaches_the_public_pdf_without_owner_omission`
+test calls the public in-process book PDF issuer with a VectorFigure whose
+caption contains the real inline and block VMB formulas. It verifies one Figure,
+one Caption, two Formula elements, two shared Forms and three actual `Do`
+operations. This fixture contains no table and does not establish table output.
+Running that test with
+`VMB_VECTOR_CAPTION_PDF_OUT=/private/tmp/typaxis-vector-caption-public.pdf`
+preserved its generated PDF for independent verification (terminal exit 0;
+log `/private/tmp/typaxis-vector-caption-public.log`). This was an in-process
+public-issuer test, not an invocation of the `build-package` executable.
+
+The one-page PDF is 24,717 bytes, SHA-256
+`0e75e6a6a2bd3b310a2e213421abf471d052a3a4c069b8596e8b238e7509cf8d`.
+veraPDF with `--flavour ua1 --format xml` reports compliant, 106 passed rules,
+237 passed checks, no failed rules/checks, and empty stderr. Evidence is in
+`/private/tmp/typaxis-vector-caption-public.verapdf.xml` and its `.stderr` file.
+Poppler raw extraction retains both caption formula speech strings with the
+surrounding fixture text. The 120 dpi rendering was inspected: the parent
+figure and both caption formulas are present without overlap. Synthetic body
+font outlines in this fixture do not establish book typography or full-book
+reading order.
+
+### Common table fragment search and cell continuation
+
+`prepare_production_table_search` now selects capacity-dependent fragments from
+common measured tables. Every candidate reserves the complete source header,
+then chooses the greatest body cut that is legal in every intersecting cell.
+Real leaf extents and authored cell-local keeps block unsafe cuts. A logical
+row boundary is not automatically legal: the real VMB block-formula test keeps
+an atomic formula intact when a rowspan crosses that boundary. Padding after a
+cell's natural content can advance without inventing another paint leaf;
+zero-height rows advance structurally.
+
+The cursor binds the measurement owner, table index, offset and next row.
+Selections retain exact per-cell content ranges and offsets, header reservation,
+used height and requested capacity. The fingerprint includes that capacity and
+both cursor positions, so identical geometry selected under different capacities
+is not represented as an identical query. Terminal replay, foreign preparations,
+and capacities above the actual body/definition frame are rejected.
+
+Blocked intervals use a fallible heap sort with work charged before each
+comparison. A segment tree finds intersecting cells without rescanning every
+completed row. The 1,000-row rowspan test selects all 1,001 body contents within
+100,000 cumulative work units. This verifies deterministic search accounting;
+it is not a wall-time, RSS, managed-host or full-book performance result.
+Measurement records, search/index records, repeated attempts and selected cell
+records share the declared fragment allowance within this search. Exact limits
+succeed and one less fails; rejected/dropped attempts do not refund work.
+
+Nested-table composition and authored forced breaks inside cells remain explicit
+pending errors (`nested_table_breaks` and `table_forced_break`). A flat inner
+table can be queried independently, but that does not compose it into its parent.
+Header reservation here does not authorize repeated header paint, Artifact tags,
+page MCIDs or a table PDF.
+
+Verification before the joint-footnote addition:
+
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_table --locked`: **17 passed**, terminal exit 0, 6.92 s test time. Log: `/private/tmp/typaxis-table-break-all-focused.log`.
+- The CLI production regression, with `--skip production_body_page_content_places_5000`, completed with **212 passed, 1 failed, 1 ignored**, terminal exit 101, 19.03 s. The only failure was the combined package's pending table at node 23. Log: `/private/tmp/typaxis-table-break-production-regression.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-pagination --lib --locked`: **92 passed**, terminal exit 0. Log: `/private/tmp/typaxis-table-break-pagination-regression.log`.
+
+### Table-local candidates reuse the common footnote fit
+
+`prepare_production_table_footnote_search` now holds a table continuation and the
+existing footnote demand/continuation search together. Its candidates use the
+same simultaneous body-height, separator-band and bottom-aligned footnote fit as
+ordinary body candidates. It queries actual selected cell ranges separately;
+they are not replaced by one enclosing source interval. Thus a reference in a
+later paragraph of the earlier source cell is not demanded before that paragraph
+is selected, even when another parallel cell already contributes a reference.
+Source header references participate only in the first semantic fragment.
+
+A failed capacity attempt leaves its input state intact. Smaller table cuts can
+then be tried under the same remaining record/work budgets. Incoming footnotes
+can progress without advancing the table cursor, and remaining footnotes can
+continue after the last table fragment. Definition markers occur only on their
+first actual content fragment. States and selections reject another search
+owner even when both searches borrow identical measurements.
+
+The table and common footnote operations transfer one remaining budget between
+them, including preparation charges. They do not each receive a fresh full
+allowance. The exact cumulative record/work test includes an unsuccessful
+full-height table attempt followed by two successful smaller fragments. The
+wrapper does not expose its underlying parallel cell stream to the existing
+flat-body page selector. Tables in footnote definitions still return
+`PendingRegion("table_footnote_definition")`, rather than being flattened by the
+ordinary definition selector.
+
+The new fixture uncovered a separate existing error in
+`prepare_production_footnote_lines`: it binary-searched the authored definition
+array as if footnote IDs were sorted. An index is now allocated and precharged
+when IDs are unsorted; lookup preserves original definition indices, numbering
+and first-demand order. Both the table fixture and a reversed ordinary-definition
+fixture cover this case. The original failed test log is retained at
+`/private/tmp/typaxis-table-footnote-focused.log`; the failure was fixed in
+production code without reordering the input definitions.
+
+This remains a table-local region query at the common body origin. The shared
+book page owner must still compose neighboring body items and their incoming
+footnote state, apply table outside spacing and keeps, rank page alternatives,
+and commit table cursors and actual cell origins. Repeated header drawing and
+structure, nested tables, forced cell boundaries and table-containing footnote
+definitions remain unfinished. The public common body preparer still rejects
+the table region at combined node 23. No combined-package success, actual table
+PDF or full-book acceptance is claimed.
+
+Verification for the joint-footnote addition and definition lookup fix:
+
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_table_footnotes --locked`: **4 passed**, terminal exit 0, 0.48 s test time. Log: `/private/tmp/typaxis-table-footnote-focused-fixed.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`: **217 passed, 1 failed, 1 ignored**, terminal exit 101, 19.07 s test time. The only failure remains `PendingRegion("table")` at combined owner 23. This run includes the four joint-table tests, the ordinary unsorted-definition regression and the explicit definition-table rejection. The two 5,000-placement tests were excluded explicitly. Log: `/private/tmp/typaxis-table-footnote-production-regression.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-layout -p typaxis-pagination --lib --locked`: **161 passed**, terminal exit 0 (layout 69, pagination 92). Log: `/private/tmp/typaxis-table-footnote-library-regression.log`.
+
+Final review separated the internal common footnote fit from the ordinary body
+candidate type. Ordinary candidates retain their actual body range and height;
+table candidates retain their real table selection alongside the common fit.
+The table path does not construct a substitute empty-body candidate. Repeating
+the CLI production regression after this type separation produced **217 passed,
+1 failed, 1 ignored**, terminal exit 101, 19.14 s; the same combined table region
+is the sole failure. Log: `/private/tmp/typaxis-table-footnote-final-regression.log`.
+The final pagination library run also passed **92 tests**, terminal exit 0:
+`CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-pagination --lib --locked`.
+Log: `/private/tmp/typaxis-table-footnote-final-pagination.log`.
+`/usr/bin/git diff --check` exited 0. All verification was local; no GitHub
+Actions were used. These changes remain uncommitted while the public combined
+route is incomplete.
+
+### Mixed ordinary-body and table candidates share one demand owner
+
+`prepare_production_table_body_search` now prepares all supported body-table
+searches against the common measured body/definition flow. A private table
+context retains the source table intervals and inactive search state. Table
+preparation, ordinary body queries, table queries, footnote demand snapshots and
+reservation attempts transfer one cumulative fragment/work allowance; each
+additional table is prepared from the allowance remaining after its predecessors.
+Table interval lookups charge a binary-search upper bound. A table-containing
+footnote definition or an unsupported nested table still fails explicitly during
+preparation.
+
+The common demand search accepts `evaluate_mixed_candidate` requests containing
+ordinary item endpoints and actual table cursors/capacities. It checks local
+source continuity, rejects ordinary ranges intersecting table cells, permits
+multiple complete tables in one candidate, and retains a separate continuation
+for a final partial table. The output contains each real ordinary range or
+selected table fragment with its body-relative top and height. Its next source
+item is a cursor boundary, not an enclosing range purporting to paint every cell.
+A partial table retains its actual offset and next row even though the source
+item cursor remains at that table's beginning.
+
+Body-page top spacing is suppressed once. Gaps between ordinary content and a
+table, between two tables, and from a finished table to following ordinary
+content include the appropriate outside spacing. Cell-local spacing and parallel
+cell heights continue to come from the common table measurement/search. Table
+capacities cannot exceed the body height remaining after preceding content and
+outside gaps. A partial table cannot be followed by a later source part in the
+same candidate.
+
+The candidate collects references from actual ordinary ranges and selected cell
+ranges into the same existing demand state. This includes demands created by
+ordinary body content before a table query; the table does not start another
+independent footnote state. It then uses the existing common simultaneous fit
+for the complete measured body height and the demanded footnotes. A footnote-only
+candidate can keep an incoming table cursor unchanged while pending definitions
+progress. A keep from preceding ordinary content or an earlier table is satisfied
+by the next table's first selected fragment; it is not incorrectly re-applied
+on that table's continuation page.
+
+The seven tests cover prefix/table/suffix composition, source-cell reference
+selection, an incoming ordinary-body demand, multiple tables and outside gaps,
+initial and continuation keeps, footnote-only progress, invalid parts/capacities,
+foreign search state, exact cumulative fragment/work limits, and refusal to use
+a flat-body query for a table interval. Invalid table indices return a receipt
+error instead of indexing past the prepared searches.
+
+This completes mixed **candidate evaluation**, not automatic mixed-page
+selection or physical table placement. The shared page owner still needs to
+enumerate/rank mixed alternatives, commit the table cursor between pages, and
+place the actual cell leaves and repeated headers. `begin_pages` on the new
+table-aware search therefore returns `PendingRegion("table_page_selection")`
+at the first actual table owner. It cannot authorize the old flat-body selector
+to concatenate cells. The ordinary public pipeline still reports its earlier
+pending table at combined owner 23. No actual table PDF, combined-package success,
+or full-book acceptance is claimed; nested/forced-cell and definition-table
+composition, repeated-header artifacts and the remaining full-book gates are
+still required.
+
+Verification:
+
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_mixed_body --locked`: **6 passed**, terminal exit 0, 0.54 s test time. Log: `/private/tmp/typaxis-mixed-table-focused-final.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`: **223 passed, 1 failed, 1 ignored**, terminal exit 101, 23.92 s test time. The sole failure remains the combined input's `PendingRegion("table")` at node 23. The two 5,000-placement tests were excluded explicitly. Log: `/private/tmp/typaxis-mixed-table-production-regression.log`.
+- After binding the pending mixed-page diagnostic to the actual first table owner, `cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_mixed_body_rejects_flattening_and_discontinuous_or_over_capacity_parts --locked` with the same `CARGO_TARGET_DIR` passed **1 test**, terminal exit 0. The test checks both the diagnostic kind and source owner. Log: `/private/tmp/typaxis-mixed-table-owner-final.log`.
+- The pagination library run passed **92 tests**, terminal exit 0: `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-pagination --lib --locked`. Log: `/private/tmp/typaxis-mixed-table-library-regression.log`.
+
+Final review also moved the preceding-keep check into one common helper. It
+honors a completed table's outside keep while ignoring a terminal cell's local
+keep when selecting ordinary content after that table. The added test explicitly
+retains the cell's keep and a false table keep, then selects the real following
+ordinary paragraph. The test fixture initially used an unsorted class array and
+was rejected by the existing canonical-class check (`InvalidClass`); its class
+array was put in the required byte order without changing either style. That
+initial log is `/private/tmp/typaxis-mixed-table-final-regression.log`.
+The final focused run `cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_mixed_body --locked`
+with the same `CARGO_TARGET_DIR` passed **7 tests**, terminal exit 0, 0.53 s.
+Log: `/private/tmp/typaxis-mixed-table-seven-final.log`.
+The final CLI production regression after the common keep fix and valid fixture
+passed **224 tests**, with **1 known failure and 1 ignored**, terminal exit 101,
+20.50 s test time. The command was
+`CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`.
+The combined pending table at node 23 is again the sole failure. Log:
+`/private/tmp/typaxis-mixed-table-final-clean-regression.log`.
+The final pagination library run also passed **92 tests**, terminal exit 0:
+`CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-pagination --lib --locked`.
+Log: `/private/tmp/typaxis-mixed-table-final-library.log`.
+`/usr/bin/git diff --check` exited 0. Verification was local, without GitHub
+Actions. The common public route and full-book gates remain incomplete; these
+implementation changes remain uncommitted.
+
+### Automatic mixed-page selection, cell placement and stable geometry
+
+`select_mixed_pages` now enumerates ordinary/table prefixes from a source-bound
+page state and selects the best simultaneous body/footnote fit. A complete table
+can be followed by ordinary content or another table on the same page; an
+unfinished table retains its exact offset and next row at the next page's source
+cursor. The selector tries each applicable table capacity and earlier row/content
+boundary before committing an alternative. Long padding bands do not produce
+one candidate per raw length unit. Ordinary boundaries reuse the existing
+widow/orphan, heading and unused-space cost calculation; table boundaries use
+the same unused-space scale after cell atomic/keep legality has been established.
+The deterministic tie breaker includes the source item and table offset.
+
+The page state retains pending footnotes and authored empty-page requirements.
+Incoming footnote-only pages preserve a partial table cursor, and footnotes can
+continue after the body ends. Forced body breaks are consumed only by a selected
+candidate that reaches them; leading, consecutive and trailing blank pages are
+retained. The complete sequence is issued only when body/table cursors and all
+demanded footnotes finish. Page, record, work, candidate and reflow ceilings are
+hard limits: an earlier fit is not accepted if enumerating later alternatives
+exhausts a limit. The new sequence is bound to its search owner, and another
+search cannot resume its page state or authorize its placement.
+
+`place_mixed_pages` now assigns physical page positions to the actual selected
+ordinary ranges, table-cell leaves and footnote ranges. It reuses the common
+leaf placement routine, footnote region placement, separator calculation and
+list/definition marker placement. Parallel cells start at their measured common
+row origin. Continuation contents subtract the consumed cell offset and retain
+actual paragraph baselines and formula viewports; row padding contributes no
+invented paint leaf. The placed record retains the original common stream item
+index and definition identity.
+
+Each table leaf additionally carries its source cell owner and an explicit
+repeated-header-copy flag. The first source header occurrence is semantic;
+subsequent copies retain the same original leaf identity with that flag. This is
+physical geometry and intended copy-role data, not proof that PDF Artifact tags,
+MCIDs, resource observations or repeated-formula terminal closure have been
+emitted. The public pipeline still needs to consume these new sequence/geometry
+types and use repeated-header copies without consuming a source math terminal
+again. No old flat-body page candidate is fabricated for a table page.
+
+`select_stable_mixed_pages` requires two complete selections and physical
+placements to agree. It compares real ordinary ranges and table fingerprints,
+continuation cursors, capacities/part positions, footnote selections and demand
+states, fragment geometry, cell copy roles, list/footnote markers, separators and
+forced-page behavior. Selection, placement and comparison all retain the same
+cumulative budgets across passes. The caller may lower the remaining pass limit,
+but cannot raise the configured maximum. This proves repeated geometry for one
+immutable measured flow; source-label/line convergence and final PDF closure
+still require their separate owners.
+
+The previously documented `begin_pages` pending error refers to the old
+flat-body sequence API. Table-aware callers now use `begin_mixed_pages`,
+`select_mixed_pages`, `place_mixed_pages` and `select_stable_mixed_pages`. The
+ordinary public pipeline has not yet been switched to these new types, so its
+combined package still rejects table owner 23. Nested tables, forced cell
+boundaries and table-containing footnote definitions remain explicit pending
+cases. Actual mixed table PDF output, final header Artifact/Formula handling,
+public combined success and full-book gates remain incomplete.
+
+Verification during this addition:
+
+- The initial five-case page-selection run passed four cases; its blank-page fixture was rejected before pagination because required `classes` was absent on the authored PageBreak. Adding the required empty class array fixed the fixture; no production parser rule was relaxed. Initial log: `/private/tmp/typaxis-mixed-pages-focused.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_mixed_pages --locked` passed **5 tests**, terminal exit 0, after the fixture fix. Log: `/private/tmp/typaxis-mixed-pages-focused-fixed.log`.
+- The same command after physical placement tests passed **8 tests**, terminal exit 0. Log: `/private/tmp/typaxis-mixed-pages-placement-focused.log`. The two-page synthetic fixture contains 18 unique semantic leaf occurrences and two explicit repeated-header copies. It preserves four actual definition markers. A separate fixture verifies a real VMB block-formula viewport and a list marker inside a cell; this is geometry verification, not a generated table PDF.
+- The same command after stability and rowspan tests passed **10 tests**, terminal exit 0, 0.74 s test time. Log: `/private/tmp/typaxis-mixed-pages-stable-focused.log`. Exact cumulative record/work limits pass and one less fails at selection, placement and stable-geometry stages; one available pass is rejected. The rowspan fixture has three pages, nine unique semantic leaves and four header copies, with no paint records invented for padding.
+- A final real-formula-header fixture initially failed source-span validation because its first header cell started after the next cell. Its enclosing cell span now covers the actual formula and preserves canonical cell order; the formula's own source span, SVG and metrics were unchanged. Initial log: `/private/tmp/typaxis-mixed-pages-formula-header.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`: **235 passed, 1 failed, 1 ignored**, terminal exit 101, 20.59 s test time. This includes all eleven new mixed-page/placement/stability cases and the corrected formula-header fixture. That fixture places the same real source formula on two pages, with one semantic occurrence and one explicitly marked header copy, preserving both viewports. The sole failure remains the public combined package's `PendingRegion("table")` at owner 23. The two 5,000-placement tests were excluded explicitly. Log: `/private/tmp/typaxis-mixed-pages-production-regression.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-pagination --lib --locked`: **92 passed**, terminal exit 0, 0.14 s test time. Log: `/private/tmp/typaxis-mixed-pages-library-regression.log`.
+- `/usr/bin/git diff --check` exited 0. All verification was local, without GitHub Actions. These implementation changes remain uncommitted while the public common route, repeated-header PDF semantics and full-book gates remain incomplete.
+
+### Common final geometry and table routing into the public PDF pipeline
+
+The common math-terminal owner now accepts either the ordinary body/footnote
+placement or the actual mixed table placement through a borrowed
+`ProductionFinalPageGeometry`. Its page iterator exposes the original fragments,
+markers and separator geometry without copying or constructing an ordinary page
+selection for table contents. The mixed finalizer verifies both the search owner
+and the exact stable sequence that authorized the supplied placement. Foreign
+searches and another stable sequence from the same search are rejected.
+
+Every physical formula occurrence still undergoes the common source registry,
+viewport, baseline and equation-number checks. A source formula consumes its
+terminal once; a repeated table-header copy uses the same verified geometry
+routine without consuming that terminal again. Equation numbers for copies have
+real page/fragment addresses and retain an additional precharged record. The
+common display projects every copy, preserves sparse source-cell/copy-role
+metadata in its fingerprint and record budget, and excludes copied inline
+anchors from semantic destinations.
+
+The common CLI owner now chooses table measurement, mixed-page selection and
+mixed placement when the source flow contains tables, then enters the existing
+math/display/structure/fonts/PDF/navigation/manifest pipeline. Inputs without
+tables retain the ordinary selection route. The callback borrows the selected
+ordinary or mixed stable owner; it does not receive fabricated ordinary ranges.
+One-page tables with real inline and block formulas now reach the final public
+book writer and its four manifest members. Their source Table, TH and TD nodes
+remain in the resulting structure tree.
+
+Repeated headers are retained in the display but still explicitly rejected at
+structure authorization. Completing their Artifact emission requires connecting
+nonsemantic draw ranges to marked content and distinguishing actual vector
+copies in final usage observations and manifests. The current guard prevents
+either duplicate semantic MCIDs or silent omission of copied paint. This stage
+does not claim a multi-page table PDF or a completed repeated-header PDF/UA
+implementation. Nested tables, forced boundaries inside cells and table-bearing
+footnote definitions remain the earlier pending cases.
+
+The public combined fixture no longer stops at `PendingRegion("table")` on owner
+23. Its current failure is `L5110: production_body_pagination
+FootnoteSearchLimit: node 0`: enumerating joint candidates exceeds the configured
+per-page footnote-reflow ceiling (default 8). Both existing ordinary and mixed
+selectors count all evaluated alternatives toward that ceiling. Neither the
+fixture's content nor its expected success has been relaxed, and configured
+limits have not been raised or bypassed. Resolving the candidate/reflow policy
+and all later combined/full-book checks remains outstanding.
+
+Verification for this connection:
+
+- `cargo check --manifest-path workspace/Cargo.toml -p typaxis-cli --locked`, with `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build`, completed successfully. Callback visibility warnings were fixed; compiling the tests subsequently exposed two old ordinary-only callback accesses, which were replaced by read-only page-count/work accessors for both variants.
+- `cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_mixed_pages_ --locked -- --nocapture` with the same target directory passed **13 tests**, terminal exit 0, 0.79 s. Log: `/private/tmp/typaxis-table-final-geometry-tests.log`. These include mixed-terminal owner identity, one semantic formula plus one retained repeated-header formula, and deterministic one-page table PDF assembly.
+- The final regression command was `VMB_SINGLE_PAGE_TABLE_OUT=/private/tmp/typaxis-single-page-table CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`. It passed **238 tests**, with **1 failed and 1 ignored**, terminal exit 101, 22.60 s. Log: `/private/tmp/typaxis-table-route-production-final.log`. The sole failure is the combined package's `FootnoteSearchLimit`, quoted above. The two 5,000-placement tests were explicitly excluded. This run includes the fourteenth mixed-page case: two physical equation-number copies, one source terminal, correct semantic/copy roles, exact cumulative retained-record success and one-short rejection.
+- The existing final-driver/manifest record-and-spool exact/one-short test now also includes the one-page table. The public book-writer test verifies the Table, two TH and four TD structure nodes and final manifest/PDF hash references for that input. Its first tag-count assertion also matched `/THead`; restricting the check to the complete `/TH` name fixed the assertion without changing output. Initial regression log: `/private/tmp/typaxis-table-route-production-regression.log`.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-pagination --lib --locked`: **92 passed**, terminal exit 0, 0.15 s. Log: `/private/tmp/typaxis-final-geometry-pagination-regression.log`.
+- The emitted one-page tagged PDF is **28,305 bytes**, SHA-256 `7c1980c7657e18fe9abb57dad6cdeb77b8a976ca5e147c2045e76d8af049725d`. veraPDF's explicit PDF/UA-1 validation passed **106 rules and 460 checks**, with zero failures and empty stderr. The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/common-single-page-table-verapdf.json) and [actual report](../samples/machine-package/staging/production-book-1/vmb-book/common-single-page-table-verapdf.xml) are retained. `pdfinfo` reports one tagged PDF 1.7 page. Poppler extraction contains the cell text and both formula speech strings; the rendered page was inspected. This synthetic fixture uses zero-contour A/B glyphs (confirmed in `body-list-no-math.ttf`), so its visible ink demonstrates the real SVG formulas, not a visibly lettered production table. It is not full-book or human accessibility acceptance.
+
+The common public route, repeated-header Artifact semantics and complete book
+acceptance remain unfinished. These implementation changes remain uncommitted;
+verification ran locally without GitHub Actions.
+
+### Repeated table headers through Artifact paint and final manifests
+
+The structure guard described in the previous entry has been replaced by actual
+Artifact handling. The source-bound common structure projection requires an
+earlier semantic occurrence for each repeated-header draw and excludes the copy
+from structure groups, MCIDs, node MCRs and the ParentTree. Physical vector usage
+numbers still advance over every copy; later semantic vectors keep their real
+usage IDs. Thus semantic usage records can be sparse without losing any physical
+Form occurrence. Source paint coverage and the existing frozen staging verifier
+remain strict.
+
+The marked-content writer consumes the exact page-content bytes for each header
+copy inside `/Artifact BMC ... EMC`, preserving its text, native math, Form or
+image paint and all resource references. It adds no semantic ActualText scope or
+invisible formula extraction anchor to a copy. Separator insertion and draw
+ordering remain checked, including copies before a semantic group and at the
+end of a page. A repeated draw cannot split an MCID-bearing group. Footnote and
+ordinary navigation use semantic groups/anchors and do not create duplicate
+header destinations or reference links.
+
+The final common tagged observation now records copied vector usages separately
+from semantic MCID-bearing usages. Each copy records its actual usage and paint
+number, source owner/cell, physical page, Page/Content/Form object numbers and
+marked-content hash. Every actual writer vector usage must have exactly one of
+the two classifications. Source semantic observations remain indexed by actual
+usage ID, with binary lookup across gaps. When vector copies exist, the internal
+canonical observation uses `typaxis.production-common-tagged-pdf-observation/2`
+and includes `vector_artifacts`. Inputs without vector copies retain the existing
+`/1` representation. This does not change raw package or root artifact contract
+1.4 fields.
+
+The safe-vector manifest retains every physical placement, including header
+copies. A copy repeats its source semantic-fragment ordinal and has its own
+page, paint, frame, usage fingerprint and final resource objects; it is not
+assigned a new semantic fragment. The math manifest emits each source math fact
+once, linked to the original semantic usage. The tagged manifest likewise emits
+source structure facts once, while its final observation fingerprint binds the
+complete semantic-plus-artifact usage set. Precharged capacity is split between
+semantic and copied vector records; the accumulated record/spool limits and
+exact/one-short tests still apply through all four manifest members.
+
+The common book-language projection omits artifact copies, including copied
+equation-number children, from reading-language observations. It counts physical
+vector IDs across both ordinary SVG figures and precomposed vectors before
+filtering semantic records. Its private validator permits ordered sparse IDs
+issued from that immutable display. The original staging validator still
+requires dense IDs. The final common book observation authenticates the borrowed
+common navigation owner and uses the same final-writer validation/encoding;
+it does not replay the incompatible frozen staging selection recipe. This
+resolved the first public repeated-header failure (`InvalidLanguagePaint`) and
+the later tail-formula failure (`ReceiptMismatch`) caused by dense-only checks.
+
+Verification includes a header formula copied onto a second page, a semantic
+formula after that copy on page three (semantic usage IDs 0 and 2, artifact ID
+1), numbered headers, inline formula headers and a table with ordinary body and
+footnotes. The existing public book-writer test now runs eight inputs, six of
+which are table fixtures; all six also enter the final-driver/four-manifest
+exact/one-short record and spool test. A test-only table lookup initially assumed
+all inputs had a top-level container and failed on a non-table fixture. The
+lookup now treats absence of that container as no table; no production rule or
+fixture content was weakened.
+
+Final evidence for this addition:
+
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_mixed_pages_complete_math_once --locked -- --nocapture`: **1 passed**, terminal exit 0, 0.22 s. It checks retained Form invocations, no MCID/group for copies, and a semantic extraction anchor only for the original formula. Log: `/private/tmp/typaxis-header-artifact-first-test.log`.
+- `VMB_SINGLE_PAGE_TABLE_OUT=/private/tmp/typaxis-table-header-artifact CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`: **239 passed, 1 failed, 1 ignored**, terminal exit 101, 24.19 s. Log: `/private/tmp/typaxis-header-artifact-production-final.log`. The only failure remains the combined package's configured `FootnoteSearchLimit`. No failed case was skipped; only the two previously identified 5,000-placement tests were excluded explicitly. The final run includes the sparse semantic/copy observation test and all six table budget/public-writer cases.
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-display-list -p typaxis-pdf -p typaxis-manifest --lib --locked`: **57 display-list, 38 manifest and 85 PDF tests passed**, with one PDF test ignored, terminal exit 0. Log: `/private/tmp/typaxis-header-artifact-library-regression.log`.
+- After the final test process terminated, veraPDF 1.30.2 ran with explicit `--flavour ua1 --format xml` against the six final PDFs. **All six passed**, with 106 rules each and respectively 460, 571, 601, 615, 669 and 1,188 checks; no failed rule/check/job and empty stderr. The [six-case evidence index](../samples/machine-package/staging/production-book-1/vmb-book/common-table-header-artifacts-verapdf.json) retains actual PDF/package/extraction hashes and page counts; the [actual XML report](../samples/machine-package/staging/production-book-1/vmb-book/common-table-header-artifacts-verapdf.xml) is retained alongside it.
+- The repeated block-header PDF has two pages, 22,053 bytes and SHA-256 `e43eccc17bfbdaa0f71babfcc7174002eea95734de4c2d3f2988c4aea25c3546`. Its second page was rendered and inspected: the real formula is still painted, and extraction contains its speech once across the two pages. Numbered and inline formula header PDFs likewise contain one speech occurrence. The tail-formula PDF has three pages and two speech occurrences for its two semantic source formulas. These are machine/fixture checks, not human accessibility acceptance.
+- `/usr/bin/git diff --check` exited 0. Verification was local without GitHub Actions. Changes remain uncommitted while the combined public CLI, remaining table forms, exporter, full-book, scale, host and human acceptance gates are incomplete.
+
+### Ranked complete page candidates and the public combined package
+
+Ordinary and mixed page searches now enumerate every legal boundary before
+trying joint footnote fits. They order candidates by the existing cost and
+source-position key and stop at the first successful fit: all remaining keys
+are equal or worse. Equal keys retain enumeration order. This changes evaluation
+order, not admissibility, page-break costs or configured limits. Enumeration
+still fails when the lookback limit is exceeded, even if an early boundary would
+fit. Actual fitting attempts, including failures and footnote-only fallback,
+consume the existing per-page reflow ceiling. Sorting, retained candidate copies
+and failed attempts consume the same cumulative work/record budget. §14.31 now
+records this proof and distinction. New ordinary/mixed 20-paragraph cases select
+the same pages with reflow limits 64 and 1, while lookback 1 still rejects the
+complete candidate set. Existing failed-better-candidate tests remain passing.
+
+The combined input then exposed a separate language-observation error for the
+explicit equation number `AB`. Both shaped clusters belong to one atomic source
+child. The common book projection now records that child's language once at its
+first draw, accepting subsequent clusters only on the same page and fragment.
+It still rejects a second semantic occurrence elsewhere and excludes repeated
+header artifacts. A multi-cluster test exercises the final common PDF path.
+
+The old combined fixture expected two pages, which contradicts its authored
+forced break and tall table rows. An independent test derives row heights from
+the actual shared layout: 1,048,576, 8,131,072, 8,131,072 and 8,131,072 units.
+Their total, 25,441,792, exceeds the 18,689,280-unit body height. It verifies the
+forced break and each tall paragraph's unique placement, full 8,000,000-unit
+height and bounds. The derived expected PDF is now five pages. Both
+`combined/expected.json` and its generator's literal extracted text were migrated
+to the actual source-preserving result; AST inspection confirms that the stored
+literal matches Poppler's reading order. No package content, row style, resource
+or configured limit was changed by this expectation migration. Earlier font
+coverage corrections remain separate changes. This is an explicit correction of
+the legacy expected output, not evidence that the old two-page layout was valid.
+
+Final checks for this stage, all local:
+
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`: **244 passed, 0 failed, 1 ignored**, 25.77 s. Log: `/private/tmp/typaxis-ranked-page-candidates-final.log`.
+- The pagination and display-list library command with the same target and `--lib --locked` passed **92 and 57 tests**, respectively. Log: `/private/tmp/typaxis-ranked-page-candidates-libraries.log`.
+- The broader CLI command, with no production-name filter and the same explicit 5,000-placement exclusion, passed **407 tests, 0 failed, 4 ignored**, terminal exit 0, 27.69 s. Log: `/private/tmp/typaxis-common-public-cli-regression.log`.
+- `production_common_combined_preserves_tall_table_rows_and_authored_page_break` independently passed, terminal exit 0, 1.01 s. Log: `/private/tmp/typaxis-combined-tall-row-proof-fixed.log`. Its first draft used a helper without page-reference convergence and correctly failed on the unresolved reference; the corrected test uses the real convergence driver.
+- The actual rebuilt `typaxis build-package` CLI emitted the combined five-page PDF with default search limits: **81,526 bytes**, SHA-256 `36e10fb91c819fac8e914bdffb1559382dbd3fe3d56d7c1dcaffc90aecdd9c6a`, terminal exit 0. It also emitted trace, diagnostics and all root manifest members. Explicit veraPDF 1.30.2 PDF/UA-1 validation passed **106 rules and 3,499 checks**, zero failures. The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/common-combined-ranked-candidates-verapdf.json) records the real CLI argv, binary/package/artifact hashes and geometry justification; the [actual XML report](../samples/machine-package/staging/production-book-1/vmb-book/common-combined-ranked-candidates-verapdf.xml) is retained alongside it.
+
+The combined public fixture's former `FootnoteSearchLimit` blocker is resolved.
+The rectangular synthetic font and machine accessibility checks do not establish
+real-font book rendering or human PDF/UA acceptance. Nested tables, forced cell
+breaks, table-bearing footnote definitions, named pages, remaining reference
+formats, formal exporter, full-book and remaining scale/host/human gates are
+still open. No full-design completion is asserted.
+
+### Native/table trace identity and independent external-gate follow-up
+
+The common trace now includes `native_math_layout_sha256` from the native
+computation owner borrowed by the final line layout, and
+`table_measurements_sha256` from the table measurements retained by the issuing
+mixed search. The mixed sequence carries and rechecks this measurement identity;
+no additional layout is computed for trace production. Inputs without those
+owners emit explicit nulls. `block_layout_sha256` continues to identify the
+precomposed block receipt, rather than being relabeled as proof of native/table
+layout. Both new fields are an optional pair in the trace schema, restricted to
+the common contract-1.4 branch, preserving historical trace acceptance. They do
+not add package/capabilities/root-manifest fields or replace final selection
+and PDF authorization. The trace is 827 bytes, inside the existing fixed root
+spool reservation. §14.85 specifies this distinction.
+
+Native public-writer tests compare the trace to the actual source-bound native
+context. The source-geometry combined test independently remeasures its table
+and compares that fingerprint to the selected mixed sequence. Existing public
+cases verify null/non-null behavior for tables and native-free inputs. After
+these changes, the production CLI regression again passed **244 tests, 0 failed,
+1 ignored**, terminal exit 0, 22.71 s; log
+`/private/tmp/typaxis-native-table-trace-regression.log`. The actual CLI rebuild
+completed successfully in 30.07 s; log
+`/private/tmp/typaxis-common-trace-cli-build.log`.
+
+The previously excluded scale tests were also run explicitly, sequentially:
+`CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build /usr/bin/time -l cargo test
+--manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis
+production_body_page_content_places_5000 --locked -- --test-threads=1`.
+The Rust harness reports **2 passed, 0 failed**, 470.48 s, covering 5,000 distinct
+real SVG Forms and 5,000 placements sharing one Form. The timing wrapper then
+returned exit **1** because sandboxed `sysctl kern.clockrate` was denied; RSS was
+not obtained. The log is `/private/tmp/typaxis-common-5000-placement-current.log`.
+This is a completed placement test run, not a successful RSS or full public-CLI
+scale gate. The run used the binary built before the trace-only additions.
+
+The existing external verifier's `_verify_fixture` entry was invoked for the
+combined package with two real CLI builds, check-package, schema checks, manifest
+closure, MuPDF rendering and Poppler extraction. Both builds produced identical
+PDF, trace, manifest, diagnostics and capabilities bytes. The final PDF is also
+byte-identical to the earlier explicitly validated PDF/UA-1 PDF. A separately
+saved differential observation confirms five pages, matching normalized text
+and identical 72-dpi renders. The [partial external evidence](../samples/machine-package/staging/production-book-1/vmb-book/common-combined-trace-external.json)
+records current binary/artifact hashes and the failure below. This invocation
+intentionally does not claim the full clean-build/managed-host reproducibility
+runner.
+
+The independent structure verifier initially rejected indirect page Resource
+dictionaries, which the common PDF writer emits. Its resource reader now
+resolves a direct dictionary or one actual indirect dictionary and validates
+all Font/XObject target types. Missing objects, resource streams and mismatched
+resource types remain errors. Direct/indirect and negative cases are tested.
+`PYTHONPATH=tools python3 -m unittest
+test_pdf_structure.ProductionBookStructureDerivationTests
+test_machine_profile.ProductionCommonTraceSchemaTests -v` passed **5 tests**, exit
+0, 0.543 s; log `/private/tmp/typaxis-common-external-verifier-tests.log`.
+
+The complete independent structure gate is **still failed**:
+`production structure role/reading order differs`. Comparing the parsed PDF
+with the source-derived legacy role list isolates two additional Link elements,
+one around the footnote reference label and one around its return label (106
+actual roles versus 104 old expected roles). Updating the verifier must also
+validate their actual annotations, destinations and semantic text; merely
+ignoring the extra roles would not satisfy this gate. The failure remains
+visible in the saved evidence. No full external, full-book, host or human
+acceptance is asserted. `/usr/bin/git diff --check` remains clean; all changes
+are uncommitted and verification did not use GitHub Actions.
+
+### Independent combined closure and source-bound outline StructElem references
+
+The independent combined verifier now models the two generated footnote Link
+wrappers explicitly. It joins each expected Link to its actual OBJR and
+annotation, validates the page's annotation array and ParentTree entry, checks
+label Contents against definition-order numbering, and reads balanced marked
+content to bind each label's ActualText to its own MCID. A mutation that swaps a
+footnote label with the equation number while preserving the global ActualText
+multiset is rejected. Return destinations must match the reference label's
+upper-left corner. Forward destinations must use the peer Note page and enclose
+its label; this independent check does not reconstruct all first-row logical
+geometry. That limitation is recorded rather than promoted to full placement
+acceptance. UTF-16 name/ID strings are decoded, and Page-reference expectations
+come from the actual named destination page instead of legacy placeholder text.
+
+This work exposed a real common-writer omission: outline items had no `/SE`.
+The shared body/footnote resource projection now resolves each outline source
+owner through the actual structure registry and emits a typed StructElem
+reference. A precharged sorted source index avoids one complete registry scan
+per outline entry. Cross-contribution references remain verified against the
+borrowed structure owner and are resolved by the final object assembler. The
+existing object test checks every expected outline reference against its exact
+source node. The independent PDF verifier likewise compares `/SE` with the
+source-derived structure position, not just a matching heading role. This
+change does not alter the frozen standalone staging book writer.
+
+Verification completed locally:
+
+- The final CLI production regression passed **244 tests, 0 failed, 1 ignored**, 24.51 s. Command: `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`. Log: `/private/tmp/typaxis-common-outline-structure-final.log`.
+- The PDF library regression passed **85 tests, 0 failed, 1 ignored**, 0.40 s, with the same target and `-p typaxis-pdf --lib --locked`. Log: `/private/tmp/typaxis-common-outline-pdf-library.log`.
+- The complete Python PDF-verifier test file passed **35 tests**, 0.246 s: `PYTHONPATH=tools python3 -m unittest test_pdf_structure -v`. Log: `/private/tmp/typaxis-common-outline-python-final.log`. New cases cover the actual retained PDF, incorrect footnote label/page/return/OBJR, extra or missing structural Link/SE, wrong outline source, cross-MCID text swapping, malformed/unowned/nested replacement scopes, and unbalanced marked content.
+- During implementation, two compilations used unavailable layout crate paths. The PDF crate's existing display-list reexports corrected those imports without adding dependencies. The next run passed 243 cases and failed the old test-only assumption that resource contributions could reference only local objects or Pages. The updated assertion requires every StructElem reference to exist in the actual structure contribution and checks its exact outline source. These failed attempts remain in `/private/tmp/typaxis-common-outline-structure-tests.log`, `...-tests-fixed.log` and `...-regression.log`.
+- After rebuilding the actual CLI (23.28 s, exit 0), the existing `_verify_fixture` entry completed **two public builds, check-package, schema/manifest closure, byte identity, MuPDF/Poppler differential checks and independent structure validation**, exit 0. Log: `/private/tmp/typaxis-common-outline-external.log`. This is the fixture entry, not the enclosing clean-build/managed-host release runner.
+- The resulting five-page PDF is **81,561 bytes**, SHA-256 `7a681623d6d5a239eb711be0fb1e0385a91b8d4c1d54c53e3d4179c276c5012b`. It has 106 structure elements, 3 links, 3 outline entries, 38 ActualText occurrences and 11 alternatives. Both builds are byte-identical. The [retained PDF](../samples/machine-package/staging/production-book-1/vmb-book/common-combined-structure.pdf) is also the mutation-test fixture; the [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/common-combined-structure-external.json) records actual commands and binary/package/artifact hashes.
+- Explicit veraPDF 1.30.2 PDF/UA-1 verification of that final PDF passed **106 rules, 3,499 checks**, no failures and empty stderr. The [actual report](../samples/machine-package/staging/production-book-1/vmb-book/common-combined-structure-verapdf.xml) is retained. Earlier partial external evidence remains historical; this new entry resolves its combined-case failure.
+
+The final gate above is for the synthetic combined corpus. It does not establish
+human accessibility, real-font book appearance, the formal VMB exporter,
+remaining table/page/reference forms, full-book success or managed-host
+reproducibility. §14.86 records the new outline and independent-check contract.
+
+### Real-engine 5,000-expression common-writer run (in progress)
+
+The unchanged diagnostic package
+`/private/tmp/typaxis-real-distinct-5000-v2/document-package.json` was reverified:
+4,808,787 bytes, 5,000 image declarations, SHA-256
+`ed0194b9895697bfc5685fe26955f778294766c8624059d01380ac6d06fb8ccd`.
+It retains the real VMB expression corpus described above; no source geometry,
+content, config or limit was changed to avoid the old inline-overhang failure.
+The current CLI is running it through the common public writer, with output in
+a new directory:
+
+```sh
+/usr/bin/time -l /private/tmp/typaxis-vmb-book-build/debug/typaxis build-package \
+  /private/tmp/typaxis-real-distinct-5000-v2/document-package.json \
+  -o /private/tmp/typaxis-common-real-distinct/book.pdf \
+  --package-root /private/tmp/typaxis-real-distinct-5000-v2 \
+  --resource-root /private/tmp/typaxis-real-distinct-5000-v2 \
+  --profile typaxis.machine-pdf/production-book-1 --no-compress \
+  --trace /private/tmp/typaxis-common-real-distinct/trace.json --trace-text \
+  --emit-build-manifest /private/tmp/typaxis-common-real-distinct/build-manifest.json \
+  --emit-diagnostics /private/tmp/typaxis-common-real-distinct/build-diagnostics.json
+```
+
+The timing wrapper runs outside the sandbox so RSS collection is available.
+Stdout/stderr are `build.stdout` and `build.stderr` in that output directory.
+The latest bounded wait confirms the original process is still live; a narrowly
+matched process observation reports elapsed 6:35, CPU 6:30.41, 91.2% CPU and
+1,692,480 KiB current RSS. This is **not terminal evidence**, not maximum RSS,
+and not a passed scale gate. The same process is retained for continued
+observation; it must not be restarted merely because a wait interval expires.
+
+
+### Real-engine scale runs completed and source path geometry verified
+
+The preceding live run completed successfully. The unchanged distinct, mixed
+and alias packages all passed public `build-package` and `check-package` (exit
+0, empty diagnostic arrays), independent all-occurrence/source-order checks,
+Poppler/MuPDF extraction and explicit veraPDF 1.30.2 PDF/UA-1 validation (exit 0,
+no failed checks). Each root manifest's four canonical child fingerprints and
+final PDF hash closure also passed. The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/common-real-scale-external.json)
+records the actual pre-rebuild binary hash, input/output hashes, commands,
+timings and artifact locations. Small geometry JSON and veraPDF XML reports are
+retained beside it; the large PDFs and root manifests remain in `/private/tmp`.
+
+| Case | Declarations / placements | Forms / raster XObjects | Pages | PDF bytes | Build seconds | Maximum RSS bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| distinct | 5,000 / 5,000 | 5,000 / 0 | 385 | 138,873,113 | 514.81 | 2,002,780,160 |
+| mixed | 5,000 / 5,000 | 4,952 / 48 | 387 | 137,483,114 | 511.07 | 1,970,618,368 |
+| alias | 5,000 / 8,000 | 100 / 0 | 616 | 8,563,850 | 477.35 | 1,123,778,560 |
+
+Check times/RSS were respectively 120.76 s / 639,008,768 bytes,
+124.45 s / 625,655,808 bytes and 154.24 s / 605,978,624 bytes. These are exploratory
+observations: mixed and alias builds overlapped, and checks overlapped external
+validators. They are not the controlled 1k/2.5k/5k baseline or managed-host gate.
+The attempted sampling of the distinct process found it had already exited;
+no profile sample was collected and the successful build was not interrupted.
+
+`tools/verify_vmb_scale_pdf.py` now independently quantizes each original SVG
+coordinate and checks every actual Form path, path boundary, paint order,
+viewport clip, transform and opaque graphics state for this corpus's M/L/C/Z
+vocabulary. Distinct verifies 71,682 paths / 1,521,172 source commands; mixed
+70,962 / 1,505,106; alias 878 / 18,244 across its 100 shared Forms. Existing
+checks still account for all declarations, every placement/MCID, ActualText,
+ParentTree, image pixels and resource sharing. The verifier does not substitute
+path-count agreement for coordinate agreement. Four `test_vmb_scale_probe`
+tests passed using the bundled Python with pypdf; mutations of controls,
+transforms, clipping, fill rule, transparency and merged paths are rejected.
+The corpus authoring verifier independently confirmed all 5,000 real-engine
+expressions and 5,000 distinct geometries. MuPDF renders of distinct pages 1,
+193 and 385 were visually inspected, including the final expression 5,000;
+this is sampled appearance evidence, not a complete human review.
+
+These test-authored packages use the actual VMB engine corpus but are not a
+formal RenderBook export or the original full book. Their saved root manifests
+still report the legacy fixed pass_count/selected_state of 1. That accounting
+finding is separate from the successful PDF/source/UA checks and is being
+corrected in the current implementation; these older artifacts must not be
+relabeled as results from the corrected binary. The full exporter, full book,
+remaining table/page/reference forms and human acceptance remain open.
+
+
+### Cumulative public pass summary and final scale pixel checks
+
+The common build output now carries the actual convergence owner's completed
+page-pass count to publication. The root manifest no longer inserts 1. The
+same count appears as `pass_count` and `selected_state` in the common trace;
+publication checks the effective pass ceiling and the existing final PDF /
+selected-layout identity. The count remains a projection from the actual CLI
+convergence callback, not a new caller-issued PDF authorization or a substitute
+for the complete per-pass trace/receipt integration. Historical traces with
+neither summary field remain readable; a partial or mismatched pair is rejected.
+§14.87 records this scope.
+
+Verification completed:
+
+- CLI production regression: **245 passed, 0 failed, 1 ignored**, 23.56 s. Command: `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`. Log: `/private/tmp/typaxis-common-pass-count-final.log`.
+- Actual public-output tests cover 2 completed passes without Page references, 4 when the initial Page value is already correct, and 6 when the target moves to page 2 or 12. The public combined test asserts manifest/trace count 4. The first test attempt incorrectly assumed every existing fixture lacked references; its explicit page-12 reference correctly returned 6 and failed that test assertion. The corrected fixture-specific assertion and new retry cases passed; `/private/tmp/typaxis-common-pass-count-tests.log` retains that initial failure.
+- Manifest library: **38 passed**, 0.33 s, using the same target and `-p typaxis-manifest --lib --locked`; log `/private/tmp/typaxis-common-pass-manifest-tests.log`. Four schema/closure tests passed with `PYTHONPATH=tools python3 -m unittest test_machine_profile.ProductionCommonTraceSchemaTests -v`; log `/private/tmp/typaxis-common-pass-schema-final.log`.
+- After rebuilding the actual CLI, `_verify_fixture` completed two public builds, check-package, schema/four-child closure, byte identity, independent structure and MuPDF/Poppler checks. The [new evidence](../samples/machine-package/staging/production-book-1/vmb-book/common-combined-pass-external.json), [manifest](../samples/machine-package/staging/production-book-1/vmb-book/common-combined-pass-manifest.json) and [trace](../samples/machine-package/staging/production-book-1/vmb-book/common-combined-pass-trace.json) retain actual values. Both runs have `pass_count = selected_state = 4`; trace size is 861 bytes, within its existing 2,048-byte precharge.
+- The resulting PDF remains byte-identical to the retained 81,561-byte combined PDF, SHA-256 `7a681623d6d5a239eb711be0fb1e0385a91b8d4c1d54c53e3d4179c276c5012b`. Its existing veraPDF report therefore covers these exact unchanged bytes; veraPDF was not rerun for the manifest-only change. These fixture runs are not the enclosing clean-build/managed-host release runner.
+
+Review of the scale verifier found that its PNG checks had verified dimensions
+and sharing, while distinct source pixels were tested only in the generator.
+The PDF gate now decodes and compares all 48 actual PNG images (192 RGB pixels)
+with their hash-verified source bytes. It also rejects unexpected pixel decode
+arrays, alpha/mask interpretation, colorspace or bit-depth changes. SVG Form
+checks now cover dictionary-level Matrix and visibility state as well as the
+stream transforms. Six focused tests passed, including wrong pixel content,
+color interpretation, Form translation and visibility mutations. All three
+original scale PDFs were rerun through this strengthened verifier, exit 0 with
+empty stderr; the retained geometry reports/evidence index now record these
+final results and the exact verifier hash. No large PDF was rebuilt or relabeled
+as a result of the newer pass-summary CLI.
+
+The full PDF-structure and initial scale tests passed 39 cases using the bundled
+Python. An attempted combined invocation additionally included schema tests,
+but that runtime lacks jsonschema and failed that import. The PDF tests were
+rerun separately (39 passed), and schema tests ran successfully with system
+Python; this was an environment mismatch, not an omitted failing assertion.
+The subsequent final scale suite passed six cases. No verification used GitHub
+Actions. Formal VMB export, original full-book gates, remaining supported input
+forms, complete pass traces, controlled performance/host evidence and human
+acceptance are still open.
+
+
+### VMB-authored Japanese body package reaches the current common public writer
+
+The VMB adapter integration test now requires actual build success; it no longer
+passes merely because the build command was reached and then failed. It accepts
+an explicit font path and optional private output parent, following the existing
+package test's policy. The first run with the combined corpus's synthetic font
+failed correctly at `L5100 MissingDeclaredFontCoverage`, source NodeId(3). Its
+failure log remains `/private/tmp/vmb-common-public-pass-summary.log`.
+
+A separate run explicitly selected Arial Unicode
+`/System/Library/Fonts/Supplemental/Arial Unicode.ttf`, SHA-256
+`876af2cd4854644e7f3e7feb2f688997fdb3343c6df6693611209c9dfb47ccec`.
+VMB's own `StageBookPackage` assembled the package and sidecars, then the guarded
+adapter ran capabilities/check/build once each with the same staged engine,
+package, resources and config: **all exit 0**, empty build stdout/stderr. The
+package SHA-256 is `fe97596c3c205df5f8ca1c4242b6013f267a8f7bc73a01a64490937c70975a02`.
+The 48,251-byte one-page PDF has SHA-256
+`d2a2819dc06ab3dbc4bd2de5047a41e7a9d003c6d89c780c052a347124e90bb8`.
+Root manifest/trace schema and all four child closures passed, with pass count 2.
+
+Poppler and MuPDF extraction agree with all source-derived Japanese body,
+generated heading/list numbering and both math alternatives under whitespace
+normalization. The independent geometry helper matched 19 paths / 372 commands
+against both actual VMB SVG resources. Explicit veraPDF 1.30.2 UA-1 passed
+106 rules / 391 checks, zero failures and empty stderr. The single 96-dpi MuPDF
+render was visually inspected. The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/vmb-common-public-arial-external.json)
+and [veraPDF report](../samples/machine-package/staging/production-book-1/vmb-book/vmb-common-public-arial-verapdf.xml)
+retain commands, hashes and scope; the PDF/source/font remain in the private
+output directory. The exploratory source-extraction script initially used an
+incorrect `text` key; correcting it to the actual wire `utf8` member completed
+the independent check without changing input or expected content.
+
+VMB regression `go test -C /Users/kazuyoshitoshiya/v/vmb-container/vmb-core
+./internal/rendertypaxis -count=1` passed, 85.067 s; log
+`/private/tmp/vmb-common-adapter-regression.log`. The explicit actual CLI test
+passed in 6.310 s (test body 4.83 s). This is an authored body-only prepared example;
+its test helper excludes companion pages by construction. It does not establish
+that the original full book's glossary/bibliography/verification, complete
+artifact verification or ArtifactSink publication has been implemented. The
+previous native-math-mismatch build failure is resolved for this actual example.
+
+
+### VMB runtime closes successful artifact files and source math sidecars
+
+The VMB adapter now checks actual outputs after successful capabilities/check/
+build. Eleven exact Typaxis schema dependencies are embedded with source hashes;
+no external schema loading is permitted. JSON decoding rejects duplicate keys,
+invalid UTF-8, lone UTF-16 surrogates, trailing values, unknown/missing schema
+fields and invalid types. Successful commands cannot retain error/fatal
+diagnostics. The private directory must contain exactly the engine, config,
+check/build diagnostics, PDF, manifest and trace; snapshots before/after checking
+bind all inputs/outputs, and JSON reads use `O_NOFOLLOW`.
+
+The envelope checks the actual PDF file hash/length, admitted source/font/image
+URI/hash/bytes/media/face inventory, raw/canonical package identity, effective
+config, final layout/trace/profile/flow/pass values and policy limits. Its JCS
+writer preserves Unicode bytes rather than using VMB's NFC-normalizing canonical
+writer. All four child hashes and their package/semantic/PDF/manifest/display
+relationships are recomputed. Source math occurrences additionally join their
+actual TeX mappings, alternatives, metrics, producer, spacing and equation-number
+source to physical placement and tagged Formula records. This is runtime
+sidecar/file closure; independent PDF parsing/content verification and publication
+are separate remaining stages.
+
+A scale test found and corrected an invalid assumption in the first verifier:
+PDF paint-content fingerprints repeat on distinct pages. The final code instead
+recomputes each canonical placement hash, which includes owner/page/usage, and
+joins it to the alias/fact/structure chain. The original failed attempt remains
+`/private/tmp/vmb-artifact-alias-inventory.log`. Final verification matched all
+**8,000 source math facts / 8,000 physical placements**, with 5,000 declarations
+and 100 shared Forms, in the saved real-engine alias case. A second actual
+combined package passed **2 math facts / 7 physical uses**, including an equation
+number and generic SVG uses.
+
+VMB's full package regression with actual CLI integration and schema-copy checks
+passed **85 top-level tests, 2 skipped**, 69.286 s; log
+`/private/tmp/vmb-artifact-final-regression.log`. The skips were an external
+inventory invocation (run separately) and a separate capabilities-probe test;
+the adapter integration itself executed actual capabilities/check/build. It
+closed the Japanese example's **1 page / 41 objects / 2 passes** and rejected
+malformed diagnostics, error diagnostics, a truncated PDF, invalid trace and an
+extra file, then accepted restored originals. The PDF remains byte-identical to
+§15.45's verified 48,251-byte output. After the final resource-uniqueness and
+usage-range guards, all artifact-focused tests plus the real 8,000-placement
+inventory passed again, **5.424 s**, log
+`/private/tmp/vmb-artifact-inventory-final.log`. The actual combined inventory
+check passed in 0.391 s. The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/vmb-artifact-envelope-external.json)
+records actual source/schema/output hashes and the exact scope of each run;
+VMB design §15.46 records the implementation contract and byte limits.
+
+The new envelope does not certify PDF/UA, every body/raster node, independent
+page geometry or reading order, and does not authorize ArtifactSink publication.
+Failure-diagnostic source mapping, formal renderer registration, the original
+full book, remaining Typaxis input forms and host/human acceptance remain open.
+
+### VMB imports failure diagnostics and maps retained source owners
+
+VMB now retains an immutable diagnostic index from `StageBookPackage`'s validated
+projection/math/font owners. The original package, projection and source-map
+hashes are required at collection; a caller-replaced sidecar cannot redefine
+provenance. Check and build diagnostics are read independently with a 2 MiB cap,
+strict JSON and the existing contract 1.4 schema. Inputs and retained diagnostic
+files are checked again after mapping. The original process error remains
+unwrap-accessible even if a diagnostic file is missing, malformed or changed.
+A failed command cannot receive the successful artifact envelope.
+
+Primary code, severity, message, location, all notes and their locations are
+retained. Node IDs, package pointer owners and identity text/projection spans
+map to original file/pointer/VMB ID/line metadata; generated labels remain marked
+as generated. An image declaration maps to all its source occurrences. A font
+declaration retains the explicitly selected file and face. Resource-local notes
+such as `font_byte`, `offset_kind=context-start` and `embedding=not-checked` are
+not translated into original TeX offsets or stronger claims. Unknown, conflicting,
+invalid UTF-8-boundary and ambiguous locations remain explicitly unmapped.
+Mapping is bounded across primary/notes by 4,000,000 visits, 100,000 targets and a
+32 MiB conservative target/resource estimate; exceeding it fails collection.
+
+The first actual failure test exposed a Typaxis defect: common reshape errors
+lost their typed source owner, and their Debug-rich private message was rejected
+by canonical diagnostic text. Public JSON consequently had only package root.
+The failed attempt is retained in `/private/tmp/vmb-diagnostic-actual-tests.log`.
+Typaxis now carries a canonical typed diagnostic through `Failure` for shaping
+and inline preparation, preserving actual node IDs and missing-glyph TextSpan
+where supplied. It does not parse private Debug messages to recover positions.
+
+With updated CLI SHA-256
+`08e3b3008e85efcc669f0df68982dab106cfddcc535b90da996a6a52bace526a`, the actual
+synthetic-font negative passed check, failed build with exit 1, emitted `L5100`
+at node 3 with `reason=missing_declared_font_coverage`, and mapped to
+`book/chapter.json` `/blocks/0`. No PDF existed and the retained manifest had
+`status=failed`, `output=null`. A separate explicitly configured Arial Unicode
+positive again completed capabilities/check/build and envelope closure with
+**1 page / 41 objects / 2 passes**. Its 48,251-byte PDF remains byte-identical to
+the earlier Japanese example (SHA-256 `d2a2819dc06ab3dbc4bd2de5047a41e7a9d003c6d89c780c052a347124e90bb8`);
+PDF/UA tools were not rerun for these identical bytes.
+
+Local verification:
+
+- Typaxis common tests: **16 passed, 1 ignored**, 11.16 s; `/private/tmp/typaxis-diagnostic-common-tests.log`. New cases preserve canonical reason/owner, limit/internal exit classes and exact missing-glyph TextSpan. The existing public layout-failure diagnostic test also passed (0.36 s).
+- VMB full regression with actual CLI and embedded-schema source comparison: **89 top-level tests passed, 2 skipped**, 70.640 s; `/private/tmp/vmb-diagnostic-final-regression.log`. The skips are the separately configured external math inventory and separate capabilities probe; actual adapter capabilities/check/build ran in both positive and negative cases.
+- Tests cover shared image uses, Japanese/non-BMP boundaries, generated origin, pointer token boundaries, contradictory locations, secondary note locations, immutable origin ownership, mapping limits, success/error status inconsistency, missing/malformed/symlink diagnostics and source-map tampering.
+
+The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/vmb-diagnostic-source-external.json)
+retains source/binary/artifact hashes and observed failure wire. Formal renderer
+registration/ArtifactSink publication, runtime independent PDF verification,
+all-node/body/raster inventory, remaining source diagnostics and input forms,
+original full-book/Harano gates, controlled performance/host evidence and human
+acceptance remain open. This source mapping does not authorize publication.
+
+### Original full-book PNG bytes have a bounded VMB resource owner
+
+VMB now has `ReadBookRaster` / `SelectedBookRaster` for explicitly selected
+PNG/baseline JPEG source resources. The exporter checks provider/source ID,
+MIME, canonical hash, actual byte count and declared dimensions, retains exact
+bytes, and closes the reader on every opened path. Open/read/close/cancellation
+errors retain their original cause and cannot return a successful snapshot.
+Limits default to 64 MiB and 64 Mi header pixels per resource (maximum configurable
+256 Mi each). Baseline JPEG is identified from SOF0/8-bit precision rather than
+MIME alone; progressive frames are rejected. Header inspection is preliminary:
+Typaxis still owns full payload/pixel admission.
+
+Resource access returns a copy; staging rechecks the snapshot and writes a
+content-addressed file exclusively into the caller-owned private resource
+directory. It does not resize, re-encode, flatten alpha, rotate or overwrite an
+existing file. Package-level cleanup/publication remains the caller's job.
+
+The actual immutable original full-book package, SHA-256
+`e4fd7415cb33de5afff8c3b2a335c2afa06df1e22780c9913813d95536efffbb`, supplied all
+**48 PNG declarations** to a local resource test. All 48 original files were
+read and restaged with identical declared hashes: **3,405,547 bytes**, with
+**39,708,000 pixels declared by their headers**. No source package/resource was
+rewritten. Focused Go verification passed **5 top-level tests**, 1.276 s; log
+`/private/tmp/vmb-original-raster-snapshots-final.log`. Tests cover actual original
+resources, PNG alpha/baseline JPEG byte retention, canonical media/hash, dimensions,
+byte/pixel limits, missing/nil provider, no-progress, reader close/error causes
+and snapshot tampering before staging. The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/vmb-original-raster-resources-external.json)
+records the source code and all original/output resource hashes.
+
+This implements the resource owner needed by figure lowering. `LowerBookBody`
+still rejects figures; the common dense image ID column with math SVG, actual
+Alt/caption/number/width/style source bindings and PDF validation of all 51
+original figure placements remain next. Root glossary/bibliography/verification,
+formal renderer/publication and original full-book/Harano gates remain open.
+
+### VMB figures share the actual body/math package and common PDF
+
+`LowerBookBody` now accepts explicitly selected block figures. It retains exact
+PNG/JFIF bytes, dense image IDs after the existing math SVG IDs, shared raster
+resources, original asset metadata/license, figure Alt, original caption inlines,
+number presentation and source origins. Captions use the ordinary inline/math
+path; generated prefixes have generated origins. Per-node style binds physical
+width and keep settings. Source-map raster occurrences and failure diagnostics
+retain every use of a shared image. Resource/occurrence/metadata limits and
+encode-time source/style fingerprints reject inconsistent mutations.
+
+The actual frozen JPEG profile requires a leading JFIF APP0 segment. The exporter
+now rejects Go's bare non-JFIF baseline JPEG during preliminary admission; the
+negative test remains. Success uses the exact existing 2×1 JFIF fixture, not a
+conversion of the rejected image. Full JPEG/PNG payload admission stays with
+Typaxis. Uncaptioned/unprefixed figures currently emit no anchor; unresolved
+references fail rather than invent a caption or destination.
+
+Local VMB regression with actual CLI, schema source comparison and all 48
+original PNG snapshots passed **98 top-level tests**, with **2 separately
+configured tests skipped**, in **77.532 s**. Log:
+`/private/tmp/vmb-figure-final-regression.log`. Python PDF verifier tests passed
+**36 tests** (0.242 s). The verifier now permits an absent IDTree when no actual
+StructElem has an ID, while requiring exact unique/sorted entries when IDs exist.
+
+The authored Japanese fixture joins 3 raster placements (one PNG shared twice,
+one JPEG), 2 real math SVG resources and 5 math uses. Public capabilities/check/
+build succeeded: **1 page, 62 objects, 2 passes**, PDF **68,275 bytes**, SHA-256
+`f6cc8833b66f6340feaf045c15e07b47d71ede0a29525316e6266cf32e1a4f14`.
+The final regression produced the identical PDF bytes. Independent checks found:
+
+- 34 structure elements, 17 ActualText spans, 8 alternatives, 1 outline and
+  correct parent-tree/source-role/resource closure.
+- Both math Forms match all **19 paths / 372 commands** from original SVG.
+- All **6 PNG RGB/alpha pixels** and **2 JPEG decoded RGB pixels** match source.
+  Three figure uses retain source order, shared image identity and width 30 pt;
+  their aspect-preserving heights are 45, 45 and 15 pt.
+- Poppler raw extraction and MuPDF match source text order ignoring whitespace.
+  Poppler's default spatial extraction reorders some formula/caption spans; that
+  mode is not claimed to preserve source order.
+- Explicit veraPDF **PDF/UA-1**: **106 rules / 1,118 checks passed**, zero failures.
+  A rendered preview was inspected for actual figures, alpha, captions and math.
+
+The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/vmb-figure-common-external.json)
+retains hashes, the independent check script/report and veraPDF XML. This is a
+small authored mixed-content gate. It does not establish all 51 original figure
+placements, original full-book/Harano output, runtime independent content checks,
+formal renderer/ArtifactSink publication or human acceptance. Root glossary,
+bibliography and verification output also remain to be integrated.
+
+Follow-up review reserved the `vmb-figure-` class prefix on source figure tags
+and rejects foreign generated classes again at encode time. Otherwise an
+ordinary tag could select another figure's width. Three focused tests passed
+(5.853 s), covering both original tags and mutation after lowering; log
+`/private/tmp/vmb-figure-style-owner-tests.log`. The earlier full regression and
+PDF evidence remain explicitly tied to their recorded source hashes.
+
+### VMB glossary definitions join ordinary text, math and destinations
+
+The exporter now supports an explicitly configured glossary after body sections.
+It displays each preferred term and its original rich definition, following the
+existing VMB term/definition policy. Definition math uses the existing real math
+source owner. Actual concept anchors satisfy body links, and the generated level-1
+glossary heading joins the outline. The caller supplies real entry origins because
+RenderBook glossary entries have no Location; generated headings/separators are
+marked separately. Missing origins, duplicate anchors and empty terms fail.
+
+`glossary_entries` in the source sidecar retains the complete entry JSON, including
+category, formal result, related/broader concepts, SymbolTeX, short/alternate forms
+and accepted variants. These fields are not silently discarded or invented as
+additional speech. Snapshot ownership copies mutable maps and optional original
+byte spans. Encode rechecks source nodes, anchors and fingerprints. Limits cover
+100,000 entries, 16,384 forms, 1 MiB per entry and 32 MiB retained metadata; closed
+DTO preflight bounds JSON allocation. Optional source spans compare by value,
+not pointer identity, and caller mutation cannot alter the retained origin.
+
+Local regression with actual CLI/schema comparison and original raster resources
+passed **101 top-level tests, 2 skipped**, **87.098 s**. After the span ownership
+follow-up, **3 focused tests passed**, **4.849 s**. Logs are
+`/private/tmp/vmb-glossary-final-regression.log` and
+`/private/tmp/vmb-glossary-span-owner-tests.log`.
+
+The authored one-entry Japanese glossary with a body link and real inline math
+builds to **63,295 bytes / 1 page / 54 objects / 2 passes**, SHA-256
+`7c5fc2b9e10f660a8a576c94c4df8e7382aff464cec307607b8cefd33a5acb28`.
+The full regression produced identical PDF bytes. Independent structure/source
+checks found **27 StructElem, 15 ActualText, 3 alternatives, 1 internal link and
+2 outlines**. Both Forms match all **19 paths / 372 commands**, across **3 uses**.
+Poppler raw and MuPDF preserve source text order ignoring whitespace; default
+Poppler spatial order differs and is not claimed to match. Explicit veraPDF
+**PDF/UA-1 passed 106 rules / 778 checks**, zero failures. The actual rendered
+preview was inspected for term, definition, math and heading.
+
+The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/vmb-glossary-common-external.json)
+records code/input/PDF/check hashes and preserves the distinction between full
+regression and the later span fix. This establishes a small glossary integration,
+not all 418 original glossary entries. Bibliography and verification companion
+pages, formal renderer/ArtifactSink, runtime independent PDF validation, complete
+original book/Harano and human acceptance remain open.
+
+### VMB bibliography entries and rich citations share actual destinations
+
+The explicitly selected `vmb.authors-title-year/1` presentation follows VMB's
+existing author/title/year bibliography format, with a numbered list in source
+entry order. Complete entry metadata remains in `bibliography_entries` JSON
+snapshots, including fields outside that display policy. Caller-supplied origins
+are retained rather than inferred. The package now admits configured bibliography
+output; unconfigured nonempty data and verification companion pages still fail.
+
+Prepared citation numbers must match the same one-based bibliography inventory.
+Rich prefix/suffix content, locator text and actual math survive lowering;
+generated brackets, numbers and separators have generated origins. Actual entry
+anchors resolve the internal links. The `citations` sidecar retains the original
+payload, number, target, language and source owner. Encode checks numbering list
+start/order, entry anchors, citation targets/languages and retained fingerprints.
+Limits cover 100,000 entries/citations, 1 MiB per payload, 32 MiB total metadata and
+existing reference/projection expansion bounds.
+
+The first public attempt found a generated Japanese source-link label incorrectly
+inheriting the cited work's `en` language. The UI label now inherits publication
+language; authored work fields retain `en`. The frozen Typaxis profile was not
+weakened. The independent verifier also now checks exact URI action bytes and
+source-derived link accessible names, rejecting additional actions, changed URLs
+and mixed internal/URI destinations.
+
+Final Go regression passed **105 top-level tests, 2 skipped**, **98.301 s**, with
+actual CLI/schema comparison and original raster resources. Python PDF verifier
+regression passed **38 tests**, **0.234 s**. Logs:
+`/private/tmp/vmb-bibliography-final-regression.log` and
+`/private/tmp/vmb-bibliography-pdf-structure-tests.log`.
+
+The authored two-entry/two-citation example includes the glossary and real math.
+It produces **92,248 bytes / 1 page / 100 objects / 2 passes**, SHA-256
+`ca686e7c1ab3aeb729170931d48209775a650876c44ae785b8e6aabdedc41f4f`.
+The final regression produced identical PDF bytes. Independent checks confirm
+**68 StructElem, 43 ActualText, 4 alternatives, 5 links, 3 outlines**, and both
+math Forms' **19 paths / 372 commands** across **4 uses**. All **6 English text
+spans** retain their source language, while both generated source labels use `ja`.
+Poppler raw/MuPDF match source order ignoring whitespace; default spatial order
+differs. Explicit veraPDF **PDF/UA-1 passed 106 rules / 1,961 checks**, zero
+failures. The rendered reference numbers, bibliography, glossary and math were
+inspected.
+
+The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/vmb-bibliography-common-external.json)
+records code/input/PDF/check hashes and retained scripts/reports/XML. Original
+full-book citation/bibliography inventory, verification companion pages, formal
+renderer/runtime independent PDF validation/ArtifactSink publication, original
+full-book/Harano output and human acceptance remain open.
+
+### Verification QR resource generation and independent scan evidence
+
+`GenerateBookVerificationQR` creates generated verification artwork from an exact
+canonical HTTPS URL, bounded to 1,024 UTF-8 bytes. It fixes medium recovery,
+four quiet-zone modules and four opaque RGB pixels per module, with version40/
+185-module and 1 MiB PNG ceilings. The pinned MIT-licensed encoder and attribution
+are recorded in VMB go.mod/go.sum and `third_party/go-qrcode`. Generation does not
+open the URL. Metadata binds the URL, algorithm/producer, version/modules, quiet
+zone, pixel scale and PNG hash to an immutable selected raster. Physical sizing
+remains an explicit book choice. Tests cover exact URL length, invalid URLs,
+cancellation, quiet-zone/module pixels, repeated byte identity and mutation.
+
+The authored Figure probe uses a version5 QR with 45 modules including the border,
+**180×180 RGB pixels**, PNG SHA-256
+`434641d97e7d1e4b6f6cad5d0ab8c65925b30561f98888129eea17e9eae34a38`.
+Public build produced **54,670 bytes / 1 page / 48 objects / 2 passes**, PDF SHA-256
+`d0fd819c50bbcb440bbf59957048cf11ae096407324ca71c03c64de3f0c4eee0`.
+The final regression produced identical PDF bytes. Independent checks match all
+**32,400 image pixels**, raw width3343884 (18 mm rounded to 16.16 points),
+**21 StructElem, 9 ActualText, 3 alternatives, 1 link**, and **2 math Forms/2 uses**
+with **19 paths/372 commands**. Poppler raw/MuPDF extraction matches source order
+ignoring whitespace, and the rendered page was inspected.
+
+A separate macOS Vision decoder read the exact source URL from both the PNG and
+the entire PDF page rendered at **300 dpi**. CPU-mode decoding ran outside the
+sandbox after sandboxed ANE/CVPixelBuffer setup failed; no encoded URL was opened.
+Explicit veraPDF **PDF/UA-1 passed 106 rules / 491 checks**, zero failures.
+Local Go regression passed **108 top-level tests, 2 skipped**, **106.836 s**, with
+actual CLI/schema comparison and original raster resources. Go1.23.2 darwin/arm64
+`go mod verify` reported all modules verified. Log:
+`/private/tmp/vmb-verification-qr-final-regression.log`.
+
+The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/vmb-verification-qr-external.json)
+retains metadata, decoder source/results, pixel/geometry report, XML and hashes.
+This implements the generated resource needed by companion/result QR placement.
+Formal chapter/result lowering, companion HTML and verification/formal metadata
+remain to be connected, along with formal renderer/ArtifactSink and original
+full-book/Harano/human acceptance. A decodable QR is not formal-proof validation
+or publication authorization.
+
+### Chapter companions join actual headings, generated QR and retained XHTML
+
+Explicit `BodySettings.Companions` now joins the prepared chapter/appendix ID to
+its actual heading and inserts the QR figure/caption link immediately afterward.
+The source sidecar retains the complete original page JSON, source array index,
+actual chapter/figure node IDs, chapter Location and generated QR metadata. The
+figure and caption inherit that chapter origin with Generated=true. Math and QR
+resources share the existing dense resource inventory and common PDF writer.
+
+The exact prepared `verification/<chapter ID>.html` path is staged with a shared
+XHTML wrapper, publication language and CSP. Both results' IDs, statuses, short
+IDs and exact detail URLs survive, including escaped special characters. CR is
+preserved through the XML fragment parser; invalid XML characters fail. The path
+policy rejects traversal, unsupported filename characters and case aliases.
+Missing/duplicate chapters, URLs or figure IDs, selection collisions, empty or
+duplicate results, unknown statuses and invalid URLs fail without partial output.
+Bounds cover 4,096 companions, 100,000 results, 1 MiB source JSON preflight per
+page, 2 MiB HTML, 32 MiB source/HTML/QR and 64 MiB retained seal metadata.
+
+Private fingerprints bind HTML bytes and the QR to the actual heading/figure
+adjacency, source origins, image hash, figure wire and projected caption text.
+The raster join uses one index. Encoded staging writes exclusively into its owned
+directory and verifies file hashes. Before process launch, retained HTML
+path/size/hash identities reject changed, deleted or extra verification files;
+existing input snapshots then detect changes during execution.
+
+The authored chapter example produced **54,740 bytes / 1 page / 48 objects /
+2 passes**, SHA-256
+`ac1753e110d0f2910fd8c4d8b54f032ccc0bc0d7b20e68841d5493142f25a1ae`.
+The **767-byte XHTML** retains two source results. Independent checks confirm
+heading-adjacent placement, exact links/result metadata, **21 StructElem,
+9 ActualText, 3 alternatives, 1 link, 1 outline**, all **32,400 RGB pixels**, and
+both math Forms' **19 paths / 372 commands** across **2 uses**. Poppler raw/MuPDF
+match source text order ignoring whitespace. Separate macOS Vision CPU decoding
+reads the exact source URL from both the source PNG and the complete PDF page
+rendered at **300 dpi**. The rendered page was inspected. Explicit veraPDF
+**PDF/UA-1 passed 106 rules / 491 checks**, zero failures.
+
+Final full Go regression passed **115 top-level tests, 2 skipped**, **118.032 s**,
+with actual CLI/schema comparison and original raster resources. Log:
+`/private/tmp/vmb-companion-complete-regression.log`. A subsequent typed-root-block
+check passed **1 test**, **0.434 s**, recorded separately in
+`/private/tmp/vmb-companion-root-type.log`. The final full regression's PDF and
+HTML were byte-identical to the independently inspected output.
+
+The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/vmb-companion-external.json)
+retains code/input/output/report hashes, HTML, decoder results and XML. This is a
+chapter companion contribution, not formal-proof validation or HTML publication.
+Result block VerificationDisplay/FormalStatement and result QR, formal renderer,
+runtime independent PDF/UA verification/ArtifactSink, original full book/Harano,
+managed-host performance and human acceptance remain open.
+
+### Result verification displays and QR join source identities
+
+Explicit `BodySettings.Verification` retains the original FormalResultID and all
+VerificationDisplay fields in `verification_results`. Hidden formal identities
+remain metadata. Results show verification between their heading and statement;
+exercises show it after the prompt. Badge, short ID, certificate hash and kernel
+name/version are ordinary text with generated provenance from the actual source
+Location. The prepared status is retained, not recomputed as proof validation.
+
+All five link styles are checked against the resolved profile. Invalid status,
+badge, URL/short-ID combinations, incomplete kernel metadata and unverified
+certificate/kernel metadata fail. Direct-link labels and result QR presentation
+are explicit. QR uses the existing generated raster and common figure pipeline.
+Chapter displays match the same companion's formal result ID, status and short
+ID, and every companion result must be represented when this full verification
+contribution is selected. A per-chapter index keeps matching linear. Unused QR
+settings and authored figure-selection collisions also fail.
+
+Private fingerprints bind source JSON, actual container/anchor/parent, generated
+block positions, wire and projected text, including links and QR metadata.
+Limits cover 100,000 records, 1 MiB source preflight per record, 32 MiB total source
+JSON and 64 MiB retained records. Snapshot/mutation/cancellation tests passed.
+FormalStatement/NPA source still fail explicitly; retaining the formal ID is not
+an implementation of their authored statement content.
+
+Three actual public builds succeeded, each **1 page / 2 passes**:
+
+| Display | PDF bytes | Objects | StructElem | PDF/UA-1 passed checks |
+| --- | ---: | ---: | ---: | ---: |
+| Direct link | 80,983 | 69 | 42 | 1,269 |
+| Result QR | 83,750 | 72 | 44 | 1,293 |
+| Chapter QR | 85,565 | 72 | 44 | 1,307 |
+
+Each independently matches **19 ActualText, 2 links, 1 outline**, all source
+verification fields and generated origins, and **2 math Forms / 2 uses / 19 paths /
+372 commands**. Poppler raw/MuPDF match source order ignoring whitespace. Result QR
+matches all **21,904 RGB pixels** at raw width2972341 (16 mm rounded); chapter QR
+matches **32,400 pixels** at raw width3343884 (18 mm rounded). Separate macOS Vision
+CPU decoding reads both exact URLs from the source PNGs and complete PDF pages
+rendered at **300 dpi**. The result QR preview was inspected. Explicit veraPDF
+**PDF/UA-1 passed 106 rules** for each PDF, with the check counts above and zero
+failures.
+
+Final Go regression passed **121 top-level tests, 2 skipped**, **147.222 s**, with
+actual CLI/schema comparison and original raster resources. Log:
+`/private/tmp/vmb-result-verification-final-regression.log`.
+The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/vmb-result-verification-external.json)
+retains input/PDF/code hashes, independent reports, XML and decoder results.
+FormalStatement/NPA source, formal renderer/runtime independent PDF validation/
+ArtifactSink, original full book/Harano, managed-host performance and human
+acceptance remain open.
+
+### Formal statement modes retain original declared NPA sources
+
+Explicit formal settings now lower result/exercise FormalStatement metadata to
+static inline/collapsible PDF content or an appendix with real internal links.
+Appendix entries preserve assembly order, including nested containers. All source
+DTO fields and actual formal-file origins remain in the sidecar. Declared
+formalSource/text/plain resources have bounded size/hash/UTF-8 validation and are
+staged byte-exactly; changed, missing or extra files fail before process launch.
+Limits cover 16 MiB per source, 64 MiB/8,192 resources, 100,000 lines, 1 MiB raw or
+expanded line and 100,000 formal records/32 MiB original metadata.
+
+Literal code uses the selected body font. CRLF/CR are explicit display breaks;
+tabs use a caller-selected logical column width (1..16). Original bytes remain
+unchanged, and each displayed line/break retains original byte spans. Unsupported
+control characters fail at the actual source line. No source execution or proof
+verification occurs; the original example's mock checker is not a proof oracle.
+
+Actual public builds passed in all three modes, each **1 page / 2 passes**:
+
+| Mode | PDF bytes | Objects | StructElem | ActualText | PDF/UA-1 checks |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| inline | 86,633 | 66 | 40 | 20 | 1,566 |
+| collapsible | 86,633 | 66 | 40 | 20 | 1,566 |
+| appendix | 91,672 | 73 | 45 | 22 | 1,707 |
+
+Independent checks matched all formal JSON fields, the original **153 NPA bytes**,
+line spans, actual anchors/links, Poppler raw/MuPDF source order ignoring whitespace,
+and **2 math Forms / 2 uses / 19 paths / 372 commands**. Each PDF/UA-1 run passed
+106 rules with zero failures. Inline/appendix previews were inspected. Final Go
+regression passed **132 top-level tests, 2 skipped, 184.540 s**, including actual
+CLI/schema and original raster tests. Final PDFs/NPA files are byte-identical to
+the earlier independently checked outputs.
+
+The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/vmb-formal-external.json)
+retains source/code/input/PDF/log hashes, content reports and XML. Remaining
+RenderBlock support, formal renderer/runtime independent PDF verification/
+ArtifactSink, original full book/Harano, managed-host and human acceptance remain open.
+
+Follow-up review fixed the formal-resource join so only an unspecified (zero)
+manifest size is filled from the observed resource. A nonzero declared size must
+match. Focused regression passed 2 tests in 13.454 s, including the mismatching
+size rejection and matching explicit-size positive. This is additional to the
+132-test full regression, not a claim that the full regression was rerun.
+
+The original fractions book's topic inventory also confirms the next contract
+gaps: 260 solutions, 122 examples, 92 notes, 62 common errors, 32 warnings,
+11 counterexamples, 6 formalization notes and 3 remarks; 30 lists use description
+style. ADR-0032's frozen 1.4 semantic-kind enum contains only result/proof/exercise
+and explicitly forbids an unknown kind encoded as a class or a flattened wrapper.
+These original containers need the private successor contract/production-book-2
+path already reserved by §9.1; they must not be relabeled as mathematical results.
+No successor contract/profile has been exposed publicly by this work.
+
+### Successor containers have a separate closed wire type
+
+[ADR-0039](../adr/ADR-0039-book-2-semantic-vocabulary.md) reserves 12 closed kinds
+for the unpublished contract 1.5: the existing result/proof/exercise plus solution,
+example, counterexample, remark, note, warning, common_error, formalization_note
+and quote. This addresses the actual full-book inventory without recasting an
+example as a mathematical result or removing its grouping boundary.
+
+The document-package carrier now shares its recursive structure and existing
+bounded checks through a sealed kind type. Existing 1.4 APIs are monomorphic
+aliases to the original three-kind enum. Raw and canonical identities stay
+separate and are bound to the selected decoder's exact contract. The candidate
+book_v2 module is included only for tests or the explicit book-v2-staging feature;
+normal current/public contract, profile, capabilities and schema aliases remain
+unchanged. This is wire parsing/encoding, not source/syntax/profile/resource or
+selected-layout/PDF admission. Description lists, successor syntax/flow/structure,
+CFF/publication and the original full-book gates still require implementation.
+
+Validation completed with **51 document-package unit tests, 4 property tests and
+1 compile-fail test**. Candidate coverage includes **12 kinds × 8 general block
+slots** and six unchanged native-math/vector/JPEG/CFF/navigation carriers.
+Existing syntax passed **72 unit and 6 compile-fail tests**; common container
+placement passed **3 tests** plus **1 nested-container test**. These tests exercise
+wire compatibility and existing layout, not successor layout acceptance.
+
+The rebuilt normal CLI has SHA-256
+`edd02be76f2cdd79296cf6b3ef8dbfa2216070cc1574f67f82ee32b1877b8094`
+and 73,594,440 bytes. Capabilities are byte-identical (8 profiles, raw 1.0–1.4),
+and all 29 frozen 1.4 schemas are unchanged. Actual public `check-package`
+rejects 1.5 with P1103 and a new solution kind under 1.4 with P1102, before it
+could open the intentionally absent declared resources.
+
+Three actual legacy VMB formal builds passed (one top-level Go test, 14.516 s).
+Inline/collapsible remain 86,633-byte PDFs with SHA-256
+`0a3e0fea2f6eb01208eba383bf8a61ca3dbcfc795a6b4f3f87d87e4aaddf354f`;
+appendix remains 91,672 bytes with SHA-256
+`e399253e3b2be5b37aab1369611ee86d2292f3a12e62999c58ac749976943ed3`.
+Each is byte-identical to the previously independently validated PDF. This reuses
+that exact-byte PDF evidence; it does not claim a new PDF/UA tool run or any
+successor PDF. The [evidence index](../samples/machine-package/staging/production-book-1/vmb-book/book-v2-carrier-external.json)
+retains commands/logs, source and executable hashes, diagnostics, capabilities,
+frozen-schema hashes and actual input/PDF paths. The first smoke-test attempt
+failed because its new output parent directory did not exist; creating that
+caller-owned directory resolved the setup error before the successful run.
+
+### Book-2 typed body preparation
+
+Added an explicitly feature-gated successor domain and body preparation owner.
+The recursive document/lowering algorithms preserve the closed 1.4 aliases;
+a separate 12-kind domain retains successor containers in all eight general
+recursive slots, with dense node IDs, parent/source spans and original wire
+fields. Source, UTF-8, class, native math and vector checks share the existing
+bounded algorithms. Vector facts are retained without issuing a legacy syntax
+session or 1.4 metrics receipt. Native math remains parsed and unstyled.
+
+The body owner retains the original wire and raw/canonical hashes, exact limits,
+resource declarations and per-use source/metric/alternative/equation facts.
+Tests cover all 96 kind/slot combinations, invalid IDs/spans/classes/UTF-8,
+native/vector source mappings, original ownership, retained-input isolation,
+limit mismatch, and exact/one-over cumulative text and native math AST budgets.
+The combined feature-enabled suites passed: document 2 unit tests, package
+51 unit + 4 property + 1 compile-fail, syntax 79 unit + 8 compile-fail.
+The two new compile-fail cases prohibit using successor bodies/vectors as
+legacy validated package/metrics types.
+
+This is body preparation, not style closure, host source/resource admission,
+successor profile/layout/structure/PDF support, or full-book completion.
+
+Code commit: `cc99bc1ef9d3eb62d4d0c76a2ce605b6d12a8422`; VMB compatibility
+input commit: `69d0f5780aac0993159ce744102103ebebc63396` (clean). Other prior
+Typaxis implementation/evidence changes remain uncommitted. The rebuilt normal
+CLI is 73,614,952 bytes, SHA-256
+`a545835ac7e2b8f56ef96fa4109bf7537e8191c990a7b2198f932f2048567d07`.
+Normal CLI container 3 and nested 1 tests passed; capabilities and all 29 frozen
+1.4 schemas remain byte-identical. Actual public checks still reject raw 1.5
+with P1103 and new kinds under 1.4 with P1102 before missing resource access.
+
+Actual VMB formal builds passed in 14.508 s, with all three PDFs byte-identical
+to the prior independently validated outputs (86,633 bytes inline/collapsible,
+91,672 bytes appendix). This reuses exact-byte PDF evidence, without claiming
+a new PDF/UA run or any successor PDF. The
+[body preparation evidence](../samples/machine-package/staging/production-book-1/vmb-book/book-v2-body-external.json)
+retains the commands and 35 verified file hashes, including per-run copies of
+the tested executable.
+
+### Book-2 semantic and math style closure
+
+Added a separate 12-kind computed-container style type behind `book-v2-staging`.
+The shared cascade and recursive style collector preserve the successor kind;
+the old 1.4 style kind remains closed to three variants. All 96 kind/slot cases
+now also validate matching computed styles. `StyledBookV2Body` owns the prepared
+body and container/native-math/vector-block styles. Math styles borrow the
+original parsed node views, without copying/reparsing TeX or its AST. Explicit
+font inheritance reaches equation-number styles; metric/source facts are retained.
+
+Feature-enabled tests passed: style 14 unit + 1 compile-fail; syntax 82 unit +
+8 compile-fail. Cases cover important/specificity/extends, nested font and
+alignment inheritance, native display styling, equation-number fonts, original
+source storage, and invalid selectors/properties/extends. Some malformed selectors
+are rejected by the carrier before style closure; tests verify that boundary
+and the style validator directly. The first test compile used the nonexistent
+physical `Right` alignment and was corrected to the supported logical `End`;
+the second run exposed the test's assumption that every malformed selector could
+pass the carrier. Both test issues were corrected before the successful suite.
+
+This remains semantic/math style closure, not successor syntax/profile, host
+source/resource admission, ordinary text flow, layout/structure/PDF or full-book
+completion.
+
+Style code commit: `3f122b971bd8667414539bb8cd3a3264085887a0`. Normal CLI
+container 3 and nested 1 regressions also passed. The rebuilt CLI is 73,629,816
+bytes, SHA-256
+`964aa7aa985a6b09fc35910bf1ddeb6dbb351e6f9f8c51c4bac1b82aae78879c`.
+Capabilities, 29 frozen 1.4 schemas, and the P1103/P1102 public rejection gates
+are unchanged. Three actual VMB formal builds passed in 14.829 s and all PDFs
+remain byte-identical to the prior independently validated outputs. The
+[style evidence](../samples/machine-package/staging/production-book-1/vmb-book/book-v2-style-external.json)
+records 35 verified file hashes and retains per-run executable/PDF copies.
+Earlier body-stage evidence describes the earlier tested snapshot; its mutable
+source/build paths may change as implementation continues.
+
+### Book-2 source language and reference navigation
+
+Added a borrowed `PreparedBookV2Navigation` owner for the exact styled successor
+body. Shared recursive collectors retain the selected closed semantic kind;
+metadata and outline fact validation are separated from legacy receipt issuing.
+No legacy navigation receipt is constructed for successor input. All 96 kind/slot
+cases now also check the language index and typed style-kind correspondence.
+
+The index retains metadata, language ownership/inheritance, original outline
+kind/span/anchor/heading level/parent, internal links, and Text/Page/Number and
+footnote reference targets. It rejects missing targets, duplicate anchors, bad
+languages and outline/metadata inconsistencies. Vector records borrow the exact
+prepared facts, check node/kind/span/authored language, and keep equation-number
+language as an inherited child. Shared text charging credits vector language
+already charged in body preparation, and the combined AST bound includes wire
+navigation/page-region nodes plus parsed native math nodes. Source-span failures
+in page-region language owners now report P1102 with the precise span pointer,
+through a successor-feature-only error kind.
+
+Final syntax suite: 92 unit + 9 compile-fail passed. Package shared-code suite:
+51 unit + 4 property + 1 compile-fail passed. Cases include all twelve outline
+kinds, forward references and actual target joins, header inheritance, metadata
+and heading constraints, same-hash body substitution rejection, and inclusive /
+one-over text and combined AST budgets. The initial test compile used an
+ambiguous `Into` conversion for `AnchorId::new`; passing the string directly
+resolved that test-only issue. Additional review identified the input/internal
+classification of header source spans and corrected it with a dedicated test.
+
+This is source navigation for the successor body, not successor syntax/profile,
+host source/resource admission, text flow, selected layout/structure/PDF, or
+full-book completion.
+
+Navigation code commit: `f14b73471f2d3ddefd42705fcad04cdea89ac197`.
+The wrapper-depth test initially assumed depth 1 could reach navigation;
+the decoder already rejects that bound. The corrected test checks that earlier
+rejection and successful empty-body navigation at depth 2; no redundant guard
+was retained. The normal CLI navigation golden and explicitly enabled independent
+pypdf 6.10.0 test each passed. The latter observed 2 pages, 14 objects, 3 outlines,
+1 link, metadata/languages and byte-identical PDF/manifest across path aliases.
+Its legacy PDF SHA-256 is
+`b05b8fdfbb8ac63c9241c4c524c9b681129d95d3c12428d16c652f0eb04f70a4`.
+
+The rebuilt public CLI is 73,646,088 bytes, SHA-256
+`a876268be1517f1884e835cec41a0d629dae16a3b3ae51ef93f171b8d9fa2c37`.
+Capabilities, 29 frozen 1.4 schemas and public P1103/P1102 rejection remain
+unchanged. Three VMB formal modes passed in 15.852 s; all PDFs are byte-identical
+to the prior independently validated formal outputs. The
+[navigation evidence](../samples/machine-package/staging/production-book-1/vmb-book/book-v2-navigation-external.json)
+records 33 verified file hashes, diagnostic copies, per-run executables/PDFs,
+and the separate legacy navigation observation. No new PDF/UA run or successor
+PDF success is claimed.
+
+Correction to the body/style/navigation public-gate statements above: those
+three kind probes reported P1102 for a two-font declaration exceeding the
+configured one-font bound, before semantic-kind validation. Their retained
+diagnostics and file hashes are preserved; the evidence classifications now
+mark the kind gate unproven for those runs. The source-flow stage below includes
+a corrected fresh diagnostic and a supported-kind control. Contract P1103,
+capabilities/schema checks and the actual PDF comparisons are unaffected.
+
+### Book-2 source-ordered text flow
+
+Implemented `PreparedBookV2TextFlow` over the common collector and flow storage.
+The source trait's associated kind keeps legacy and successor wire vocabularies
+separate. The successor owner borrows the exact styled body and navigation;
+same-hash reparses and separately prepared navigation cannot substitute for them.
+It retains ordinary text/style/language, typed reference targets, all recursive
+region boundaries, table topology, and generated list/footnote/page labels.
+Authored text is borrowed from its original buffer. Footnote definitions remain
+separate regions, and candidate page values do not prove selected placement.
+
+The collector shares precharged table occupancy/topology and generated-text
+budgets with the old path. Its own algorithm domain is
+`typaxis.book-2-source-text-flow/1`, with an explicit projection of flow-used
+limits. The legacy flow encoding/domain remain unchanged. Reverification
+recollects the complete flow from the exact owners. This is not host/resource,
+font, profile, selected layout, structure/PDF or full-book admission.
+
+Commit: `f23251647bfb194f8739b3fd6fc25a5fdbcdb8f9`. Syntax passed 100 unit
+and 10 compile-fail tests, including 8 new flow tests, the 96-kind/slot matrix,
+inheritance assertions, and the 3 existing table topology tests now included in
+this commit. CLI container placement passed 3 tests. Initial test corrections
+covered fixture text styles, related text-buffer/shaping limits, actual paragraph
+count, private test helpers/lifetimes, and the inheritance style accessor. The
+missing-text-style negative case preserves math styles so it reaches the intended
+flow boundary instead of failing earlier during math style closure.
+
+The rebuilt CLI is 73,672,360 bytes, SHA-256
+`5ae968604e1019a4ce689ee135a0c4144b061db5c27f6b6f2a07754fe82a5150`.
+Capabilities and 29 frozen 1.4 schemas are unchanged. Actual VMB formal builds
+passed in all 3 modes (15.38 s test body, 28.508 s Go package), and all PDFs are
+byte-identical to the prior independently validated outputs. No new PDF/UA run
+or successor PDF success is claimed.
+
+The corrected public probe removes the unused second font and uses a fresh
+sidecar directory. It confirms contract P1103 and unknown semantic-kind P1102,
+including the stderr reason. A control changing only `solution` to `result`
+reaches host source admission (expected I9112 because source files are absent).
+Retries against existing sidecar paths had left old diagnostic JSON intact;
+those attempts are not counted as successful diagnostic publication. The
+[flow evidence](../samples/machine-package/staging/production-book-1/vmb-book/book-v2-flow-external.json)
+records the final fresh observations and 41 verified file hashes.
+
+Next: successor host/resource admission and downstream shaping/layout/structure
+must consume this owner without issuing legacy receipts. Description lists,
+remaining original VMB blocks, actual Harano font/full-book output and all final
+acceptance gates remain open.
+
+### Book-2 host source admission and exact original text maps
+
+Added `HostBookV2InputSession` behind `typaxis-machine-input/book-v2-staging` and
+propagated that feature from syntax. Stable raw PACKAGE transport is shared,
+but all successor decoded/progress/source-set/input results remain separate
+from legacy contract facts and receipts. The private host-input fingerprint
+binds portable package/source identities and excludes absolute root/session.
+The complete source declaration set is bounded and preflighted, then registered
+in the common publication read ledger before any source opens. Early failure
+therefore retains protection for later declared inputs. Source reads share the
+legacy semantic helper and verify same-handle length/hash/UTF-8 under per-source
+and aggregate source-byte budgets.
+
+`prepare_admitted_book_v2_body` consumes the input, moves the original source
+buffers into `SourceAdmittedBookV2Body`, and checks exact original text maps:
+complete ordered nonempty segments, source/text UTF-8 boundaries, identity-byte
+equality, and explicit replacement/inserted semantics. Body/list/table/footnote/
+caption/equation/header/footer source spans also land on actual source boundaries.
+The source-admitted body reaches the existing successor navigation and text flow;
+it still grants no resource-byte, public-profile, selected-layout/structure/PDF
+or full-book authority.
+
+Commit: `d9021ddd0844be83e692fd3ee86bac560f6b2503`. Final tests passed:
+machine-input 22 unit + 6 compile-fail; syntax 106 unit + 11 compile-fail.
+Seven new host tests and six new source-body tests cover the boundaries above,
+including same-hash session exchange, stable data after host-file changes,
+zero-copy source handoff, failed-read ledger completeness, exact aggregate
+bounds, differing source bytes, and malformed text/source spans. An initial
+limits-mismatch test changed a dependent bound inconsistently; it now varies
+max_pages. The candidate-registration refinement initially omitted the new
+private helper argument at one call site; the final compilation and suites
+include the corrected call. Cargo.lock was updated offline for the existing
+serde_json dev dependency; only that lockfile hunk was committed.
+
+The rebuilt normal CLI is 73,691,672 bytes, SHA-256
+`62f672cd075cbce85b1af12b3ba8f7837d04b5d29b96dc5332e6b492919584cd`.
+Capabilities and 29 frozen 1.4 schemas are unchanged. Fresh public diagnostics
+confirm P1103 and unknown semantic-kind P1102; the supported-kind control reaches
+source admission and reports expected I9112 because the source is absent.
+Actual VMB formal builds passed in all three modes (14.19 s test body,
+14.659 s Go package), and all PDFs remain byte-identical to the prior independently
+validated outputs. The [host/source evidence](../samples/machine-package/staging/production-book-1/vmb-book/book-v2-host-source-external.json)
+records 39 verified hashes and per-run executable/PDF copies. No new PDF/UA run
+or successor full-book output is claimed.
+
+Remaining work includes binding this source owner to resource-set /3 and actual
+fonts/vectors, successor profile/shaping/layout/structure, description lists and
+remaining original VMB blocks, the original full book, Harano, controlled host
+performance/reproducibility, and final human semantic/Alt acceptance.
+
+### Legacy production source integrity
+
+The shared source checker now also runs before the legacy production syntax receipt is issued. It enforces the existing complete text-map and exact identity-byte rules against admitted source bytes. A real VMB package with one identity byte changed previously passed public check; after the fix it fails with P1102 while the control still passes. The focused public CLI suite passed 92 tests (3 external tests ignored), and syntax passed 109 unit plus 11 compile-fail tests. Three actual VMB formal builds passed; all PDF bytes match the prior outputs. See §14.102 and the referenced local logs. The full CLI suite also passed **413 tests**, with 4 explicit external tests ignored (274.03 s, `/private/tmp/typaxis-host-source-common-cli-full.log`); full-book and successor publication gates remain open.
+
+### VMB combined input snapshot limit
+
+A new real-filesystem regression reproduces rejection of the admitted image/formal-source/companion counts by the old 8,256-file snapshot limit. The snapshot budget now sums those independently allowed classes plus the prior 64 metadata/font slots (20,544 files; 41,088 directory entries). The test checks all maximum-count files are retained and maximum + 1 is rejected. Existing byte, depth and filesystem-type limits remain. Validation: `/private/tmp/vmb-combined-snapshot-before.log` reproduces the failure; the full package regression is in `/private/tmp/vmb-combined-snapshot-after.log`. This is transport verification, not a semantic full-book build.
+
+The complete VMB package regression passed in 122.224 s after the snapshot fix; the explicit external CLI environment was not enabled in this run.
+
+### Book-2 source and resource-set /3 connection
+
+The private CLI feature now consumes a source-admitted book-2 body and admits its real declared resources into resource-set /3 using the same host read ledger. A source-owner-bound resource policy commits the input/package/complete effective-limit fingerprints. Failures retain the source owner, all registered/opened identities, and a typed font/image subject. Config base or extension mismatches stop before resource candidates. This is resource admission, not a complete production-profile or layout receipt.
+
+Seven focused integration tests passed, including the unchanged original Harano file (23,060 glyphs, fixed original SHA-256), a real TTC and PNG, owner replacement, changed limits, file hash substitution and missing-file failure. The valid fixture has five candidate/opened identities including PACKAGE and source. Logs: `/private/tmp/typaxis-book-v2-resource-bridge-verified.log` (1.29 s); `/private/tmp/typaxis-book-v2-resource-policy-regression.log` (50 unit + 1 compile-fail); `/private/tmp/typaxis-book-v2-resource-bridge-capabilities.log` (4 tests). Public profile/schema registration is unchanged; successor shaping, pagination, PDF and full-book acceptance remain open.
+
+### Book-2 actual body and generated-label shaping
+
+The source/resource-set /3 path now uses the shared bidi, grapheme, paragraph-context and generated list/footnote-label engine. A distinct BookV2AuthoredTextShape owns canonical font instances and verifies exact source/flow/resource owners, full limits and epoch. Resource declarations are joined to actual media, URI, family, face index and optional hashes. The policy implementation moved to syntax with a machine-profile reexport, preserving dependency direction and policy bytes.
+
+All 11 integration tests passed, including original Harano Japanese/IVS glyph and source-cluster checks, missing IVS rejection, selected-line reshape, split-IVS rejection, generated labels and exact output-record limits. Legacy body 49 tests and authored text 6 tests passed; shaping 24 unit + 1 compile-fail passed (2 explicit external tests ignored in that crate invocation); capabilities 4 tests passed. Commands/logs and scope are recorded in §14.105. Successor layout, pagination, PDF, original full book and publication acceptance remain outstanding.
+
+### Book-2 actual text line selection and glyph projection
+
+Shared paragraph itemization, line projection and selected-context computations now serve distinct book-2 text-inline and text-line owners. They retain original glyph references and source/generated spans, constrain the document candidate budget, and reject owner/epoch or paragraph-width cardinality mismatches. Actual selected boundaries can feed the existing successor reshaper.
+
+The final source/resource/shaping/line integration passed 12 tests (2.08 s, `/private/tmp/typaxis-book-v2-inline-tests-4.log`), including original Harano Japanese/IVS line placement, generated footnote-reference text, exact candidate-budget boundaries and a stable real Latin rebreak. The Latin fixture uses measured glyph advances for its width after an initial too-narrow fixed width correctly failed. Layout regression passed 69 unit + 1 compile-fail (`/private/tmp/typaxis-book-v2-inline-layout-regression.log`). This is paragraph line projection; successor vector/native binding, complete block/page placement, convergence and PDF/full-book gates remain open. See §14.106.
+
+Post-refactor legacy body/PDF regression also passed all 49 tests (259.53 s, `/private/tmp/typaxis-book-v2-inline-legacy-body.log`), including both actual 5,000-image cases and more than 65,535 glyph occurrences. These are legacy production-book-1 outputs, not successor full-book acceptance.
+
+### Book-2 source-bound vectors and mixed text/SVG lines
+
+BookV2VectorBindings now joins all four vector kinds to actual resource-set /3 images. Legacy resource/geometry checks are shared; successor results retain their original TeX, Alt/ActualText, language, equation-number and provenance owners without issuing legacy receipts. The epoch binds policy/source/package/limits and the actual resource ledger; each binding additionally records admitted IR and placement geometry. Inline vectors now share text line selection and actual reshape contexts. Block vectors have prepared geometry; their successor page placement remains outstanding.
+
+Validation passed 16 integration tests (2.02 s, `/private/tmp/typaxis-book-v2-vector-tests-3.log`) and 69 layout unit plus 1 compile-fail test (`/private/tmp/typaxis-book-v2-vector-layout-regression.log`). Coverage includes all four kinds sharing a real SVG, mixed source/atom ordering, exact source metadata, owner substitution, nonuniform scale, exact cumulative receipt-count limits, and actual Safe-SVG 1 admission followed by rejection at the math-vector node requiring Safe-SVG 2. See §14.107 for scope and initial fixture corrections. Native math, successor complete page layout, convergence, PDF/full-book and publication gates remain open.
+
+Legacy public CLI precomposed-vector regression passed 4 tests (1.73 s, `/private/tmp/typaxis-book-v2-vector-public-regression.log`); its explicitly opted-in independent PDF test was ignored, so no new external PDF/UA acceptance is claimed.
+
+### Book-2 native math computation and actual inline projection
+
+BookV2NativeMath now binds source math/style to admitted /3 MATH fonts and canonical font instances, uses the existing computation and display-geometry kernels, and preflights all work plus cumulative record/spool storage before font parsing. The instance table's additional records and temporary canonical storage are charged as well. Separate successor receipts preserve original source/face/computation ownership. Native-free input issues no empty native computation set.
+
+Owned and borrowed native contexts feed common inline selection; actual selected native items retain the same receipt/source span and line baseline across reshape. Legacy display rejects successor projections. Display math has natural geometry, not successor page placement. All 18 integration tests passed (2.14 s, `/private/tmp/typaxis-book-v2-native-tests-3.log`), including exact work/record/spool boundaries, missing MATH information, owner exchange, context omission and computation reuse. The bounded-work fixture now supplies matching host extension limits after the original mismatch was correctly rejected. Layout regression passed 69 unit + 1 compile-fail; legacy CLI native regression passed 21 tests (0.99 s). See §14.108. Complete successor block/page layout, convergence, PDF/full-book and publication acceptance remain open.
+
+### Book-2 measured body frames and actual inline widths
+
+BookV2BodyInlineFrames now shares the existing container/list/table/footnote frame computation through closed source adapters. It retains the exact successor inline owner and body geometry, resolves actual marker advances and table columns, and supplies measured paragraph widths to mixed inline selection. Selected lines include frame records and the frame fingerprint; selected reshape contexts bind that combined result. Footnote geometry comes from the source wire's declared default master and rejects a mismatched body, missing region or exhausted content width. This is width/frame preparation, not table row-height layout, footnote page assignment or complete successor pagination. See §14.109.
+
+All 21 source/resource/shaping/frame integration tests passed, including original Harano and mixed SVG/native line projection (2.03 s, `/private/tmp/typaxis-book-v2-frames-tests-mixed.log`). Assertions cover all twelve nested container kinds, real column/marker widths, owner/body substitution, missing/exhausted footnote regions, record accounting and context fingerprints. Layout regression passed 69 unit plus 1 compile-fail; legacy table regression passed 21 tests (7.19 s) and declared footnote-frame regression passed 1 (0.45 s). Complete successor reshape ownership, block/page placement, PDF/full-book and publication acceptance remain open.
+
+### Book-2 actual selected-line reshape convergence
+
+The successor now has a callback-scoped convergence owner that takes actual selected boundaries through shaping, measured frames and line selection until the shared LineReshapeFeedback observes an equal result. Initial and repeated candidate work share one cumulative budget; reshape permits consume the pass quota before work. The callback receives dedicated BookV2ConvergedBodyLines only on stability. Native computations are constructed once or borrowed from an outer owner and retained across every pass. This is line convergence; complete allocation/page/generated-reference convergence and successor block/PDF/full-book acceptance remain outstanding. See §14.110.
+
+Final integration passed all 23 tests (2.57 s, `/private/tmp/typaxis-book-v2-reshape-tests-final.log`). Tests observe a changed pass followed by equal states, retained selected contexts, one callback on success, exact cumulative candidate quota and failure at one less, and no callback when the pass limit is exhausted. Table/list/footnote frames, SVG occurrences and the same native computation/baseline are checked inside the final callback. Layout passed 69 unit + 1 compile-fail; the legacy generated-footnote glyph/convergence test passed (0.35 s, `/private/tmp/typaxis-book-v2-reshape-legacy-regression.log`). These checks do not close successor block/page placement, PDF/full-book or publication gates.
+
+### Book-2 final-line footnote edges and ordinary figure geometry
+
+BookV2FootnoteLines now borrows the exact selected-line graph and full limits, shares definition/reference indexing and complete generated-marker coverage checks, and is retained by the final convergence callback. Definitions preserve their source-order numbers and original ID storage; nested and repeated references retain actual first/last selected cluster positions. Selected lines, definitions, optional sorted ID index and reference coverage share the record ceiling. This does not assign footnotes to pages. See §14.111.
+
+Ordinary PNG/JPEG/SVG figures now use the common source/image geometry routine with the /3 ledger. The successor inline owner retains the original figure/caption source, admitted image hash, raster aspect or uniformly quantized SVG dimensions, and accounts for figure records. Those records remain in final line convergence. Actual figure page placement/PDF paint remains outstanding. See §14.112.
+
+Final integration passed all 27 tests (2.07 s, `/private/tmp/typaxis-book-v2-footnote-figure-tests-3.log`). Footnote coverage includes twelve reverse-ID-order definitions, thirteen body references and one definition-to-definition edge, repeated/multidigit markers, original ID pointers, actual selected positions, exact cumulative record limits and owner/limit substitution. The deliberately contiguous reference fixture needed a wider body; line breaking was not relaxed. Figure coverage uses actual PNG/JPEG/SVG bytes, raster aspect, intrinsic/quantized SVG geometry, source captions, final callback retention and invalid-width/scale rejection. Fixture provenance declarations were corrected to match the existing SVG-only requirement.
+
+Legacy footnote regression passed 86 tests (9.42 s), legacy ordinary-figure regression passed 7 (0.72 s, including existing PDF/manifest checks), and layout passed 69 unit plus 1 compile-fail. Logs are recorded in §§14.111–14.112. Successor block/vector/table-row/footnote/page placement, complete allocation/page convergence and PDF/full-book/publication acceptance remain open.
+
+### Book-2 authored equation-number shapes and intrinsic vector blocks
+
+BookV2EquationNumberShapes now reuses the existing itemization/linked-shaping/cluster-validation kernel with the same canonical /3 font instances as its authored-body owner. It retains original label text, source spans, language, font identity and measured runs/width/line-height, including CFF /2 coverage. It separates prior and retained record counts, bounds backend scratch by the existing context limit, and preflights temporary glyph canonicalization. Numberless sources issue no empty shape set.
+
+BookV2VectorBlockLayout uses actual selected body frames for nested regions and shares existing horizontal and equation-number geometry. It retains source event positions, original viewport/scale/binding and optional number shapes; overlap is rejected. Record accounting combines actual selected lines, prior graph consumption and number retention before block records. Page assignment, named-page selection, full allocation/page convergence and final PDF/full-book gates remain outstanding. See §14.113.
+
+Final integration passed 32 tests (2.13 s, `/private/tmp/typaxis-book-v2-block-tests-final.log`). Coverage includes authored label glyph/source/font identity, original Harano CFF instances, exact cumulative label/block record budgets, incomplete styles, numberless input, nested frame indents, start/center/end placement, equation-number gap/height geometry, collision rejection, missing frame/number context and the final convergence callback. Callback construction retains the same source bindings/geometry and combines the line, label and block records.
+
+Shared-kernel regression passed 24 shaping unit + 1 compile-fail (2 external fixtures ignored), 69 layout unit + 1 compile-fail, and 2 legacy common-driver tests including repeated numbered/unnumbered PDF generation (0.65 s; 1 opt-in independent check ignored). Logs and remaining scope are recorded in §14.113. Successor combined page placement, complete allocation/page convergence and final PDF/full-book/publication acceptance remain open.
+
+### Book-2 combined body/definition leaves and actual table row measurements
+
+BookV2PreparedBodyFlow now retains exact successor line, vector-block and footnote owners while sharing the existing source-ordered collector through closed borrowed adapters. Actual paragraph lines, native/vector display math, ordinary figures, list labels, forced breaks and separate definition streams preserve their original source/frame geometry. Generated labels use the first real content item's baseline and shared leading/trailing calculation; actual selected reference clusters join local body/definition item positions. Named-page selection remains explicitly pending. Block/number prior and retained records are separated so independently prepared footnotes and blocks cannot conceal each other's storage behind a maximum of totals.
+
+BookV2TableMeasurements retains that dedicated body graph and shares cell/nested-table/rowspan/row-band measurement. Nested parallel cells are counted once through the child table extent. Source indexes, boundary spacing and keeps remain available for later selection. The successor has its own measurement algorithm/fingerprint and bounds temporary canonical storage before allocation; legacy headers, record policy and ordering remain unchanged. These are actual intrinsic measurements, not table fragmentation, repeated-header paint, footnote page reservation or final page/PDF authorization. See §14.114.
+
+Final integration passed 34 tests (2.13 s, `/private/tmp/typaxis-book-v2-body-table-tests-final.log`). Coverage includes original Harano/source/resource/shape tests, final-line combined collection, actual raster/SVG/native geometry, local footnote references and definition markers, exact cumulative body/table quotas, owner substitution, nested tables and rowspan bands. One combined original-source/SVG fixture contains numbered math in a table, an ordinary SVG figure/caption, a vector-first list and a math-first definition. Test assumptions were corrected for actual wrapped line counts, an explicitly wider nested-cell positive fixture and the required ordinary-figure placement member; parser and layout rules were not relaxed.
+
+Pagination regression passed 92 tests (0.21 s), default CLI table regression 49 (9.71 s), and default CLI footnote regression 86 (11.43 s), including existing page/PDF behavior. Logs and exact command forms are recorded in §14.114. Feature CLI check and diff whitespace checks passed. Successor table/body/footnote page selection and convergence, final structure/PDF, formal original full-book export, TrueType/Harano full-book output, controlled-host measurements, independent/human acceptance and public publication gates remain open.
+
+### Book-2 capacity-dependent table fragments and repeated-header leaf projection
+
+The actual safe-boundary, keep, rowspan interval-index, header-reservation and cell-slice algorithm now lives in a private TableBreakKernel. Dedicated BookV2TableBreakSearch, BookV2TableCursor and BookV2TableFragmentSelection retain the exact successor measurement owner and reject terminal or substituted cursors. Body and definition tables use their actual respective frame capacities. Searches combine prior records with measurement/index/cursor/evaluation/result storage and meter sorting/boundary/tree work; retries do not refund either budget. The successor fragment uses typaxis.book-2-table-fragment/1 and bounds temporary canonical storage. Legacy owner checks, algorithm/encoding and shared page/footnote budget exchange remain in their existing wrappers.
+
+Both owners share immutable semantic-range and placement-leaf projection. Source headers enter semantic ranges once; repeated header placement carries its flag. Original item/cell identity and relative top are retained, without issuing page indexes or paint permission. Review removed duplicate retained end-position state from the successor result. Nested-table recursive breaks and forced breaks inside cells remain explicit pending cases; combined body/table/footnote page reservation/convergence, PDF/full-book and public acceptance remain open. See §14.115.
+
+Final integration passed 36 tests (2.19 s, /private/tmp/typaxis-book-v2-table-break-tests-final3.log), including original Harano tests, real final-line header/rowspan fragmentation, unique cell and semantic leaves, repeated-header placement flags, capacity retries, exact cumulative record/work boundaries, owner and terminal rejection, zero-height row progress, definition-region capacity and header oversize. Actual numbered math and ordinary SVG/caption table leaves also traverse selection without unsafe formula cuts. The positive definition-table fixture was corrected to distribute the width remaining after its actual label/gap. Final default CLI table regression passed 49 tests (9.00 s, /private/tmp/typaxis-book-v2-table-break-legacy-final.log); pagination feature regression passed 92 (0.15 s, /private/tmp/typaxis-book-v2-table-break-pagination-regression.log). Feature CLI check and diff whitespace checks passed. Commands and scope limits are recorded in §14.115.
+
+### Book-2 definition content candidates, forced boundaries and continuation
+
+BookV2FootnoteBreakSearch, BookV2FootnoteCursor and BookV2FootnoteFragmentSelection now retain the exact successor body flow and actual definition-local leaves, labels, selected reference occurrences, boundary candidates and continuations. Context preparation, within-definition keeps, boundary selection and local reference-range lookup share the existing algorithm. A borrowed FootnoteSearchKernel updates the owner's existing charge/step counters directly, preserving legacy joint page/table/footnote budget exchange. The successor includes prior flow/external records and retries in one retained-record ceiling and meters all visited work.
+
+A leading authored break advances only that event, leaving the label for the first real selected content. Later continuations do not repeat the label. Keeps cannot cross forced boundaries or connect separate definitions. Capacity is bounded by the declared footnote region; a smaller no-fit returns no candidate, while no-fit at the maximum is Oversize. Definition tables remain explicitly pending the joint table/footnote selector rather than flattening their parallel cells. These are single-definition content candidates; multi-definition demand, spacing/separators, reference-page coupling, page assignment and paint authorization remain separate. See §14.116.
+
+Final integration passed 37 tests (2.11 s, /private/tmp/typaxis-book-v2-footnote-break-tests-final.log). Assertions cover twelve definitions with repeated/multidigit labels and nested references, exact local leaf/marker identity, candidate retries, exact record/work limits, substituted cursor owners, forced-boundary continuations, one-time labels, keep and oversize rejection, real SVG math-first definition splitting and definition-table flattening rejection. Default CLI footnote regression passed 86 tests (10.49 s, /private/tmp/typaxis-book-v2-footnote-break-legacy-regression.log), including existing joint table/page/PDF behavior. Pagination feature regression passed 92 (0.15 s, /private/tmp/typaxis-book-v2-footnote-break-pagination-regression.log). Feature CLI check and whitespace checks passed. Full successor demand/page convergence, PDF/formal full-book export and all original public/full-book/controlled-host/independent/human acceptance gates remain open.
+
+### Book-2 immutable footnote demand and continuation branches
+
+Dedicated demand state/search/selection owners retain the exact successor flow and unique search/branch identity. Actual body and selected definition references register first demand once; repeated references preserve the first owner, partial definitions remain at the queue front, and completed definitions do not requeue. Snapshot allocation/copying, registration and queue transitions share a private typed kernel with legacy search while using each owner's existing cumulative record/work counters. Table-overlapping body ranges remain explicitly pending the table-aware selector.
+
+Final integration passed 38 tests (2.82 s, /private/tmp/typaxis-book-v2-demand-tests-final.log), including immutable branches, nested references, continuation order, exact budgets, foreign selections and real SVG math-first content. Default CLI footnote regression passed 86 (12.16 s, /private/tmp/typaxis-book-v2-demand-legacy-regression.log); pagination feature regression passed 92 (0.17 s, /private/tmp/typaxis-book-v2-demand-pagination-regression.log). Commands and limits are recorded in §14.117. Multi-definition region reservation, joint body/table/footnote page convergence, final PDF, formal original full-book export and all public/full-book/controlled-host/independent/human acceptance remain open.
+
+### Book-2 multi-definition regions and required first-fragment reservations
+
+Dedicated BookV2FootnoteRegionFragment and BookV2FootnoteRegionSelection retain exact successor demand selections, relative offsets, used/available height, forced-boundary owner and the next immutable demand branch. Ordinary selection packs pending definitions in order with actual inter-definition spacing. Required selection reserves a legal first fragment for every entry demand before spending the remaining height on earlier definitions. Partial and completed definitions can coexist; newly discovered nested references remain explicit in the resulting queue. Forced boundaries stop the region and cannot precede another required definition.
+
+Both algorithms now use private common kernels with typed old/successor state and cursor adapters. Actual paragraph/heading contexts, retained candidates, suffix reservations, capacity-dependent costs and state transitions share the existing record/work counters. No legacy receipt, physical page or paint authority is minted for the successor. Separator/body/table collision and same-page reference checks, complete page convergence, definition-table selection, final PDF and original full-book/public acceptance remain open. See §14.118.
+
+Final integration passed 40 tests (2.32 s, /private/tmp/typaxis-book-v2-region-tests-final.log), including original Harano, exact nonzero spacing, exact/one-short region capacity, immutable/foreign branches, cumulative record/work ceilings, reserving both a long and short definition, continuation after completion of another demand, entry-versus-new nested demands, forced-boundary rejection and a final forced fragment followed by one-time label placement. Default CLI footnote regression passed 86 (14.99 s, /private/tmp/typaxis-book-v2-region-legacy-regression.log), covering existing body/table reservation and PDF behavior. Pagination feature regression passed 92 (0.17 s, /private/tmp/typaxis-book-v2-region-pagination-regression.log). Final test builds had no compiler warnings/errors; diff whitespace checks passed. Commands are recorded in §14.118. The goal remains incomplete under its original scope.
+
+### Book-2 joint body/table candidate fit and shared footnote budgets
+
+BookV2BodyFootnoteCandidate now retains the actual body range, consumed height and exact search/branch-bound footnote reservation. A private common fit kernel validates body keeps, forced boundaries, complete reference inclusion, real spacing/height and separator-inclusive collision geometry. Footnote regions beside or above the body use their actual rectangles. Nested references still pointing at an unstarted definition reject the candidate. Table cell streams remain excluded from ordinary body ranges; top-level table keeps govern following body siblings. The result is local fit, not ranked page selection, source-cursor continuity or final paint authority.
+
+BookV2TableFootnoteSearch/State/Selection connects actual semantic table leaf ranges to that same fit kernel. Repeated headers do not repeat references. Table and note operations move one remaining record budget and cumulative work counter between their dedicated owners, including error paths; no new full allowance is created. Rejected large cuts leave the source state immutable for retry. Pending notes can advance without advancing the table, and remaining notes can continue after the table reaches its terminal cursor. Table-reference extraction and fit are also shared with legacy owners. See §14.119–14.120.
+
+Final integration passed 44 tests (2.16 s, /private/tmp/typaxis-book-v2-joint-tests-verified.log). Tests cover actual collision/side/above geometry, separators, keeps/forced boundaries, source/branch identity, nested references, exact record/work limits, header references, repeated-header semantic exclusion, long-note-only continuations, repeated fingerprints and retained budget exhaustion after a table-search error. Actual numbered SVG table math and a figure-caption reference connect to a math-first definition, then continue its text after the table finishes. The added reference span was corrected to its actual parent paragraph, and the continuation fixture explicitly narrows its footnote region to 1,500,000 raw because the original 2,000,000 raw legitimately fit all content; source bytes, formula geometry and validation rules remain intact.
+
+Default CLI footnote regression passed 86 (10.68 s, /private/tmp/typaxis-book-v2-joint-footnote-legacy-regression.log), table regression 49 (8.13 s, /private/tmp/typaxis-book-v2-joint-table-legacy-regression.log), and pagination feature regression 92 (0.16 s, /private/tmp/typaxis-book-v2-joint-pagination-regression.log). Feature CLI check, warning/error checks on final test builds and diff whitespace checks passed. All processes finished successfully. Full book cursor/page selection and placement, recursive tables/definition tables, complete convergence, structure/PDF, formal original full-book export and all original full-book/public/controlled-host/independent/human acceptance gates remain open.
+
+### Book-2 source-order mixed candidates and empty-table topology
+
+The collector retains actual definition membership and parent table indices; a trailing empty body table no longer becomes a definition table merely by sharing its leaf index. Measurement visits adjacent empty children by child ordinal and validates their actual parent/definition, charging each child once. The all-table context prepares actual searches under one cumulative record/work owner. A dedicated successor source state tracks body leaf position, table ordinal, exact continuation and immutable footnote demand separately. Mixed candidates share the ordinary/table/footnote fit kernel while retaining actual part geometry and semantic source selections. See §14.121–14.122.
+
+Final integration passed 47 (2.12 s, /private/tmp/typaxis-book-v2-mixed-candidate-tests-final.log), default table regression 49 (7.50 s), mixed 23 (2.76 s), footnote 86 (14.75 s), pagination feature 92 (0.22 s). Exact logs and commands are in §14.122. Final builds had no warnings/errors. This evidence precedes automatic page selection. Ranked page sequences, placement/convergence, structure/PDF, recursive table content, formal original full-book export and all original public/full-book/controlled-host/independent/human gates remain open.
+
+### Book-2 automatic source-contiguous page selection
+
+Dedicated page state, selection and sequence owners enumerate actual ordinary boundaries and safe table cuts, rank them with the shared paragraph/heading/widow/orphan cost, and retry joint footnote fit in stable cost order. Common ranking charges all retained requests, comparisons and swaps; common earlier-capacity search jumps between actual table events. Enumeration, page count and per-page reflow limits fail explicitly instead of publishing a partial sequence.
+
+Source table ordinal governs zero-extent progress, immediate predecessor keeps and continuation reuse. Authored forced boundaries, final blank pages, pending-note-only pages and strict source/footnote progress remain explicit. Foreign searches/branches are rejected. These are selected page sequences; physical geometry and stable paint closure follow separately. See §14.123.
+
+Final integration passed 52 tests (4.00 s, /private/tmp/typaxis-book-v2-auto-pages-tests-4.log), including actual SVG/numbered math/list/notes, long-table source coverage, repeated-header semantic exclusion, adjacent empty tables/forced blank pages, immutable branches, exact record/work budgets and page/reflow/lookback limits. Fixtures declare the actual supplied body rectangle in their page master, keep a real paragraph in the semantic container, and give the lookback negative case room to enumerate more than one boundary. Default mixed regression passed 23 (1.28 s), footnote 86 (10.87 s), table 49 (8.04 s), pagination feature 92 (0.20 s). Exact logs/commands are in §14.123. Feature CLI check, final-build warnings/errors and diff whitespace checks passed before starting physical-placement changes. Convergence, structure/PDF, recursive table fragments/definition tables, formal original full-book export and all original public/full-book/controlled-host/independent/human gates remain open.
+
+### Book-2 physical mixed page content and marker placement
+
+Dedicated placed page/sequence owners borrow the actual successor selected sequence. Ordinary ranges, parallel table cell leaves and footnote-local ranges receive physical origins from actual body/footnote rectangles, source spacing/marker leading and selected relative offsets. Each table copy retains its cell owner and repeated-header role. Empty tables/pages create no synthetic painted leaf.
+
+A shared private ContentPlacement projects consumed-height validation, separator ink, list binding lookup and definition marker geometry under the existing cumulative charge/work counters. The primitive fragment projection now uses closed BodyLines/BodyBlocks views for paragraph baselines, native math, figures and vector viewports. Marker geometry uses actual shaped advance/ascender/descender through a closed value view, without adding a shaping dependency to pagination. The successor retains its own page owner; shared coordinates do not mint a legacy paint receipt. See §14.124.
+
+Final integration passed 52 (2.97 s, /private/tmp/typaxis-book-v2-placement-tests-final.log), including original Harano, sequence identity, blank geometry, real cell source/page bounds, repeated header roles, foreign placement rejection, exact page-selection-plus-placement budgets, actual list/footnote marker placement and baseline, three real SVG math viewports, native display baseline/viewport, and PNG/JPEG/SVG figure dimensions. Default mixed regression passed 23 (4.42 s), footnote 86 (16.05 s), table 49 (15.91 s); pagination feature regression passed 92 (0.20 s). Logs and commands are in §14.124. Feature CLI check, final compiler warning/error checks and diff whitespace checks passed. All live processes finished successfully.
+
+Remaining work includes immutable-flow page stability followed by dynamic label/line/page convergence, final math terminals and structure/PDF, recursive table fragments and definition tables, description lists and remaining authored kinds, formal original full-book export, TrueType/original-Harano full-book output, controlled-host/reproducibility and independent/human acceptance, and the complete public book-2 gate. The unbounded goal remains active and incomplete under its original scope; no partial geometry result changes those acceptance conditions.
+
+### Book-2 stable physical page selections over an immutable measured flow
+
+BookV2BodyMixedStablePages is now constructed only after independently selecting and placing actual page sequences and comparing their boundaries, source item/table ordinal and continuation, table cuts, footnote demand/candidates, separator, content/cell/marker geometry. The shared private StableSearch loop retains all pass/candidate/placement/comparison charges and enforces both declared and remaining pass limits. Record-array and demand-value comparisons share the original demand kernel. Different branch IDs cannot substitute for equality of actual pending/completed/unreferenced values, first references and definition cursor positions. See §14.125.
+
+Initial integration passed 54 (2.70 s, /private/tmp/typaxis-book-v2-stability-tests.log), including exact cumulative budgets, empty/long tables, note continuations, foreign owners and pass exhaustion. Pagination feature passed 93 (0.17 s, /private/tmp/typaxis-book-v2-stability-pagination.log). Its new adversarial kernel test rejects perpetually changing geometry at either pass bound and retains three passes when equality first occurs on the third. This establishes stability over an immutable measured flow; dynamic page-label generation and line/page convergence remain separate requirements.
+
+### Book-2 placed equation numbers, including repeated table headers
+
+Actual placed pages now retain BookV2BodyPlacedEquationNumber with flattened fragment index and an explicit repeated-header role. Placement verifies the actual book-2 source/shape identity and dimensions, then shares the original private right-edge/top-offset/minimum-gap geometry calculation. The dedicated page owner retains the resulting coordinates; no legacy math ledger or paint receipt is created. Search, copies and stability comparisons include the number records in the same cumulative budget. Repeated header copies remain distinguishable for later Artifact painting. See §14.126.
+
+Final integration passed 55 (4.64 s, /private/tmp/typaxis-book-v2-stability-number-final.log), including a multi-page actual SVG numbered header, source-to-flattened-fragment binding, exact shape/geometry/minimum gap, one semantic number and explicitly flagged copies, and exact cumulative selection/stability/placement/number budgets. The original Harano CFF test now also reaches converged body lines, block layout, stable page selection and actual number placement while retaining its original font hash and number owners. Default mixed regression passed 23 (1.35 s), footnote 86 (14.70 s), table 49 (14.59 s). Commands/logs are in §14.125–14.126; feature CLI checks passed.
+
+Remaining scope is unchanged: dynamic source-label/line/page convergence, actual final math terminals and structure/PDF, recursive table fragments/definition tables, remaining authored kinds including description lists, formal original full-book export, original Harano/TrueType full-book output and controlled-host/reproducibility/independent/human/public acceptance. These page and number results do not establish full-book or PDF/UA completion.
+
+Final pagination feature regression passed 93 (0.29 s, /private/tmp/typaxis-book-v2-stability-number-pagination-final.log). Final builds had no compiler warnings/errors and diff whitespace checks passed. All processes completed successfully; the unbounded goal remains active under its full original acceptance scope.
+
+### Book-2 stable geometry closure over actual source leaves and math bindings
+
+BookV2BodySourceClosure borrows the exact stable owner, its actual placed sequence and original measured flow. It rejects foreign searches and independently reselected sequences, resolves body/definition-local indices to actual source leaves, verifies owner/source/page identity, and requires exactly one semantic placement of every body or completed-definition paintable leaf. Forced breaks are not paint leaves. Repeated table headers remain explicit copies and cannot replace their original semantic occurrence. Unreferenced definitions remain counted explicitly and unplaced; this is not public tagged-profile admission for such definitions. See §14.127.
+
+Selected inline vectors are checked against actual source spans, binding fingerprints, placements and metrics-derived pen/baseline geometry. Native inline computations must be the exact book-2 receipt with matching source span and line baseline; legacy inline math receipts are rejected. Block vector/native math retain the actual source/binding/computation and viewport/baseline checks. Ordinary vector figures are excluded from formula counts, and semantic/repeated math counts remain separate. Equation numbers remain independent objects in the borrowed page geometry. The source bitmap, leaf/inline scans and bounded binding lookups consume the existing cumulative record/work budget without refunds.
+
+This closure is an internal successor source/geometry connection, not a final terminal spool, display-list or PDF receipt. Dynamic label/line/page convergence, final math terminal serialization and structure/PDF, recursive table fragments/definition tables, remaining authored kinds, formal original full-book export and all original TrueType/Harano/public/controlled-host/independent/human acceptance conditions remain open. The full goal remains active.
+
+Final original-Harano-enabled book-v2 integration passed 57 (3.09 s, /private/tmp/typaxis-book-v2-source-math-final.log). Coverage includes exact stable/placed identity, body/completed-definition source coverage, forced final blank pages, empty/long tables and note continuations, independent same-content stable sequence and foreign-search rejection, and exact cumulative record/work limits plus one-short failures. Actual SVG/native inline/display math, original Harano, numbered repeated headers, ordinary PNG/JPEG/SVG and vector figures, and unreferenced numbered formula definitions reach the closure. A provisional test incorrectly counted an ordinary vector figure as a formula; the source fixture was inspected and the assertion corrected to require exactly its two real formulas. No authored source or metrics were changed to pass.
+
+Pagination feature regression passed 94 (0.21 s, /private/tmp/typaxis-book-v2-source-math-pagination.log), including missing-original, duplicate-semantic and unselected-copy rejection. Feature pagination check passed (/private/tmp/typaxis-book-v2-source-math-check.log); final compiler warning/error checks passed. Exact commands and scope limits are recorded in §14.127. This change is confined to the new book-2 closure and its integration tests; the legacy implementation paths are unchanged. All processes completed normally. Final PDF/full-book/public acceptance remains incomplete.
+
+### Book-2 actual inline/display math terminals and bounded serialization
+
+BookV2BodyMathTerminals owns the exact source closure and retains actual BookV2BoundVector/BookV2MathReceipt references for every selected formula, with page/flattened fragment, definition/item/inline indices, table cell identity and repeated-header role. Inline geometry translates the actual pen/baseline/viewport; block vector pen preserves signed source origin_x, and native display origin uses the actual block left. Native computations retain their actual receipt and origin without an invented positive-area viewport. Ordinary vectors/figures are not formula terminals; equation numbers remain independent. Semantic and repeated formula counts must match the source closure exactly, while unreferenced definitions remain explicit and unplaced.
+
+The private typaxis.book-2-body-math-terminals/1 encoding uses a 264-byte header, 126-byte formula records and 81-byte separate equation-number records, with big-endian fields and explicit optional flags/zero payloads. It binds actual input/line/block/measurement/vector/native fingerprints and physical source-order records, without serializing nondeterministic search IDs or accounting counters. Record/spool storage is checked before allocation; caller prior spool and the actual native-computation lower bound share a cumulative search counter. Repeated finalization does not refund storage. All traversal/lookup/encoding and 64-byte hash blocks consume the existing work budget. See §14.128.
+
+The successor math placement/spool stage is connected; display-list vector/native paints, Artifact structure and PDF remain downstream work. Dynamic label/line/page convergence, recursive/definition tables, remaining authored kinds, formal original full-book export, original TrueType/Harano full-book and public/controlled-host/reproducibility/independent/human acceptance remain open. The full goal remains active.
+
+Final original-Harano-enabled integration passed 58 (2.34 s, /private/tmp/typaxis-book-v2-math-terminals-final.log). The test-side fixed-offset decoder checks every serialized field against the actual selected source and physical fragment, including inline origins, definition/cell roles, copies and independent numbers. Actual native inline/display, original Harano, SVG inline/block, formula-first definitions, unreferenced numbered definitions, ordinary figures and blank/nonmath pages reach the terminal stage. A separate signed-origin fixture verifies original pen preservation and changed actual-record fingerprints; the original full-book input and font remain unchanged.
+
+Independent searches/prior record charges and repeated finalization preserve identical bytes/hash for identical geometry. Repeated finalization accumulates spool rather than refunding its first allocation. Exact record/work/spool limits and one-short failures, foreign search/limits rejection and the native-computation spool lower bound pass. Pagination feature regression passed 94 (0.15 s, /private/tmp/typaxis-book-v2-math-terminals-pagination.log); feature pagination check passed (/private/tmp/typaxis-book-v2-math-terminals-check-final.log). Final test builds have no compiler warning/error. Exact commands are recorded in §14.128. PDF/full-book/public acceptance remains incomplete.
+
+Default-feature CLI check also passed (2m 03s, /private/tmp/typaxis-book-v2-math-terminals-default-check.log), with no compiler warnings/errors. Successor terminal types stay feature-gated; the legacy implementation and public profile IDs are unchanged. All processes exited normally and final diff whitespace checks passed. No full-goal completion is claimed.
+
+### Book-2 actual vector/native paints from the verified math terminals
+
+BookV2MathDisplayBuilder borrows the actual terminals and admitted /3 ledger and checks source flow, limits, exact shaping ownership and vector bindings. A foreign ledger with matching image bytes does not replace the original owner. Each resulting BookV2MathDraw retains its exact terminal, including definition/cell/repeated-header roles. SVG paints use admitted content identity, original scale/viewport/currentColor and the actual placement matrix. The resource-key check and matrix calculation are shared private geometry/resource helpers; no legacy paint receipt is issued.
+
+Native paints retain the actual computation, original glyph IDs, Unicode, logical ordinals, font sizes and order, translating glyphs/rules through the terminal origin/baseline and its real bbox. The shared project_native_paints kernel handles only physical geometry; each original/successor entry point retains its own source/font authorization. Builder record/work counters include preceding terminal/caller usage, all draw/native storage and traversal, and fixed-stack fingerprint hashing in 64-byte units. Repeated and failed builds do not refund counters. The actual draw fingerprint includes vector and native paint facts and remains independent of accounting counters. See §14.129.
+
+The successor math paint stage is connected. Complete body/text/number/marker/ordinary-figure display, Artifact/Formula structure, font plans/subset/PDF, dynamic label/line/page convergence, recursive/definition tables, remaining authored kinds, formal original full-book export and all original TrueType/Harano/public/controlled-host/independent/human acceptance remain open. The full goal remains active.
+
+Final original-Harano-enabled integration passed 60 (2.39 s, /private/tmp/typaxis-book-v2-math-display-final-2.log). Tests compare actual vector content keys/scales/RGB/matrices and native bbox, original GIDs, Unicode, logical ordinals, full font sizes and glyph/rule coordinates/order against the original terminals/computations. Original Harano, formula-first notes, signed vector origins, unreferenced definitions and ordinary figures remain covered. New fraction fixtures cover both inline/display rules and native repeated table headers. The table fixture initially copied overlapping native source spans and was correctly rejected; it was rebuilt with 13 actual nonoverlapping authored occurrences, leaving source validation and original full-book/font files unchanged. Only header paint copies reuse their original source.
+
+Repeated builds and different prior record/work counters produce identical actual draw hashes. Exact record/work limits, one-short failures, retained prior/failed work and refusal to revive exhausted work pass. A foreign ledger with the same image hash and a different limits owner are rejected. Hashing work is included in these final checks. Default native CLI regression passed 21 (1.57 s, /private/tmp/typaxis-book-v2-math-display-legacy-native.log). Display-list feature regression passed 57 (0.42 s) plus its owner-issuance compile-fail doctest (5.98 s, /private/tmp/typaxis-book-v2-math-display-regression.log). Feature CLI check passed (/private/tmp/typaxis-book-v2-math-display-check.log). Exact commands/scope are in §14.129. Final compiler warning/error and diff whitespace checks passed; all processes exited normally. Full PDF/full-book/public acceptance remains incomplete.
+
+### Book-2 actual selected body clusters reach page text draws
+
+BookV2MathDisplayBuilder::build_text now produces BookV2TextDisplay over the exact terminal/source closure and admitted /3 ledger. Each BookV2TextDraw retains its actual selected cluster and font metrics, original UTF-8/span/generated provenance, page/flattened fragment/definition/item/inline/cell identity and repeated-header role. Actual glyph IDs/order and line-local origins are translated to page coordinates through a geometry-only project_cluster helper shared with legacy body text. Logical bounds use actual pen advances and font ascent/descent; zero extents do not acquire invented positive boxes. No legacy source/paint authority is issued.
+
+Text and math projection use one cumulative builder. All retained draw/glyph slots are charged before allocation; later failures retain even unvisited reserved slots. The preceding math projection was corrected to use this same reservation rule: its successful output/hash/accounting is unchanged, but early failure now retains the entire preallocated draw/paint capacity. Text fingerprints include original cluster identity, generated/parsed namespace, exact UTF-8, font identity/size, roles and actual glyph geometry using bounded stack chunks and charged hashing work. Component generation order and prior counters do not change the actual draw hash. See §14.130.
+
+Body text is connected. Inline anchor/navigation, independent equation/list/footnote marker draws, ordinary figures, full structure/Artifact/font-plan/subset/PDF, dynamic label/line/page convergence, recursive/definition tables, missing authored kinds, formal original full-book export and all original Harano/TrueType/public/controlled-host/independent/human acceptance remain open. The complete goal stays active.
+
+Final original-Harano-enabled integration passed 61 (2.55 s, /private/tmp/typaxis-book-v2-text-display-final-3.log). Independent checks traverse actual page/fragment/inline owners, comparing exact cluster/font pointers, UTF-8, parsed/generated spans and provenance, original glyph IDs/order, coordinates and logical bounds. A dedicated notes/table test covers generated references, note text and repeated text copies sharing their original cluster/provenance. The original Harano Japanese-IVS fixture now reaches actual stable page text draws: the original text reconstructs exactly, and 日+U+E0100 retains one cluster with the original font's actual glyph ID/hash. Only its small test page geometry is sized for real text; original full-book/source/font files remain unchanged. Missing variation-sequence rejection still passes.
+
+Combined text/math exact and one-short record/work limits, prior work, reordered component generation, repeated text hashes and retained failed work all pass. Immediate post-allocation failures retain all reserved body and math slots before reaching the first draw. Default-feature CLI text regression passed 29 (2.09 s, /private/tmp/typaxis-book-v2-text-display-legacy-text-final.log). An initial filename-based filter matched zero included tests and was not counted; it was replaced with the actual `text` name filter. Display-list feature regression passed 57 (0.44 s) and its owner-issuance compile-fail doctest passed 1 (4.38 s, /private/tmp/typaxis-book-v2-text-display-regression.log). Commands are recorded in §14.130. Final build warning/error checks and diff whitespace checks pass; all processes exited normally. Whole-goal completion is not claimed.
+
+### Book-2 independent equation-number glyph display
+
+BookV2MathDisplayBuilder::build_equation_numbers now creates BookV2EquationNumberDisplay from the actual placed numbers and exact successor shapes, checking parent/number owners, fingerprint and dimensions. Each draw retains its actual placement, source shape, admitted font metrics and source-ordered clusters. Repeated-header roles and flattened fragment/page identity stay on the borrowed placement; unreferenced/unplaced numbers do not produce draws. Formula replacement text and body text do not absorb the authored number.
+
+Shared private equation_number_font_metrics reads the real admitted SFNT hhea at the actual font size, after each legacy/successor entry point checks its own face/hash/index. The shared project_number kernel retains signed half-leading, UAX #9 L2 visual run origins and original source cluster order, original glyph IDs and offsets, parsed UTF-8 spans and logical boxes. Successor results do not issue legacy shape/paint authority. All retained and temporary arrays are reserved before allocation; lookup, traversal, bidi reversal, glyph projection and fixed-stack hashing consume the same cumulative builder record/work as body and math draws. Failed/repeated builds do not refund those allocations. Actual number hashes exclude accounting counters and component generation order. See §14.131.
+
+Independent equation-number draws are connected. List/footnote marker and ordinary figure display, inline anchor/navigation, full structure/Artifact/font-plan/subset/PDF, dynamic label/line/page convergence, recursive/definition tables, missing authored kinds, formal original full-book export and original Harano/TrueType/public/controlled-host/independent/human acceptance remain open. The complete goal remains active.
+
+The added original-Arial-Unicode bidi fixture exposed a real successor coverage issue: book-2 reused the legacy receipt's level-0/1-only check, rejecting actual Hebrew/numeric mixed runs at level 2. Coverage traversal now takes an explicit maximum: the legacy wrapper retains 1, and the successor uses the core BidiLevel maximum of 125. Run IDs, contiguous source ranges, nonempty clusters and glyph bounds remain checked. This does not widen the frozen public legacy receipt/schema. The new check remains within the dedicated 1.5 shape path.
+
+Final integration passed 62 (4.94 s, /private/tmp/typaxis-book-v2-number-display-final-2.log), with explicit original Harano and Arial Unicode paths. The new Arial fixture verifies SHA-256 876af2cd4854644e7f3e7feb2f688997fdb3343c6df6693611209c9dfb47ccec and mixes Hebrew, U+05B0 and digits in `(אבְ 12 ג)`. It requires actual multiple bidi levels and multi-glyph clusters, checks negative half-leading, exact original-text reconstruction and exclusion of number text from body draws. Expected visual positions use pairwise minimum-embedding-level parity rather than reproducing the kernel's reversal algorithm. Original Harano numbers, repeated SVG-number table headers and unreferenced/unplaced numbers pass the same source/font/glyph checks. No original full-book package or font was rewritten.
+
+Combined math/text/number exact and one-short record/work budgets, prior work, reordered component generation, repeated number hashes and retained failed/retried allocations pass. Default-feature CLI number regression passed 8 (1.56 s, /private/tmp/typaxis-book-v2-number-display-legacy.log); display-list feature regression passed 57 (0.55 s) and owner-issuance compile-fail doctest passed 1 (4.42 s, /private/tmp/typaxis-book-v2-number-display-regression.log). Commands and evidence are recorded in §14.131. These demonstrate actual number display and shared-geometry compatibility, not full PDF/full-book/public acceptance.
+
+The shaping coverage regression passed 1 (0.00 s, /private/tmp/typaxis-book-v2-number-display-coverage.log): identical level-2 runs remain rejected by the legacy wrapper but accepted by the successor maximum; out-of-range glyphs and invalid run IDs remain rejected, and valid level-0 legacy input remains accepted. Feature CLI check passed (/private/tmp/typaxis-book-v2-number-display-check.log). Final integration/regression/coverage builds have no compiler warnings/errors, all processes exited normally and final diff whitespace checks pass. The whole goal remains active.
+
+### Book-2 list/footnote marker glyphs and separator ink
+
+BookV2MathDisplayBuilder::build_markers now creates BookV2MarkerDisplay from actual placed list and definition labels, retaining exact original marker shapes, placements and target fragments. Definition/local item/cell/repeated-header roles and local versus flattened fragment indices remain explicit. Two immutable placement streams are merged in fragment order without a document-sized sorting allocation; a definition label precedes list labels sharing its first fragment. Font face/hash/index and actual advances are checked against admitted resources and placement geometry.
+
+Shared private project_marker verifies the complete generated run/provenance and source owner/key, contiguous store-issued cluster subspans and glyph ranges, exact UTF-8 coverage, total advance and zero net Y advance. It preserves original glyph IDs/offsets and actual logical boxes without inventing zero extents. Legacy callers retain their own source/font/paint authority. ProductionGeneratedMarkerCluster keeps its generated namespace/provenance and actual page glyphs. BookV2FootnoteSeparatorDraw retains the real page ink and first note's flattened fragment insertion point; final Artifact authorization remains a structure-stage concern.
+
+All marker/cluster/glyph and separator slots are reserved before allocation under the same cumulative math/text/number builder counters. Traversal, projection, separator lookup and bounded-stack hashing consume work; success, failure and retry do not refund reservations. Actual marker fingerprints include source, roles, generated spans/UTF-8, glyph geometry and separator ink/insertion position, excluding prior counters and component generation order. See §14.132.
+
+Marker and separator draws are connected. Ordinary figures, inline anchor/navigation and the complete display, structure/Artifact/font-plan/subset/PDF, dynamic label/line/page convergence, recursive/definition tables, missing authored kinds, formal original full-book export and original Harano/TrueType/public/controlled-host/independent/human acceptance remain open. The complete goal remains active.
+
+Final integration passed 65 (4.54 s, /private/tmp/typaxis-book-v2-marker-display-final-3.log), with explicit original Harano and Arial Unicode paths. Independent tests reconstruct marker order from actual page streams and compare exact placement/shape/fragment pointers, source-store text/provenance, admitted fonts, glyph IDs/positions/cluster bounds and separator ink/first-note insertion points. A 12-definition fixture checks source-order note labels 1–12, body list labels 1.–12. and a note-local 98. (25 total markers), including definition-before-list ordering on one fragment. A repeated-header fixture keeps one semantic 10. marker plus explicit display copies sharing its actual provenance/fingerprint.
+
+An original-Harano unordered-list fixture now draws actual • glyphs for three items beginning with body text, an ordinary vector figure and a numbered formula. It checks original font hash/nonzero GIDs and the actual figure/math fragment targets; original font/full-book files remain unchanged. Existing original Harano IVS, original Arial bidi labels, native/SVG math, footnotes, tables and ordinary-image integration remains green. Combined component exact/one-short budgets, prior work, reordered generation, repeated hashes and failed/retried accounting pass. Immediate post-allocation failure retains every reserved marker/glyph/separator slot before its first draw, and retry revives neither work nor records.
+
+Default-feature footnote CLI regression passed 86 (9.53 s, /private/tmp/typaxis-book-v2-marker-display-legacy-footnote.log); list regression passed 11 (1.48 s, /private/tmp/typaxis-book-v2-marker-display-legacy-list.log), covering actual note PDF/separator artifacts, source numbers/text, continuation, nested lists, formula/image-first items, generated glyph budgets and independent PDF probes. Feature CLI check passed (/private/tmp/typaxis-book-v2-marker-display-check.log). Exact commands are in §14.132. Final builds have no compiler warnings/errors, all processes exited normally and final diff whitespace checks pass. Full PDF/full-book/public acceptance remains incomplete.
+
+### Book-2 ordinary image display and nonpainting inline anchor positions
+
+BookV2MathDisplayBuilder::build_images now retains the original prepared Figure or BookV2BoundVector, actual admitted image and physical fragment for PNG/JPEG/SVG figures and non-formula inline/block vectors. Source identity, alternative text, dimensions, original vector scale/color/content key and page matrix remain intact. Definition/local item/inline/cell/repeated-header roles stay explicit. Formula vectors remain exclusively on the math display path; captions remain original body text. No legacy paint authority is minted.
+
+build_anchors retains actual source markers and fragment roles, translating selected line-local x/baseline into checked page coordinates. Binary line-range lookup avoids rescanning all chapter anchors on every line. Anchors in paragraphs with no selected line remain explicitly unpositioned; positioned anchors in unreferenced definitions remain on the unpainted source flow. These records generate no glyph/image/MCID. Destination resolution for empty paragraphs and final navigation authorization remain pending.
+
+Both components preflight and reserve every retained slot before allocation and share cumulative traversal/lookup/hash work with math, body text, numbers and markers. Private image/anchor fingerprints bind actual source, source spans/identity, alternative text, physical geometry and roles, excluding accounting counters and component generation order. Failure and retry retain all reservations and consumed work. See §14.133.
+
+Ordered whole-display assembly, navigation/structure/Artifact/font plans/subset/PDF, dynamic labels/line/page convergence, recursive/definition tables, missing authored kinds, formal original full-book export and original Harano/TrueType/public/controlled-host/independent/human acceptance remain open. The complete goal remains active.
+
+The anchor-only paragraph fixture exposed a preceding limitation: inline layout preserves its real marker with no position, but current body-flow preparation rejects it with EmptyParagraph. It cannot yet reach BookV2AnchorDisplay. A dedicated regression records that fail-closed boundary; the unpositioned field is not evidence of accepted empty-paragraph destinations. Empty source-flow/destination integration remains open.
+
+### Book-2 complete ordered body-display ownership
+
+BookV2MathDisplayBuilder::build_body owns all six components from the exact same source/admitted ledger. BookV2BodyDisplay retains original component owners and geometry while its BookV2BodyPaintIndex list interleaves actual physical fragments: note separator, note/list labels, authored inline text/math/images, then independent equation numbers. Nonpainting anchors stay outside the paint stream. Repeated-header roles remain on original component records.
+
+A six-stream merge uses fixed stack cursors, with no document-sized auxiliary sort buffer. All order slots are charged before allocation, and candidate comparisons, traversal and fixed-stack hashing share cumulative work. It checks stream exhaustion, monotone order and duplicate body-paint positions. typaxis.book-2-body-display/1 binds component fingerprints and actual interleaving, excluding accounting counters. Failure retains all prior component and order reservations. See §14.134.
+
+The ordered private display is connected; navigation/structure/Artifact/font plans/subset/PDF, empty-paragraph flow/destinations, dynamic labels/line/page convergence, recursive/definition tables, missing authored kinds, formal original full-book export and original Harano/TrueType/public/controlled-host/independent/human acceptance remain open. The complete goal remains active.
+
+Final integration for §14.133–14.134 passed 67 (4.60 s, /private/tmp/typaxis-book-v2-body-display-final-2.log), with the original Harano and Arial Unicode paths. Tests compare original figure/binding/image/fragment pointers, bytes/hash/alternative text, raster dimensions, vector content key/scale/RGB/matrix, actual inline translation and note/table/header roles. The combined fixture covers four body anchors around a hard break, note anchor/image, original header image/anchor copies on separate pages and unreferenced definitions remaining unpainted. A separate test confirms the anchor-only paragraph's existing EmptyParagraph rejection. An initial noncontiguous style source_order fixture was corrected to actual array order; validation was not relaxed.
+
+The ordered body display matches an independent per-fragment reconstruction of the authored inline stream. Every component paint occurs once, note separators/labels precede content, independent numbers immediately follow their formula and anchors never enter the paint list. Original Harano IVS/bullets/numbers, original Arial bidi numbers, native fraction glyphs/rules, SVG formulas and ordinary PNG/JPEG/SVG/captions pass through this integrated path.
+
+Image/anchor exact and one-short combined budgets, prior work, reordered generation, repeated hashes and failed/retried accounting pass. A black-box binary search locates the earliest post-reservation work failure and verifies every reserved slot remains charged. Whole-display exact/one-short budgets, prior work, repeated order/hash and late failure/retry accounting also pass. Empty math components reserve their owner record even when the next work step fails, so a repeated whole build can consume another record; tests correctly require no refund/work revival rather than falsely assuming no new allocation.
+
+At the image/anchor stage, display-list feature regression passed 57 (0.55 s) plus the owner-issuance compile-fail doctest 1 (4.85 s, /private/tmp/typaxis-book-v2-image-anchor-display-regression.log). Default-feature CLI check after whole-display integration passed (47.42 s, /private/tmp/typaxis-book-v2-body-display-default-check.log). Exact commands are recorded in §14.134. Final integration/regression/default builds have no compiler warnings/errors; all processes exited. Full PDF/full-book/public acceptance remains incomplete, and the goal stays active.
+
+### Book-2 source-issued font usage and common glyph selection
+
+BookV2BodyDisplay now issues private-constructor BookV2FontUse views from actual text, marker, equation-number and native-math glyphs. It checks actual admitted font instances/face/hash/index, preserves original IDs/size/text/spans, and uses the native receipt's real instance table and receipt/computation/paint/logical identity. Native glyphs never acquire fabricated text spans. Images/vector formulas/separators and native rule slots do not create font usages. verify_resources checks the exact admitted ledger and original flow limits for downstream resource entry.
+
+The new typaxis-resources book-v2-staging feature exposes BookV2FontSelectionBuilder. Its source is the actual ordered display; retained usage views preserve paint/cluster order and original ownership. It selects FontInstanceId/GID-ordered unique glyph ranges from both real TrueType/TTC and CFF /2 instances, deduplicating repeated-header glyphs while retaining each original display usage. Unused fonts and SVG geometry do not become font usage. This is glyph selection, not actual subset/CID/ToUnicode/ActualText/font-object finalization or a legacy encoder/paint permit.
+
+All usage/glyph/font records and actual typed buffer bytes are reserved before allocation, inheriting display record/work and terminal/native spool lower bounds plus caller prior consumption. Font capacity is bounded by the actual instance table rather than repeated glyph count. A fallible in-place heapsort charges every comparison/swap and stops immediately on exhausted work. Deduplication never refunds reserved capacity. Fixed-stack hashing binds original display/admission, usage order, actual instance/table/font hash and original glyph selection; accounting counters and repeated generation do not change the fingerprint. See §14.135.
+
+Actual subsetting/font embedding plans, navigation/structure/Artifact/PDF, empty-paragraph flow/destinations, dynamic labels/line/page convergence, recursive/definition tables, missing authored kinds, formal original full-book export and all original-full-book/public/controlled-host/independent/human acceptance remain open. The complete goal remains active.
+
+Final integration passed 68 (9.82 s, /private/tmp/typaxis-book-v2-font-selection-final-4.log). Independent checks compare each issued font use against actual paint/cluster glyph-slice pointers or native GID, original text/scalar/source identity, actual instance table/admitted font and size. A test-side BTreeMap/BTreeSet oracle matches production's fallible heapsort and deduplicated instance/GID ranges. Display copies retain individual usages while sharing selected original glyphs; image/rule/invalid slots never invent font usage.
+
+The new original-Harano-plus-TTC fixture uses CFF /2 and TrueType together in one actual body display and retains both original font bytes/face identities in two selected fonts. Original Harano hash remains 66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717. Existing original Harano IVS/bullets/numbers, original Arial bidi numbers, native fraction, notes/table copies and unreferenced definitions pass the same selection checks. Original fonts and formal full-book packages were not rewritten.
+
+Combined exact/one-short record/spool/work limits, prior work, repeated fingerprints and late failure/retry accounting pass. A black-box binary search locates the first post-reservation work failure and proves all reserved records/bytes remain charged. Empty selection retries may consume another owner record but never refund capacity or revive work. Feature CLI check passed (30.47 s, /private/tmp/typaxis-book-v2-font-selection-check.log); default CLI check passed (54.74 s, /private/tmp/typaxis-book-v2-font-selection-default-check.log). Exact commands are recorded in §14.135. Final integration/check builds have no compiler warnings/errors and all processes exited. Actual subset/CID/ToUnicode/font-object plans and full-goal acceptance remain unfinished.
+
+### Book-2 font closures before evaluation and subset writing
+
+BookV2FontSelectionBuilder::prepare_font_closures now accepts only a selection from the exact same body-display owner and inherits its record/spool/work lower bounds. BookV2FontClosures borrows that actual selection; each closed font borrows its selected font. TrueType/TTC closure retains original SFNT table/loca data and actual composite dependencies; CFF /2 uses its existing sealed glyph closure. Both include .notdef and preserve sorted original GIDs with dense subset-GID correspondence. All font closures are prepared before Type2 execution or subset writing. No legacy font receipt is minted.
+
+The shared TrueType subset kernel is split into preparation and writing; its legacy entry immediately performs both, preserving successful font bytes, composite remapping, metrics and naming. The successor preparation callback accounts table/loca/tree/queue/map allocation before growth and charges traversal/tree work. Composite dependencies are visited through the existing validated walker without an extra child Vec. Queue growth is bounded by actual glyph count. Ordered-tree work uses conservative 128-unit charges for the 16-bit key domain. Existing callers retain their original budget owner and use the same kernel.
+
+CFF requested-set/source-GID/canonical-string storage is bounded before its existing /2 closure call. Selected-CID capacity is checked for TrueType as well; .notdef and composite dependencies do not consume a selected CID. Private closure hashes bind original selection/font identity and actual mappings, excluding accounting counters. Identical-byte selections from another display owner are rejected, and failure/retry never refunds prior reservations or work. See §14.136.
+
+This connects actual display font selection to prepared closures. Book-2 final font binary writing, aggregate CFF evaluation session integration, CID/ToUnicode/ActualText/font objects, navigation/structure/Artifact/PDF, empty-paragraph flow/destinations, dynamic labels/line/page convergence, recursive/definition tables, missing authored kinds, formal original full-book export and all full-book/public/controlled-host/independent/human acceptance remain incomplete. The whole goal stays active.
+
+Final integration passed 69 (4.75 s, /private/tmp/typaxis-book-v2-font-closures-final-2.log). Actual original Harano/TrueType/TTC mixed selection, IVS, original Arial bidi numbers, native formulas, text/labels, notes and table copies retain exact selected-font ownership, kind, sorted unique original glyphs beginning with .notdef, source bounds and dense subset mapping. CFF matches precisely selected glyphs plus .notdef; TrueType additionally closes actual composite references. Repeated hashes, foreign identical-byte display rejection, exact/one-short combined record/spool/work, prior work and failed/retried accounting pass.
+
+The new CID-capacity fixture checks six real selected glyphs for Result: cap 1 rejects with SelectedGlyphLimit before writing, while cap 6 permits the seven-glyph closure including .notdef. Shared subset kernel regression passed 4 (0.01 s, /private/tmp/typaxis-book-v2-closure-kernel-final-2.log); its original-Harano-specific test remained ignored in that command and is not counted. The existing explicit compound fixture now tests charged preparation: original 3 references 2, closure is [0,2,3], split/prepared writing matches legacy bytes, and the embedded composite refers to dense glyph 1. Exact/one-short preparation budgets and existing independent read-fonts parsing pass.
+
+Default-feature CLI text regression passed 29 (1.88 s, /private/tmp/typaxis-book-v2-font-closures-legacy-text.log), including actual text/font/structure/PDF and anchor checks. The final conservative tree-work coefficient change only changes arguments to the legacy no-op charge callback; code inspection and the final shared kernel test confirm legacy bytes/placement remain unchanged. Feature CLI check passed (21.87 s, /private/tmp/typaxis-book-v2-font-closures-check.log). Commands and scope are recorded in §14.136. Final builds have no compiler warnings/errors and all processes exited. Book-2 final font writing/PDF plans and full-book/public/full-goal acceptance remain unfinished.
+
+
+### Book-2 actual TrueType subsets and aggregate CFF program evaluation
+
+The shared TrueType writer now measures actual closed glyph/table lengths before allocation and checks the output font-byte cap before reserving output. BookV2FontSelectionBuilder::write_truetype_font binds the actual closed font, its original TT/TTC face, dense GIDs and actual instance name to standalone SFNT bytes, original-unit advances, PDF metrics and hashes. It writes compound references directly into the destination while reading the immutable original glyph, avoiding per-glyph clones and offset vectors. Shared legacy writing retains placeholder instance 0 followed by its existing receipt-name rewrite; direct instance 37 output matches the old rewrite in the compound regression.
+
+Actual display fixtures check SFNT checksum, maxp/hhea counts, original TT/TTC hmtx advances and bearings, UPM, name table and loca/glyf sizes. Repeated output bytes/metrics/fingerprints, exact/one-short record/spool/work, prior work, invalid index/kind, foreign display and late failure/retry accounting pass. The original Harano+TTC mixed fixture writes the TTC program. Initial final integration passed 69 (4.79 s, /private/tmp/typaxis-book-v2-tt-writer-final.log); shared subset regression passed 4 (one original-font-specific test ignored at that stage, /private/tmp/typaxis-book-v2-tt-writer-kernel.log); default CLI text regression passed 29 (1.97 s, /private/tmp/typaxis-book-v2-tt-writer-legacy-text.log). See §14.137.
+
+The same builder now retains one aggregate Cff1SubsetSessionV2. prepare_cff_programs accepts actual closures from the same display, checks the complete source-face order, then evaluates their real original programs under document and Type2-specific budgets. Source SHA/GID cache entries and consumed operations/segments survive errors. Cache hits still charge lookup work while avoiding repeated execution/allocation. Returned statistics are observations, not font/PDF receipts.
+
+The shared Type2 engine charges operand/call-stack and outline growth before allocation. Fixed stack operand copies preserve the original operand Vec allocation across path operators; the previous mem::take path could discard it and force later uncharged growth. Outline capacity grows explicitly from 4 by doubling with capacity deltas charged before reserve. Charged /2 evaluation and selection wrappers retain original FD, widths, outline commands, canonical charstrings and failure context, and the existing /1 and /2 entry points use the same kernel.
+
+Font crate tests passed all 62 including all 8 explicitly enabled original-Harano tests (4.04 s, /private/tmp/typaxis-book-v2-cff-evaluation-original-final.log). This includes all 23,060 original glyph programs, original subset/UVS/vertical/admission and alias cache reuse. The added multiple-path/outline-growth test verifies exact/one-short record/byte/work, unchanged commands/charstrings and retained failed evaluation counters. Earlier successor integration passed 69 (4.70 s, /private/tmp/typaxis-book-v2-cff-program-tests-2.log); final combined-owner regression is recorded below after completion. See §14.138.
+
+Book-2 CFF binary emission remains to be budgeted and connected; no unchecked writer bypass or font/PDF receipt has been introduced. CID/ToUnicode/ActualText/font objects, navigation/structure/Artifact/PDF, empty paragraphs, dynamic labels/line/page convergence, recursive/definition tables, missing authored kinds, formal original full-book export and every full-book/public/controlled-host/independent/human acceptance gate remain unfinished. The full goal stays active.
+
+
+Final successor integration passed 69 (12.70 s, /private/tmp/typaxis-book-v2-font-program-final.log). It checks actual source SHA/GID cache cardinality, unchanged Type2 counters on repeated requests, charged cache lookups, exact/one-short cumulative budgets, prior work and foreign identical-byte display rejection. A work-boundary search reaches the first attempted Type2 operation, verifies no partial glyph enters the cache and proves retry does not refund allocation/work or restart the session. The combined-owner case retains actual TrueType programs while evaluating CFF and repeats both operations on one builder.
+
+Final resource subset regression passed all 5 with the original Harano test explicitly enabled (2.80 s, /private/tmp/typaxis-book-v2-font-kernels-original-final.log), including the new shared TrueType writer and original CFF /3 shaping-to-subset and independent parsing. Final font tests passed all 62 as recorded above. The integration command uses the original Harano and Arial Unicode paths from §14.136 and cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_resources --locked --target-dir /private/tmp/typaxis-vmb-book-build -- --include-ignored. Font and resource tests use the original Harano variable with the same manifest/locked/target-dir, respectively -p typaxis-font --lib -- --include-ignored and -p typaxis-resources --lib subset -- --include-ignored. No original font or full-book package was changed. Full goal acceptance remains open.
+
+
+Default-feature CLI text regression after the shared CFF changes passed 29 (5.41 s, /private/tmp/typaxis-book-v2-font-program-legacy-text-final.log), using the same manifest/locked/target-dir with -p typaxis-cli --bin typaxis text. Existing body/footnote/number/anchor/font/text/structure/PDF probes passed. All four final builds have no compiler warning/error, all processes exited and git diff --check passed. Book-2 CFF binary writing and final font/PDF/full-goal acceptance remain unfinished.
+
+
+### Book-2 CFF binary emission and complete mixed font programs
+
+BookV2FontSelectionBuilder::write_cff_font now writes actual CFF /2 programs from closed fonts of the exact display, after aggregate evaluation of all selected faces. It returns a source-borrowing BookV2CffSubset with real binary/mapping/advance/metrics/name/fingerprints and preserves the builder's evaluation cache and counters on failure. Invalid index/kind and foreign identical-byte displays are rejected. See §14.139.
+
+The shared charstring encoder now targets both an allocation-free byte counter and the real output Vec. It measures exact encoded length before checking aggregate charstring bytes and reserving output. Original Type2 bytes remain unchanged. Charged subset writing accounts actual glyphs, charstrings, cmap/UVS traversal and storage, source table/name copies, final SFNT allocation and identity encoding before allocation. CID table bounds come from real selected glyph/data lengths and the existing 32 bounded DICT convergence rounds; no whole-font or maximum-font-byte multiplier is used. UVS node/vector growth is charged only for retained entries and actual capacity growth. The prepared writer never evaluates a missing glyph implicitly.
+
+All 62 font tests including the eight explicitly enabled original-Harano tests passed (4.24 s, /private/tmp/typaxis-book-v2-cff-writer-font-tests.log). The original subset remains 5,052 bytes with SHA-256 3b9ddbc2e0415a302c95f550113ddacfcc60d2f6fb219ad7f9296753f8823463. Added writer checks cover exact/one-short record/byte/work, an exact 5,052-byte font cap and 5,051-byte refusal before final SFNT buffer allocation, unchanged counters and rejection of an unevaluated cache. Existing independent parsing, outline, cmap and UVS comparisons pass. Initial CFF-writer integration passed 69 (11.19 s, /private/tmp/typaxis-book-v2-cff-subsets-tests.log), checking actual source/instance/GIDs/hmtx/UPM/name, deterministic bytes/metrics/fingerprints, cache reuse and cumulative failure/retry behavior.
+
+write_font_programs now retains actual programs for every closed font in a single BookV2FontPrograms owner. It evaluates CFF faces first, reserves all font slots, then writes original TrueType/TTC or CFF formats in actual source order. Shared views expose actual binary/name/hash/original-unit advance/dense GIDs and byte-derived PDF metrics. The aggregate owner borrows the exact closures and hashes their actual font programs, excluding counters; incomplete writing returns no complete font set. See §14.140.
+
+Final integration passed 69 (5.11 s, /private/tmp/typaxis-book-v2-all-font-programs-tests.log). It verifies complete source-font ownership, actual signatures and hashes, all glyph mappings/advances, deterministic bytes/metrics/fingerprints, original Harano+TTC mixed retention, empty font sets, exact/one-short aggregate record/spool/work, prior work, foreign identical-byte display rejection and retained failure/retry charges. Writer fixtures allow enough finite work for full original cmap/UVS traversal and independently test the measured exact boundary; implementation limits remain enforced.
+
+Actual original-format font binaries are now connected. CID/ToUnicode/ActualText/font objects, navigation/structure/Artifact/PDF, empty paragraphs, dynamic label/line/page convergence, recursive/definition tables, missing authored kinds, formal original full-book export and all full-book/public/controlled-host/independent/human acceptance remain incomplete. The full goal stays active.
+
+
+Final shared resource subset regression passed all 5 with the original Harano test explicitly enabled (2.75 s, /private/tmp/typaxis-book-v2-cff-writer-resource-tests.log). Default-feature CLI text regression passed 29 (1.92 s, /private/tmp/typaxis-book-v2-cff-writer-legacy-text-tests.log), covering existing actual body/footnote/number/anchor/font/text/structure/PDF probes. The final four commands have no compiler warnings/errors and all processes exited.
+
+Commands use --manifest-path workspace/Cargo.toml --locked --target-dir /private/tmp/typaxis-vmb-book-build. Integration uses the original Harano/Arial variables from §14.138 and cargo test -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_resources -- --include-ignored. Font tests use the original Harano variable and cargo test -p typaxis-font --lib -- --include-ignored; resource subset tests use that variable and cargo test -p typaxis-resources --lib subset -- --include-ignored. Default regression uses cargo test -p typaxis-cli --bin typaxis text. Original fonts and formal full-book packages remain unchanged. Actual binary generation is verified at the selected-font/component scope; final CID/PDF/full-book acceptance is still open.
+
+### Book-2 actual CID plans and PDF font auxiliary bytes
+
+BookV2FontSelectionBuilder::plan_cids now borrows the complete actual font programs, checks their exact display/selection ownership, and assigns sorted selected-glyph CIDs independently of TrueType composite dependencies. It retains real dense subset GIDs and normalized original advances; CFF requires CID/subset-GID identity. All fonts/bindings/usages/CID slots are reserved before allocation under inherited record/spool/work. Single-scalar/single-glyph observations determine unambiguous ToUnicode candidates. Conflicts remain ambiguous, and each usage compares actual CID extraction with its original source; mismatches retain borrowed original ActualText. No old-profile receipt conversion or Type2 reevaluation is used. See §14.141.
+
+The real GSUB fixture exercises ABA sharing one glyph, fi becoming one glyph, and X becoming D/E. Each reconstructs its exact original source through occurrence-local ActualText. Its generator derives a test font from the existing fixture, with fixed timestamps and repeatable SHA-256 b296ee1acf2e43a6f7f8e33331532ab899f653fd1cfc6c4a5468c7f07f4cd7bb. Original Harano/system fonts were not modified. CID integration passed 70 (5.47 s, /private/tmp/typaxis-book-v2-cids-shaping-tests.log), including original-font pointers/mappings/widths, independent Unicode-set oracles, full source reconstruction, finite exact/one-short budgets and retained failure/retry charges.
+
+BookV2FontStreamBuilder now borrows those actual CID plans and emits real ToUnicode, TrueType CIDToGIDMap, CFF CIDSet and BOM-prefixed UTF-16BE ActualText tokens. Physical encoders are shared with the existing PDF path; source/limit/object authority is not shared or translated. An allocation-free counting pass determines exact payload length before full metadata/payload reservation, then the same encoder emits bytes under cumulative record/spool/output/work. Source-bound fingerprints exclude counters. ActualText replacement scopes remain the responsibility of subsequent marked-content/structure stages. See §14.142.
+
+Initial font-stream integration passed 70 (7.25 s, /private/tmp/typaxis-book-v2-font-streams-tests.log). Independent test-side CMap and UTF-16 decoders verify actual bytes, bfchar counts, unique CIDs, original text reconstruction, real subset mappings, every dense CFF bit and unused trailing bits. Exact/one-short record/spool/output/work, prior work, repeated output and failures immediately before/after allocation reservation pass. The final integration adds mismatched-limit identity rejection; its completed result is recorded below.
+
+Shared PDF regression passed all 87 including the explicitly enabled original-Harano PDF test (1.16 s, /private/tmp/typaxis-book-v2-font-streams-pdf-final.log). A new 101-mapping CMap test covers an empty mapping, supplementary IVS, BOM behavior, CIDSet byte boundaries and exact/one-short output limits. A test constructor Option type error was corrected before this successful run. Default-feature CLI text regression passed 29 (2.16 s, /private/tmp/typaxis-book-v2-font-streams-legacy-tests.log), including actual existing text/font/structure/PDF probes. Commands and unchanged original-font paths are specified in §14.142.
+
+Book-2 font objects/content streams/navigation/structure/Artifact/final PDF, empty paragraphs, dynamic labels/line/page convergence, recursive/definition tables, missing authored kinds, formal original full-book export and every full-book/public/controlled-host/independent/human acceptance gate remain open. These selected-font/payload checks do not complete the full goal.
+
+Final integration passed all 70 (5.58 s, /private/tmp/typaxis-book-v2-font-streams-final.log), including explicit rejection of changed effective limits for the same actual source owner. Final integration/shared-PDF/default-CLI builds have no compiler warnings/errors and every process exited. The full goal remains active; actual book-2 font-object and final PDF integration are the next open dependencies, not verified completion claims.
+
+### Book-2 actual font PDF objects
+
+BookV2FontObjectBuilder now borrows the real font-stream owner and emits six contiguous objects per actual font: Type0, CIDFont, descriptor, original-format subset program, ToUnicode and auxiliary stream. TrueType uses CIDFontType2/FontFile2/Length1/CIDToGIDMap; CFF uses CIDFontType0/FontFile3/OpenType/CIDSet. Actual names, metrics, advances and bytes come from source programs/CID plans. CFF widths include .notdef; TrueType widths retain selected CIDs. See §14.143.
+
+Font dictionary fields are shared with the legacy writer through one physical field visitor. Legacy builds its existing PdfDictionary; book-2 writes the same fields directly. Name escaping, stack-only numeric formatting, format-specific italic-angle policy and width representation remain shared. No legacy receipt or object-graph authority is translated. The fragment retains actual source ownership, object IDs/roles/font indexes/ranges and a source/bytes/object-number fingerprint. A later complete PDF owner must still close page resources, structure and disjoint graph allocation.
+
+The builder checks nonzero/overflow/object-count limits and exact effective-limit ownership, inherits cumulative record/spool/output/work, counts exact bytes without allocation, then reserves all metadata and output before encoding. Source ToUnicode/auxiliary output credit is applied once when object output is reserved; spool charges the new complete copy, while source ActualText stays reserved for body content. Once reserved, credit and work cannot be recovered by failed/repeated builds.
+
+Initial integration passed 70 (5.78 s, /private/tmp/typaxis-book-v2-font-objects-tests.log), covering all six roles, actual source bytes/references/name/metrics/widths, contiguous IDs/ranges, exact/one-short aggregate budgets, prior work, object-number boundaries, deterministic repeated output and retained failure/retry charges. Final additions locate the work boundary immediately before/after complete allocation reservation and reject mismatched effective limits.
+
+Optional test-only probe capture wraps actual font objects in an empty untagged PDF page, with expectations derived from original source programs/CID plans. tools/verify_book_v2_font_objects.py uses pypdf strict parsing; the first 21 probes cover 18 TrueType and 4 CFF fonts. It independently verifies references, W arrays, metrics, original subset hashes, ToUnicode and CID auxiliary bytes. Its self-test rejects four changes: one font-program byte and the CIDFont kind for each format. These probes do not claim body layout, PDF/UA or full-book acceptance.
+
+Shared PDF regression passed all 87, including the explicitly enabled original-Harano PDF test (1.11 s, /private/tmp/typaxis-book-v2-font-objects-pdf-tests.log). Exact commands and probe scope are in §14.143. Final integration/default-CLI/independent verification results follow after completion. Book-2 body content, navigation/structure/Artifact/full graph/final PDF, empty paragraphs, dynamic label/line/page convergence, recursive/definition tables, remaining authored kinds, formal original full-book export and every full-book/public/controlled-host/independent/human gate remain unfinished. The complete goal stays active.
+
+Final integration passed 70 (7.20 s, /private/tmp/typaxis-book-v2-font-objects-final.log), including mismatched-limit rejection and immediately-before/after-reservation work boundaries. Fresh final probes in /private/tmp/typaxis-book-v2-font-objects-probes-final passed independent strict parsing: 21 PDFs, 18 TrueType fonts, 4 CFF fonts and 4 tamper rejections (/private/tmp/typaxis-book-v2-font-objects-independent.log). Default-feature CLI text regression passed 29 (2.70 s, /private/tmp/typaxis-book-v2-font-objects-legacy-tests.log) with the same manifest/locked/target-dir and -p typaxis-cli --bin typaxis text. Final integration/shared-PDF/default-CLI builds have no compiler warnings/errors, all processes exited and git diff --check passed. Original fonts and the formal original full-book package are unchanged. Full-goal acceptance remains open.
+
+### Book-2 actual glyph/rule command bytes
+
+BookV2TextCommandBuilder now borrows actual font objects and walks the original ordered body display, consuming its real CID usages exactly once by paint/slot. It emits body clusters, list/note markers, equation-number clusters, native glyphs/rules and footnote separators at their existing positions. Font instance/size, CID, x/y and rule Rect values are taken from actual selected display records, without reshaping or inventing coordinates. Each command retains paint/slot/usage/page and byte range; image and vector-math paints explicitly have no commands in this contribution. See §14.144.
+
+Raw commands exclude marked-content and q/Q wrappers; actual occurrence ActualText tokens remain borrowed from the source owner so the later paragraph/Formula/Artifact stage can choose correct replacement scopes. Page-level Y inversion also remains with the page owner. Physical font/glyph/rule encoding is shared with the existing body/footnote/native writer. Exact i64 16.16 coordinates use i128 decimal conversion and fixed-stack encoding, preserving prior bytes without per-glyph temporary format strings.
+
+The builder inherits font-object record/spool/output/work, counts all command/paint metadata and exact payload length without allocation, reserves complete capacity, then uses the same encoder for output. Hashes bind actual source/font objects, bytes and full occurrence/page/range correspondence. Retried failures retain reservations and consumed work. Source ActualText is not copied into these bytes or charged a second time.
+
+Integration passed 70 (5.39 s, /private/tmp/typaxis-book-v2-text-commands-tests.log), including original Harano/TrueType/TTC, Arial bidi numbers, native formulas, notes/markers/repeated table headers. Independent decimal-to-fixed parsing verifies every glyph/rule coordinate, font/reset/CID and original usage/page/slot; exact/one-short record/spool/output/work, prior work, before/after-reservation failure boundaries, repeated fingerprints, retained charges and mismatched-limit identity rejection pass.
+
+Shared PDF regression passed 88 with original Harano explicitly enabled (1.35 s, /private/tmp/typaxis-book-v2-text-commands-pdf-tests.log). The new physical-number test includes i64 extrema, signed unit/integer boundaries, exact 1/65536 values and known glyph bytes. Default CLI text regression passed 29 (2.38 s, /private/tmp/typaxis-book-v2-text-commands-legacy-tests.log), retaining actual legacy text/font/structure/PDF checks.
+
+Optional test probes capture actual fonts and commands in a single inspection page, omitting images, original page assembly, parent formula replacement and tags/navigation. tools/verify_book_v2_text_commands.py independently parsed 21 probes with pypdf: 1,671 glyphs, 59 rules and 7 ActualText scopes; font-resource references, operators and exact source geometry/CIDs matched. pdftotext extracted the real GSUB fixture as the complete original ABA fi X D E f i, and two same-length matrix/horizontal-scale tamper cases were rejected. Evidence: /private/tmp/typaxis-book-v2-text-commands-independent.log. The probe envelope is not production book-2 page/structure assembly or PDF/UA evidence.
+
+Commands and original font paths follow §14.143–144, with optional TYPAXIS_BOOK_TEXT_COMMANDS_PROBE=/private/tmp/typaxis-book-v2-text-commands-probes-01. Independent verification uses the bundled pypdf Python with tools/verify_book_v2_text_commands.py <directory> --pdftotext /opt/homebrew/bin/pdftotext --self-test. Integration/shared-PDF/default-CLI builds have no compiler warnings/errors; all processes exited. Original fonts and the formal full-book package remain unchanged.
+
+Book-2 image/vector commands, complete marked content/navigation/structure/Artifact/page/object graph/final PDF, empty paragraphs, dynamic label/line/page convergence, recursive/definition tables, missing authored kinds, formal original full-book export and all full-book/public/controlled-host/independent/human acceptance remain incomplete. The complete goal stays active.
+
+### Book-2 actual image selection and PNG/JPEG programs
+
+BookV2BodyDisplay::image_use now borrows real admitted images and actual owner/page/viewport/matrix/color from ordinary Figure and vector math paints. BookV2FontSelectionBuilder::select_images preserves all source-ordered uses while deduplicating only selected content by media/source SHA and vector parser/IR identity. Exact bytes/dimensions and actual resource pointers are checked. The minimum used logical ID represents aliases; individual occurrences and owners remain distinct. Shared fallible heapsort and all preallocated slots consume inherited record/spool/work. See §14.145.
+
+write_raster_programs decodes actual PNG color/alpha through the existing bounded kernel, compresses each with pinned Flate settings, and borrows verified normalized JPEG bytes and their actual admission attestations. Decoder buffers, separate deflater workspaces and every compressed output reservation are charged before allocation. The level-6 input/probe work weight is not a claim about exact CPU instruction counts. SVG slots remain explicitly absent from raster programs. No old receipt translation or per-placement reencoding is used. See §14.146.
+
+Final image integration passed 71 (6.17 s, /private/tmp/typaxis-book-v2-image-resources-final.log), including actual PNG/JPEG/SVG logical aliases, exact/one-short budgets, prior work, source identity, repeatability and retained failure/retry consumption. Default CLI raster regression passed 5 (2.00 s, /private/tmp/typaxis-book-v2-raster-legacy-tests.log). Independent Pillow/zlib verification passed 5 probes: PNG 3, JPEG 2, alpha 3 (/private/tmp/typaxis-book-v2-raster-programs-independent.log). Commands and original-font paths follow §14.143/145–146; test-only probe output is /private/tmp/typaxis-book-v2-raster-programs-probes-final. These are actual image payloads, not Image/SMask objects, complete page commands or whole-book PDF evidence.
+
+### Book-2 actual vector Form programs and SVG alpha compositing
+
+BookV2VectorProgramBuilder borrows the actual raster/image selection, keeps actual selected-image and admitted-IR pointers, and emits SVG Form content plus canonical alpha-pair dictionaries. Both source bytes and IR fingerprints bind each program. Raster slots remain explicitly absent. All draw-state slots, sort/dedup work, exact payload buffers and inherited record/spool/output/work are charged before allocation. Shared vector_encoding contains the physical root clip, viewBox, transforms, clips, path, color and line-style kernels; no legacy receipt/owner conversion is introduced. See §14.147.
+
+Independent rendering detected incorrect overlap for SVG fill alpha 0.75 and stroke alpha 0.5 when using PDF B: mean RGB error 7.52 at 144 DPI, with 6.90% of pixels differing by more than 32. Book-2 now paints fill then stroke with separate path operations. Frozen existing callers retain their prior operators. Fixed thresholds (mean <= 2/255, fraction over 32 <= 3%) were not relaxed. The permitted fixture syntax was also corrected after clipPath transform was rejected by unchanged admission rules.
+
+After the compositing fix, integration passed 71 (7.25 s, /private/tmp/typaxis-book-v2-vector-programs-compositing.log). Initial independent verification passed 5 probes covering IR /1 and /2, 21 draws, 6 alpha states, 473 operators and 10 root-clip/state-reference tamper rejections. All 10 original-SVG/PDF render comparisons at 144/288 DPI passed. The verifier uses pypdf and independent Fraction-based geometry; renderers are MuPDF 1.28.2 and rsvg-convert 2.62.3. Its PDF envelope is an inspection fixture, not book-2 final object/page/structure output. Final owner-binding and before/after-payload-reservation retry tests, regression and independent results are recorded after completion below.
+
+Final vector-program integration passed 71 (8.19 s, /private/tmp/typaxis-book-v2-vector-programs-owner-final.log). Exact selected-image/IR pointers, source-SHA fingerprints, complete state uses, raster exclusion, exact/one-short record/spool/output/work, prior work and mismatched-limit identity rejection pass. Tests locate the first payload reservation's work boundary and verify failures immediately before/after it, including retained output/spool/records on retry. Empty vector selections follow the same builder.
+
+Final independent verification passed 5 probes, 473 operators, 21 draws, 6 states and 10 tamper rejections, plus all 10 render comparisons. Maximum mean RGB error was 1.7278/255; maximum fraction above 32 was 1.6667%. Evidence: /private/tmp/typaxis-book-v2-vector-programs-independent-final.log; probes: /private/tmp/typaxis-book-v2-vector-programs-probes-owner-final. Versions: pypdf 6.10.0, Pillow 12.3.0, MuPDF 1.28.2, rsvg-convert 2.62.3. See §14.147 for exact invocation and unchanged thresholds.
+
+Shared PDF regression passed 89 with original Harano explicitly enabled (1.27 s, /private/tmp/typaxis-book-v2-vector-programs-pdf-final.log). Default CLI vector regression passed 16 (1.78 s, /private/tmp/typaxis-book-v2-vector-programs-legacy-final.log); the controlled-host/external PDF-UA test machine_precomposed_vector_external remains ignored, not passed. Final integration/shared-PDF/default-CLI builds have no compiler warnings/errors and all processes exited. Whitespace verification passed.
+
+Book-2 actual Image/SMask/Form/ExtGState objects, image placement commands, complete marked content/navigation/structure/Artifact/page/object graph/final PDF, empty paragraphs, dynamic label/line/page convergence, recursive/definition tables, missing authored kinds, formal original full-book export and full-book/public/controlled-host/independent/human acceptance remain incomplete. Original fonts/formal full-book data were not modified. The complete goal remains active.
+
+### Book-2 actual image and Form objects
+
+BookV2ImageObjectBuilder now emits actual PNG/JPEG Image and optional SoftMask objects, or SVG Form and canonical ExtGState objects, from the sealed selected-image/vector/raster chain. It checks effective limits and contiguous nonzero object IDs against overflow and max_pdf_objects, retains per-image object ranges, and binds actual source/bytes/roles/ranges in its fingerprint. Shared physical image/form dictionary fields preserve existing successful byte ordering/spacing. No legacy graph/receipt authority is translated. See §14.148.
+
+Exact payload/metadata counting precedes allocation. Previously reserved vector content/state output receives one credit at the first object allocation; all copied spool bytes are charged, and failed/repeated builds cannot reuse that credit. Integration passed 71 (6.22 s, /private/tmp/typaxis-book-v2-image-objects-final.log), covering actual references/bytes, exact and one-short budgets, maximum object numbers, prior work, identity, repeatability and failures immediately before/after payload reservation. An initial test-side cumulative-output assertion was corrected before this successful run.
+
+Independent pypdf/Pillow/IR verification passed 28 PDF probes: PNG 3, JPEG 2, vector 14, soft masks 3 and alpha states 15. All 38 actual-object render comparisons and 38 geometry/payload tamper rejections passed (/private/tmp/typaxis-book-v2-image-objects-independent-final.log). Raster pixel comparison explicitly uses MuPDF -A 0 to disable resampling; vector AA conditions and thresholds are unchanged. Versions and commands are in §14.148. The empty/one-image inspection pages do not implement real book page assembly or structure.
+
+Shared PDF regression passed 89 with original Harano enabled (1.28 s, /private/tmp/typaxis-book-v2-image-objects-pdf-tests.log). Default CLI raster passed 5 (1.15 s, /private/tmp/typaxis-book-v2-image-objects-legacy-raster.log), and vector passed 16 (1.96 s, /private/tmp/typaxis-book-v2-image-objects-legacy-vector.log); the controlled-host external test remains ignored. Complete page resources, marked content/navigation/structure/Artifact/final PDF and full-book acceptance remain incomplete.
+
+### Book-2 actual image placement commands
+
+BookV2ImageCommandBuilder emits actual per-occurrence raster/vector placement commands, retaining source paint/owner/page and real Image/Form object references. Raster viewport transforms and SVG matrices/currentColor use shared physical encoders; BI resource aliases keep separate occurrences and q/Q isolation. MCID/Alt/ActualText and page assembly remain subsequent owners. See §14.149.
+
+Final integration passed 71 (8.42 s); independent pypdf inspection passed 28 PDFs, 11 raster and 136 vector placements, 128 shared-resource uses and 47 tamper rejections. Shared PDF regression passed 89 (1.25 s), and normal CLI check passed without warnings/errors. Evidence uses /private/tmp/typaxis-book-v2-image-commands-{final,independent-final,pdf-tests,check-final}.log.
+
+Broad production regression passed 244 actual tests, including both 5,000 distinct SVG Forms and 5,000 aliases. Five public tests initially rejected the test-only font environment and one saved-job test lacked its required explicit input. Clean public rerun passed 5 (2.04 s), and the explicitly supplied saved formal VMB job passed 1 (1.36 s). Logs: /private/tmp/typaxis-book-v2-image-commands-{production-tests,public-tests,saved-vmb}.log. These functional scale tests are not controlled-host performance acceptance.
+
+The saved original small VMB input produced a one-page tagged common-driver PDF (86,609 bytes, SHA-256 a1f90f2c6f1de613a92cbe106cfb1561c614e721701959668bcffbc9b643c51d). Strict pypdf comparison verified identical page content, Form payloads, resource names and extracted text against the prior public PDF; object ordering and XMP UA declaration differ across the two envelopes. This is neither byte-identical final PDF evidence nor book-2/full-book/PDF-UA acceptance. All processes exited. Complete semantic/page/object assembly and remaining original full-book requirements remain open.
+
+### Book-2 source-owned marked-content boundaries
+
+BookV2MarkedScopeBuilder now covers all actual ordered paints with source-owner/page/fragment ranges and dense per-page MCIDs. Only consecutive text clusters sharing the same actual owner, fragment and display role coalesce. Formula, Figure, generated labels and independent equation numbers retain separate scopes. Every repeated-header paint becomes Pagination/Header Artifact; footnote separator ink becomes Layout Artifact. Artifacts receive no MCID/Alt/ActualText, while original owner information remains available for placement diagnostics. See §14.150.
+
+Actual BDC bytes use original native speech or resolved vector Formula ActualText; ordinary vectors preserve explicitly authored replacement text. Source Alt remains borrowed for eventual StructElem ownership. All metadata and bytes are counted and reserved before allocation; closing EMC bytes are also charged to output. Cumulative source budgets, exact effective limits, repeatability and retained failed/retried consumption are enforced. Initial compile errors around the undeclared pagination dependency and optional replacement text were corrected by using actual math-display accessors; no dependency was added.
+
+Integration passed 71 (6.83 s, /private/tmp/typaxis-book-v2-marked-scopes-tests-02.log). Independent pypdf parsing passed 28 probes covering 1,844 paints and 565 scopes: 422 semantic, 102 repeated-header Artifacts, 41 separators and 64 ActualText replacements. All 565 MCID/tag tamper cases were rejected (/private/tmp/typaxis-book-v2-marked-scopes-independent.log). Shared PDF regression passed 89 with original Harano enabled (1.39 s, /private/tmp/typaxis-book-v2-marked-scopes-pdf-tests.log).
+
+Boundary bytes and source groups are not complete marked page content or a structure tree. Glyph extraction correction insertion, vector extraction anchors, StructElem/ParentTree/navigation, complete page/object assembly, remaining layout/source features and formal original full-book/public/controlled-host/independent/human acceptance remain incomplete. Exact commands and scope limits are recorded in §14.150.
+
+Normal-feature CLI cargo check also passed (1 min 19 s, /private/tmp/typaxis-book-v2-marked-scopes-default-check.log). Final integration, shared PDF and default CLI builds have no compiler warnings/errors. All processes exited and whitespace verification passed.
+
+### Book-2 actual marked body commands and extraction objects
+
+BookV2MarkedContentBuilder now consumes the actual text/image commands and source-owned scopes exactly once in selected page order, including empty pages. Each scope contains real BDC/EMC and isolated glyph/rule/Image/Form commands. Original selected text fragments, generated markers and complete equation labels receive one replacement scope; native/vector Formula uses its parent replacement without nested CID-level duplication. Artifacts remain outside semantic extraction. Body coordinates remain Y-down until the final source page owner supplies its actual MediaBox/transform. See §14.151.
+
+Vector extraction uses actual viewport dimensions/x and baseline, plus a nonpainting Type3 glyph. The real Font/CharProc/ToUnicode objects are generated only when needed, after nonoverlapping original font/image IDs. All source display pointers and effective limits must match. Image-prefix record/spool/work and vector-prefix output must include the full actual text contribution; independent branches cannot hide behind maximum totals. One-time credit replaces reserved raw commands/scope bytes and CID-local replacement tokens at successful buffer reservation. Copied spool and all metadata are fully charged, and failures/retries cannot reuse the credit.
+
+Final integration passed 71 (6.14 s, /private/tmp/typaxis-book-v2-marked-content-owner-final.log), including source identity, one-short prefix budgets, object collisions and exact/one-short additional object limits. Independent parsing passed 28 probes, 107 pages, 565 scopes, 1,797 glyphs, 59 rules, 147 image placements, 47 extraction glyphs, 358 ActualText scopes and 143 Artifacts. The actual GSUB source text extracted exactly in one probe; 91 content/MCID/Tr/ActualText tamper cases were rejected. All 40 paired MuPDF render comparisons were pixel-identical after removing extraction glyphs. Evidence: /private/tmp/typaxis-book-v2-marked-content-independent-owner-final.log. The verifier's initial pypdf page-ownership deprecation was corrected before the final run.
+
+Shared PDF regression passed 89 with original Harano enabled (1.13 s), default CLI text passed 29 (2.36 s), and the saved formal small VMB input passed 1 (1.48 s). Logs: /private/tmp/typaxis-book-v2-marked-content-{pdf-tests,legacy-text,saved-vmb}.log. The saved-input PDF is byte-identical to the preceding common-driver PDF, SHA-256 a1f90f2c6f1de613a92cbe106cfb1561c614e721701959668bcffbc9b643c51d. Original fonts and the full-book package were not modified.
+
+The inspection envelope supplies a fixed MediaBox and no structure tree; it does not prove final source page selection, navigation, PDF/UA or full-book acceptance. Complete structure/navigation/global page/object assembly, remaining layout/source features, formal original full-book export and all required full-book acceptance remain open. Exact commands and boundaries are recorded in §14.151.
+
+Normal-feature CLI check also passed (21.01 s, /private/tmp/typaxis-book-v2-marked-content-default-check.log). Final integration, shared PDF, default CLI regression/check builds have no compiler warnings/errors. All processes exited; whitespace verification passed.
+
+## Book-2 source hierarchy and actual MCID ownership (design §14.152)
+
+Added an allocation-free source walker and `BookV2SourceStructureBuilder` bound
+to the actual marked body. The registry retains source kinds/languages/spans/Alt,
+list/caption/table/note generated slots, table grid attributes, ordered child
+links and every actual semantic page/MCID occurrence. Header/separator Artifacts
+have no content binding. Quote uses BlockQuote; the other eleven authored
+container kinds use Sect while retaining their exact kind.
+
+Generated nodes count on top of the navigation's complete admitted source AST
+(including native math, metadata, outline and page rules). Both AST count and
+structure depth have exact/one-short tests. Metadata allocation, sorting,
+lookups and hashing inherit the completed body's cumulative budgets; this
+registry generates no new PDF bytes and does not resurrect consumed raw-byte
+credits. The syntax library passed **112 tests** in **1.27s**; see
+`/private/tmp/typaxis-book-v2-source-structure-syntax-all-final.log`.
+
+Initial actual CLI integration passed **71 tests** in **5.72s**, followed by
+**71 tests** in **5.53s** with source probes. Final verification is being recorded
+below. `tools/verify_book_v2_source_structure.py` independently reconstructs the
+source tree/grid and parses actual BDC commands; it is not a final PDF/UA check.
+
+Remaining: selected note reading order and reference relations, Headers/IDTree,
+annotation/OBJR, actual StructElem/ParentTree bytes, source page masters and final
+object graph/PDF, pending source/layout forms, original formal full-book export,
+and all public/controlled-host/independent/human full-book acceptance gates.
+
+Final actual CLI integration: **71 passed, 5.34s**, original Harano and Arial
+Unicode enabled, using the same locked manifest/isolated target flags as the
+preceding stages. Log:
+`/private/tmp/typaxis-book-v2-source-structure-owner-final.log`.
+
+Final independent source/actual-command verification: **28 probes, 975 nodes,
+422 MCID bindings, 143 excluded Artifacts, 170 tamper rejections**. Run:
+
+```sh
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  tools/verify_book_v2_source_structure.py \
+  /private/tmp/typaxis-book-v2-source-structure-probes-final --self-test
+```
+
+Log: `/private/tmp/typaxis-book-v2-source-structure-independent-final.log`.
+The probe environment variable is `TYPAXIS_BOOK_SOURCE_STRUCTURE_PROBE`, used
+only in the feature integration tests. Normal-feature CLI check passed in
+**0.07s** (`/private/tmp/typaxis-book-v2-source-structure-default-check.log`).
+Final syntax/integration/check logs contain no compiler warning/error; all
+processes from this stage finished and format/diff whitespace checks passed.
+No original font or formal full-book package changed. The goal remains active;
+this source registry does not complete final structure objects or full-book
+acceptance.
+
+## Book-2 note relations and dependency-closed page fitting (design §14.153)
+
+Added `BookV2StructureRelationBuilder` over the actual source registry/marked
+body. It retains exact source indices, kinds, languages, spans, Alt and MCIDs;
+records reciprocal Reference/Note/Link/Lbl relations; distinguishes painted
+references and unplaced definitions; and assigns the first painted source
+reference as the static return target. The actual stable first-demand forest
+roots notes in body content and is checked for cycles before source-ordered
+refinement. Each note moves after its last painted reference that does not
+make it its own ancestor. Shared inline branches use stable source-owner order.
+All dependency edges remain explicit, including cycle back-edges. This is a
+single deterministic refinement, not a global fixed-point/optimality claim.
+
+Final tree traversal validates every node exactly once, sibling/parent links
+and actual generated depth. Lists retain Decimal/Disc; table Headers relations
+come from intersecting actual TH/TD column spans. Headless tables gain no
+invented headers. The preceding registry's inline footnote Text binding was
+corrected to the generated FootnoteLabel; ordinary anchor references still bind
+to Reference. Raw page commands are unchanged by that binding correction.
+
+The new actual cycle fixture exposed an existing book-2 fit gap: the shared
+reservation starts entry demands, leaving a newly referenced definition
+unstarted. Added a bounded, iterative dependency search only for that failure
+case. Real legal boundaries are tried in cost/end order, with actual immutable
+demand states and at most one fragment per definition per page. Backtracking
+discards unselected references and their first-demand provenance. Continuations,
+forced boundaries, atomic references, separator/inter-definition spacing and
+capacity remain enforced. Work/candidate exhaustion remains an error; failed
+branches and retries retain cumulative charges. The frozen-profile wrapper
+keeps its previous behavior via the default shared hook.
+
+Actual CLI integration passed **74 tests, 5.71s**, including original Harano and
+Arial Unicode, cyclic/reversed/shared-branch references, unplaced notes,
+backtracking without phantom demand, later continuation, exact geometry and
+one-unit-short rejection. Record/work/spool/output limits, owner/effective-limit
+identity and repeatability are tested at their real owners. The old book-2
+new-demand refusal expectation was replaced with successful two-note closure;
+insufficient geometry is now independently tested at its measured boundary.
+Log: `/private/tmp/typaxis-book-v2-structure-relations-tests-final.log`.
+
+Independent reconstruction passed **30 probes, 27 notes, 31 reference edges,
+60 header relations, 23 moved notes, 4 explicit unplaced notes and 95 tamper
+rejections**. Source/actual-command reconstruction passed **30 probes, 1,038
+nodes, 438 MCID bindings, 145 excluded Artifacts and 180 tamper rejections**.
+Logs: `/private/tmp/typaxis-book-v2-structure-relations-independent-final.log`
+and `/private/tmp/typaxis-book-v2-structure-relations-source-independent-final.log`.
+Commands and test-only probe/font environment are recorded in §14.153. The
+relation verifier consumes actual stable first-demand provenance; it does not
+independently rerun pagination or validate a complete PDF/UA object graph.
+
+Remaining: final StructElem/ParentTree/IDTree and annotation/OBJR/navigation,
+actual source page masters and complete PDF assembly, pending source/layout
+features, formal original full-book export and every required full-book/public/
+controlled-host/independent/human gate. No original font or full-book package
+was modified. The overall goal remains active.
+
+Shared pagination default-feature regression passed **93 tests, 0.18s**
+(`/private/tmp/typaxis-book-v2-structure-relations-pagination-regression.log`).
+The explicitly supplied saved formal small VMB job passed **1 test, 1.36s**
+(`/private/tmp/typaxis-book-v2-structure-relations-saved-vmb.log`). Its 86,609-byte
+PDF is byte-identical to the preceding stage, SHA-256
+`a1f90f2c6f1de613a92cbe106cfb1561c614e721701959668bcffbc9b643c51d`
+(`/private/tmp/typaxis-book-v2-structure-relations-saved-vmb-comparison.log`).
+This checks the frozen common path on that original small input, not book-2
+full-book acceptance. The exact input/output and commands are in §14.153.
+
+Final default-feature CLI production regression passed **249 tests, 250.91s**,
+including both 5,000 distinct SVG Forms and 5,000 real aliases, plus the five
+public CLI cases with no test-only font environment. The saved-job case was
+excluded only from this broad command and passed separately with its explicit
+input above. Command: `cargo test --manifest-path workspace/Cargo.toml --locked
+--target-dir /private/tmp/typaxis-vmb-book-build -p typaxis-cli --bin typaxis
+production_ -- --skip production_common_driver_saved_vmb_job`. Log:
+`/private/tmp/typaxis-book-v2-structure-relations-legacy-production.log`.
+This is local functional scale regression, not controlled-host time/RSS
+acceptance. Final integration/regression builds contain no compiler warning or
+error; all processes exited successfully. Targeted Rust formatting, Python
+verifier syntax and diff whitespace checks passed. Overall acceptance remains
+open as recorded above.
+
+## Book-2 actual navigation geometry and source Text references (design §14.154)
+
+Source links, anchor/reference/note destinations, multiline annotation rectangles,
+outline parent/sibling/descendant relations now follow the actual selected body.
+Repeated headers remain Artifacts without duplicate annotations. The original
+source ancestry determines ink ownership, independently of Note reading-order
+relocation. Painted links to unplaced destinations and nested link ownership
+are rejected with exact source owners. No coordinates are invented for unplaced
+source content.
+
+Text-format references use authored outline labels or ordinary heading content,
+with generated Counter provenance through real shaping, placement and ActualText.
+Ordinary Reference/Link/Span slots preserve annotation and MCID ownership.
+Missing complex labels fail explicitly; Number references and dynamic page-label
+feedback remain incomplete. Frozen legacy source flows opt out.
+
+CLI: 76 passed (6.37 s), syntax: 113 passed (1.18 s). Independent navigation:
+33 probes, 79 destinations, 67 source links, 68 rectangles, 3 outline entries,
+1 wrapped link, 2 semantic rejections and 66 tamper rejections. Commands/logs and
+precise scope are recorded in §14.154. Full-source PDF assembly is in progress;
+public/full-book/controlled-host/independent/human acceptance remains open.
+
+## Book-2 actual source-page PDF assembly (design §14.155)
+
+BookV2PdfAssemblyBuilder now connects real font/image/semantic-anchor objects,
+marked page commands, source MediaBox/TrimBox, complete StructElem/ParentTree/
+IDTree, table Headers, Note/Reference relations, annotation/OBJR, named
+destinations, outlines and source metadata/XMP in one inspectable PDF 1.7.
+Original asset object numbers/bytes are retained. Free object numbers have a
+validated classic-xref free list. Source body/frame mismatch and unselected
+multiple masters or unsupported header/footer/column content fail explicitly.
+No fixed inspection page or placeholder source content is substituted.
+
+Record/spool/output/work limits, one-time replacement credit, repeated output,
+late failure/retry retention and source asset-byte identity are checked. Source
+metadata uses the shared streaming XMP field encoder; no wall-clock values or
+PDF/UA conformance marker are added.
+
+Final CLI integration: 77 passed (7.37 s). Independent result: 19 actual source
+PDFs, 113 pages, 1,015 structure nodes, 68 annotations and 122 tamper rejections.
+13 frame mismatches and 1 unselected multiple-master source were rejected.
+All 19 PDFs / 113 pages rendered with MuPDF and extracted with pdftotext without
+diagnostics; 18 prior byte-identical PDFs reused their completed render evidence.
+Original Harano CFF/Japanese/IVS is included. PDF shared tests: 88 passed plus the
+explicit original-font test, 1 passed. Default CLI production: 249 passed,
+including both 5,000-SVG tests and public CLI cases. Saved formal VMB common
+input: 1 passed, 86,609-byte PDF byte-identical to the previous stage,
+SHA-256 a1f90f2c6f1de613a92cbe106cfb1561c614e721701959668bcffbc9b643c51d.
+Commands, exact logs and limitations are recorded in §14.155.
+
+This is a private inspectable PDF owner, not a VerifiedPdfBytesReceipt or public
+profile/PDF-UA authorization. Dynamic page-reference feedback, Number/complex
+Text labels, empty paragraphs, recursive/definition tables, remaining authored
+kinds/page regions, formal full-book export and public/controlled-host/
+independent/human full-book acceptance remain incomplete. The complete goal
+remains active. Original full-book input and original fonts were not modified.
+
+
+## Book-2 shared PDF pipeline and actual page-reference iteration (design §14.156)
+
+Added a stateful PDF pipeline over the actual selected display. Every font/image,
+marked-content, structure, navigation and source-page assembly owner stays alive
+through the callback. Completed consumption survives stage failure and retries;
+unsupported navigation/assembly never reaches the callback.
+
+The private source-to-PDF driver reuses the original resource ledger, vector
+bindings and native computations, then rebuilds source labels, shapes, lines,
+tables/footnotes, stable pages, geometry and complete PDF for every candidate.
+A Page-reference candidate must match actual target pages, then match the next
+complete display/PDF before reaching the consumer. Unplaced definitions retain
+explicit reference candidates without inventing destinations. Reference-free
+input needs one candidate with the actual two-pass physical-page proof.
+
+Reshape and page pass allowances span candidates, as do native/line/page/PDF
+work and completed downstream record/spool/output charges. Source admission and
+temporary source/shaping storage still have stage-local caps; this is not proof
+of a unified temporary-allocation ledger. The actual forward-reference fixture
+changes 1 to page 12 and converges in 3 candidates, 6 line reshapes and 6 page
+passes. Its default 4-reshape allowance fails explicitly; 6 succeeds, 5 fails.
+Exact and one-short work/record/spool/output limits are also exercised. Final
+forward-reference charges: records 16,680; spool 673,626; output 137,454; work
+289,063. Native fractions/repeated headers and all four vector kinds with
+original equation labels use this same driver.
+
+Final integration: 82 passed (8.08 s). Independent checks: 28 actual source PDFs,
+including 5 saved driver callbacks, 179 pages, 1,528 structure nodes, 97
+annotations, 14 explicit unsupported inputs and 201 tamper rejections. The
+checker reconstructs Page-reference observations from original source and
+checks actual PDF text, including coherent candidate/observation tampering.
+All 27 unique PDF byte sequences / 167 pages rendered and extracted without
+diagnostics; final probes match the rendered set byte-for-byte. Shared PDF
+regression: 89 passed (1.13 s), including the original Harano test. Shared layout
+regression: 69 passed (0.35 s). All final processes exited 0 without compiler
+warnings/errors. Commands, logs and exact limitations are recorded in §14.156.
+
+Public dispatch, VerifiedPdfBytesReceipt/manifests, Number/complex Text labels,
+empty paragraphs, recursive/definition tables, remaining authored/page forms,
+formal full-book export, controlled-host performance and independent/human
+full-book acceptance remain open. No PDF/UA conformance declaration or new
+public profile is published. The full goal remains active.
+
+
+## Book-2 empty paragraphs and nonpainting source destinations (design §14.157)
+
+Empty and anchor-only paragraphs now explicitly select one line at their computed
+line height, with zero logical units and no fabricated glyph, space or image.
+Existing line metrics split leading using ties-to-even. Source margins/indents
+and actual list/note marker extents continue through the shared body geometry.
+The legacy source adapter does not opt into this behavior. Ordinary itemization
+still rejects an accidental empty unit sequence.
+
+The display retains nonpainting source lines and actual fragment/header roles;
+this includes break-only lines between consecutive authored hard breaks. Their
+source line boxes supply destinations but never annotation rectangles or MCIDs.
+Navigation chooses the actual first page/fragment and ignores repeated headers
+for source destinations. Inline anchors use the selected baseline. No direct
+layout/pagination dependency was added to the PDF crate.
+
+Final integration: 85 passed (8.19 s), covering an entirely blank PDF, source
+indents, a blank paragraph forcing another page, empty repeated table headers,
+a demanded empty note, page references and consecutive hard breaks. Font-free
+retry accounting retains the extra owner reservation rather than refunding it.
+Independent PDF: 36 PDFs including 9 actual driver callbacks, 213 pages, 1,694
+structure nodes, 107 annotations, 14 explicit unsupported inputs and 261 tamper
+rejections. Navigation: 43 probes, 113 destinations, 93 links, 91 rectangles and
+103 tamper rejections. All 35 unique PDF byte sequences / 201 pages rendered and
+extracted without diagnostics. The entirely blank driver PDF independently has
+one page, zero fonts/XObjects and no extracted text. Shared linebreak: 46 passed;
+shared PDF: 89 passed (1.21 s), including original Harano. Commands, exact logs
+and default/saved-input regressions are recorded in §14.157. The saved formal
+VMB common driver passed (2.68 s); its 86,609-byte PDF is byte-identical to the
+previous stage, SHA-256 a1f90f2c6f1de613a92cbe106cfb1561c614e721701959668bcffbc9b643c51d.
+Default CLI production regression also passed: 249 tests (263.33 s), including
+both 5,000-SVG cases and public CLI/manifest integration. All final processes
+exited 0 without compiler warnings/errors; format and diff checks passed.
+
+Number/complex Text references, recursive/definition tables, remaining authored
+and page forms, formal full-book export, public CLI/manifests/final receipt and
+controlled-host/independent/human full-book gates remain incomplete. No source
+content or original fonts were replaced; no public profile or PDF/UA declaration
+is issued. The complete goal remains active.
+
+## Book-2 description-list carrier and term owners (design §14.158)
+
+[ADR-0040](../adr/ADR-0040-book-2-description-lists.md) records the separate
+`description_list` / item / term grammar for the original book's 30 description
+lists. The implementation retains term classes, language, source owner/span and
+rich inline children separately from definition blocks in all general recursive
+slots. There is no `ordered`/`start` or generated bullet/number in this carrier.
+The sealed version boundary rejects serialization and deserialization through
+legacy 1.4, including a manually constructed empty legacy description variant.
+Normal public contract/profile dispatch remains unchanged.
+
+The temporary frozen supporting-field validation view visits the term through
+its existing inline-bearing shape, but the original successor tree and canonical
+bytes retain the description kind and every term/definition field. Item and term
+charges are separate; the nesting limit visits inline term children at their real
+depth. Native-math source/version and vector metric validation visit terms both
+on decode and after typed mutation on encode. Precise vector errors retain the
+original `/document/blocks/0/items/0/term/children/1/metrics/advance` location.
+
+This checkpoint does **not** grant description-list syntax, flow or PDF admission.
+The source lowerer returns `DescriptionListStaging`; downstream staging guards
+cannot generate an ordinary list marker or silently discard the term. Shared
+source-span, internal-link, reference and speech visitors include the term where
+applicable. Typed domain/style/term-body layout, selected splitting and actual
+`Lbl`/`LBody` MCIDs, formal exporter and full-book acceptance remain required.
+
+The first focused test compilation failed because the build volume ran out of
+space. Only rebuildable caches under `/private/tmp/typaxis-vmb-book-build/debug/incremental`
+were removed (the active document-package family was retained); approximately
+20 GiB was recovered. Source files, original full-book inputs, fonts, rendered
+PDFs and verification evidence were retained. The first completed focused run
+passed 12 tests and exposed one test expectation error: the full AST charge is
+14, consisting of the 12 document nodes plus the unchanged metadata/outline roots.
+The exact 14/13-node and 6/5-depth boundary expectations were corrected.
+
+Shared syntax regression completed with **114 passed**, no ignored tests,
+**1.40 s**, terminal exit 0:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-syntax --lib --features book-v2-staging
+```
+
+Log: `/private/tmp/typaxis-book-v2-description-syntax-tests-01.log`. This includes
+an admitted-carrier test that requires the exact source-lowering staging error,
+as well as the preexisting old/successor source, language, navigation and flow
+regressions. Minor source formatting after that run changes no behavior.
+
+Final verification for this checkpoint:
+
+- Document-package full unit regression: **57 passed**, no ignored tests,
+  **0.44 s**, terminal exit 0. Command uses the same manifest/locked/target-dir
+  with `-p typaxis-document-package --lib`. Log:
+  `/private/tmp/typaxis-book-v2-description-carrier-tests-final.log`.
+  This includes all 13 successor carrier tests, six of them new description
+  tests; the previously failing exact AST boundary now passes.
+- Book-2 integration: **85 passed**, no ignored tests, **8.37 s**, terminal exit 0.
+  Log: `/private/tmp/typaxis-book-v2-description-cli-tests-01.log`. The same
+  manifest/locked/target-dir command uses `-p typaxis-cli --bin typaxis --features
+  book-v2-staging book_v2_resources -- --include-ignored`. Test-only environment:
+  `TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf`,
+  `TYPAXIS_NUMBER_BIDI_FONT=/System/Library/Fonts/Supplemental/Arial Unicode.ttf`,
+  `TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBE=/private/tmp/typaxis-book-v2-description-probes`.
+- Independent verification of those actual outputs with bundled Python and
+  `tools/verify_book_v2_pdf_assembly.py /private/tmp/typaxis-book-v2-description-probes --self-test`:
+  **36 source PDFs**, including **9 actual driver callbacks**, **213 pages**,
+  **1,694 structure nodes**, **107 annotations**, **14 explicit unsupported
+  inputs** and **261 rejected tamper cases**, terminal exit 0. Log:
+  `/private/tmp/typaxis-book-v2-description-independent-pdf.log`.
+- All 36 actual PDF files have the same names and SHA-256 bytes as the preceding
+  §14.157 final probe set; no file is missing, new or changed. The per-file hashes
+  and comparison result are saved in
+  `/private/tmp/typaxis-book-v2-description-pdf-byte-comparison.log`. The earlier
+  render/extraction evidence therefore applies to exactly these bytes; no new
+  rasterizer run is claimed here.
+
+The new Rust files pass `rustfmt --check --config skip_children=true`, and
+`/usr/bin/git diff --check` passes outside the sandbox. These tests validate the
+carrier addition and existing PDF compatibility; they do not demonstrate a
+rendered description list. The next implementation step remains the typed
+term/definition domain and its source/style/flow connection, followed by selected
+layout, PDF and formal original-book export. The full design-28 goal stays open.
+
+## Book-2 description domain and term math styles (design §14.159)
+
+Description lists now lower to their own typed domain instead of failing at the
+carrier/source boundary. Every term has its own node, source span, classes,
+content predicate and inline-vector owners; native math keeps the term's owner
+and its original parsed source. Dense preorder, nested span ownership, item and
+term/definition source order, classes and nonempty term content are validated.
+The original complete inline tree and language remain in the retained wire.
+
+The private Book-2 style entry accepts `description_list` and `description_term`
+selectors through isolated property sheets with explicit inheritance edges.
+Existing paragraph/list rules are not automatically applied to those owners.
+A 20-point term rule remains effective despite an unrelated 50-point important
+paragraph rule, while definition display math retains its 12-point style. Native
+math source storage is retained without re-parsing. Legacy style admission still
+rejects the new selectors, even when the staging feature is compiled.
+
+The legacy source/profile/layout/display/PDF visitors remain type-complete without
+publishing description output. The manifest crate has a private
+`book-v2-staging` feature forwarded from the CLI to keep the shared conditional
+domain type consistent; it issues no Book-2 manifest receipt or public profile.
+The source navigation/language registry, actual term/body flow, selected layout,
+PDF structure/MCIDs, formal exporter and original full-book gates still need work.
+
+The shared syntax unit suite passed **118 tests**, no ignored tests, **1.28 s**,
+terminal exit 0. Command:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-syntax --lib --features book-v2-staging
+```
+
+Log: `/private/tmp/typaxis-book-v2-description-domain-syntax-02.log`. Five tests
+cover the actual description domain, invalid term/source cases, native style and
+source retention, original inline-vector ownership and all eight recursive
+wrapper slots. The previous carrier-only negative test was replaced by these
+positive/negative domain tests; existing syntax tests remain included.
+
+Additional completed verification:
+
+- Document-package full unit regression: **57 passed**, no ignored tests,
+  **0.45 s**, terminal exit 0. Same manifest/locked/target-dir,
+  `-p typaxis-document-package --lib`.
+  Log: `/private/tmp/typaxis-book-v2-description-domain-carrier.log`.
+- Book-2 integration: **85 passed**, no ignored tests, **8.86 s**, terminal exit 0.
+  Same manifest/locked/target-dir, `-p typaxis-cli --bin typaxis --features
+  book-v2-staging book_v2_resources -- --include-ignored`. The test-only Harano
+  and Arial Unicode font variables are the original paths recorded in §14.158;
+  the probe directory is `/private/tmp/typaxis-book-v2-description-domain-probes`.
+  Log: `/private/tmp/typaxis-book-v2-description-domain-cli-01.log`.
+- Independent actual-PDF verification: **36 source PDFs** (including **9 actual
+  driver callbacks**), **213 pages**, **1,694 structure nodes**, **107 annotations**,
+  **14 explicit unsupported inputs**, **261 tamper rejections**, terminal exit 0.
+  Bundled Python runs `tools/verify_book_v2_pdf_assembly.py
+  /private/tmp/typaxis-book-v2-description-domain-probes --self-test`.
+  Log: `/private/tmp/typaxis-book-v2-description-domain-independent-pdf.log`.
+- All 36 output PDF names and SHA-256 bytes are identical to the §14.158 verified
+  probe set, with no missing or new file. Hash list/result:
+  `/private/tmp/typaxis-book-v2-description-domain-byte-comparison.log`. This
+  preserves the earlier render/extraction evidence for those exact bytes; no
+  description PDF or new rasterizer run is claimed.
+
+The normal-feature CLI production regression also completed: **249 passed**,
+no ignored tests, **259.47 s**, terminal exit 0, including both 5,000 distinct-SVG
+and 5,000 shared-SVG-alias placement cases. Command uses the same
+manifest/locked/target-dir with `-p typaxis-cli --bin typaxis production_ -- --skip
+production_common_driver_saved_vmb_job`. Log:
+`/private/tmp/typaxis-book-v2-description-domain-legacy-cli.log`. The separately
+saved VMB job test was not rerun in this checkpoint; its previous evidence remains
+in §14.157. The scale tests are regressions, not controlled managed-host timing/RSS
+acceptance.
+
+`cargo check` with the same manifest/locked/target-dir and `--workspace --all-features`
+completed successfully in **1m 28s**, terminal exit 0. Log:
+`/private/tmp/typaxis-book-v2-description-domain-workspace-check.log`. Final syntax,
+package, integration, normal CLI and workspace logs contain no compiler warnings
+or errors. The new description-domain test file passes targeted rustfmt checking,
+and `/usr/bin/git diff --check` passes outside the sandbox. The earlier failed
+checks found missing conditional-domain match arms/feature propagation; those
+were fixed before these final verification runs.
+
+All processes started for this checkpoint have reached terminal status. No
+original full-book package, original font, public profile alias, current contract
+or final manifest publication was changed. The next work is the description
+language/navigation registry and actual term/body flow, then selected layout,
+PDF structure and the remaining design-28 gates. The overall goal remains active.
+
+## Book-2 description language, flow and source structure (design §14.160)
+
+Implemented a separate Book-2 language owner enum, authored description flow
+regions and metadata, real list/term frames and body spacing, and source-owned
+`Lbl` with a separate definition `LBody`. Legacy language registry types and
+ordinary generated-marker lists retain their existing contracts. Description
+metadata is checked against the aggregate list/item fragment bound; source and
+language text retain the existing shared limits and ownership checks.
+
+Added tests for list/item/term/inline language inheritance, invalid language tags,
+term versus definition style, borrowed source text, exact source event order,
+source label topology, original vector owners, fragment/text boundaries, and a
+long linked term through the actual converged PDF driver. A separate ignored
+case explicitly loads the original Harano font and Japanese term/definition text.
+The independent structure/navigation/PDF verifiers now traverse authored terms.
+
+Final commands and terminal results are recorded below.
+
+Verification completed for the following commands (all use the locked workspace
+manifest and `/private/tmp/typaxis-vmb-book-build` target directory):
+
+```sh
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+TYPAXIS_NUMBER_BIDI_FONT='/System/Library/Fonts/Supplemental/Arial Unicode.ttf' \
+TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBE=/private/tmp/typaxis-book-v2-description-source-probes \
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build -p typaxis-cli --bin typaxis \
+  --features book-v2-staging book_v2_resources -- --include-ignored
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-syntax -p typaxis-layout -p typaxis-pagination --lib --features book-v2-staging
+cargo check --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build --workspace --all-features
+```
+
+- Book-2 CLI: **87 passed, 20.72 s**;
+  `/private/tmp/typaxis-book-v2-description-source-cli-02.log`.
+- Shared libraries: syntax **123 passed, 1.28 s**, layout **69 passed, 0.41 s**,
+  pagination **94 passed, 0.19 s**;
+  `/private/tmp/typaxis-book-v2-description-source-shared.log`.
+- Workspace all-features check: **exit 0, 2m 58s**;
+  `/private/tmp/typaxis-book-v2-description-source-workspace-check.log`.
+
+Using `/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3`,
+ran `tools/verify_book_v2_pdf_assembly.py`, `tools/verify_book_v2_source_structure.py`
+and `tools/verify_book_v2_navigation_geometry.py`, each with
+`/private/tmp/typaxis-book-v2-description-source-probes --self-test`:
+
+- PDF: **40 PDFs (11 actual driver callbacks), 235 pages, 1,730 structure nodes,
+  143 annotations, 14 explicit unsupported inputs, 289 tamper rejections**;
+  `/private/tmp/typaxis-book-v2-description-source-independent-pdf-02.log`.
+- Source structure: **45 probes, 1,538 nodes, 628 actual MCID bindings,
+  230 excluded Artifacts, 265 tamper rejections**;
+  `/private/tmp/typaxis-book-v2-description-source-independent-structure.log`.
+- Navigation: **45 probes, 115 destinations, 95 source links, 109 rectangles,
+  3 outline entries, 3 wrapped links, 2 semantic rejections, 113 tamper rejections**;
+  `/private/tmp/typaxis-book-v2-description-source-independent-navigation.log`.
+
+The original 36 PDFs are byte-identical to §14.159. The hash comparison and four
+new PDF hashes are in `/private/tmp/typaxis-book-v2-description-source-byte-comparison.log`.
+All four new PDFs (22 pages) passed MuPDF 72 dpi rendering and pdftotext UTF-8
+extraction without diagnostics. pypdf separately recovered exactly 12 authored
+terms and one definition per PDF. The Japanese driver has four pages and SHA-256
+`cf13cde9cb8362bc1256c2a499f4c3b1022bb3aa7f359a3b9c95e22f549a335d`.
+Log: `/private/tmp/typaxis-book-v2-description-source-render-extract.log`;
+script: `/private/tmp/typaxis-render-description-pdfs.py`;
+rendered output: `/private/tmp/typaxis-book-v2-description-source-rendered`.
+The first and last Japanese driver pages were also visually inspected. This
+small authored fixture is not the original full-book or human acceptance gate.
+
+Intermediate failures were resolved: one missing DTO re-export; a negative-style
+test that removed a rule and left an invalid source-order gap; an indivisible
+Latin definition exceeding the deliberately narrow test frame; and an independent
+verifier assuming all `L` nodes had an `ordered` field. The last correction retains
+no list-numbering attribute for description lists and continues to require
+Decimal/Disc for ordinary lists. Production source terms are never replaced by
+ordinary list markers.
+
+The saved formal VMB small-input regression passed separately (**1 passed,
+3.25 s**) with `TYPAXIS_COMMON_BODY_JOB=/private/tmp/vmb-legacy-source-integrity-public/typaxis-body-2416664007`
+and `TYPAXIS_COMMON_BODY_PDF=/private/tmp/typaxis-book-v2-description-source-legacy-vmb.pdf`.
+Using the same manifest/locked/target-dir, ran `cargo test -p typaxis-cli --bin typaxis
+production_common_driver_saved_vmb_job -- --ignored --nocapture`. Log:
+`/private/tmp/typaxis-book-v2-description-source-saved-vmb.log`.
+The 86,609-byte PDF is byte-identical to §14.157, SHA-256
+`a1f90f2c6f1de613a92cbe106cfb1561c614e721701959668bcffbc9b643c51d`;
+comparison: `/private/tmp/typaxis-book-v2-description-source-saved-vmb-comparison.log`.
+The saved original job, full-book package, original fonts and companion exporter
+have not been changed by this section's work.
+
+The default-feature production CLI regression completed with **249 passed,
+296.04 s**, including both 5,000 distinct SVG Forms and 5,000 aliases. Ran:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build -p typaxis-cli --bin typaxis \
+  production_ -- --skip production_common_driver_saved_vmb_job
+```
+
+Log: `/private/tmp/typaxis-book-v2-description-source-legacy-cli.log`. Together with
+the saved-input test above and the three shared libraries / Book-2 CLI suite,
+this section's final Rust runs passed **623 tests**. All final tool processes
+completed with exit 0. The default and feature checks contained no compiler
+warnings/errors; new Rust child-file formatting, changed Python syntax and git
+diff whitespace checks passed. These runs are local compatibility evidence, not
+managed-host time/RSS or full-book acceptance. The goal remains incomplete as
+listed in the status table and design §14.160.
+
+## Book-2 recursive description math and footnote references (design §14.161)
+
+Added a real converged-driver fixture with native fractions, inline vectors and
+math vectors in authored terms across 11 source placements: root, container,
+nested description definition, ordinary list, table head/body, raster/vector
+caption, demanded/unreferenced footnote definitions, and a term containing both
+Page and footnote references. It checks actual term style/owner/source Lbl,
+repeated-header math, unplaced definitions and the relocated Note's exact parent.
+
+Fixed the description cursor's final coverage check in the shared body collector:
+it now runs after all events, including definitions. Fixed Book-2 Note reading
+order to recognize authored Source-slot Lbl as an inline container, preserving
+the exclusion of generated list/footnote labels. The Rust observation helper and
+independent Python relation verifier recognize the same source structure.
+
+Final commands (all terminal exit 0):
+
+```sh
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+TYPAXIS_NUMBER_BIDI_FONT='/System/Library/Fonts/Supplemental/Arial Unicode.ttf' \
+TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBE=/private/tmp/typaxis-book-v2-description-recursive-probes \
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build -p typaxis-cli --bin typaxis \
+  --features book-v2-staging book_v2_resources -- --include-ignored
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build -p typaxis-pagination --lib \
+  --features book-v2-staging
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build -p typaxis-cli --bin typaxis \
+  production_footnote_
+```
+
+- Book-2 CLI: **88 passed, 10.23 s**;
+  `/private/tmp/typaxis-book-v2-description-recursive-cli.log`.
+- Pagination: **94 passed, 0.19 s**;
+  `/private/tmp/typaxis-book-v2-description-recursive-pagination.log`.
+- Default CLI footnotes: **66 passed, 11.47 s**;
+  `/private/tmp/typaxis-book-v2-description-recursive-legacy-footnotes.log`.
+
+Using `/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3`,
+ran `tools/verify_book_v2_pdf_assembly.py` and
+`tools/verify_book_v2_structure_relations.py` with
+`/private/tmp/typaxis-book-v2-description-recursive-probes --self-test`:
+
+- PDF: **62 PDFs (22 actual driver callbacks), 261 pages, 2,186 structure nodes,
+  153 annotations, 14 explicit unsupported inputs, 435 tamper rejections**;
+  `/private/tmp/typaxis-book-v2-description-recursive-independent-pdf.log`.
+- Relations: **56 probes, 45 notes, 48 reference edges, 92 header relations,
+  36 moved notes, 9 explicit unplaced notes, 185 tamper rejections**;
+  `/private/tmp/typaxis-book-v2-description-recursive-independent-relations.log`.
+
+All previous 40 PDF files retain their exact names and bytes. The 22 new PDF
+hashes are in `/private/tmp/typaxis-book-v2-description-recursive-byte-comparison.log`.
+All 26 new pages pass MuPDF 72 dpi rendering and Poppler UTF-8 extraction; pypdf
+also extracts each definition's original `Proof`. Script and output:
+`/private/tmp/typaxis-render-description-recursive-pdfs.py`,
+`/private/tmp/typaxis-book-v2-description-recursive-render-extract.log`.
+The term-reference assembly page was inspected. Its synthetic native MATH font
+uses rectangular test glyphs; this verifies placement and source structure,
+not typography of the original book or native math with Harano.
+
+The final runs have no compiler warnings/errors. Targeted rustfmt and
+`/usr/bin/git diff --check` pass. Earlier diagnostic runs exposed the two real
+connection faults plus fixture/observation assumptions; temporary error logging
+was removed before the final run. No public profile, legacy contract, original
+font or full-book source was changed. Formal successor exporter, remaining source
+kinds/recursive definition tables, public acceptance and full-book/human gates
+remain open; the overall goal remains active.
+
+## VMB Book-2 description exporter and exact math extraction (design §14.162)
+
+Implemented a private successor package entry in VMB, preserving legacy public
+entry points and producing actual description term/definition projection, typed
+math occurrences, dedicated styles and an explicitly selected original CID CFF
+font snapshot. A distinct private staging result cannot be passed directly to
+the legacy runner. The existing public contract/profile/config remain unchanged.
+
+Added VMB tests for source term owners, math preservation, exact/one-short node
+limits, malformed term spans, empty definitions/terms and legacy refusal. The
+original-Harano staging test saves an actual package for the new ignored Typaxis
+integration test. All VMB exporter tests passed:
+
+```sh
+cd /Users/kazuyoshitoshiya/v/vmb-container/vmb-core
+VMB_TYPAXIS_BOOK_V2_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+go test ./internal/rendertypaxis -count=1
+```
+
+Terminal exit 0, **153.882 s**;
+`/private/tmp/vmb-book-v2-description-export-regression.log`.
+The explicit `TestBookV2Description` run passed all three tests, including five
+empty-content subcases, in **5.363 s**. It used
+`VMB_TYPAXIS_BOOK_V2_OUTPUT=/private/tmp/vmb-book-v2-description-export` and saved:
+
+- Job: `/private/tmp/vmb-book-v2-description-export/typaxis-body-482826728`.
+- Package SHA-256: `9532cdb1869065680a26c383cec8b575059b7db1266af30632f2440dafb051fa`.
+- Original Harano SHA-256: `66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717`.
+- Log: `/private/tmp/vmb-book-v2-description-export-tests-02.log`.
+
+The saved-input Rust test reads the exact package/source/resources without
+rewriting metadata or applying a legacy carrier. It checks one description,
+three actual math occurrences and the original font hash, then records the real
+converged driver PDF. Its initial PDF exposed Poppler ignoring ActualText on
+Formula tags. The Book-2 marked-boundary writer now retains the outer semantic
+MCID and nests a single Span replacement; closing-byte reservations/credit and
+independent verifiers were updated accordingly. Default PDF encoders are unchanged.
+
+Final command uses the previous section's locked manifest/target-dir and original
+font variables, plus:
+
+```sh
+TYPAXIS_BOOK_V2_VMB_JOB=/private/tmp/vmb-book-v2-description-export/typaxis-body-482826728
+TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBE=/private/tmp/typaxis-book-v2-description-extraction-final-probes
+TYPAXIS_BOOK_MARKED_SCOPES_PROBE=/private/tmp/typaxis-book-v2-description-extraction-scopes
+TYPAXIS_BOOK_MARKED_CONTENT_PROBE=/private/tmp/typaxis-book-v2-description-extraction-content
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build -p typaxis-cli --bin typaxis \
+  --features book-v2-staging book_v2_resources -- --include-ignored
+```
+
+Variables were supplied to the command's environment. **89 passed, 30.77 s**,
+terminal exit 0; `/private/tmp/typaxis-book-v2-description-extraction-final-cli.log`.
+With bundled Python, the corresponding independent verifiers passed:
+
+- `verify_book_v2_pdf_assembly.py <final-probes> --self-test`: **64 PDFs (23 driver),
+  263 pages, 2,224 nodes, 153 annotations, 14 explicit unsupported inputs,
+  447 tamper rejections**.
+- `verify_book_v2_marked_scopes.py <scopes> --self-test`: **57 probes, 3,366 paints,
+  965 scopes, 721 semantic scopes, 153 repeated headers, 91 separators,
+  89 ActualText replacements, 965 tamper rejections**.
+- `verify_book_v2_marked_content.py <content> --self-test --pdftotext /opt/homebrew/bin/pdftotext --mutool /opt/homebrew/bin/mutool`:
+  **57 probes, 208 pages, 965 scopes, 3,256 glyphs, 121 rules, 180 image placements,
+  62 anchors, 643 replacements, 244 Artifacts, 52 anchor-ink pixel comparisons,
+  one GSUB extraction, 188 tamper rejections**.
+
+Logs use `/private/tmp/typaxis-book-v2-description-extraction-final-independent-{pdf,scopes,content}.log`.
+The actual corrected driver PDF is
+`/private/tmp/typaxis-book-v2-vmb-description-02.pdf`, SHA-256
+`72251d8851abeb661023a77b802f97403d90ea203a5ce55d2dfba6e57ded9082`.
+`tools/verify_vmb_description_pdf.py <job>/document-package.json <pdf> --pdftotext /opt/homebrew/bin/pdftotext`
+compares exact authored Japanese, term and semantic math text in source order,
+normalizing only physical line/page boundaries. The old PDF is a negative
+regression; the corrected PDF passes. Log:
+`/private/tmp/typaxis-book-v2-vmb-description-extraction-regression.log`.
+MuPDF 100 dpi renders before/after to exactly equal RGB pixels. The real page was
+also visually inspected. Formula/Figure PDF bytes intentionally change for the
+extraction fix; §14.161's byte comparison remains historical evidence before it.
+
+All started processes are terminal. Final Rust/Python/Go formatting and syntax,
+compiler logs, and both repositories' diff whitespace checks pass. This is a
+small real-adapter fixture, not the original full book. Remaining authored kinds,
+Number/complex Text references, recursive definition tables, complete public
+successor runner/config/manifests, controlled-host/full-book/PDF-UA/human acceptance
+and missing original math speech remain open. The overall goal remains active.
+
+
+## Book-2 VMB admonitions and solutions (design §14.163)
+
+The private successor exporter now preserves the seven admonition kinds and
+solution bodies. Solves is mandatory and must resolve to an actual exported
+exercise, including forward targets; missing/non-exercise/self targets fail.
+Five verification modes place their contribution after the solution body;
+three formal modes retain solution ownership and the original NPA source.
+The formal fixture revealed unsorted generated/authored classes, rejected by
+Typaxis with `InvalidClass`. Sorting the copied Book-2 container class list fixes
+the exporter without changing the saved failing package or the public 1.4 path.
+
+Saved packages, generated by the real VMB math adapter with the original Harano:
+
+| Fixture | Job directory under `/private/tmp` | Package SHA-256 |
+| --- | --- | --- |
+| Seven nested admonitions | `vmb-book-v2-admonition-export/typaxis-body-1586433463` | `10fb2fb88367f50ec911eb97bdd8cab7cedcbfcf5d7213b840385e62918a2c4f` |
+| Solution before exercise | `vmb-book-v2-solution-export/typaxis-body-3388198484` | `bc733dc68f432a4e65a3846de8a2634f8601c3d71d46d439c5210252f8544b09` |
+| Formal solution with original NPA | `vmb-book-v2-formal-solution-export/typaxis-body-3969057993` | `69f64d6e4c69eb3e088e1086d310d90d14e80a0f681548c62651a0e855645374` |
+
+Go focused `go test ./internal/rendertypaxis -run '^TestBookV2(Solution|Admonitions)' -count=1 -v`
+passed in 19.418 s (`/private/tmp/vmb-book-v2-solution-export-01.log`). After the
+class fix, the three formal mode subcases and saved formal export passed in
+70.218 s (`/private/tmp/vmb-book-v2-formal-solution-export-02.log`). Both commands
+set `VMB_TYPAXIS_BOOK_V2_FONT` to the original font. Explicit output variables
+`VMB_TYPAXIS_BOOK_V2_{ADMONITION,SOLUTION,FORMAL_SOLUTION}_OUTPUT` save the jobs;
+otherwise the tests use temporary directories. These are private test hooks.
+
+Typaxis uses the following environment with the existing original-Harano and
+Arial font variables described in §14.162:
+
+```sh
+TYPAXIS_BOOK_V2_VMB_JOB=/private/tmp/vmb-book-v2-description-export/typaxis-body-482826728
+TYPAXIS_BOOK_V2_VMB_ADMONITION_JOB=/private/tmp/vmb-book-v2-admonition-export/typaxis-body-1586433463
+TYPAXIS_BOOK_V2_VMB_SOLUTION_JOB=/private/tmp/vmb-book-v2-solution-export/typaxis-body-3388198484
+TYPAXIS_BOOK_V2_VMB_FORMAL_SOLUTION_JOB=/private/tmp/vmb-book-v2-formal-solution-export/typaxis-body-3969057993
+TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBE=/private/tmp/typaxis-book-v2-semantic-export-final-probes
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build -p typaxis-cli --bin typaxis \
+  --features book-v2-staging book_v2_resources -- --include-ignored
+```
+
+Variables are passed through the command environment. **92 passed, 11.70 s**,
+terminal exit 0 (`/private/tmp/typaxis-book-v2-semantic-export-final-cli.log`).
+Bundled Python `tools/verify_book_v2_pdf_assembly.py <final-probes> --self-test`
+passes **70 source PDFs (26 actual driver callbacks), 269 pages, 2,516 structure
+nodes, 157 annotations, 14 explicit unsupported inputs, 487 tamper rejections**.
+Log: `/private/tmp/typaxis-book-v2-semantic-export-final-independent.log`.
+All 64 PDFs from §14.162 remain byte-identical, verified in
+`/private/tmp/typaxis-book-v2-semantic-export-final-comparison.log`.
+
+Each new actual PDF passes source-derived exact extraction via
+`tools/verify_vmb_description_pdf.py <package> <pdf> --pdftotext /opt/homebrew/bin/pdftotext`.
+The formal case additionally specifies `--descriptions 0 --math-occurrences 2`.
+The other two have one description and three math occurrences. Only physical
+line/page boundaries are normalized; authored spaces and NPA text remain exact.
+Independent per-fixture logs are `/private/tmp/typaxis-book-v2-vmb-{admonition,solution,formal-solution}-{independent,extraction}.log`.
+All three pages were rendered by MuPDF at 100 dpi and visually inspected.
+
+| Actual PDF under `/private/tmp` | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `typaxis-book-v2-vmb-admonitions-01.pdf` | 68,251 | `d8b1faf1031b3951fda33e9a5bb4b67f2e6f6cbe9dc570fc08f7ea9696df9ddc` |
+| `typaxis-book-v2-vmb-solution-01.pdf` | 73,663 | `e7040b8c32721c386219dd253437adac07f09b673069d2ccb0f0c8fd1cc966dc` |
+| `typaxis-book-v2-vmb-formal-solution-02.pdf` | 78,359 | `24414e4e124c9f36cdb24d204c9f73fab3abf8fd76e91577bd06234db92fbf38` |
+
+These are small real-adapter fixtures, not full-book acceptance. Exercise
+parts/choices/hints, result assumptions, media, numbering, definition tables,
+advanced page masters, public successor CLI/manifests/receipt, original full-book
+speech and controlled-host/PDF-UA/human gates remain open.
+
+Final VMB package regression after the class fix:
+`VMB_TYPAXIS_BOOK_V2_FONT=<original Harano> go test ./internal/rendertypaxis -count=1`
+**passed, 185.801 s**, terminal exit 0. Log:
+`/private/tmp/vmb-book-v2-semantic-export-final-regression.log`.
+All started executions are terminal. Targeted Go/Rust format, Python syntax and
+both repositories' diff whitespace checks pass. The original full-book package
+and original font remain unchanged. The overall implementation goal stays active.
+
+
+## Book-2 exercise teaching units (design §14.164)
+
+Added the three closed kinds `exercise_part`, `choice`, `hint` to the unpublished
+wire/domain/style vocabulary and exact syntax conversions. The all-kind tests
+now exercise 15 kinds, including the existing eight recursive slots and frame
+ownership. Public 1.4 remains closed. The independent source-structure verifier
+recognizes exactly the amended vocabulary and still derives the actual PDF role
+and source hierarchy from the retained kind.
+
+VMB's private exporter retains each unit's original member/index location,
+VMB ID, title and body. Part answer type/formal reference and hint level are
+bounded, source-bound annotations; formal references do not fabricate proof or
+NPA content. Explicit hint presentation must match the original level (1..9).
+Prompt, parts, choices, hints, solution link, verification and formal content
+retain that order. The solution target must be a real solution for that same
+exercise. The child source inherits its parent's known line range rather than
+inventing a more specific one. Unsupported fields and empty bodies still fail.
+
+Focused VMB command, after creating the explicit output parent:
+
+```sh
+VMB_TYPAXIS_BOOK_V2_FONT=<original Harano>
+VMB_TYPAXIS_BOOK_V2_TEACHING_OUTPUT=/private/tmp/vmb-book-v2-teaching-export
+go test ./internal/rendertypaxis -run '^TestBookV2ExerciseTeaching' -count=1 -v
+```
+
+Environment variables are supplied to the command. **4 tests passed, 10.558 s**;
+13 invalid-input subcases plus a mismatched existing solution, exact annotation
+byte/item limits, metadata/kind tampering, original source/math ownership and
+legacy rejection are covered. Log: `/private/tmp/vmb-book-v2-teaching-export-02.log`.
+The first saved-job attempt failed because the requested output parent did not
+exist; after creating that directory, the same tests completed successfully.
+Full exporter `VMB_TYPAXIS_BOOK_V2_FONT=<original Harano> go test ./internal/rendertypaxis -count=1`
+**passed, 176.761 s**, `/private/tmp/vmb-book-v2-teaching-final-regression.log`.
+
+Saved job: `/private/tmp/vmb-book-v2-teaching-export/typaxis-body-4270562257`.
+Original exported package SHA-256:
+`5a49a5b97582c7486b24e7aebad0a15187d567fd1bf1388fc4a631feaff7f2a1`.
+It contains an exercise, part title with math/emphasis, description in the part,
+choice with a displayed formula, hint and solution; 2 shared SVG resources,
+4 math occurrences and 1 original Harano font. Typaxis reads these bytes unchanged.
+
+Rust commands use `--manifest-path workspace/Cargo.toml --locked --target-dir /private/tmp/typaxis-vmb-book-build`:
+
+- `cargo test ... -p typaxis-document-package --lib --features book-v2-staging`:
+  **57 passed, 0.56 s**, `/private/tmp/typaxis-book-v2-teaching-carrier-full.log`.
+- `cargo test ... -p typaxis-syntax --lib --features book-v2-staging`:
+  **123 passed, 1.16 s**, `/private/tmp/typaxis-book-v2-teaching-syntax.log`.
+- `cargo test ... -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_resources -- --include-ignored`:
+  **93 passed, 11.01 s**, `/private/tmp/typaxis-book-v2-teaching-final-cli.log`.
+
+The CLI command uses all four saved-job variables from §14.163 plus
+`TYPAXIS_BOOK_V2_VMB_TEACHING_JOB=<saved job>`, original Harano/Arial font variables,
+and `TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBE=/private/tmp/typaxis-book-v2-teaching-final-probes`.
+The standalone saved-job test used `TYPAXIS_BOOK_V2_VMB_TEACHING_PDF` to save
+`/private/tmp/typaxis-book-v2-vmb-teaching-01.pdf` (66,802 bytes), SHA-256
+`ac7361c44fbcc0713e45ee6b54e086a228a7f798c4505740bcb3085913dc46c5`.
+This test additionally verifies both actual solution/exercise destinations and
+nonempty link rectangles. It passed in 2.83 s; log:
+`/private/tmp/typaxis-book-v2-vmb-teaching-01.log`.
+
+Bundled Python `tools/verify_book_v2_pdf_assembly.py <final-probes> --self-test`:
+**72 PDFs (27 actual driver callbacks), 271 pages, 2,608 structure nodes,
+161 annotations, 14 explicit unsupported inputs, 501 tamper rejections**.
+Log: `/private/tmp/typaxis-book-v2-teaching-final-independent.log`.
+The previous 70 PDF files are byte-identical; comparison/hash log:
+`/private/tmp/typaxis-book-v2-teaching-final-comparison.log`.
+
+`python3 tools/verify_vmb_description_pdf.py <job>/document-package.json <pdf> --pdftotext /opt/homebrew/bin/pdftotext --descriptions 1 --math-occurrences 4`
+passes exact authored text/title/math extraction, normalizing only physical
+line/page boundaries. Log: `/private/tmp/typaxis-book-v2-vmb-teaching-extraction.log`.
+The one-page PDF was also rendered with MuPDF at 100 dpi and visually inspected.
+These remain small integration fixtures, not the original full-book acceptance.
+The open public/full-book/managed-host/speech and remaining source/page work in
+§14.164 is still required; the overall goal remains active.
+
+Final `cargo check --manifest-path workspace/Cargo.toml --locked --target-dir /private/tmp/typaxis-vmb-book-build --workspace --all-features`
+passed in 1m 50s (`/private/tmp/typaxis-book-v2-teaching-workspace-check.log`).
+All started executions are terminal. Compiler logs contain no warnings/errors;
+targeted Go/Rust format, Python syntax, both repositories' diff whitespace and
+original full-book package/Harano hash checks pass. Formatting of the renamed
+all-kind syntax test was completed after its successful 123-test run; this only
+changed whitespace and the test name, not its assertions or production code.
+
+
+## Book-2 assumptions and quotations (design §14.165)
+
+The unpublished vocabulary now has 16 closed kinds, including `assumption`.
+Each original result assumption retains a grouping owner and inline content,
+with no invented VMB anchor or condition label. Its originating result source
+range and assumption-unit reference location are retained. The exporter places
+conditions before the statement. Quote text precedes its optional attribution;
+rich inline math, emphasis and links are retained. Original quote IDs remain
+anchors and actual PDF `BlockQuote` owners. Public 1.4 remains unchanged.
+
+The new authored-unit helper checks already bounded lowered inline content;
+empty arrays, breaks and content-free wrappers fail without partial output.
+Container class construction was factored without changing the legacy result
+or the existing Book-2 sort behavior. Optional missing attribution emits no
+placeholder. Existing source-node limits charge both condition group and text
+owners. No logical statement or attribution text is generated from an ID.
+
+VMB command (with an existing explicit output parent):
+
+```sh
+VMB_TYPAXIS_BOOK_V2_FONT=<original Harano>
+VMB_TYPAXIS_BOOK_V2_AUTHORED_OUTPUT=/private/tmp/vmb-book-v2-authored-export
+go test ./internal/rendertypaxis -run '^TestBookV2Authored' -count=1 -v
+```
+
+Variables are supplied in the command environment. **4 tests passed, 23.688 s**,
+including 7 invalid-input subcases, source/order/rich math assertions, optional
+attribution, exact node limits, and legacy rejection.
+Log: `/private/tmp/vmb-book-v2-authored-export-02.log`.
+The first negative fixtures used a nonexistent `hardBreak` RenderBook kind and
+an empty literal rejected earlier by the projection owner. Those fixtures were
+corrected to the actual `lineBreak` and a wrapper containing only that break;
+the production rejection was not weakened.
+Full VMB exporter `VMB_TYPAXIS_BOOK_V2_FONT=<original Harano> go test ./internal/rendertypaxis -count=1`
+**passed, 238.692 s**, `/private/tmp/vmb-book-v2-authored-final-regression.log`.
+
+Saved job: `/private/tmp/vmb-book-v2-authored-export/typaxis-body-4278208099`.
+Package SHA-256:
+`fe6152cf0ed043396fe1177b743f49bd983290da7c87ef3c4bf1e6e3401821c2`.
+The prior saved positive fixture (`typaxis-body-945667529`) had the same package
+hash. This is fixture staging determinism, not a full-book reproducibility gate.
+The package retains two assumptions, a result statement with a description,
+quote and attribution, 6 real math occurrences / 2 shared SVG resources and
+one unchanged original Harano font. Source/package bytes are not rewritten by
+Typaxis's saved-input test.
+
+Rust commands use `--manifest-path workspace/Cargo.toml --locked --target-dir /private/tmp/typaxis-vmb-book-build`:
+
+- `cargo test ... -p typaxis-document-package -p typaxis-syntax --lib --features book-v2-staging`:
+  **57 + 123 passed**, 0.79 s and 3.15 s. The all-kind recursive test covers the
+  added kind. Log: `/private/tmp/typaxis-book-v2-authored-source-tests.log`.
+- `cargo test ... -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_resources -- --include-ignored`:
+  **94 passed, 21.98 s**, `/private/tmp/typaxis-book-v2-authored-final-cli.log`.
+
+The CLI command uses all five saved-job variables from §14.164 plus
+`TYPAXIS_BOOK_V2_VMB_AUTHORED_JOB=<saved job>`, the original Harano/Arial variables,
+and `TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBE=/private/tmp/typaxis-book-v2-authored-final-probes`.
+The standalone test, with `TYPAXIS_BOOK_V2_VMB_AUTHORED_PDF` set, saved
+`/private/tmp/typaxis-book-v2-vmb-authored-01.pdf` (63,410 bytes), SHA-256
+`0b5064e151e337b1c66081f757d22bc1d3cbfe9c0e617fb9cc767ed580e67867`.
+It checks both source destinations and their actual link rectangles and passed
+in 3.30 s (`/private/tmp/typaxis-book-v2-vmb-authored-01.log`).
+
+Bundled Python `tools/verify_book_v2_pdf_assembly.py <final-probes> --self-test`:
+**74 PDFs (28 actual driver callbacks), 273 pages, 2,700 structure nodes,
+165 annotations, 14 explicit unsupported inputs, 515 tamper rejections**.
+Log: `/private/tmp/typaxis-book-v2-authored-final-independent.log`.
+The previous 72 PDF files are byte-identical; comparison/hash evidence:
+`/private/tmp/typaxis-book-v2-authored-final-comparison.log`.
+
+`python3 tools/verify_vmb_description_pdf.py <job>/document-package.json <pdf> --pdftotext /opt/homebrew/bin/pdftotext --descriptions 1 --math-occurrences 6`
+passes exact authored assumption/quotation/attribution/math extraction, with
+only physical line/page boundaries normalized. The actual `BlockQuote` source
+hierarchy and annotations also pass independent object/structure checks.
+Logs: `/private/tmp/typaxis-book-v2-vmb-authored-{independent,extraction}.log`.
+MuPDF 100 dpi drawing of the one-page actual PDF was visually inspected.
+
+These fixtures do not complete original full-book export. Code/resource text,
+media, remaining figure/table fields, numbering, definition tables, advanced
+page masters, public successor CLI/manifests/receipt, original speech and
+controlled-host/independent PDF-UA/human gates remain required. Goal stays active.
+
+Final `cargo check --manifest-path workspace/Cargo.toml --locked --target-dir /private/tmp/typaxis-vmb-book-build --workspace --all-features`
+passed in 8m 21s (`/private/tmp/typaxis-book-v2-authored-workspace-check.log`).
+The original live execution was retained through compilation waits. All started
+processes are now terminal. Compiler logs contain no warnings/errors; targeted
+Go/Rust format, Python syntax, both repositories' diff whitespace and unchanged
+original full-book package/Harano hashes pass.
+
+The next numbering connection remains explicit work: the Book-2 navigation
+registry retains reference format and target owner, but has no source number
+binding. `production_text_references.rs` resolves only Text labels; it must not
+supply the meaning of an unresolved Number reference. The original current VMB
+source is `vmb-container/vmb-book-fractions-equivalence/v1/project.json`, with
+`profiles/print.json` specifying chapter-scoped result/equation/exercise/figure
+numbering. These read-only observations do not establish Number support or
+change original publication/review status.
+
+## Book-2 source number bindings (design 14.166)
+
+ADR-0041 and the private 1.5 carrier now preserve an explicit selection from a
+displayed source Text or equation-number leaf. The navigation owner borrows the
+immutable UTF-8 range, validates ancestry and anchor identity, and declares an
+owner anchor only when explicitly requested by a binding without an existing
+anchor. Number references retain their original format/target and use the
+Counter generated-buffer namespace with the existing shared resource budget.
+No heading parsing, anchor-name numbering, Text fallback or source mutation is
+used. Legacy typed/raw carriers and public dispatch remain closed.
+
+Source verification:
+
+```text
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-document-package -p typaxis-syntax --lib --features book-v2-staging
+```
+
+`/private/tmp/typaxis-book-v2-number-bindings-source-03.log`: document-package
+**60 passed (0.94 s)** and syntax **128 passed (1.91 s)**. Tests cover closed
+wire fields, legacy rejection including manually mutated typed input, exact AST
+and generated-text budgets, explicit Japanese byte ranges, wrong owner/label,
+displaced/duplicate anchors, UTF-8 boundaries, missing bindings despite outline
+labels, equation-number leaves, immutable source and Counter provenance.
+Earlier source runs exposed one preexisting test expecting unresolved Number
+success and two test accesses to a private error field; tests were updated to
+the explicit binding contract and public error accessor before this successful
+run. No production rejection was weakened.
+
+The independent navigation verifier reconstructs number bindings and their
+source ancestry from original wire, checks generated ActualText, and adds
+binding-owner/range/duplicate tampering. The unchanged previous suite remains
+green: `/private/tmp/typaxis-book-v2-number-binding-old-probes.log`, **74 PDFs
+(28 actual driver callbacks), 273 pages, 2,700 nodes, 165 annotations, 14 explicit
+unsupported inputs and 515 tamper rejections**.
+
+The companion VMB renderer now resolves references recursively inside each
+Assumptions unit. Its focused regression covers resolved original LogicalNumber
+identity and an unknown target diagnosed at the containing result owner. This
+does not yet connect VMB numberOnly/labelAndNumber export to the new carrier.
+
+`go test ./internal/render ./internal/rendertypaxis` completed successfully:
+render **35.263 s**, rendertypaxis **250.782 s**. The log is
+`/private/tmp/vmb-number-binding-assumption-regression-01.log`; both repositories'
+diff whitespace checks pass. The companion design records this in §15.61.
+
+Original full-book package SHA-256 `e4fd7415cb33de5afff8c3b2a335c2afa06df1e22780c9913813d95536efffbb`
+and original Harano SHA-256 `66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717`
+remain unchanged. A low-disk condition was resolved by removing 25 confirmed
+idle directories from this task's Cargo incremental cache only; sources,
+compiled binaries, fonts, fixtures and saved evidence were preserved.
+
+PDF and final regression evidence:
+
+```text
+TYPAXIS_HARANO_FONT=<unchanged original Harano>
+TYPAXIS_NUMBER_BIDI_FONT=<unchanged original Arial Unicode.ttf>
+TYPAXIS_BOOK_V2_VMB_{JOB,ADMONITION_JOB,SOLUTION_JOB,FORMAL_SOLUTION_JOB,TEACHING_JOB,AUTHORED_JOB}=<six saved jobs from §§14.161–165>
+TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBE=/private/tmp/typaxis-book-v2-number-binding-final-probes-02
+TYPAXIS_BOOK_V2_NUMBER_BINDING_PDF=/private/tmp/typaxis-book-v2-number-binding-harano-02.pdf
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_resources -- --include-ignored
+```
+
+The brace notation above lists the six environment keys, not shell expansion
+syntax for running the command. The completed log
+`/private/tmp/typaxis-book-v2-number-binding-final-cli-02.log` reports **97 passed
+(20.22 s)**. Three new cases exercise forward/back Number references, original
+Harano Japanese prefix selection, and a Number reference to the actual equation
+number leaf and math destination. All run the actual convergence/PDF driver.
+
+The first focused PDF test run passed its internal geometry checks but used the
+old microscopic page-size fixture with a much larger body rectangle. Poppler
+therefore extracted no visible text. This was an invalid visual acceptance
+fixture, not accepted evidence: the three new tests now explicitly declare a
+12,000,000 × 12,000,000 raw-unit page/trim before rendering. The superseded
+`*-harano-01.pdf` is retained as the failed visual specimen. No source number,
+font, geometry assertion or production rejection was changed to obtain success.
+
+The corrected Harano PDF is **9,682 bytes**, SHA-256
+`8b1f1c6d1ea9cd79d17c606954b2966f3083478dc0a2b1fbc3b0e8d0874a39e4`.
+Poppler `pdftotext -raw -enc UTF-8` produces precisely
+`1.12\n定理1.12\f1.12\f`; only physical line/page boundaries are normalized in
+the exact comparison. See `/private/tmp/typaxis-book-v2-number-binding-extraction-02.log`.
+Both MuPDF 100-dpi page renders were inspected: the source label and forward/back
+numbers are visible and unclipped. This is a small synthetic source integration
+fixture using the original font, not an original-book or VMB export claim.
+
+`verify_book_v2_pdf_assembly.py /private/tmp/typaxis-book-v2-number-binding-final-probes-02 --self-test`
+passes: **80 PDFs (31 actual driver callbacks), 285 pages, 2,776 structure nodes,
+175 annotations, 14 explicit unsupported inputs and 557 tamper rejections**.
+Log: `/private/tmp/typaxis-book-v2-number-binding-final-independent-02.log`.
+All **74** preceding PDFs remain byte-identical; comparison log:
+`/private/tmp/typaxis-book-v2-number-binding-final-comparison-02.log`.
+
+Next producer work remains concrete: VMB `SectionPrefixes` contains the displayed
+prefix but no explicit selected number range; `ResolvedContainerHeading` and
+`BookFigureSettings` already bind the original LogicalNumber to a displayed
+prefix, while `ResolvedEquationNumber` currently supplies Text/MinimumGap.
+Each needs an explicit selected range and original-number consistency before
+emitting bindings. Original fractions Japanese UI templates are
+`labelAndNumber: "{label}{number}"` and `numberOnly: "{number}"`; do not insert
+an inferred separator. VMB Number export, code/media, remaining figure/table
+fields, footnote tables, advanced masters, public dispatch/manifests, original
+full-book speech and managed-host/independent PDF-UA/human acceptance remain open.
+
+Final `cargo check --manifest-path workspace/Cargo.toml --locked --target-dir /private/tmp/typaxis-vmb-book-build --workspace --all-features`
+passed in **2 min 13 s**, recorded in
+`/private/tmp/typaxis-book-v2-number-binding-workspace-check.log`.
+All build/test/independent-verifier processes completed with terminal outcomes;
+final successful compiler logs contain no warnings/errors. Targeted Rust/Go
+format, Python syntax and both repository diff whitespace checks pass. The
+overall design-28 goal remains active; the outstanding gates above are not
+claimed complete.
+
+After all checks completed, another 21 confirmed-idle document-package/syntax
+incremental cache directories were removed to recover disk space for continuing
+work. Compiled artifacts and all source/evidence files remain intact; the exact
+cleanup record is `/private/tmp/typaxis-book-v2-number-binding-cache-cleanup.log`.
+
+## VMB number reference export (design 14.167)
+
+The private VMB Book-2 exporter now emits ADR-0041 bindings for source sections,
+semantic containers, figure captions and numbered equations. `BookNumberRange`
+contains the original LogicalNumber and an explicit byte range in the existing
+displayed prefix/equation number. The producer checks exact original-number and
+target-kind identity, source leaf ownership and valid nonempty UTF-8. It preserves
+the existing figure caption anchor and explicitly declares a math-owner anchor
+for numbered equations. Unused settings, missing bindings, unknown targets,
+wrong number/kind, invalid templates and unresolved unlinked Number requests fail.
+
+Number-only and label-and-number presentations use the original UI templates.
+Number remains a true generated Counter reference; rich labels retain a separate
+Link to the same target, without nesting the Number link. The original reference
+source span, language and target are retained and rechecked against private
+traversal snapshots during encoding. Binding metadata consumes one collection
+plus one record per binding from the shared node allowance. Sidecar records
+retain original kind/LogicalNumber, owners, selected range, display SHA-256,
+package pointer and actual source origin. They do not add projection text/nodes.
+Display/source-byte tampering still fails when the caller recomputes the public
+source hash and preserves an otherwise valid projection shape.
+
+The initial positive encoder test detected that equation owners use the exact
+MathSource origin, which can differ from the enclosing RenderBlock.Source.
+Binding metadata now snapshots the actual projection owner's origin and retains
+the strict comparison. The first real Typaxis run then rejected missing equation
+text style. The VMB producer now emits its explicitly configured body font/size/
+line height for `math_vector_block` only when a Book-2 body has numbered equations.
+No number, font, math alternative, source content or rejection was removed.
+
+VMB focused evidence:
+
+```text
+VMB_TYPAXIS_BOOK_V2_FONT=<original Harano file>
+VMB_TYPAXIS_BOOK_V2_NUMBER_OUTPUT=/private/tmp/vmb-book-v2-number-export
+go test ./internal/rendertypaxis -run TestBookV2NumberBindings -count=1 -v
+```
+
+`/private/tmp/vmb-book-v2-number-binding-stage-03.log`: **4 tests passed (15.401 s)**,
+including 12 invalid-input subcases and 5 tampering subcases. Final reference span
+and language immutability checks added two more tampering subcases;
+`/private/tmp/vmb-book-v2-number-binding-focused-04.log` passes in **27.512 s**
+(the external-font staging test is skipped in this focused invocation).
+Exact metadata-node limits, legacy rejection, rich labels and all four source
+target kinds are exercised. Earlier broad regressions also passed in 255.969 s
+and 245.634 s; the final full run with the original-font gate is recorded below.
+
+Saved source job:
+`/private/tmp/vmb-book-v2-number-export/typaxis-body-2009228111`.
+Package SHA-256:
+`c78daff7b987a7958c0ed0c310cc41cd39841f5a2514a1d4ce52cdbf6f5a5ac1`.
+The corrected earlier job `typaxis-body-3702415631` has the same package bytes;
+the final job additionally retains the original target kind in its sidecar.
+The source uses real math from the verified-math-intro fixture, original Harano,
+and synthetic publication text/numbers/raster images. It is not the unmodified
+fractions book. It has 4 source bindings, 5 Number references, 6 math occurrences,
+3 figures, 1 decimal list, 4 image resources and 1 original font. The original
+projection is 283 bytes, SHA-256
+`f3e247bfcce97e6bf14aad846437044dc38e3e8d1083cd07ac4fd4fc07e0657c`.
+
+The saved-job CLI test now takes explicit expected resource/binding counts while
+retaining all six previous jobs' exact assertions. It verifies generated Number
+text/provenance and actual placed destinations for chapter, figure, equation and
+theorem before recording the real convergence-driver PDF. The final whole Book-2
+run uses the previous six saved jobs, this Number job, original Harano/Arial, and
+`TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBE=/private/tmp/typaxis-book-v2-vmb-number-final-probes`:
+
+```text
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_resources -- --include-ignored
+```
+
+`/private/tmp/typaxis-book-v2-vmb-number-final-cli.log`: **98 passed (23.43 s)**.
+The final Number PDF `/private/tmp/typaxis-book-v2-vmb-number-03.pdf` is **82,462
+bytes**, SHA-256 `aa837f10403ba8c572ba2162014f3d93fbdf507c8d3575f2d0e34e37d7257eb2`.
+It is byte-identical to the corrected earlier Number PDF. Its single A4-landscape
+page was rendered with MuPDF at 100 dpi and inspected: references, math, equation
+number, source captions and decimal list remain visible and unclipped.
+
+`verify_vmb_number_pdf.py <saved-job> <number-pdf> --pdftotext /opt/homebrew/bin/pdftotext --self-test`
+checks original source bytes/hash/identity mappings, sidecar bindings and exact
+Poppler extraction. It verifies 4 bindings, 5 references, 6 mathematical
+alternatives, 3 captions and 1 list, and rejects 6 independent source/sidecar
+mutations. It only normalizes physical CR/LF/form-feed boundaries. Ordinary
+raster images contribute no extracted text; captions do. The explicit fixture's
+decimal marker gap and positive equation-number gap follow Poppler raw spacing.
+It does not claim a general full-book text normalizer or PDF/UA validator.
+Log: `/private/tmp/typaxis-book-v2-vmb-number-final-extraction.log`.
+
+The full independent PDF suite passes: **82 PDFs (32 actual driver callbacks),
+287 pages, 2,920 structure nodes, 193 annotations, 14 explicit unsupported inputs
+and 571 tamper rejections**. Log:
+`/private/tmp/typaxis-book-v2-vmb-number-final-independent.log`.
+All **80** preceding PDFs are byte-identical; comparison log:
+`/private/tmp/typaxis-book-v2-vmb-number-final-comparison.log`.
+
+Public runner/config/capability and manifest publication, full-book presentation
+resolution, code/resource/media and remaining figure/table fields, footnote
+tables, advanced page masters, original full-book speech, managed-host evidence,
+independent PDF-UA and human acceptance remain open. Number support here is the
+private source-to-PDF connection, not completion of design 28.
+
+The final original-font-gated regression is terminal exit 0:
+`/private/tmp/vmb-book-v2-number-final-regression-03.log`, render **35.507 s**
+and rendertypaxis **240.158 s** (`go test ./internal/render
+./internal/rendertypaxis -count=1`). Its saved job is
+`/private/tmp/vmb-book-v2-number-final-export/typaxis-body-863818372`.
+All **12 files**, including the package, complete source sidecar, projection and
+all resources, are byte-identical to the accepted job above. The independent
+source/extraction oracle also passes directly against this final job and the
+accepted Number PDF, including all six tamper cases; log:
+`/private/tmp/typaxis-book-v2-vmb-number-final-source-extraction.log`.
+Targeted Go/Rust formatting, Python syntax and both repositories' diff whitespace
+checks pass. The preserved full-book package and original Harano font hashes
+remain unchanged. All verification processes started for this section have ended.
+
+## VMB figure title and caption export (design 14.168)
+
+The private Book-2 exporter accepts an authored figure Title and retains it as a
+rich paragraph before the separate authored Caption. Both belong to the actual
+Figure's Caption subtree; they are ordinary P children, not rasterized text.
+The source number prefix/anchor occurs only in the first paragraph. A title-only
+figure retains its source anchor and can be targeted by a link inside another
+title. Existing caption-only wire structure and the legacy Title rejection are
+preserved. Empty authored wrappers/breaks cannot become valid merely because a
+generated number prefix exists. Shared inline and node-budget checks cover all
+added content; the figure width and keep settings remain the caller's inputs.
+
+The fixture derives from the previous numbering example, with two rich titles,
+one separate explanation, seven original math occurrences, three raster figures,
+four source number bindings and five Number references. It includes an inline
+link from the first title to the second title-only figure. It is a synthetic
+RenderBook integration fixture using the original math adapter and Harano font,
+not the original full book.
+
+Focused producer tests: `/private/tmp/vmb-book-v2-figure-title-focused-04.log`,
+**3 passed (4.666 s)**, including three invalid authored-field subcases, legacy
+rejection, exact node budget and original-font staging. Earlier test iterations
+failed on a nonexistent test struct field, an incorrect test math type name and
+an unsafe test assertion on a typed equation node; those fixture/assertion errors
+were corrected without weakening production admission.
+
+Saved job: `/private/tmp/vmb-book-v2-figure-title-export/typaxis-body-1433777620`.
+Package SHA-256: `44207466ad3e926534b77f3b324da1cc2baf38bbdd851744a3ebeaf9dfa4b02a`.
+Source SHA-256: `062c0a0c00238ed4e71dc8e65055ea1ecf06cd30d84ea529ccd65cb1138febf1`.
+The saved-job CLI test uses the real Book-2 convergence driver and checks original
+font identity, seven math terminals, all five linked targets and all number
+bindings. The independent source oracle has an explicit `--figure-titles` fixture
+mode; it requires the exact title/caption paragraph sequence and adds removal,
+reordering and title-retagging tamper cases. The original numbering mode keeps
+its prior exact counts and passes unchanged.
+
+Final local commands/results:
+
+```text
+VMB_TYPAXIS_BOOK_V2_FONT=<original Harano font>
+VMB_TYPAXIS_BOOK_V2_FIGURE_TITLE_OUTPUT=/private/tmp/vmb-book-v2-figure-title-final-export
+go test ./internal/render ./internal/rendertypaxis -count=1
+
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_resources -- --include-ignored
+
+python3 tools/verify_book_v2_pdf_assembly.py \
+  /private/tmp/typaxis-book-v2-vmb-figure-title-probes --self-test
+python3 tools/verify_vmb_number_pdf.py <final-saved-job> \
+  /private/tmp/typaxis-book-v2-vmb-figure-title-01.pdf \
+  --pdftotext /opt/homebrew/bin/pdftotext --figure-titles --self-test
+```
+
+The CLI command uses the seven preceding saved VMB jobs, the new figure-title
+job, original Harano/Arial and the new probe directory. All processes reached
+terminal exit 0. Producer regression: render **33.995 s**, rendertypaxis
+**227.527 s** (`/private/tmp/vmb-book-v2-figure-title-regression-01.log`).
+Book-2 CLI: **99 passed (25.81 s)**; compilation **1m 22s**, no compiler warnings
+or errors (`/private/tmp/typaxis-book-v2-vmb-figure-title-cli-01.log`).
+
+Actual PDF: `/private/tmp/typaxis-book-v2-vmb-figure-title-01.pdf`, **84,324 bytes**,
+SHA-256 `26582eef60779bdfde6b682b84cc7bc19d7a4422e0f5674162b5478265531aaa`.
+The A4-landscape single page retains title then explanation, both title math
+occurrences, title-only figure, number references, equation number and list.
+MuPDF 100 dpi rendering was inspected without visible clipping or missing
+content. Poppler raw extraction matches original source and seven mathematical
+alternatives exactly, with only physical line/page boundary normalization.
+The source oracle rejects **9** mutations, including title/caption removal,
+reordering and retagging. Log:
+`/private/tmp/typaxis-book-v2-vmb-figure-title-final-extraction.log`.
+
+Independent PDF assembly verification passes **84 PDFs (33 actual driver
+callbacks), 289 pages, 3,076 structure nodes, 213 annotations, 14 explicit
+unsupported inputs and 585 tamper rejections**; log:
+`/private/tmp/typaxis-book-v2-vmb-figure-title-independent-01.log`.
+All **82** preceding PDFs are byte-identical. The final producer saved job
+`/private/tmp/vmb-book-v2-figure-title-final-export/typaxis-body-361105661` is
+byte-identical in all **12 files** to the accepted PDF input, including all source
+sidecars/resources; comparison log:
+`/private/tmp/typaxis-book-v2-vmb-figure-title-final-comparison.log`.
+Targeted Go/Rust formatting, Python syntax, both repositories' diff whitespace
+checks and original full-book package/Harano hash checks pass. No production Rust
+code changed in this section; the CLI test binary was rebuilt and executed.
+
+This completes the figure-title connection, not the full design. Table title/
+caption/number structure, code/resource/media, public runner/config/manifests,
+footnote tables, advanced masters and original full-book/managed-host/speech/
+independent PDF-UA/human acceptance remain open.
+
+## Book-2 table caption carrier (design 14.169)
+
+ADR-0042 adds an optional private `table.caption` with a nonempty array of
+recursive Book-2 blocks. Absence preserves the old table. Present null/empty
+values and unknown block/inline fields fail. The original typed table retains
+the entire caption, owners/spans/languages/classes and math across canonical
+round trips, including nested table/caption, list, figure, container and footnote
+slots. Only the temporary frozen-carrier validation view places caption blocks
+before the corresponding table. The retained wire never uses that flattening.
+
+The sealed carrier trait rejects any present caption in legacy typed decoding
+and serialization. Shared AST counting starts caption nodes one level below the
+table; the existing non-captioned forms keep their counts. Math source versions,
+vector metrics and nested semantic shape are checked in captions on decode and
+typed re-encode, retaining precise nested vector error pointers.
+
+Source lowering explicitly rejects a captioned table with `TableCaptionStaging`
+and L5100 at its owner. This is a rollout guard against silent content loss,
+not an implemented table-caption PDF path. The source test verifies that the
+uncaptioned table is valid and adding a caption cannot produce a prepared body,
+including when nested inside a semantic container. No VMB producer or public
+profile is enabled by this carrier step. Source/domain ownership, style/language,
+flow, table continuation, PDF Table/Caption/row structure and VMB Title/Caption/
+Number integration still need implementation.
+
+The first carrier compilation identified an incorrect test accessor
+(`into_parts` instead of the existing `into_wire`); the test was corrected.
+The initial focused run then passed **20 document-package tests (1.51 s)** and
+**54 syntax tests (2.00 s)**, with the unrelated property binary selecting zero
+tests. Log: `/private/tmp/typaxis-book-v2-table-caption-source-02.log`.
+The final broader library run additionally covers vector diagnostic pointers,
+typed caption/semantic mutation and the existing legacy tests; its results are
+recorded below. All verification remains local.
+
+The remaining pagination work must distinguish caption leaves from parallel
+cell leaves. The current table collector assumes a nested table is inside an
+active cell and measures the table's complete item range as rows/cells. Simply
+visiting caption paragraphs inside that existing range is therefore insufficient:
+it could lose their height or wrongly associate them with cells. The source guard
+stays until a caption subflow, its measured extent and continuation behavior are
+integrated and verified. The source structure already has a generated Caption
+slot suitable for the eventual Table/Caption relation; using an outer Figure or
+invented cell as a replacement is not the chosen design.
+
+Final library verification:
+
+```text
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-document-package -p typaxis-syntax --features book-v2-staging --lib
+cargo check --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build --workspace --all-features
+```
+
+All **66 document-package tests (1.27 s)** and **129 syntax tests (2.94 s)**
+pass, including six caption carrier tests and the explicit source-lowering guard.
+Log: `/private/tmp/typaxis-book-v2-table-caption-all-library-03.log`.
+Workspace check passes in **3m 28s**; log:
+`/private/tmp/typaxis-book-v2-table-caption-workspace-check-01.log`.
+The final compiler logs contain no warnings or errors.
+
+The existing whole Book-2 CLI command (`-p typaxis-cli --bin typaxis --features
+book-v2-staging book_v2_resources -- --include-ignored`, same locked manifest and
+target) uses all eight saved VMB jobs, original Harano/Arial and the fresh probe
+directory `/private/tmp/typaxis-book-v2-table-caption-carrier-probes`.
+It passes **99 tests (31.67 s)** after a **2m 38s** rebuild. Log:
+`/private/tmp/typaxis-book-v2-table-caption-carrier-cli-01.log`.
+All **84** resulting PDFs match the preceding accepted PDFs byte for byte;
+comparison log: `/private/tmp/typaxis-book-v2-table-caption-carrier-comparison-01.log`.
+These are regression results for already supported content, not evidence of
+captioned-table layout or PDF completion. Original full-book package and Harano
+font hashes are unchanged.
+
+The independent PDF assembly verifier also passes: **84 PDFs (33 actual driver
+callbacks), 289 pages, 3,076 structure nodes, 213 annotations, 14 explicit
+unsupported inputs and 585 tamper rejections**. Log:
+`/private/tmp/typaxis-book-v2-table-caption-carrier-independent-01.log`.
+All processes started for this section reached terminal exit 0 after the initial
+test-accessor correction. New Rust files pass targeted rustfmt checking, and
+both repositories pass diff whitespace checks. The full design remains active;
+the table caption source/domain/flow/producer/PDF connection remained required at
+this stage. The subsequent source connection and moved guard are recorded in
+design 14.170 below.
+
+## Book-2 table caption source flow (design 14.170)
+
+The typed Table now owns its original caption blocks, including through the
+`direct_blocks` accessor. Source lowering, stable host UTF-8 validation, style,
+language, anchor/reference traversal and displayed-number ancestry visit the
+caption before the rows. Common flow retains a bounded caption event range on
+the outer table; nested tables cannot replace that range. Its record consumes
+the shared table budget. Re-verification rejects removal or alteration of the
+range. Source structure emits Table/Caption before the existing THead/TBody and
+retains cell associations only on actual TH/TD nodes.
+
+At this stage the source-lowering guard moved to common frame preparation:
+`PendingTableCaption` (the subsequent measurement connection and search guard
+are recorded in design 14.171 below). A source-admitted caption reaches real font shaping but
+cannot obtain body frames until caption measurement and pagination exist.
+The common pagination entry requires verified body frames, so an independently
+shaped line list cannot bypass this gate. Legacy profile domain validation also
+rejects captions. This is source/flow progress, not captioned-table PDF acceptance.
+
+The source-focused tests cover nested tables, original language/spans, source
+structure, source-backed number labels, duplicate IDs, out-of-order spans, actual
+host UTF-8 boundaries, Page/Number/footnote references, metadata tampering and the
+exact table metadata budget. The first fixtures incorrectly attached paragraph
+font properties to a table selector and retained obsolete outline node IDs after
+renumbering; those fixtures were corrected without relaxing production checks.
+
+Local commands use the locked workspace manifest and existing temporary target:
+
+```text
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-document-package -p typaxis-syntax --features book-v2-staging --lib
+cargo check --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build --workspace --all-features
+cargo check --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build --workspace --no-default-features
+```
+
+The Book-2 CLI suite passes **100 tests (24.08 s)** using all eight original saved
+VMB jobs and the original Harano/Arial fonts. It includes the new source-to-shaping
+caption/frame rejection test. Log: `/private/tmp/typaxis-table-caption-source-cli-01.log`.
+The fresh probe directory is `/private/tmp/typaxis-book-v2-table-caption-source-probes`;
+its **84 PDFs** match the previous caption-carrier probes byte for byte.
+Comparison log: `/private/tmp/typaxis-table-caption-source-comparison-01.log`.
+The independent assembly verifier passes **84 PDFs (33 actual driver callbacks),
+289 pages, 3,076 structure nodes, 213 annotations, 14 explicit unsupported inputs
+and 585 tamper rejections**; log:
+`/private/tmp/typaxis-table-caption-source-independent-01.log`.
+
+The additional non-Book-2 library build exposed conditional serde bounds left by
+the previous carrier stage. Recursive wire types now always require the sealed
+`WireSemanticKind` bound, matching the always-compiled caption serializer. This
+fix does not add a Default semantic kind or broaden legacy caption acceptance.
+Publication, VMB table production, measured caption pagination, original full-book
+and independent/human acceptance remain open.
+
+Final workspace checks pass with Book-2 enabled (**2m 21s**, log
+`/private/tmp/typaxis-table-caption-source-check-03.log`) and disabled
+(**2m 11s**, log `/private/tmp/typaxis-table-caption-source-legacy-check-02.log`).
+Both commands check the entire workspace. The earlier non-Book-2 check failed
+before the serde-bound fix; its log is retained as
+`/private/tmp/typaxis-table-caption-source-legacy-check-01.log`.
+
+The final library rerun on 2026-09-10 passes **66 document-package tests (1.13 s)**
+and **134 syntax tests (3.81 s)** after the domain accessor and serde-bound fixes.
+Log: `/private/tmp/typaxis-table-caption-source-all-library-03.log`.
+The preceding corrected fixture run also passed 66/134 tests; initial failing
+fixture logs remain available. Final compiler logs have no warnings or errors.
+Targeted Rust formatting and both repositories' diff whitespace checks pass.
+The preserved original full-book package and Harano font hashes are unchanged.
+All verification processes started in this stage have ended; the macOS launch
+waits were followed using the original processes rather than restarting tests.
+
+## Book-2 table caption measurements (design 14.171)
+
+Common body frames now resolve caption paragraphs at their table content width.
+The shared collector closes caption leaves at the exact source event boundary
+before the rows. Nested caption tables retain the original outer-table parent
+and a separate caption child list; they are never appended as fake cells.
+
+`ProductionMeasuredTableCaption` retains natural height and shared child extents
+without cell-role metadata. The common accumulation function consumes actual
+leaf height, marker leading/trailing, outside spacing and already measured nested
+table height. Caption height prefixes row top positions and contributes once to
+the total table extent. Parallel cell heights still use the existing row/rowspan
+policy. Caption/content records are precharged and encoded into the measurement
+fingerprint; uncaptioned table encodings remain unchanged.
+
+The first unsupported boundary moves from frames to table search:
+`PendingRegion("table_caption_pagination")`. Both a direct table search and the
+body search reject measured captioned tables before issuing candidates. Existing
+nested-table and footnote-table search restrictions remain. This stage does not
+claim caption continuation, selected page placement, repeated-header behavior or
+captioned-table PDF acceptance.
+
+The targeted real-font fixture uses the existing small TrueType body font and
+original Result source. Cases cover zero, one and two levels of caption tables,
+with and without head rows. Assertions check full caption width, distinct source
+leaf ownership, actual parallel-cell row height, caption-prefixed row offsets,
+nested table height, exact shared record-budget exhaustion, repeated measurement
+fingerprints and direct/body search rejection. Original Harano/VMB inputs remain
+part of the existing PDF regression, not evidence of VMB captioned-table output.
+
+The initial refactoring checks caught an incomplete helper extraction and a
+missing public re-export; both were fixed before execution acceptance. The
+corrected focused test passed (0.06 s) before adding the head-row matrix.
+Log: `/private/tmp/typaxis-caption-measure-tests-03.log`.
+The existing pagination library passes **94 tests (0.21 s)**; log:
+`/private/tmp/typaxis-caption-measure-pagination-tests-01.log`.
+
+Commands use `workspace/Cargo.toml`, `--locked` and
+`--target-dir /private/tmp/typaxis-vmb-book-build`:
+
+```text
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-pagination --features book-v2-staging --lib
+cargo test --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --features book-v2-staging --bin typaxis \
+  book_v2_resources -- --include-ignored
+cargo check --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build --workspace --all-features
+cargo check --manifest-path workspace/Cargo.toml --locked \
+  --target-dir /private/tmp/typaxis-vmb-book-build --workspace --no-default-features
+```
+
+The final head-row/nesting matrix and the entire Book-2 CLI suite pass:
+**100 tests (26.96 s)**, log `/private/tmp/typaxis-caption-measure-cli-01.log`.
+The suite uses all eight saved VMB jobs and the existing Harano/Arial font inputs.
+The fresh probe directory is `/private/tmp/typaxis-book-v2-table-caption-measure-probes`.
+All **84 PDFs** match the preceding source-flow probes byte for byte; log:
+`/private/tmp/typaxis-caption-measure-comparison-01.log`.
+Independent assembly verification passes **84 PDFs (33 actual driver callbacks),
+289 pages, 3,076 structure nodes, 213 annotations, 14 explicit unsupported inputs
+and 585 tamper rejections**; log:
+`/private/tmp/typaxis-caption-measure-independent-01.log`.
+
+Both full-workspace checks pass: all features **1m 00s**
+(`/private/tmp/typaxis-caption-measure-check-02.log`) and no default features
+**1m 58s** (`/private/tmp/typaxis-caption-measure-legacy-check-01.log`).
+Final compiler logs contain no warnings/errors. Targeted Rust formatting, both
+repositories' diff whitespace checks and the preserved original full-book package/
+Harano font hashes pass. All verification processes have reached terminal status.
+Measured captions still require page-candidate/continuation/placement integration;
+these regression PDFs contain previously supported content and do not prove
+captioned-table PDF acceptance or completion of design 28.
+
+## Book-2 table caption pagination and PDF (design 14.172)
+
+The shared table kernel selects measured caption leaves before head/body rows.
+The cursor records whether rows have started separately from first-fragment
+status. Caption-only fragments emit no header; the first row fragment positions
+its original header after any remaining caption. Subsequent row fragments emit
+only header copies, with the existing repeated-header Artifact role. Caption
+placement has no cell role. Original caption ranges join semantic coverage and
+footnote demand exactly once. Nested-table and forced-break caption guards remain
+explicit at the original source owner, as do footnote-definition table limits.
+
+Candidate fingerprints and shared record/work accounting include the caption
+interval, header state and position. Earlier-capacity enumeration accounts for
+an original header only once. The uncaptioned encoding and output are unchanged.
+
+The four focused tests pass (2.69 s), including six measurement combinations,
+a four-page caption/header continuation, exact/one-short search budgets,
+four actual PDF combinations of caption length and headers, and a caption-first
+footnote that continues while the header later references it. Log:
+`/private/tmp/typaxis-caption-break-tests-03.log`.
+The complete Book-2 CLI suite passes **103 tests (26.36 s)** with all eight saved
+VMB jobs and original Harano/Arial inputs; log:
+`/private/tmp/typaxis-caption-break-cli-01.log`.
+Pagination passes **94 tests (0.28 s)**; log:
+`/private/tmp/typaxis-caption-break-pagination-tests-01.log`.
+
+Independent assembly verification passes **94 PDFs (38 actual driver callbacks),
+329 pages, 3,566 structure nodes, 219 annotations, 14 explicit unsupported inputs
+and 677 tamper rejections**. Caption tampering covers a false TH role, table-cell
+attributes and an incorrect parent. Source walkers visit captions before rows.
+The separate extraction fixture uses distinct caption/cell text and verifies
+**8 PDFs / 24 pages** with exact per-page counts. All **84 previous PDFs** remain
+byte-identical; ten caption PDFs are new. Evidence:
+
+```text
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py /private/tmp/typaxis-book-v2-table-caption-placement-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_table_caption_pdf.py /private/tmp/typaxis-book-v2-table-caption-placement-probes
+/private/tmp/typaxis-caption-break-independent-01.log
+/private/tmp/typaxis-caption-break-extraction-01.log
+/private/tmp/typaxis-caption-break-comparison-01.log
+```
+
+The old shared build directory failed twice on absent dependency outputs (quote
+rlib, then proc_macro2 rmeta). Those failures preceded checking this change and
+are retained in `typaxis-caption-break-shared-target-check-01.log` and
+`typaxis-caption-break-tests-01.log` under `/private/tmp`. Its artifacts were not
+removed. Verification was moved to a fresh isolated target with four build jobs:
+`/private/tmp/typaxis-caption-validation-jl5mhl7c`. The first isolated compile
+caught missing imports in the new tests; they were fixed. Commands retain
+`--manifest-path workspace/Cargo.toml --locked`; all Cargo commands in this
+section use this isolated target and `CARGO_BUILD_JOBS=4`.
+
+```text
+cargo test --manifest-path workspace/Cargo.toml --locked --target-dir /private/tmp/typaxis-caption-validation-jl5mhl7c -p typaxis-cli --features book-v2-staging --bin typaxis book_v2_table_caption
+cargo test --manifest-path workspace/Cargo.toml --locked --target-dir /private/tmp/typaxis-caption-validation-jl5mhl7c -p typaxis-cli --features book-v2-staging --bin typaxis book_v2_resources -- --include-ignored
+cargo test --manifest-path workspace/Cargo.toml --locked --target-dir /private/tmp/typaxis-caption-validation-jl5mhl7c -p typaxis-pagination --features book-v2-staging --lib
+cargo check --manifest-path workspace/Cargo.toml --locked --target-dir /private/tmp/typaxis-caption-validation-jl5mhl7c --workspace --all-features
+cargo check --manifest-path workspace/Cargo.toml --locked --target-dir /private/tmp/typaxis-caption-validation-jl5mhl7c --workspace --no-default-features
+```
+
+The small caption PDFs use the existing TrueType fixture; they are not VMB
+captioned-table output or original Harano typography acceptance. VMB table
+Title/Caption/Number export, nested/forced table breaks, footnote tables, public
+profile publication and original full-book acceptance remain unfinished.
+
+Both final workspace checks pass without warnings/errors: all features **3.72 s**
+(`/private/tmp/typaxis-caption-break-check-02.log`) and no default features
+**3.47 s** (`/private/tmp/typaxis-caption-break-legacy-check-02.log`). The first
+no-default-feature check exposed two unused staging-only projection members and
+a helper; those declarations are now feature-gated. The final guard change
+leaves staging runtime behavior unchanged. Targeted formatting, Python syntax,
+both repositories' diff whitespace checks and the original package/Harano SHA-256
+checks pass. Every verification process for this stage has reached terminal
+status. The isolated target replaces the stale shared target for subsequent work.
+
+## VMB table title, caption and number export (design 14.173)
+
+The private VMB exporter preserves separate rich Title/Caption paragraphs before
+head/body rows. Explicit ResolvedTableCaption presentation matches the original
+LogicalNumber; one prefix and anchor belong to the first paragraph. NumberRanges
+binds the actual prefix Text to the original table owner. The source sidecar
+retains author origins, generated number provenance, math and forward references.
+Number-only captions are explicitly generated. Absent captions retain identical
+legacy document/source bytes; legacy fields/settings remain rejected.
+
+The new Go tests cover both authored fields, either field alone, number only,
+omission, original/duplicate math use, source owners, exact/one-short node budgets,
+missing/mismatched/empty presentation, UTF-8 range rejection and empty authored
+wrappers/breaks. The initial helper compile exposed an `any`/map assignment error,
+which was fixed. Focused caption and existing table tests pass in **20.495 s**
+(`/private/tmp/vmb-table-caption-tests-02.log`). The later number-only matrix passes
+in **6.369 s**, log `/private/tmp/vmb-table-caption-optional-tests-01.log`.
+The entire `internal/rendertypaxis` package passes in **257.314 s**, with the
+original Harano environment; log `/private/tmp/vmb-table-caption-full-tests-01.log`.
+
+```text
+VMB_TYPAXIS_BOOK_V2_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf VMB_TYPAXIS_BOOK_V2_TABLE_CAPTION_OUTPUT=/private/tmp/vmb-book-v2-table-caption-export go test ./internal/rendertypaxis -run 'TestBookV2TableCaptions|TestLowerBookBodyTable' -count=1 -v
+VMB_TYPAXIS_BOOK_V2_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf go test ./internal/rendertypaxis -count=1
+go test ./internal/rendertypaxis -run TestBookV2TableCaptionsPreserveOptionalFieldsAndLegacyOmission -count=1 -v
+```
+
+The original Harano saved job is:
+`/private/tmp/vmb-book-v2-table-caption-export/typaxis-body-3816889802`.
+Package SHA-256:
+`ab340afcf5dc66a8c513478eaa84eea6c0abcf148370050508cc3d39276adb72`.
+The package has one shared vector image, three real math occurrences and one
+Number binding/reference. The actual Typaxis PDF is
+`/private/tmp/typaxis-book-v2-vmb-table-caption-01.pdf`, **31,046 bytes**, one page,
+SHA-256 `40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`.
+
+The saved-job CLI test passes in **5.27 s**; log
+`/private/tmp/typaxis-vmb-table-caption-tests-01.log`. Independent verification
+passes two PDFs (one actual driver), 76 structure nodes and 20 tamper rejections.
+Poppler extraction matches original source and sidecar text exactly, with nine
+number/title/caption tamper rejections. The controlled two-column fixture models
+Poppler's cell separation explicitly; all other authored spaces are retained.
+Its raster was inspected at `/private/tmp/typaxis-vmb-table-caption-render.png`.
+This is an agent rendering check, not the required human/full-book acceptance.
+
+```text
+CARGO_BUILD_JOBS=4 TYPAXIS_BOOK_V2_VMB_TABLE_CAPTION_JOB=/private/tmp/vmb-book-v2-table-caption-export/typaxis-body-3816889802 TYPAXIS_BOOK_V2_VMB_TABLE_CAPTION_PDF=/private/tmp/typaxis-book-v2-vmb-table-caption-01.pdf TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBE=/private/tmp/typaxis-book-v2-vmb-table-caption-probes cargo test --manifest-path workspace/Cargo.toml --locked --target-dir /private/tmp/typaxis-caption-validation-jl5mhl7c -p typaxis-cli --features book-v2-staging --bin typaxis book_v2_saved_vmb_table_captions -- --include-ignored
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_vmb_number_pdf.py /private/tmp/vmb-book-v2-table-caption-export/typaxis-body-3816889802 /private/tmp/typaxis-book-v2-vmb-table-caption-01.pdf --pdftotext /opt/homebrew/bin/pdftotext --table-captions --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py /private/tmp/typaxis-book-v2-vmb-table-caption-regression-probes --self-test
+```
+
+The complete CLI suite now passes **104 tests (31.50 s)** with all nine saved VMB
+jobs. Independent regression passes **96 PDFs (39 actual driver callbacks),
+331 pages, 3,642 structure nodes, 221 annotations, 14 explicit unsupported inputs
+and 697 tamper rejections**. All **94 preceding PDFs** remain byte-identical.
+The previous number and figure-title extraction oracles also pass (six and nine
+tamper rejections). Logs:
+
+```text
+/private/tmp/typaxis-vmb-table-caption-cli-01.log
+/private/tmp/typaxis-vmb-table-caption-regression-independent-01.log
+/private/tmp/typaxis-vmb-table-caption-comparison-01.log
+/private/tmp/typaxis-vmb-table-caption-extraction-02.log
+/private/tmp/typaxis-vmb-table-caption-number-regression-01.log
+/private/tmp/typaxis-vmb-table-caption-figure-regression-01.log
+```
+
+The prior stage's complete workspace feature checks remain applicable: this
+stage changes the VMB producer, CLI test adapter and independent fixture oracle,
+without altering the Typaxis production libraries. Public dispatch/profile
+publication, original full-book success, column alignment and advanced table/
+footnote/page behavior remain unfinished.
+
+Final formatting, Python syntax and diff whitespace checks pass. All verification
+processes for this stage are terminal. During the final source-preservation check,
+the original temporary package pathname was unexpectedly absent; no action in
+this stage removed it. The repository backup at
+`workspace/target/vmb-design/20260905/book-original/document-package.json` still
+matched SHA-256 `e4fd7415cb33de5afff8c3b2a335c2afa06df1e22780c9913813d95536efffbb`.
+The missing temporary file was restored from those verified bytes using exclusive
+creation and checked again. Log:
+`/private/tmp/typaxis-vmb-table-caption-source-preservation-01.log`.
+The original Harano hash and the new saved VMB job/PDF hashes also pass. Subsequent
+work should use `/private/tmp/typaxis-caption-validation-jl5mhl7c` for builds and
+`/private/tmp/typaxis-book-v2-vmb-table-caption-regression-probes` as the 96-PDF
+comparison baseline.
+
+
+## Book-2 table-cell inheritance and VMB alignment (design 14.174)
+
+Progress on 2026-09-10. ADR-0043 is implemented in the private contract-1.5
+carrier, typed domain and both computed/source style walks. Optional original
+cell classes use existing canonical identifier rules; null and legacy typed
+encoding/decoding reject the field. Only the four inherited text properties are
+accepted, including through extends ancestors. Child declarations keep normal
+cascade priority even when the inherited cell declaration was important.
+The VMB exporter retains original cell/column ownership and resolved alignment
+in `table_cell_styles`, validates final classes before encoding, and emits only
+used rules. Nested default-left cells explicitly reset inherited right/center
+alignment; other default cells retain preceding bytes.
+
+Initial observed verification passed: **67 document-package, 138 syntax, 94
+pagination tests**, workspace checks with all/default features, **106 Book-2 CLI
+tests (32.96 s)** with ten VMB jobs, and the full VMB exporter suite (**310.016 s**).
+Independent inspection passed **102 PDFs (42 actual driver callbacks), 341 pages,
+3,946 structure nodes, 223 annotations, 14 explicit unsupported inputs and 753
+tamper rejections**. All 96 preceding PDFs were byte-identical. Four unequal-column
+PDFs/eight pages passed direct glyph-matrix/CID-width checks and 16 displacement
+rejections. The Harano fixture passed four-cell geometry checks, unchanged
+captions, three displacement rejections and exact Poppler source/number
+extraction with nine tamper rejections. Its raster was visually inspected by the
+agent; that is not the required human/full-book acceptance.
+
+The first geometry oracle used pypdf's text visitor, whose memoized matrix was
+identity for the first glyph after a column gap. The accepted oracle reads actual
+ContentStream Tm/Tj operators and embedded CID widths. The preliminary three-column
+fixture inherited a tiny synthetic media box; the accepted input explicitly uses
+a 300×150 pt page with its 240×64 pt body inside it. A formatter variable typo,
+unsupported font declarations on the test table selector and a missing test
+import were corrected before the successful checks.
+
+**Evidence preservation incident:** after the next continuation, the original
+`/private/tmp` target, saved VMB jobs, PDF baseline and logs were absent, and their
+process handles were unknown. No action in this implementation removed them.
+The preceding results are recorded observations, not currently retained local
+artifacts. Source edits and original repository-backed book/font inputs remained.
+Reproduction now uses `workspace/target/vmb-book-build-20260910` and saves jobs,
+PDFs and logs under `workspace/target/vmb-design/20260910/table-alignment`.
+Do not claim the missing 96-PDF baseline was freshly compared after this incident.
+
+Previously observed package hashes remain comparison anchors. The alignment
+package SHA-256 was
+`8c758d60295bb8c4d40913cf62bf1ba58be20b6e0c70d9c98e6cb2048cb49fce`;
+its original Harano PDF was one page, 31,111 bytes, SHA-256
+`30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02`.
+Two CLI executions matched exactly. The preceding left-aligned caption package
+hash was `ab340afcf5dc66a8c513478eaa84eea6c0abcf148370050508cc3d39276adb72`
+and PDF hash was
+`40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`.
+
+The full objective remains active. Nested/forced table breaks, footnote tables,
+advanced page masters, remaining RenderBook content, public CLI/receipts/manifests,
+original full-book and external human/PDF-UA gates are unfinished.
+
+
+Retained reproduction completed on 2026-09-10. All ten regenerated VMB package
+hashes match the preceding recorded hashes; `jobs.json` maps each purpose to its
+current directory/hash. Both regenerated table PDFs match their recorded hashes
+above, including the 31,111-byte alignment PDF. Original repository-backed book
+package and original Harano remain unchanged (`preservation.log`).
+
+Current library verification again passes **67 + 138 + 94 tests**. The retained
+CLI run passes **106 tests (11.37 s)**; all/default-feature workspace checks pass
+without warnings. The saved VMB full-scope run initially failed six staging tests
+because their explicitly selected parent directories did not yet exist. After
+creating those parents, all six exact tests pass (five in 3.355 s and description
+in 0.860 s). The original full-scope run completed in 186.932 s with only those six
+failures; `vmb-coverage.log` reconciles the full run and both focused recovery
+logs. Optional external/public integration skips remain explicit. This is not a
+claim that the retained first full-run command exited successfully.
+
+Reproduction entry points and evidence directory (all under the repository):
+
+```text
+workspace/target/vmb-design/20260910/table-alignment/run-cli.py
+workspace/target/vmb-design/20260910/table-alignment/jobs.json
+workspace/target/vmb-design/20260910/table-alignment/table_caption.pdf
+workspace/target/vmb-design/20260910/table-alignment/table_alignment.pdf
+workspace/target/vmb-design/20260910/table-alignment/probes/
+workspace/target/vmb-design/20260910/table-alignment/library-tests.log
+workspace/target/vmb-design/20260910/table-alignment/cli-tests.log
+workspace/target/vmb-design/20260910/table-alignment/check-all.log
+workspace/target/vmb-design/20260910/table-alignment/check-legacy.log
+workspace/target/vmb-design/20260910/table-alignment/vmb-full-tests.log
+workspace/target/vmb-design/20260910/table-alignment/vmb-restaged-tests.log
+workspace/target/vmb-design/20260910/table-alignment/vmb-description-restaged.log
+workspace/target/vmb-design/20260910/table-alignment/vmb-coverage.log
+workspace/target/vmb-design/20260910/table-alignment/independent-pdf.log
+workspace/target/vmb-design/20260910/table-alignment/alignment-geometry.log
+workspace/target/vmb-design/20260910/table-alignment/vmb-geometry.log
+workspace/target/vmb-design/20260910/table-alignment/vmb-extraction.log
+workspace/target/vmb-design/20260910/table-alignment/preservation.log
+```
+
+```text
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-syntax -p typaxis-document-package -p typaxis-pagination --features book-v2-staging --lib
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+python3 workspace/target/vmb-design/20260910/table-alignment/run-cli.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/table-alignment/probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_table_alignment_pdf.py workspace/target/vmb-design/20260910/table-alignment/probes --self-test
+```
+
+The CLI reproduction script uses the retained jobs and explicitly selected
+original fonts. Its named output PDFs use exclusive creation; choose new output
+names/probe directory for another run instead of overwriting existing evidence.
+Independent VMB geometry/extraction invocations use the two job directories from
+`jobs.json` and the retained table PDFs with `tools/verify_vmb_table_alignment_pdf.py`
+and `tools/verify_vmb_number_pdf.py --table-captions --self-test --pdftotext
+/opt/homebrew/bin/pdftotext`. Both pass (four original cells/three displacements,
+and exact source/number text/nine tamper rejections). The separate three-column
+oracle again passes four PDFs and 16 displacements. Subsequent regression should
+use the retained `probes/` directory as its baseline; do not use deleted tmp paths.
+
+
+The retained independent rerun also passes **102 PDFs / 42 actual drivers / 341
+pages / 3,946 nodes / 223 annotations / 14 unsupported / 753 tamper rejections**.
+All verification handles are terminal. New Rust module formatting, Python syntax
+and both repositories' diff whitespace checks pass. The source changes and
+regenerated artifacts constitute progress; design 28 remains active.
+
+Next table work: current `TablePosition` stores only vertical offset, row and
+header/initial state. Distinct forced breaks can have the same natural offset;
+a coordinate alone cannot prove that each source break was consumed once or
+preserve leading/consecutive/trailing blank pages. Extending that semantic cursor
+and the common fragment/page/footnote closure is necessary before removing
+`table_caption_forced_break` or `table_forced_break`. Those guards remain in force.
+
+## Book-2 table-caption forced breaks (design 14.175)
+
+The private caption search now retains a source-content cursor independently of
+height and row state. It consumes the first remaining authored break, ends that
+physical page and defers every header/body row until a later fragment. Leading,
+consecutive and trailing breaks also work when the rows have zero natural height.
+The page selector distinguishes internal table breaks from outer body breaks;
+pending notes use the existing joint-page policy. Source closure now verifies
+nonpainting body breaks once, as well as the existing painted source coverage.
+Stale equal-height cursors fail validation. Search/canonical records retain the
+new state only where needed, preserving earlier no-break PDF bytes.
+
+Keep conflicts include a preceding paragraph's keep_with_next and a table held
+together by an enclosing figure's keep_caption. The latter is the existing source
+of table keep-together state, not a new table style declaration. Both report
+KeepAcrossForcedBreak at the original conflicting owner. Header/body-cell breaks
+and nested tables still report their explicit unsupported source owners.
+
+Persistent evidence root:
+`workspace/target/vmb-design/20260910/table-caption-breaks`.
+All ten unchanged staged VMB inputs are referenced from `jobs.json` in this root;
+their actual directories remain under the preceding `table-alignment/jobs` root.
+The build target is `workspace/target/vmb-book-build-20260910`, with four jobs.
+
+Final observed results:
+
+- `cli-tests-final.log`: **111 passed**, 13.70 seconds, including all ten saved
+  VMB jobs and the explicit original-Harano caption-break case.
+- `pagination-tests.log`: **94 passed**, 0.20 seconds.
+- `independent-pdf-final.log`: **112 source PDFs / 47 actual driver callbacks /
+  395 pages / 4,196 structure nodes / 227 annotations / 14 explicit unsupported
+  inputs / 843 tamper rejections**.
+- `extraction-final-harano.log`: **8 PDFs / 42 pages / 24 rejected alterations**.
+  An independent parser checks physical-page text directly and rejects a removed
+  leading blank page, an extra trailing page and painted text on a blank page.
+- `comparison-final.log`: **102 baseline PDFs byte-identical** to the retained
+  §14.174 probes, and both original-Harano VMB table PDFs byte-identical.
+- `check-final-all.log` and `check-final-legacy.log`: workspace all-feature and
+  default-feature checks pass in 2.19 and 1.98 seconds. Cargo reports a cached
+  external Xcode SDK/FSEvents warning; this is not a warning-free claim.
+- `keep-final-03.log`: the final added enclosing-figure keep conflict and existing
+  paragraph/header/body diagnostic cases pass together, 0.08 seconds. This test
+  addition followed the 111-test run and does not modify implementation/PDF output.
+- `source-preservation.log`: the surviving original full-book package and
+  unchanged original-Harano font retain their previously recorded SHA-256 hashes.
+
+The original-Harano controlled PDF is `caption-forced-breaks-harano.pdf`, **7 pages,
+14,589 bytes, SHA-256
+1910f9aad169311a22aedfcd7c5a01474e3ed8a8b7da0f27b3e6e4e3929adb79**.
+The page text is exactly zero, one, zero, one, two, two and two copies of
+`表の説明`. `harano-preservation.json` retains the extracted text and hash.
+`harano-page-5.png` was rendered with Poppler at 144 dpi and visually inspected:
+both Japanese header/body strings are visible and separate. The original font's
+actual metrics allow one body row beside each repeated header. The initially
+expected six pages were based on the minimal TrueType fixture and were corrected
+following the observed seven-page output; the independent oracle then verified
+every page. No font metrics or source text were changed to force a page count.
+The older `caption-page-5.png` from the minimal TrueType fixture is blank because
+that fixture's glyphs have no visible ink. Its extraction/geometry evidence is
+valid, but it must not be used to claim original typography/rendering success.
+
+Retained failed attempts: `check-01.log` caught an omitted argument at the
+ordinary-candidate call site (fixed before `check-02.log`); `focused-tests-01.log`
+caught missing test imports. `focused-tests-04.log` records the original-Harano
+six-versus-seven expectation failure; `focused-tests-05.log` passes all five
+focused tests. `keep-final.log` used a nonexistent table keep_together style and
+failed input decoding; `keep-final-02.log` omitted the required figure width and
+failed layout. The final test uses the real keep_caption source with explicit
+figure width and passes. These failed logs are not success evidence.
+
+```text
+python3 workspace/target/vmb-design/20260910/table-caption-breaks/run-cli-final.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging --lib
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/table-caption-breaks/final-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_table_caption_break_pdf.py workspace/target/vmb-design/20260910/table-caption-breaks/final-probes --self-test --harano
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_table_caption_forced_breaks_reject
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+The saved CLI script selects the two original fonts and all ten VMB jobs by
+explicit paths, asserting every expected package hash. Named PDF outputs use
+exclusive creation; choose fresh output names and a fresh probe directory for a
+rerun. The VMB producer was unchanged in this section, so exporter Go evidence
+remains the preceding section's recorded full run and specific staging reruns.
+No GitHub Actions were used.
+
+This supersedes only the preceding caption-break guard. Parallel header/body-cell
+breaks require their own source continuation policy; nested-table fragmentation,
+footnote tables, full-book output, public manifests/runner and human acceptance
+remain open. Design 28 is still active.
+
+Final checks also pass targeted Rust formatting, Python syntax and both
+repositories' `git diff --check`. Poppler's separate extraction independently
+confirms all seven original-Harano page texts (`harano-poppler.txt` and
+`final-verification.log`). Every verification process handle is terminal.
+
+## Book-2 parallel cell breaks (design 14.176)
+
+The previous goal turn made progress: it implemented and verified explicit
+caption breaks. This section adds independent original-content cursors for body
+cells in private Book-2 tables without rowspans. The earliest reachable cell
+break bounds the row fragment. Each neighbor retains complete unplaced content;
+it does not inherit another cell's consumed coordinate. Simultaneous breaks from
+different cells share a page boundary, while consecutive breaks in one cell
+retain separate physical pages. A final break preserves a following blank page.
+Finished rows may share the remaining page with following rows, including colspan.
+
+`production_table_parallel_breaks.rs` retains budgeted cell-position arrays in
+the issuing source-bound search. Opaque storage indexes do not enter canonical
+bytes; content digests, measured source identity and semantic cursor progress do.
+The copyable public staging cursor remains intact. Cell mode uses an accumulated
+fragment offset, with original cell progress separately fingerprinted. The new
+path is selected only for tables containing body-cell breaks. Ordinary tables and
+legacy profiles retain their former algorithm/canonical bytes.
+
+Page selection and footnote demand use original selected ranges. Source closure
+consumes every simultaneous break once, even though ranking exposes one
+representative owner. Breaks do not create glyph/cell paint roles. Headers repeat
+on actual row fragments. Caption prefixes may share a page with the first row;
+a final caption keep is rolled back to an earlier legal caption boundary if the
+row cannot start. Same-cell keep conflicts reject the original owner. Rowspans,
+forced header breaks and nested-table content remain explicitly guarded rather
+than being flattened, dropped or partially certified.
+
+Persistent evidence root:
+`workspace/target/vmb-design/20260910/table-cell-breaks`.
+The current full regression probe directory is `complete-probes/`. This name
+refers to this recorded regression run, not completion of design 28.
+
+Final results:
+
+- `cli-tests-complete.log`: **117 passed**, 13.90 seconds, with all ten unchanged
+  staged VMB jobs and explicit original-Harano/Arial Unicode font paths.
+- `pagination-tests.log`: **94 passed**, 0.17 seconds. The subsequent caption-keep
+  correction is additionally covered in the final 117-test integration run.
+- `independent-pdf-complete.log`: **136 source PDFs / 59 actual driver callbacks /
+  479 pages / 4,656 structure nodes / 231 annotations / 14 explicit unsupported
+  inputs / 1,011 tamper rejections**.
+- `extraction-complete.log`: **22 PDFs / 76 pages / 88 rejected alterations**.
+  The separate verifier inspects actual PDF text on each physical page, including
+  unequal line heights, simultaneous/empty breaks, caption prefixes and keep
+  rollback, headers, following rows and colspan. It rejects missing pages,
+  additional pages, misplaced neighbor text and duplicated source text.
+- `comparison-complete.log`: all **112 preceding §14.175 PDFs byte-identical**,
+  and both saved original-Harano VMB table PDFs byte-identical.
+- `check-all-verified.log` and `check-default-verified.log`: all-feature and
+  default-feature workspace checks pass, 6.25 and 1.94 seconds. Later additions
+  were test coverage and a cursor documentation comment. Cargo still reports the
+  cached external Xcode SDK/FSEvents warning; no Rust warning was introduced.
+- Exact record/work budgets and one-unit shortages pass. A stale cell cursor at
+  the same height and row but after a different source break fails validation.
+  Both supported simultaneous owners pass exact source closure in actual PDFs.
+- `diagnostics-final.log`: keep conflict, rowspan and header-break diagnostics
+  retain the original expected owner. `following-row.log` covers the final
+  added following-row/colspan cases before the full integration rerun.
+
+The original-Harano controlled PDF `cell-forced-breaks-harano.pdf` is **3 pages /
+8,572 bytes / SHA-256
+5f55fd3b80e8abe3cd8c0f770deea74891297257a40faab62d4dda93102c6c5f**.
+`harano-preservation.json` records exact page text: `左側`, `左側 右側`, `右側`.
+Poppler's separate `harano-poppler.txt` extraction matches those three pages.
+`harano-page-2.png` was rendered at 144 dpi and inspected: both Japanese labels
+are visible in their distinct columns, with the different line heights retained.
+The minimal TrueType fixtures still prove geometry/source/extraction only, as
+recorded in §14.175. No full-book typography claim follows from these small PDFs.
+`source-preservation.log` verifies the unchanged original full-book package and
+original-Harano SHA-256 values. `jobs.json` binds all ten saved VMB package hashes.
+
+The initial focused and full runs (`tests-03.log` and `cli-tests.log`) reached
+TableHeaderOversize before the intended unsupported-header diagnostic because
+that diagnostic fixture had two tall header lines. Its explicit body height was
+corrected to reach the target guard; `diagnostics-final.log` and both later full
+runs pass. No implementation error was suppressed or changed into success.
+Review then found the missing caption keep handoff in the new parallel path;
+`tests-04.log`, `caption-keep-final.log` and the final full regression cover its
+same-page and rollback cases. Intermediate evidence is retained separately.
+
+```text
+python3 workspace/target/vmb-design/20260910/table-cell-breaks/run-cli-complete.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging --lib
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/table-cell-breaks/complete-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_table_cell_break_pdf.py workspace/target/vmb-design/20260910/table-cell-breaks/complete-probes --self-test
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+Use fresh PDF output names and a fresh probe directory when replaying the saved
+script: named PDF outputs are created exclusively. VMB producer code was unchanged
+in this section; prior exporter evidence remains applicable and is not represented
+as a new Go run. No GitHub Actions were used.
+
+Remaining technical work includes spanning-cell continuation, forced header
+semantics, nested/footnote tables and other pending source/page forms. Original
+full-book/public runner/manifests/managed-host/human acceptance gates remain
+unfulfilled. The active objective still includes all of design 28.
+
+Final targeted Rust formatting, Python syntax and both repositories'
+`git diff --check` pass. The final actual-driver Harano PDF is byte-identical to
+the retained visually inspected PDF (`final-verification.log`). All verification
+process handles are terminal; design 28 remains active.
+
+## Book-2 spanning-cell breaks (design 14.177)
+
+This turn extends the preceding independent-cell implementation to rowspans.
+Original measured row bands and each cell's original-content cursor are retained
+separately. A spanning line may extend beyond the next row's start in another
+column. Per-candidate cell ends prevent overlap within the same cell. The current
+band's remaining height enters retained state and its digest, while arena indexes
+remain excluded from canonical bytes. Empty-band progress is distinguished from
+starting actual body content, including when honoring a caption keep.
+
+`production_table_spanning_breaks.rs` evaluates active spanning cells and ending
+cells against measured row boundaries. If a later row introduces a forced cut
+before an already selected spanning line ends, it discards that tentative result
+and retries the original cursor at a strictly smaller capacity. All retry work,
+state copies, active-cell scans, end/stopped arrays and canonical scratch use the
+existing shared budgets. The smaller-candidate enumerator skips arbitrary padding
+units and steps to actual cell/caption/header ends. Legacy and no-cell-break table
+paths remain unchanged; no source nodes or rowspans are flattened or discarded.
+
+Persistent evidence root:
+`workspace/target/vmb-design/20260910/table-rowspan-breaks`.
+The final whole-regression probe directory is `final-probes/`. The saved script
+uses all ten unchanged VMB jobs from `table-alignment/jobs`, asserting their hashes
+in this root's `jobs.json`, and selects the original font paths explicitly.
+
+Final observed results:
+
+- `cli-tests-final.log`: **120 passed**, 13.08 seconds, including the original
+  Harano case, all source-band fixtures and all ten retained VMB inputs.
+- `pagination-tests.log`: **94 passed**, 0.16 seconds. The later empty-band/keep
+  correction is also covered in the final 120-test integration run.
+- `independent-pdf-final.log`: **158 source PDFs / 70 actual driver callbacks /
+  561 pages / 5,160 structure nodes / 239 annotations / 14 explicit unsupported
+  inputs / 1,157 tamper rejections**.
+- `extraction-final.log`: **18 PDFs / 56 pages / six actual glyph-matrix geometry
+  checks / 86 rejected alterations**. The verifier reads physical PDF pages and
+  embedded ToUnicode/text matrices. It checks column starts at 10/100 pt and a
+  following row beginning within the 32 pt spanning line band, and rejects both
+  overprinting and delaying that row below the band.
+- `unspanned-extraction.log`: the preceding independent-cell oracle still passes
+  **22 PDFs / 76 pages / 88 rejected alterations**. It now explicitly selects
+  nonspanning fixtures rather than treating new rowspan fixtures as old cases.
+- `comparison-final.log`: all **136 preceding §14.176 PDFs byte-identical**, and
+  both saved original-Harano VMB table PDFs byte-identical.
+- `budgets.log` and final integration: record/work exact and one-short boundaries
+  pass. The final matrix includes source coverage for ordinary spanning, later-row
+  retry and blank-only spanning cases. Every original body leaf is consumed once.
+- `delayed-note.log`: in both assembly and actual-driver PDFs, a reference in the
+  tall spanning cell and its note/annotations begin on page 2. Page 1 contains
+  only `Left` and no annotation; the source is not demanded before it is placed.
+- `check-all-final.log` and `check-default-final.log`: all-feature/default-feature
+  workspace checks pass in 8.26 and 0.05 seconds. Cargo retains the cached external
+  Xcode SDK/FSEvents warning; no Rust warning was introduced.
+
+The retained original-Harano `rowspan-forced-breaks-harano.pdf` is **3 pages /
+9,516 bytes / SHA-256
+4190c7a652e9ac11a4b721a8c454acabaf52877dd81afbc1bb0a314a47dc19f0**.
+`harano-preservation.json` records the exact page text: `左側`, `左側 右側\n左側`,
+`右側`. Separate Poppler extraction (`harano-poppler.txt`) matches. The rendered
+144-dpi `harano-page-2.png` was inspected: the two left-cell lines remain distinct,
+and the right spanning line occupies its own column. The final actual-driver PDF
+is byte-identical to this inspected artifact. Minimal TrueType fixtures still
+provide source/geometry/extraction evidence only, as recorded in §14.175.
+`source-preservation.log` confirms the unchanged original package and original
+Harano font hashes; these remain small fixtures, not original full-book acceptance.
+
+Retained failure/correction evidence:
+`tests-01.log` reached PageBreakLookbackLimit (32/33) because smaller candidates
+walked fixed-point padding units. The actual-boundary enumerator fixes this rather
+than raising the limit; `tests-02.log` passes. The initial extractor self-test
+(`extraction-focused.log`) accidentally replaced some page text with identical
+text; the alteration was corrected, and `extraction-focused-02.log` rejects it.
+Review then distinguished empty-band progress from starting body content so a
+kept caption cannot be orphaned. `tests-04.log` and the final integration include
+the zero-height-band/caption-keep rollback regression. Failed runs remain separate
+from the final successful evidence.
+
+```text
+python3 workspace/target/vmb-design/20260910/table-rowspan-breaks/run-cli-final.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging --lib
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/table-rowspan-breaks/final-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_table_rowspan_break_pdf.py workspace/target/vmb-design/20260910/table-rowspan-breaks/final-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_table_cell_break_pdf.py workspace/target/vmb-design/20260910/table-rowspan-breaks/final-probes --self-test
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+Choose new output PDF names and a fresh probe directory for another run: saved
+named outputs use exclusive creation. No VMB producer code changed here, and no
+new Go run is claimed. No GitHub Actions were used. Forced header breaks,
+nested/footnote tables, remaining source/page forms and original full-book/public
+runner/manifests/managed-host/human gates remain required. Design 28 stays active.
+
+Final targeted Rust formatting, verifier Python syntax and both repositories'
+`git diff --check` pass. `final-verification.log` records those checks and the
+inspected final-driver PDF match. All verification process handles are terminal.
+The whole design remains in progress.
+
+## Book-2 original header breaks (design §14.178)
+
+Date: 2026-09-10. ADR-0047 extends original-cell traversal to header breaks while
+keeping complete later repetitions as pagination artifacts. `RowRegion` shares
+the parallel and spanning row kernels between the initial header and body. The
+first header's slices carry original source ownership; a separate projection
+flag suppresses the old implicit whole-header source range. Once the original
+header is consumed, complete repeated headers paint without executing breaks or
+adding source/note requests. HEADBRK1 distinguishes the new source-header mode in
+canonical projections. Tables without header breaks retain their prior bytes.
+
+The initial header and its final prefix defer if no authored break allows their
+separation from body content. The full natural repeated-header height is still
+validated against the frame. All retained cell states, merged cell slices and
+failed tentative traversals use the existing shared record/work budgets. Direct
+replay covers asymmetric and spanning headers, body spans and zero-height blank
+headers: source leaves occur once and exact/one-short budgets are enforced.
+
+Authoritative evidence directory:
+`workspace/target/vmb-design/20260910/table-header-breaks`, with PDFs and source
+probes under `probes`. It uses the same isolated Cargo target
+`workspace/target/vmb-book-build-20260910`, four build jobs and locked dependencies.
+The `run-cli.py` helper binds all ten saved VMB jobs by their recorded SHA-256 and
+sets the original Harano / Arial Unicode font paths. `jobs.json` records them.
+Named output PDFs use exclusive creation; choose fresh names/probe directories
+for another complete run.
+
+Completed evidence:
+
+- `cli-tests.log`: **124 integration tests passed**, 18.10s, including the ten saved
+  VMB jobs and actual original-font PDF callbacks.
+- `pagination-tests.log`: **94 pagination tests passed**, 0.16s; doc-tests also pass.
+- `independent.log`: **184 PDFs**, **83 actual driver callbacks**, **679 pages**,
+  **6,148 structure nodes**, **243 annotations**, **14 explicit unsupported inputs**,
+  **1,319 tamper rejections**.
+- `header-oracle.log`: **24 PDFs /102 pages /22 glyph-and-artifact checks /156
+  alterations rejected**. This checks physical-page text, actual glyph origins
+  and pagination Header artifact scopes. Cases include original header/body
+  spans and breaks, simultaneous/leading/consecutive/trailing/blank headers,
+  captions, empty bodies and the original Harano font. Notes are covered by the
+  source/structure verifier and actual driver rather than this controlled text
+  matrix. The matrix does not infer expected text from emitted display lists.
+- `rowspan-oracle.log`: preceding **18 PDFs /56 pages /6 actual-matrix checks /86
+  alterations rejected**. Header-break inputs now use their dedicated oracle.
+- `cell-oracle.log`: preceding **22 PDFs /76 pages /88 alterations rejected**.
+- `comparison.log`: **158 preceding §14.177 PDFs byte-identical**, plus both saved
+  original-Harano VMB table PDFs byte-identical.
+- `check-all.log` and `check-default.log`: workspace checks pass, 2.28s and 2.26s.
+  Cargo still reports the cached external xcrun/Xcode DVTFilePathFSEvents build
+  warning; this is not a warning-free-build claim.
+
+Original-Harano actual-driver artifact:
+`header-forced-breaks-harano.pdf`, **5 pages /19,379 bytes**, SHA-256
+`33b5adb54129f1d21d29e28d048d6484894eeb2359f22392d089d8a0e29b3903`.
+`harano-poppler.txt` independently extracts left/right occurrence counts by page:
+`[(1,0),(2,3),(3,3),(3,3),(3,3)]`. Pages 1–2 consume the original header; pages 3–5
+paint the full header as artifacts, then one body row. The 1000px render
+`harano-page-3.png` was visually inspected: original font outlines are visible in
+separate left/right columns, with the body below the repeated header.
+`harano.log` records the hash and extraction check. Minimal TrueType fixtures
+remain source/geometry/extraction evidence only, as noted in §14.175.
+`source-preservation.log` verifies the unchanged original full package and
+original Harano font hashes. No replacement font or author-content changes were
+used to obtain these results.
+
+Retained failure/correction evidence: `tests-01.log` passed asymmetric, leading,
+consecutive and trailing cases, then the simultaneous case failed with
+JointPageNoFit. The empty-body fallback was adding full header height even when
+original header slices and all body content had just fit the final page. Exclude
+source-header mode from that fallback; `tests-02.log` passes. `tests-03.log` adds
+header/body spans, empty body and blank-header source/record/work replay.
+`tests-04.log` adds original-owner keep and full-header oversize rejection. The
+complete integration adds header and body breaks in one table. Failed and partial
+runs remain distinct from the authoritative complete `probes` directory.
+
+```text
+python3 workspace/target/vmb-design/20260910/table-header-breaks/run-cli.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis table
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/table-header-breaks/probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_table_header_break_pdf.py workspace/target/vmb-design/20260910/table-header-breaks/probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_table_rowspan_break_pdf.py workspace/target/vmb-design/20260910/table-header-breaks/probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_table_cell_break_pdf.py workspace/target/vmb-design/20260910/table-header-breaks/probes --self-test
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+No VMB producer code changed in this section and no new Go run is claimed. No
+GitHub Actions were used. Nested/footnote table fragmentation, remaining source
+and page forms, original full-book output, public runner/manifests/managed-host
+and human acceptance remain required. Design 28 stays active.
+
+Final verification also passed the **49 default-profile table tests**, 8.53s
+(`legacy-table-tests.log`). Targeted Rust formatting, Python verifier syntax and
+both repositories' `/usr/bin/git diff --check` passed. `final-verification.log`
+records these results. All current verification process handles are terminal.
+The whole design remains in progress.
+
+## Book-2 table hierarchy cursor (design §14.179)
+
+Date: 2026-09-10. This is a prerequisite for nested-table fragmentation, not a
+claim that nested tables reach PDF. The shared collector already preserves parent
+indexes and measured child table extents. The outer mixed-page search previously
+advanced by one source table and therefore would revisit descendants after a
+parent. It also selected the immediately previous table for keep checks, which
+would choose a descendant instead of the preceding root.
+
+`book_v2_table_hierarchy.rs` builds subtree ends and previous-root indexes from
+source preorder. Both automatic page enumeration and the common candidate kernel
+use the same successor query. Book-2 ordinary-range/table-at queries expose root
+tables only, while the underlying searches retain original source table indexes.
+Legacy mixed search retains its default successor operation. No new source nodes,
+synthetic table heights or flattened parallel cell content are introduced.
+
+The hierarchy uses an iterative stack with shared work/record charges. It handles
+zero-leaf/zero-height descendants independently of their item ranges. A depth of
+4,096 uses 8,192 charged steps in the controlled chain test, without Rust call-stack
+recursion. Tests verify nonempty sibling ranges and rejection of source overlap,
+self/forward parents, reopened closed parents, wrong definition regions and
+out-of-parent ranges. Exact and one-short record/work allowances are tested. Flat
+table inputs reserve no additional hierarchy records; their source scan is charged.
+
+Evidence directory: `workspace/target/vmb-design/20260910/nested-table-hierarchy`.
+Authoritative PDF/source directory: `final-probes`. The `run-cli-final.py` helper
+checks all ten saved VMB package hashes and uses fresh exclusive output PDF names.
+The original intermediate `probes` directory is retained separately.
+
+- `pagination-tests-final.log`: **98 tests pass**, 0.23s, including four hierarchy
+  tests; doc-tests pass.
+- `cli-tests-final.log`: **124 integration tests pass**, 17.85s, including all ten
+  saved VMB jobs and original-font callbacks.
+- `independent-final.log`: **184 PDFs /83 actual driver callbacks /679 pages /
+  6,148 structure nodes /243 annotations /14 explicit unsupported inputs /
+  1,319 tamper rejections**.
+- `comparison-final.log`: all **184 preceding §14.178 PDFs byte-identical**, as
+  are both saved original-Harano VMB table PDFs. No new nested-table PDF is claimed.
+- `check-all.log`: all-feature workspace check passes, 2.54s. Cargo retains the
+  cached external xcrun/Xcode DVTFilePathFSEvents warning.
+- Targeted formatting of the five touched Rust modules passes.
+
+The initial `tests-01.log` recorded two test-fixture integer type errors (u64
+instead of NodeId's u32 and an ambiguous depth counter). These were corrected in
+the fixture. They are not runtime failures or reasons to relax source validation.
+
+```text
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+python3 workspace/target/vmb-design/20260910/nested-table-hierarchy/run-cli-final.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/nested-table-hierarchy/final-probes --self-test
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis table
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+Nested table admission is intentionally still guarded in `production_table_kernel.rs`.
+The next required integration is child-table fragment/cursor propagation through
+parent cells/captions under one budget, followed by recursive semantic/placement
+leaf projection. `selected_placement_leaves` and `selected_semantic_leaf_ranges`
+currently assume FlowItem-only child content, so removing the admission guard
+alone would create invalid selections. Nested repeated headers and forced breaks
+also need distinct original/repeated ownership, using the rules from §14.178.
+These requirements, footnote tables and all full-book/public/managed-host/human
+gates remain open. No VMB producer code or GitHub Actions were changed.
+
+Final default-profile verification also passes: **49 table tests**, 8.26s
+(`legacy-table-tests.log`), and the default workspace check, 6.33s
+(`check-default.log`). `/usr/bin/git diff --check` and targeted Rust formatting
+pass. All verification process handles for this section are terminal. The full
+design goal remains active; this section does not close nested-table support.
+
+## Book-2 nested body fragments (design §14.180)
+
+Date: 2026-09-10. ADR-0048 connects actual child table fragments inside parent
+body cells. This extends the hierarchy cursor from §14.179 without flattening
+parallel child cells into a serial height. The initial admitted parent form has
+no caption/header, no rowspans and no unresolved cell keep chain. Native child
+searches retain their own captions, repeated/forced headers, body spans and source
+breaks. The remaining parent forms are still required and guarded explicitly.
+
+`book_v2_nested_table_breaks.rs` retains each parent cell's next original content
+and optional unfinished child cursor. Completed children can be followed by a
+sibling or parent row on the same page. Child before/after spacing is applied only
+at its initial/terminal fragment. If the terminal fragment fits but trailing
+spacing does not, reevaluate from its original cursor with smaller capacity.
+An earlier forced boundary in another parent cell discards the tentative row and
+replays the original parent state under a strictly smaller capacity. All break
+owners at the selected boundary survive source closure.
+
+Original source indexes and physical leaf placements are distinct projections.
+Nested captions retain no fabricated cell role. Child cell owners, resolved x
+coordinates, natural line origins and repeated-header artifact flags survive into
+shared placement. NESTPOS1 binds child semantic cursor state and excludes retained
+arena indexes. NESTFRG1 binds source/paint arrays with explicit lengths. Source
+copies, searches, trial rollback, records and hash buffers use the sole exchanged
+record/work budget. Parent smaller-candidate enumeration uses actual leaf ends.
+
+Source queries for definition tables also had a body-prefix indexing defect:
+`placement_leaves` and caption filtering indexed `body_items()` even though table
+content refers to the combined body/definition stream. They now use the shared
+collected items. A direct definition-child query exercises a real item beyond the
+body prefix. Nested definition parent searches retain the explicit definition-table
+guard; no footnote-table page/PDF support is inferred from this read-only fix.
+
+Authoritative evidence directory:
+`workspace/target/vmb-design/20260910/nested-table-body`, with PDFs/source records
+under `complete-probes`. The isolated target remains
+`workspace/target/vmb-book-build-20260910`, four Cargo jobs, locked dependencies.
+`run-cli-complete.py` checks the ten saved VMB job hashes, sets original Harano/Arial
+font paths, and uses fresh exclusive named output files. `jobs.json` records the
+unchanged jobs. Use new probe/output names for another complete run.
+
+- `cli-tests-complete.log`: **128 integration tests pass**, 17.08s, including all ten
+  saved VMB jobs and actual original-font callbacks.
+- `pagination-tests.log`: **98 tests pass**, 0.18s; doc-tests also pass.
+- `legacy-table-tests.log`: **49 default-profile table tests pass**, 8.30s.
+- `independent-complete.log`: **216 PDFs /99 actual driver callbacks /787 pages /
+  7,180 structure nodes /247 annotations /14 explicit unsupported inputs /
+  1,519 tamper rejections**.
+- `oracle-complete.log`: **28 nested PDFs /94 pages /224 alterations rejected**.
+  The dedicated verifier reads physical page text, PDF ActualText scopes and real
+  glyph matrices, plus nested header artifact columns. Its expected source/column
+  matrix is independent of emitted display lists. Cases cover natural/forced child
+  fragments, normal/forced child headers, caption breaks, simultaneous and earlier
+  parent breaks, parent following rows, trailing spacing, three wrapper levels,
+  child rowspans, two consecutive children and parallel children. Notes are covered
+  by the general source/structure verifier and actual driver.
+- `comparison-complete.log`: all **184 preceding §14.179 PDFs byte-identical**, plus
+  both saved original-Harano VMB table PDFs byte-identical.
+- `check-all.log` and `check-default.log`: workspace checks pass, 2.28s and 9.93s.
+  The cached external xcrun/Xcode DVTFilePathFSEvents warning remains visible; no
+  warning-free-build claim is made.
+
+`nested-body-harano.pdf` is the final actual-driver artifact: **3 pages /10,335
+bytes**, SHA-256
+`ef1215fc16c33f8179d2a0c64591132e281626419cf08a2a021845a21d54cb9d`.
+Poppler independently extracts `[左側左側右側, 左側右側, 右側]` by physical page.
+The first page includes the original outer right-cell text. The 1000px render
+`harano-page-2.png` was visually inspected: original Harano outlines occupy the
+child's 10pt/55pt column origins inside the outer left cell. `harano.log` records
+the hash and text comparison. Minimal TrueType fixtures remain placement/source
+and extraction evidence, not visible font-quality evidence. Original full-package
+and Harano-font hashes are verified unchanged in `source-preservation.log`.
+
+Retained development evidence: `check-01.log` records an extra generic angle
+bracket fixed before execution; `check-02.log` passes. `tests-01.log` passes ten
+initial actual-driver cases; `tests-02.log` adds original-Harano and exact/one-short
+source replay; `tests-03.log` adds child spans, forced child headers and multiple
+children. Review added one-time parent eligibility scanning, terminal-spacing
+retry, explicit canonical array lengths and definition-query safety. `guards.log`
+verifies source-owner rejection for remaining parent header/caption/span/keep and
+definition forms; `definition-query.log` verifies the shared definition leaf index.
+The authoritative full integration includes those final changes.
+
+```text
+python3 workspace/target/vmb-design/20260910/nested-table-body/run-cli-complete.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis table
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/nested-table-body/complete-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_nested_table_pdf.py workspace/target/vmb-design/20260910/nested-table-body/complete-probes --self-test
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+No VMB producer code changed here and no new Go run is claimed. Parent caption/
+header/spanning/keep integration, nested definition tables, remaining source/page
+forms, original full-book output, public runner/manifests/managed-host and human
+gates all remain required. No GitHub Actions were used. Design 28 remains active.
+
+The final integration additionally verifies transition from a consumed nested
+parent to a separate outer table on the same page. The source/structure verifier
+covers that two-root document. The earlier 214 PDFs remain byte-identical in the
+complete set, and the inspected original-Harano artifact equals the final driver.
+Targeted Rust formatting, verifier Python syntax and both repositories’
+`/usr/bin/git diff --check` pass. All verification process handles are terminal.
+The whole design goal remains active.
+
+## Book-2 nested parent keeps (design §14.181)
+
+2026-09-10; ADR-0049 extends the body-cell fragment search from §14.180. Parent
+kept paragraphs and terminal child keeps use a legal-prefix checkpoint. A failed
+successor rolls back source, paint, child cursor, break owners and progress in that
+cell; accepted parallel cells remain intact. Terminal-child retry uses actual leaf
+ends and strictly decreasing capacity. Discarded work/records and native child
+arenas are never refunded. Final-item keeps remain local to the original cell.
+Whole-parent figure keeps reject descendant breaks at the parent owner and defer
+until the complete parent fits. No public contract or source encoding changes.
+
+Evidence directory: `workspace/target/vmb-design/20260910/nested-table-keeps`.
+
+- `cli-tests-complete.log`: **132 integration tests pass**, 19.71s, including the
+  ten hash-verified saved VMB inputs and original-font callbacks.
+- `independent-complete.log`: **238 source PDFs /110 actual driver callbacks /
+  843 pages /7,834 structure nodes /251 annotations /14 explicit unsupported
+  inputs /1,653 tamper rejections**.
+- `keep-oracle-complete.log`: **22 keep PDFs /56 pages /176 alterations rejected**.
+  Expected physical page text and original column origins come from controlled
+  original source shapes. Coverage includes local last-item keep, preceding/
+  following chains, legal-prefix rollback, terminal-child shortening, parallel
+  forced breaks, whole-parent deferral, and notes. The rejected first-page kept
+  reference leaves neither a note marker nor an annotation there; both start on
+  page 2. The verifier also rejects cross-page movement of a kept source item.
+- `nested-oracle-complete.log`: the preceding **28 nested PDFs /94 pages /224
+  alterations rejected** still pass. Its source filter now excludes the dedicated
+  table.keep fixtures so the two independent expected matrices do not collide.
+- `comparison-complete.log`: all **216 preceding §14.180 PDFs byte-identical**,
+  plus the two saved original-Harano VMB table PDFs byte-identical.
+- `tests-03.log`: all four focused tests pass, including source-once replay and
+  exact/one-short record/work budgets for discarded prefix/child trials. Original
+  keep/child/whole-parent break-owner diagnostics and Oversize groups pass.
+
+`nested-keep-harano.pdf` is the actual driver output, **2 pages /10,659 bytes**,
+SHA-256 `89a910048bdef19ed50c5ea3a91a91ba798f8af08848c1480c3cd8ff7912a2d2`.
+Poppler independently extracts `[左側右側左側右側左側, 左側右側]` in its layout order;
+the structural ActualText order is checked by the dedicated verifier. Page 2
+visibly places the child's final 左側 line above the kept following 右側 paragraph
+at the original outer-left origin. `harano-page-2.png` was inspected. The font is
+the unchanged original Harano; minimal TrueType cases certify source/geometry and
+extraction, not visible font quality. Original full-package/font hashes remain
+unchanged (`source-preservation.log`); all ten VMB job hashes are checked by the
+runner and recorded in `jobs.json`.
+
+Development evidence retains the initial two focused passing tests (`tests-01`).
+`tests-02` added budgets and Harano: the original 48pt synthetic frame was too small
+for Harano's actual child-final line plus the 32pt successor and correctly returned
+Oversize. The original-font fixture now uses an 80pt frame, large enough for the
+whole child but requiring an earlier child split to retain its successor. No font
+bytes or production line-height algorithm were modified. `tests-03` passes.
+
+```text
+python3 workspace/target/vmb-design/20260910/nested-table-keeps/run-cli-complete.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis table
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/nested-table-keeps/complete-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_nested_keep_pdf.py workspace/target/vmb-design/20260910/nested-table-keeps/complete-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_nested_table_pdf.py workspace/target/vmb-design/20260910/nested-table-keeps/complete-probes --self-test
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+No VMB producer code changed and no new Go test is claimed. Parent caption/header/
+span integration, definition-table placement, remaining body/page forms, original
+full-book output, public runner/manifests/managed-host and human gates remain open.
+No GitHub Actions were used. The complete design goal remains active.
+
+Final local regression: `pagination-tests.log` **98 tests pass**, 0.23s (doc-tests
+also pass); `legacy-table-tests.log` **49 default table tests pass**, 8.52s.
+`check-all.log` and `check-default.log` pass in 2.90s and 2.59s. The cached external
+xcrun/Xcode DVTFilePathFSEvents warning remains; builds are not claimed warning-free.
+All verification process handles are terminal.
+
+## Book-2 nested caption fragments (design §14.182)
+
+2026-09-10; ADR-0050 adds a serial original caption cursor alongside parallel body
+cell cursors. The optional extra continuation slot is private state, not a fake
+cell. Direct caption paragraphs keep no cell role; child table paragraphs retain
+their original cell owners and repeated-header flags. Caption children use the
+resolved full caption width. Caption completion, body-start phase, original
+source and physical projection are bound to retained/canonical state. Parents
+without captions keep the existing encoding.
+
+Caption children can fragment, repeat native headers, contain their own captions,
+consume authored breaks or continue across multiple nested captions. Parent body
+starts only after caption completion without a forced boundary. A kept final
+caption item retries an earlier original caption cut when body source cannot
+start. Empty geometry does not fulfill a keep, and an entirely empty body creates
+no successor requirement. Discarded source/paint/cursor projections never refund
+work/records. Terminal caption breaks preserve a further page even with empty body
+cells. Definition-table placement and parent headers/rowspans stay guarded.
+
+Evidence directory: `workspace/target/vmb-design/20260910/nested-table-captions`.
+The final input/PDF set is **`final-probes`**.
+
+- `cli-tests-final.log`: **136 integration tests pass**, 19.54s, including all ten
+  saved VMB inputs and unchanged original-font callbacks.
+- `independent-final.log`: **272 source PDFs /127 actual driver callbacks /
+  955 pages /8,946 structure nodes /255 annotations /14 explicit unsupported
+  inputs /1,961 tamper rejections**.
+- `caption-oracle-final.log`: **34 caption PDFs /112 pages /272 alterations
+  rejected**. Expected source shapes independently determine physical page text,
+  original caption/cell columns and repeated-header artifact placement. Cases
+  cover ordinary captions above nested body cells, natural/forced caption children,
+  leading/terminal breaks and blank pages, multiple children, final caption/child
+  keeps, empty and kept-empty bodies, body breaks, child headers/captions, spacing,
+  deeper caption nesting and pending notes. The kept note marker and both link
+  annotations first occur on page 3, not either preceding caption-child page.
+- `keep-oracle-final.log`: previous **22 PDFs /56 pages /176 alterations rejected**.
+- `nested-oracle-final.log`: previous **28 PDFs /94 pages /224 alterations rejected**.
+- `comparison-final.log`: all **238 preceding §14.181 PDFs byte-identical**, plus
+  both saved original-Harano VMB table PDFs byte-identical.
+- Focused source replay verifies original leaves exactly once and exact/one-short
+  record/work charges for caption-break, kept-paragraph, kept-child and body-break
+  retry paths. Direct kept-child break diagnostics retain the child owner.
+
+`nested-caption-harano.pdf` is the actual driver artifact: **4 pages /11,197 bytes**,
+SHA-256 `e618136b0db23f956f09d38f3854c0d8a2396988f2604b00dd41b0aea3a9c594`.
+Poppler independently extracts `[左側, 左側右側, 右側, 左側右側]`. The final pair is the
+original parent's body, after its caption child ends on page 3. Page 2's 1000px
+render was inspected: original Harano outlines appear at the caption child's
+10pt/100pt column origins. `harano.log` and `harano-poppler.txt` retain evidence.
+Minimal TrueType cases remain source/geometry/extraction tests, not visible font
+quality evidence. The original full-package and Harano font hashes are unchanged
+(`source-preservation.log`); the runner validates all ten saved VMB package hashes.
+
+Development evidence is retained. `check-01.log` passes. `tests-01` reached an
+invalid empty `body` carrier; the fixture now uses the valid original row with
+empty cells (`tests-02` passes). `tests-03` caught a refactor that accidentally
+replaced child cell owners with the caption's absent cell role: repeated child
+headers failed source closure. The fix preserves each child's original owner;
+`tests-04` passes all initial focused cases. Final integration adds terminal
+caption-break and empty-kept-body cases. The first full run (`cli-tests-complete`)
+exposed an obsolete measurement-test expectation of PendingRegion for newly
+supported nested captions. That test now selects/places/closes supported sources
+and retains the header guard; `measurements-test.log` and final integration pass.
+The dedicated glyph reader accepts the exact Layout footnote-separator artifact
+only when explicitly requested by the notes fixture, preserving the strict header
+artifact check for all earlier callers.
+
+```text
+python3 workspace/target/vmb-design/20260910/nested-table-captions/run-cli-final.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis table
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/nested-table-captions/final-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_nested_caption_pdf.py workspace/target/vmb-design/20260910/nested-table-captions/final-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_nested_keep_pdf.py workspace/target/vmb-design/20260910/nested-table-captions/final-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_nested_table_pdf.py workspace/target/vmb-design/20260910/nested-table-captions/final-probes --self-test
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+No VMB producer code changed and no new Go run is claimed. Parent header/rowspan
+integration, footnote tables, remaining body/page forms, original full-book,
+public runner/manifests/managed-host and human gates remain required. No GitHub
+Actions were used; the complete design goal remains active.
+
+Final local regression: `pagination-tests.log` **98 tests pass**, 0.23s (doc-tests
+also pass); `legacy-table-tests.log` **49 default table tests pass**, 8.71s.
+`check-all.log` and `check-default.log` pass in 2.72s and 2.36s. The cached external
+xcrun/Xcode DVTFilePathFSEvents warning remains visible; no warning-free-build claim
+is made. Targeted Rust formatting, all four affected verifier Python syntax checks
+and both repositories' `/usr/bin/git diff --check` pass. All verification process
+handles are terminal. The remaining complete design goal stays active.
+
+## Book-2 nested header regions (design §14.183)
+
+2026-09-10; ADR-0051 connects parent headers to the nested caption/body search.
+Original header prefixes use original row/content/child cursors. Natural prefixes
+are transactional: complete the header and start body source, or restore the entire
+header checkpoint before returning a legal caption prefix. Authored parent/child
+breaks may end an original header prefix. Completed original headers repeat at
+full natural geometry; nested source break commands are skipped during paint-only
+replay. Parent rowspans and definition-table placement remain guarded.
+
+Repetition is independent of cell presence. Sparse placed-fragment indexes identify
+repeated caption leaves without cell owners, and a linear fragment/role iterator
+feeds source closure, math/equation numbers, text, images, anchors, nonpainting
+lines and generated markers. PDF scopes and navigation consume each explicit
+repeated flag. Existing fingerprint repetition fields bind the new state; stable
+geometry also compares the sparse indexes. No fake source or cell owner is added.
+Header checkpoint copies, retained paint leaves and detached indexes are charged
+against the same nonrefundable record/work allowances.
+
+Evidence directory: `workspace/target/vmb-design/20260910/nested-table-headers`.
+The authoritative source/PDF set is **`verified-probes`**.
+
+- `cli-tests-verified.log`: **139 integration tests pass**, 24.93s, including all
+  ten saved hash-verified VMB inputs and unchanged original-font callbacks.
+- `pagination-tests.log`: **99 tests pass**, 0.17s; doc-tests pass. The added role
+  test verifies that detached copies retain absent cell owners while ordinary cell
+  ownership and existing cell-header flags remain exact.
+- `legacy-table-tests.log`: **49 default table tests pass**, 11.70s.
+- `independent-verified.log`: **300 source PDFs /141 actual driver callbacks /
+  1,021 pages /10,176 structure nodes /259 annotations /14 explicit unsupported
+  inputs /2,191 tamper rejections**.
+- `oracle-verified.log`: **28 nested-header PDFs /66 pages /250 alterations
+  rejected**. Expected source shapes determine original page text and column
+  origins, repeated caption/header glyph sequences and original columns, and the
+  header height reserved above subsequent body source. A repeated caption reference
+  creates no second footnote demand or link annotation. Detached caption images,
+  anchors and empty nonpainting lines also reach actual driver/source/PDF checks.
+- `comparison-verified.log`: all **272 preceding §14.182 PDFs byte-identical**,
+  plus the two saved original-Harano VMB table PDFs byte-identical.
+- `tests-07.log`: all three focused tests pass, including original source-once
+  replay and exact/one-short record/work budgets for natural/forced parent headers,
+  child breaks, detached caption repeats and header/caption rollback.
+- `check-all.log` / `check-default.log`: workspace checks pass, 0.09s /17.84s.
+  The external cached xcrun/Xcode DVTFilePathFSEvents warning remains visible; no
+  warning-free build is claimed.
+
+`nested-header-harano.pdf` is the actual driver artifact: **2 pages /16,136 bytes**,
+SHA-256 `e93e409f36c5903681d1c30f3cc8c6e85f08cafb56efe94a2b74382fee6f351e`.
+The source/PDF oracle verifies original text on page 1 and full repeated caption/
+child cells/outer right header on page 2. Poppler layout extraction in
+`harano-poppler.txt` independently places the outer right header beside the caption,
+then the child's inner row, then two/one outer body rows. Page 2's 1000px render was
+inspected: original Harano outlines preserve inner 10pt/55pt and outer 10pt/100pt
+columns. Minimal TrueType inputs remain geometry/source/extraction evidence, not
+visible typography evidence. Original full-package/font hashes are unchanged
+(`source-preservation.log`); the runner validates all ten saved VMB job hashes.
+
+Development evidence retains the separate role transport stage in
+`detached-header-roles`: all preceding 136 integration tests pass, and all 272 old
+PDFs plus both original VMB table PDFs are byte-identical there. Its first check
+reported unused role iterators accidentally inserted into marker preflight; those
+were removed before the verified build. Nested-header `tests-01` then exposed test
+helpers that inferred repetition from cell presence. Text/math/image/anchor/marker
+and navigation/scope test oracles now verify the independent flag as well as the
+unchanged cell owner. Intermediate tuple/copy errors are recorded in `tests-02` and
+`tests-05`; the subsequent focused run passes. `tests-03` used a note rectangle
+outside the declared page; the fixture now uses the existing valid 80pt/48pt note
+region. `tests-06` showed that the first 96pt original-Harano frame fitted one page;
+the unchanged font now uses an 80pt frame to exercise a real second-page repeat.
+The first rich-image full run caught another obsolete scope-test assumption about
+cell presence. Production scopes already emitted the correct Header artifact;
+updated independent-role helpers and final integration pass. No production font
+metrics or input font bytes were altered for these fixture corrections.
+
+```text
+python3 workspace/target/vmb-design/20260910/nested-table-headers/run-cli-verified.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis table
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/nested-table-headers/verified-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_nested_header_pdf.py workspace/target/vmb-design/20260910/nested-table-headers/verified-probes --self-test
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+No VMB producer code changed and no new Go run is claimed. Parent rowspans,
+footnote tables, remaining body/page forms, original full-book, public runner/
+manifests/managed-host and human gates remain required. No GitHub Actions were
+used. The complete design goal remains active.
+
+Final earlier-oracle regression also passes: `nested-oracle.log` **28 PDFs /
+94 pages /224 alterations**, `keep-oracle.log` **22 PDFs /56 pages /176 alterations**,
+`caption-oracle.log` **34 PDFs /112 pages /272 alterations**, and
+`header-break-oracle.log` **24 PDFs /102 pages /22 glyph/artifact checks /156
+alterations**. The earlier dedicated nested/header-break source filters exclude
+the new explicitly identified nested-header fixtures; their expected matrices
+remain unchanged. Targeted Rust formatting, affected Python verifier syntax and
+both repositories' `/usr/bin/git diff --check` pass. All verification handles are
+terminal. Full design completion remains unproven and the goal stays active.
+
+## Book-2 nested spanning rows (design §14.184)
+
+Parent rowspans now use the nested child-table search in ADR-0052. Each retained
+state records remaining measured row height independently of original cell/child
+source progress. Active spanning cells may paint beyond a band's end. Later-row
+forced breaks that precede already selected child paint cause a complete retry
+from the original parent cursor at strictly smaller capacity. Temporary vectors,
+row scans, retries and retained continuation bytes share cumulative record/work
+allowances. NESTROW1 binds remaining height; ordinary nonspanning encodings stay
+unchanged. Full initial-header rollback restores this geometry with its cursors.
+
+Evidence: `workspace/target/vmb-design/20260910/nested-table-rowspans`.
+The authoritative source/PDF set is **`final-probes`**.
+
+- `cli-tests-final.log`: **142 integration tests pass**, 24.49s, including all ten
+  saved VMB jobs whose original hashes are checked by `run-cli-final.py`.
+- `pagination-tests.log`: **99 tests pass**, 0.23s, and doc-tests pass.
+- `legacy-table-tests.log`: **49 default table tests pass**, 8.48s.
+- `independent-final.log`: **332 source PDFs /157 actual driver callbacks /
+  1,109 pages /11,516 structure nodes /263 annotations /14 explicit unsupported
+  inputs /2,397 tamper rejections**.
+- `span-oracle-final.log`: **32 nested rowspan PDFs /88 pages /224 alterations
+  rejected**. Tests independently predict original word baselines and columns,
+  complete repeated-header glyph roles/positions, physical page extraction and
+  single footnote reference/return annotation creation. Fifteen Latin inputs cover
+  natural/forced child splits, left/right parent spans, later-row/simultaneous
+  breaks, a zero-height intermediate row, caption keep, normal and forced headers,
+  leading/trailing/consecutive header breaks, nested caption repeats, empty body
+  and notes. The unchanged original Harano font supplies the Japanese input.
+- `comparison-final.log`: all **300 preceding §14.183 PDFs byte-identical**, plus
+  both saved VMB original-Harano table PDFs byte-identical.
+- `budget-caption-tests.log`: source-once and exact/one-short record/work replay
+  pass for natural/later-break spans, ordinary/forced headers, caption keep and a
+  child table in the parent caption above a spanning body. This extra caption-child
+  case verifies selection, mixed placement and source closure; it is not counted
+  as another rendered PDF. The focused test passes in 0.18s.
+- `definition-guard-tests.log`: the remaining definition-table page-placement
+  rejection retains the original table owner (one focused test, 0.02s).
+- Earlier dedicated oracles also pass: nested table **28 PDFs /94 pages /224
+  alterations**, keeps **22 /56 /176**, captions **34 /112 /272**, nested headers
+  **28 /66 /250**, native header breaks **24 /102 /156** with 22 glyph checks,
+  and native rowspans **18 /56 /86** with six actual-matrix checks. Their source
+  filters exclude explicitly identified `nested-span-keep` fixtures; the dedicated
+  span oracle covers those new inputs without changing the old expected matrices.
+
+`nested-span-harano.pdf` is the actual driver output: **2 pages /12,430 bytes**,
+SHA-256 `ddbc4b435866dccfc44de6bf940c6de7307d327b46a3cf7663564230b683dd59`.
+Page 1 contains the first outer right cell. Page 2 contains four left child lines,
+two tall right child lines and the next outer right cell. Independent calculations
+use unchanged Harano hhea ascent 1151 / descent -286 / UPEM 1000 at 12pt, rounded to
+layout units, including the centered 32pt tall-line leading. Poppler extraction
+is saved in `harano-poppler.txt`; page 2's 1000px render was visually inspected.
+Inner columns remain 10pt/55pt and the outer right column is 100pt. Minimal TrueType
+fixtures remain source/geometry evidence, not visible typography evidence.
+Original full-package/font hashes are unchanged (`source-preservation.log`).
+
+Development evidence preserves `check-01.log` (mismatched anonymous lifetimes in
+the new trial method, corrected with the search's named lifetimes). The first full
+run's original-font fixture used a 48pt frame that cannot fit its natural child
+boundary and correctly returned Oversize. `harano-tests-02.log` then showed the
+80pt frame fits the full child on page 2, so its expectation was corrected from
+three pages to two. The final test and font-metric-based independent oracle pass.
+No production font metric, font bytes or original VMB package was modified.
+The early oracle logs retain missing-Japanese-fixture/initial expected-page-count
+failures, and a native-span filter failure before it excluded the new dedicated
+nested-span matrix. Their final logs above pass.
+
+```text
+python3 workspace/target/vmb-design/20260910/nested-table-rowspans/run-cli-final.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis table
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/nested-table-rowspans/final-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_nested_span_pdf.py workspace/target/vmb-design/20260910/nested-table-rowspans/final-probes --self-test
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+No VMB producer code changed, and no new Go run is claimed. Definition-table page
+placement, remaining body/page forms, original full-book, public runner/manifests,
+managed-host and human gates remain required. No GitHub Actions were used; the
+complete design goal remains active.
+
+Final workspace checks pass: `check-all.log` **0.06s**, `check-default.log`
+**2.65s**. The cached external xcrun/Xcode DVTFilePathFSEvents warning remains;
+no warning-free build is claimed. Targeted Rust formatting, affected Python
+verifier syntax, ADR link existence and both repositories' `/usr/bin/git diff
+--check` pass. All verification handles are terminal. Full design completion
+remains unproven and the goal stays active.
+
+## Book-2 definition table fragments (design §14.185)
+
+Recursive table selection now works on an original footnote definition. All nested
+source/paint/break owner lookups use the shared collected item stream, removing
+the body-only index assumption. The table search uses its declared footnote frame.
+This change supplies content selections, not separator reservation or physical
+footnote page/PDF authority. The common page/demand paths retain the explicit
+`table_footnote_definition` guard until they can consume noncontiguous table cells.
+
+`BookV2TableSourceLeaf` binds the original optional definition, optional real cell,
+local item index, relative top and independent repetition flag. `source_leaf_ranges`
+checks selected global ranges against the owning body/definition interval and
+returns local ranges; `source_placement_leaves` performs the same checked mapping
+for caption and cell paint. Neither iterator allocates or invents owners. Existing
+body placement now uses this adapter, retaining its exact caption/cell ordering.
+
+Evidence: `workspace/target/vmb-design/20260910/definition-table-fragments`;
+authoritative source/PDF set **`verified-probes`**.
+
+- `tests-02.log`: one focused test passes, **0.32s**, across seven definition table
+  shapes: natural, forced, headers, captions, deep nesting, parent rowspan and
+  parent spanning header with a child caption. Two body paragraphs and an earlier
+  three-paragraph definition ensure the selected definition's local indexes differ
+  from global indexes. Each replay covers the complete original definition exactly
+  once, validates paintable local source/top bounds, preserves original definition
+  identity and passes exact/one-short record/work allowances. Common page search
+  still rejects the definition table. The earlier definition-query test also now
+  selects the recursive parent and verifies original source-once/local indexes.
+- `cli-tests-verified.log`: **143 integration tests pass**, **22.88s**, including
+  all ten hash-verified saved VMB jobs and unchanged original-Harano callbacks.
+- `pagination-tests.log`: **99 tests pass**, **0.17s**, and doc-tests pass.
+- `independent-verified.log`: **332 source PDFs /157 actual driver callbacks /
+  1,109 pages /11,516 structure nodes /263 annotations /14 explicit unsupported
+  inputs /2,397 tamper rejections**. These are existing supported PDFs; none is
+  claimed as a newly rendered definition-table PDF.
+- `comparison-verified.log`: all **332 preceding PDFs byte-identical**, plus
+  both saved VMB original-Harano table PDFs byte-identical.
+
+`check-01.log` retained a missing outer public re-export warning for the source
+leaf type; it was added to the Book-2 public module. `tests-01.log` retained a
+fixture geometry error: the trim was enlarged without enlarging the actual master
+height. The fixture now declares the page and trim consistently and retains the
+deep fixture's body width in its footnote frame. No production geometry rule was
+relaxed to make the test pass.
+
+```text
+python3 workspace/target/vmb-design/20260910/definition-table-fragments/run-cli-verified.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/definition-table-fragments/verified-probes --self-test
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+Remaining definition-table work is to retain actual table cursors in note demand
+states, demand references from selected semantic ranges, reserve first fragments
+across multiple notes and backtrack dependent demands, place source leaves with
+local definition indexes, distinguish repeated header paint from original note
+labels, and close/stabilize those exact sources. Flat definition paths must not
+serialize parallel cells. Remaining body/page forms, full-book/public/managed-host
+and human gates also remain required. No VMB producer change or new Go test is
+claimed, no GitHub Actions were used, and the full design goal remains active.
+
+Final workspace checks pass: `check-all.log` **3.26s**, `check-default.log`
+**0.07s**. The cached external xcrun/Xcode DVTFilePathFSEvents warning remains;
+no warning-free build is claimed. Targeted Rust formatting and both repositories'
+`/usr/bin/git diff --check` pass. `source-preservation.log` confirms the original
+full-package and original Harano hashes remain unchanged. All verification handles
+are terminal. The complete design goal remains active.
+
+## Book-2 definition table demands (design §14.186)
+
+ADR-0053 connects actual definition-table continuations to source-caused note
+requests under one search/branch and record/work owner. The component acquires its
+note only from actual ordinary body references. It evaluates the real table and
+forks the demand snapshot using its original local semantic ranges, excluding
+repeated-header paint. Reference coverage is checked across every item carrying
+that occurrence's glyph clusters; a partially covered reference rejects the trial.
+Neither a failed trial nor a discarded successful candidate refunds work or alters
+the incoming source state.
+
+A completed table does not complete a definition with a later ordinary item or
+root table. This includes a zero-height trailing table at the same leaf endpoint.
+An unconsumed prefix cannot be skipped. Search/state identifiers reject reuse
+across owners or branches. Terminal self-reference is handled after completion
+and cannot requeue the definition. The component starts at its actual table
+boundary; preceding/following serial content and common multi-note region/page
+selection remain to be integrated. Existing page-level table guards remain intact.
+
+Evidence: `workspace/target/vmb-design/20260910/definition-table-demand`;
+authoritative source/PDF set **`verified-probes`**.
+
+- `tests-03.log`: one focused test passes, **0.25s**, across early/late and parallel
+  cell references, repeated nested headers, a terminal self-reference, an
+  unconsumed prefix, an ordinary suffix and an empty trailing table. Replays verify
+  exact original source coverage and definition completion, delayed demands,
+  unchanged speculative input states, missing actual body references, wrong
+  snapshot/search/child-table reuse, retained work after zero-capacity rejection
+  and exact/one-short record/work budgets. The prefix case rejects a request that
+  would skip its original paragraph; suffix/empty-tail cases remain pending.
+- `cli-tests-verified.log`: **144 integration tests pass**, **28.69s**, including
+  all ten saved hash-verified VMB jobs and original-Harano callbacks. The focused
+  final run adds the prefix/suffix/empty-tail checks after this full run; production
+  code is unchanged between them.
+- `pagination-tests.log`: **99 tests pass**, **0.25s**, and doc-tests pass.
+- `independent-verified.log`: **332 source PDFs /157 actual driver callbacks /
+  1,109 pages /11,516 structure nodes /263 annotations /14 explicit unsupported
+  inputs /2,397 tamper rejections**.
+- `comparison-verified.log`: all **332 preceding PDFs byte-identical**, plus the
+  two saved VMB original-Harano table PDFs byte-identical. These remain existing
+  supported page/PDF inputs; no new definition-table PDF is counted.
+
+`check-01.log` retains a private re-export import error for the existing demand
+status enum. The new module now uses the existing visible parent import. Both
+focused source-transition tests and the full integration pass after correction.
+The first focused matrices covered early self-reference; the full run moves it
+to the terminal child source to exercise completion before reference processing.
+
+```text
+python3 workspace/target/vmb-design/20260910/definition-table-demand/run-cli-verified.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_definition_table_demands -- --nocapture
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/definition-table-demand/verified-probes --self-test
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+No VMB producer change or new Go test is claimed. Mixed serial/table definition
+selection, common queue cursor integration, first-fragment reservation and
+multi-definition dependency backtracking, physical note/header/label placement,
+stable source closure, remaining body/page forms and full-book/public/managed-host/
+human gates remain required. No GitHub Actions were used. The full goal stays active.
+
+Final workspace checks pass: `check-all.log` **3.38s**, `check-default.log`
+**3.17s**. The cached external xcrun/Xcode DVTFilePathFSEvents warning remains;
+no warning-free build is claimed. Targeted Rust formatting and both repositories'
+`/usr/bin/git diff --check` pass. `source-preservation.log` confirms the original
+full-package and original Harano hashes remain unchanged. All verification handles
+are terminal. The complete design goal remains active.
+
+## Book-2 mixed definition sources (design §14.187)
+
+The existing ordered body/table algorithm now runs as a source kernel before the
+body adapter applies its unchanged simultaneous footnote reservation. A definition
+adapter uses the same item spacing, consumed extents and keep boundaries with the
+original definition-local leaf positions and document-global root table indexes.
+Its table context is scoped to one actual definition, skips descendants using the
+original hierarchy, and shares cumulative record/work allowances with its demand
+search. No synthetic table or cell owner represents a definition.
+
+Requested candidates can contain ordinary prefixes/suffixes, several root tables,
+zero-height tables and explicit serial breaks. A continuing table retains its full
+source cursor/fingerprint. Authored serial breaks consume one nonpainting item and
+end the candidate; table-internal forced breaks also prevent later candidate parts.
+A terminal table does not finish the definition when a suffix or another root table
+remains. Original references from retained ordinary/table leaves update a forked
+snapshot, and terminal self-reference cannot requeue the completed definition.
+
+Table-aware definition keep validation walks root tables as serial elements and
+leaves caption/cell checks to recursive table preparation. It does not compare the
+last flattened item of one parallel cell with the first item of another. Real
+serial keep/forced-break conflicts remain `KeepAcrossForcedBreak` errors. Existing
+flat definition preparation and common page entry points retain their table guard.
+
+Evidence: `workspace/target/vmb-design/20260910/definition-mixed-source`;
+authoritative existing PDF set **`verified-probes`**.
+
+- `tests-04.log`: focused test passes, **0.39s**, across **12 cases**: neighbors,
+  prefix keep, table keep, empty tables in one candidate and across continuations,
+  terminal self-reference, natural overflow, ordinary-only definitions, serial
+  first/last/consecutive forced breaks, nested table forced breaks, a kept last
+  item in a different parallel cell, and a true serial keep conflict. Source
+  indexes deliberately follow a different definition's table and precede another
+  definition's table. Replays check actual source once, local item extents and
+  outside spacing, table natural height, final queues, failed/discarded branches,
+  absent body references, search/snapshot mismatch, and exact/one-short record/work
+  budgets. Zero-capacity rejection consumes work without changing incoming demand.
+- `cli-tests-verified.log`: **145 integration tests pass**, **24.17s**, including
+  all ten saved hash-verified VMB jobs and original-Harano callbacks.
+- `pagination-tests.log`: **99 tests pass**, **0.16s**, with passing doc-tests.
+- `native-table-tests.log`: **21 default-feature table tests pass**, **7.55s**.
+- `native-mixed-tests.log`: **23 default-feature mixed body/page tests pass**,
+  **1.89s**. These exercise the original body adapter after source extraction.
+- `independent-verified.log`: **332 source PDFs /157 actual driver callbacks /
+  1,109 pages /11,516 structure nodes /263 annotations /14 explicit unsupported
+  inputs /2,397 tamper rejections**.
+- `comparison-verified.log`: all **332 preceding PDFs byte-identical**, plus the
+  saved original-Harano VMB table-caption and table-alignment PDFs byte-identical.
+  These remain previously supported page inputs; this stage adds no note-table PDF.
+- `source-preservation.log`: original full-book package and original Harano font
+  hashes are unchanged. `compare-inputs.py` records the comparisons reproducibly.
+
+The first fixture run rejected a definition consisting only of an empty table
+(`EmptyFootnote`); the unrelated later definition now has its actual paragraph as
+well. The second run rejected an unsorted class list (`InvalidClass`); the fixture
+now uses canonical class order. Neither admission rule was weakened. Initial
+source-kernel extraction hit a Rust borrow conflict; destructuring the source
+projection releases the temporary body adapter before reservation. Default builds
+also exposed staging-only break dead-code warnings; the explicit request is now
+feature gated and the body adapter checks that source-level forced-break authority
+has not leaked into its existing page-break owner.
+
+```text
+python3 workspace/target/vmb-design/20260910/definition-mixed-source/run-cli-verified.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_definition_mixed_candidates -- --nocapture
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis production_table
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis production_mixed
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging mixed
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/definition-mixed-source/verified-probes --self-test
+python3 workspace/target/vmb-design/20260910/definition-mixed-source/compare-inputs.py
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+Automatic definition candidate enumeration/ranking, a common multi-definition
+queue cursor, minimum simultaneous reservation, dependency backtracking, physical
+note/header/label placement and stable source closure are still required. The
+source adapter deliberately exposes neither a flat note search nor a final page
+receipt. Remaining body/page forms and full-book/public/managed-host/author/human
+gates also remain required. No VMB producer change or new Go test is claimed. No
+GitHub Actions were used. The complete design goal remains active.
+
+Final mixed-adapter verification (`mixed-final-tests.log`) passes **54 tests**,
+**5.90s**, with three original-font tests explicitly ignored in this focused run;
+those callbacks already passed in the full 145-test integration. This final run
+also includes the new 12-case definition test and both original mixed adapters
+following the feature-gating/body-authority cleanup. Default workspace check
+`check-default.log` passes in **4.53s** with no new pagination warnings. Targeted
+Rust formatting and both repositories' `/usr/bin/git diff --check` pass. The cached
+external xcrun/Xcode DVTFilePathFSEvents warning remains; no warning-free build is
+claimed.
+
+Final all-feature workspace check `check-all-final.log` passes in **3.32s**.
+All verification handles are terminal. The full design goal remains active.
+
+## Book-2 automatic definition candidates (design §14.188)
+
+ADR-0054 adds complete bounded enumeration over ordinary definition boundaries and
+legal final table cuts. A completed unforced table extends the current prefix into
+following ordinary items or root tables. A serial forced break is consumed by the
+fitting prefix, while a table-internal forced break ends that candidate. The body
+and definition contexts now share the earlier-capacity query, using the original
+global measured leaves for nested and spanning table geometry.
+
+Every feasible candidate retains its own source-caused demand branch. The set
+records the incoming search/state identity, requested capacity, examined boundary
+count and stable cost order. Callers can retain all choices for later reservation
+backtracking or extract the best choice. Enumeration, copied requests, ranking,
+evaluation and retained choices share the same nonrefundable record/work owner.
+Lookback exhaustion is an error even when a preceding boundary already fits.
+
+Costs use the common paragraph/heading/slack policy. Equal-cost definition choices
+prefer further original source progress, including the independent root table
+ordinal. This consumes consecutive empty tables at zero capacity and trailing
+empty tables at an exact-height boundary without moving them solely because of a
+tie. Zero-capacity cost calculation does not divide by zero. The body page owner's
+existing tie policy is unchanged.
+
+Evidence: `workspace/target/vmb-design/20260910/definition-candidates`;
+authoritative source/PDF set **`final-probes`**.
+
+- `tests-05.log`: focused test passes, **0.89s**, across **22 cases**. Twenty admitted
+  definition forms cover ordinary prefixes/suffixes, keeps, adjacent and trailing
+  empty tables, terminal self-reference, natural overflow, ordinary-only notes,
+  first/last/consecutive serial breaks, nested forced breaks, parallel-cell keeps,
+  nested headers/captions, deep nesting, parent rowspans and header-caption rowspans.
+  The remaining cases refuse a real serial keep conflict and a one-boundary
+  lookback despite an early feasible candidate.
+- Every admitted automatic sequence verifies original local source exactly once,
+  complete final queues, ordered costs, available-height bounds and the ownership
+  of every alternative. For early/late cell and repeated-header references, each
+  alternative's actual source coverage is independently compared with its demand
+  state. Enumerating alternatives leaves the incoming branch unchanged. Replays
+  pass exact record/work budgets and refuse one-short budgets.
+- Dedicated zero/exact-capacity assertions require both consecutive leading empty
+  tables to be consumed together and require the trailing empty table to complete
+  with its fitting prefix, respectively.
+- `cli-tests-final.log`: **145 integration tests pass**, **24.96s**, including the
+  final 22-case source test, all ten hash-verified saved VMB jobs and original-Harano
+  callbacks. The earlier `cli-tests-verified.log` retained the 19-case intermediate
+  matrix; `final-probes` is the authoritative post-tie-policy result.
+- `pagination-tests.log`: **99 tests pass**, **0.21s**, and doc-tests pass.
+- `independent-final.log`: **332 source PDFs /157 actual driver callbacks /
+  1,109 pages /11,516 structure nodes /263 annotations /14 explicit unsupported
+  inputs /2,397 tamper rejections**.
+- `comparison-final.log`: all **332 preceding PDFs byte-identical**, plus the saved
+  VMB original-Harano table-caption and table-alignment PDFs byte-identical.
+  `compare-final-inputs.py` also verifies the unchanged original full-book package
+  and original Harano font hashes in `source-preservation.log`.
+
+`tests-02.log` retains a fixture failure when a paragraph was taken from the empty
+right cell of the deep-nesting input. The fixture now obtains its neighboring
+paragraph from the original ordinary nested-table fixture; the actual deep table
+is preserved. `tests-03.log` passes the resulting 19-case matrix. `tests-04.log`
+adds early/late/header demands. The final tie tests and ordering are in
+`tests-05.log` and the final full integration. Design §14.187 and its progress entry
+previously counted 13 cases; the actual prior source matrix had **12**, and that
+count has been corrected, including the companion note. No prior test is added to
+its evidence retroactively.
+
+```text
+python3 workspace/target/vmb-design/20260910/definition-candidates/run-cli-final.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_definition_mixed_candidates -- --nocapture
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/definition-candidates/final-probes --self-test
+python3 workspace/target/vmb-design/20260910/definition-candidates/compare-final-inputs.py
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+Automatic source enumeration/ranking is implemented. Carrying the full mixed
+continuation in the common note-demand queue, first-fragment reservation,
+multi-definition dependency backtracking, physical note/header/label placement
+and stable source closure are still required. The current page-level definition-
+table guard remains, and no new note-table PDF is counted. Remaining body/page
+forms and full-book/public/managed-host/author/human acceptance also remain required.
+No VMB producer change, new Go test or GitHub Actions use is claimed. The full goal
+remains active.
+
+Final workspace checks pass: `check-all.log` **3.08s** and `check-default.log`
+**2.47s**. Targeted Rust formatting and both repositories' `/usr/bin/git diff
+--check` pass. The cached external xcrun/Xcode DVTFilePathFSEvents warning remains;
+no warning-free build is claimed. All verification handles are terminal. The full
+design goal remains active.
+
+
+## Book-2 shared definition queue (design §14.189)
+
+ADR-0055 carries the complete mixed continuation in each common pending cursor:
+local item index, original root table ordinal, full partial table cursor and actual
+marker consumption. All definitions borrow one demand owner and cumulative budget;
+contexts share one immutable hierarchy and retain their mutable arenas across
+other notes and failed attempts. Definition-specific receipts additionally bind
+the definition number, preventing cross-definition reuse within one snapshot.
+
+Evidence: `workspace/target/vmb-design/20260910/definition-queue`;
+authoritative PDF set **`final-probes`**.
+
+- `tests-04.log`: **3 focused tests pass, 1.00s**. The 22-case mixed-definition
+  matrix now also replays the common queue. Early-cell and repeated-header demands
+  interrupt a partial table with another note and resume the exact saved cursor.
+  Every accepted original source is consumed once; unreferenced notes remain so.
+  Leading forced breaks/empty tables preserve the unconsumed marker. The older
+  single-table demand adapter also retains the real continuation and marker state.
+- Exact and one-short record/work replay, invalid capacity recovery, shared keep
+  conflict, lookback exhaustion followed by a smaller successful candidate, and
+  cross-definition receipt refusal pass. `tests-03.log` adds the shared keep and
+  lookback assertions; `tests-04.log` adds the single-table adapter assertions.
+- `cli-tests-final.log`: **145 tests pass, 24.39s**, all ten hash-verified saved VMB
+  jobs and original-Harano callbacks included. This covers the final production
+  changes and cross-definition receipts; the later additions above are tests only.
+- `pagination-tests.log`: **99 tests pass, 0.20s**, and doc-tests pass.
+- `independent-final.log`: **332 source PDFs /157 actual driver callbacks /
+  1,109 pages /11,516 structure nodes /263 annotations /14 explicit unsupported
+  inputs /2,397 tamper rejections**.
+- `comparison-final.log`: **332 preceding PDFs byte-identical**, plus both saved
+  VMB original-Harano table PDFs. `source-preservation.log` verifies the unchanged
+  original full-book package and Harano font hashes.
+- Workspace checks pass: all features `check-all.log` **7.37s**; default features
+  `check-default.log` **3.24s**. Targeted formatting passes (`format-check.log`).
+  The cached external xcrun/Xcode DVTFilePathFSEvents warning remains.
+
+```text
+python3 workspace/target/vmb-design/20260910/definition-queue/run-cli-final.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_definition -- --nocapture
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/definition-queue/final-probes --self-test
+python3 workspace/target/vmb-design/20260910/definition-queue/compare-final-inputs.py
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+`check-02.log` retains a temporary visibility/import failure while connecting the
+borrowed evaluator; the corrected code passes `check-03.log` and the full checks.
+No producer code change, new Go test or GitHub Actions use is claimed. Mixed states
+remain guarded from flat content/region paths. Joint reservation/backtracking,
+physical note/header/label placement, source closure, remaining body/page forms
+and full-book/public/managed-host/author/human acceptance remain required. The full
+goal remains active.
+
+
+## Book-2 mixed footnote regions (design §14.190)
+
+ADR-0056 extends the existing footnote fragment/demand/region representation with
+actual mixed candidates and feeds them through the common sequential region
+kernel. Original serial/table parts, full continuation, selected references,
+first-marker binding and ending spacing are retained. A completed note permits
+selecting the next pending note; overflow or an authored break ends the region.
+Advancing verifies the incoming snapshot and forks the already derived demand
+branch. Reference retention and copy visits consume the same record/work budget.
+
+The staging-only items and consumed_range accessors now return Result and refuse
+mixed content. They never flatten parallel cells or return a misleading empty
+slice. Ordinary placement and stability propagate this error. Actual mixed parts
+remain available for the next joint reservation and physical placement work.
+
+Evidence: `workspace/target/vmb-design/20260910/definition-regions`;
+authoritative PDF set **`verified-probes`**.
+
+- `tests-02.log`: **3 focused tests pass, 0.99s**. The mixed-definition test replays
+  sequential regions across the existing 22-case matrix (20 admitted source forms
+  and two keep/lookback refusal forms). It independently compares consumed source,
+  marker occurrences, actual reference owners, inter-definition spacing, heights,
+  forced endings and final queue state. Exact and one-short record/work replays
+  include region construction and advancement.
+- `tests-03.log`: **3 focused tests pass, 1.01s**, adding zero-capacity consumption
+  of two leading empty roots, marker-preserving continuation, and rejection of
+  advancing a selection against a later snapshot. The final reference-copy work
+  accounting was then included in the authoritative full run below.
+- `cli-tests-verified.log`: **145 tests pass, 18.69s**, including the final region
+  assertions, all ten hash-verified saved VMB jobs and original-Harano callbacks.
+  `cli-tests-final.log` is the earlier run before the final copy-work accounting;
+  it also passed 145 tests but is not the authoritative output set.
+- `independent-verified.log`: **332 source PDFs /157 actual driver callbacks /
+  1,109 pages /11,516 structure nodes /263 annotations /14 explicit unsupported
+  inputs /2,397 tamper rejections**.
+- `comparison-verified.log`: all **332 preceding PDFs byte-identical**, plus the
+  two saved original-Harano VMB table PDFs. `source-preservation.log` confirms the
+  unchanged original full-book package and Harano font hashes.
+
+```text
+python3 workspace/target/vmb-design/20260910/definition-regions/run-cli-verified.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_definition -- --nocapture
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/definition-regions/verified-probes --self-test
+python3 workspace/target/vmb-design/20260910/definition-regions/compare-verified-inputs.py
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+`check-01.log` and `check-02.log` retain temporary call-site compilation failures
+while changing the staging contiguous accessors to Result. Final production and
+tests compile and pass. Required-region/dependency backtracking and body/page
+preparation remain guarded for table definitions. Sequential selection is not a
+simultaneous reservation or a physical note-table PDF receipt. Remaining body/page
+forms and full-book/public/managed-host/author/human acceptance remain required.
+No VMB producer change, new Go test or GitHub Actions use is claimed. The full design
+goal remains active.
+
+
+Final verification: `pagination-verified.log` passes **99 tests, 0.15s**, plus
+doc-tests. Workspace all-features check passes in **3.15s** (`check-all.log`),
+default check in **0.04s** (`check-default.log`). Targeted Rust formatting and both
+repositories' `/usr/bin/git diff --check` pass. The cached external xcrun/Xcode
+DVTFilePathFSEvents warning remains; no warning-free build is claimed. All tool
+verification handles are terminal. Design §14.189's final diff checks also passed.
+
+
+## Book-2 mixed footnote reservations (design §14.191)
+
+ADR-0057 extends the existing bounded dependency stack with actual ranked mixed
+candidates and a retained iterator per incoming snapshot. Required-region selection
+reserves entry demands; the common body-fit fallback uses the same stack to close
+newly retained dependencies. Other notes' full cursors and the table arenas survive
+backtracking, with no work or record refunds. Visited flags are undone with their
+branch, allowing cycles without recursive expansion. Forced boundaries cannot
+precede another required fragment, and terminal closure verifies actual reference
+starts before accepting a branch.
+
+A parallel sibling can advance while the note's first marked leaf is absent.
+Such a candidate is now excluded from an initial reservation. Authored forced-only
+progress remains possible, but does not satisfy a retained reference to an unstarted
+note. Mixed marker state replaces the serial-zero assumption in the fit adapter.
+
+Evidence: `workspace/target/vmb-design/20260910/definition-reservations`;
+authoritative PDF set **`verified-probes`**.
+
+- `tests-07.log`: **4 focused tests pass, 1.06s**. The prior 22-case matrix now also
+  replays required regions across all 20 admitted forms. Initial-demand membership,
+  first markers, source/reference coverage, spacing, forced endings and exact/
+  one-short record/work budgets are checked. The two existing keep/lookback refusal
+  forms remain guarded.
+- The new reservation test contains **six cases**. Late references force selection
+  before the reference-bearing suffix and leave the discarded child unreferenced.
+  Early-cell, repeated-header and cycle cases shorten a table to include its child
+  note, then resume the actual table cursor. Two body references require both notes
+  to receive an initial fragment. A child beginning with a forced break cannot
+  satisfy the parent's retained occurrence through a forced-only fragment.
+- Successful fits verify original source and markers once, all retained reference
+  starts, separator-inclusive geometry and full continuation. Every case, including
+  the refusal, replays with exact budgets and rejects one-short budgets.
+- `cli-tests-verified.log`: **146 tests pass, 19.51s**, including the final initial-
+  demand/negative-capacity assertions, all ten hash-verified saved VMB jobs and
+  original-Harano callbacks.
+- `independent-verified.log`: **332 source PDFs /157 actual driver callbacks /
+  1,109 pages /11,516 structure nodes /263 annotations /14 explicit unsupported
+  inputs /2,397 tamper rejections**.
+- `comparison-verified.log`: all **332 preceding PDFs byte-identical**, plus both
+  saved original-Harano VMB table PDFs. `source-preservation.log` verifies the
+  unchanged original full-book package and Harano font hashes.
+
+`tests-01.log` retains the old guard assertion after a test-edit script syntax
+failure; the script was corrected. `tests-02.log` exposed conflating entry-only
+reservation with dependency closure at an authored forced boundary. Separating
+those contracts passes `tests-03.log`. `tests-04.log` and diagnostic `tests-05.log`
+then exposed a real first-reservation bug: only a parallel sibling's source range
+6..7 was selected, without the first marker. The marker filter fixes this in
+`tests-06.log`; `tests-07.log` adds simultaneous body demands. These failures are
+retained as evidence and were not removed by weakening the expected reservation.
+
+```text
+python3 workspace/target/vmb-design/20260910/definition-reservations/run-cli-verified.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_definition -- --nocapture
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/definition-reservations/verified-probes --self-test
+python3 workspace/target/vmb-design/20260910/definition-reservations/compare-verified-inputs.py
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+Required/dependency reservation and common body/footnote fit are connected. Body
+context scoping, full page selection, mixed note/header/label placement, stability
+and source closure remain required, and page preparation still guards definition
+tables. No note-table PDF, full-book/public/managed-host/author/human completion,
+VMB producer code change, new Go test or GitHub Actions use is claimed. The full
+design goal remains active.
+
+
+Final verification: `pagination-tests.log` passes **99 tests, 0.14s**, plus doc-tests.
+Workspace checks pass with all features in **3.34s** (`check-all.log`) and default
+features in **0.04s** (`check-default.log`). Targeted Rust formatting and both
+repositories' `/usr/bin/git diff --check` pass. The cached external xcrun/Xcode
+DVTFilePathFSEvents warning remains; no warning-free build is claimed. All test and
+verification handles are terminal. The full design goal remains active.
+
+
+## Book-2 definition table pages (design §14.192)
+
+ADR-0058 connects scoped body/definition table contexts, physical page selection,
+common table-leaf placement, marker repetition handling and full source closure.
+One immutable hierarchy and cumulative budget cover all contexts. Body completion
+uses only the body preorder prefix. Definition continuation retains source-local
+items, global root ordinals, full parallel cursors and marker state. Stability
+compares these semantics, not arena identities. Nonpainting authored forced items
+are consumed exactly once, including in ordinary definitions; repeated header
+leaves retain artifact roles without duplicating labels or annotations.
+
+Evidence: `workspace/target/vmb-design/20260910/definition-pages`;
+authoritative PDF set **`final-probes`**.
+
+- `cli-tests-final.log`: **148 tests pass, 28.74s**, including all ten hash-verified
+  saved VMB jobs and original-Harano callbacks. The reservation cases now exercise
+  actual stable pages, placement and source closure, with exact/one-short budgets.
+  Nineteen admitted definition matrix forms reach actual PDF callbacks. An
+  unreferenced nested definition stays unpainted and absent from body completion.
+- `independent-final.log`: **384 source PDFs /183 actual driver callbacks /
+  1,213 pages /15,042 structure nodes /463 annotations /14 explicit unsupported
+  inputs /2,771 tamper rejections**. This adds 52 distinct PDFs over the previous set.
+- `definition-pdf-independent.log`: **4 combined body/definition table PDFs /
+  12 pages /32 alterations rejected** by `tools/verify_book_v2_definition_table_pdf.py`.
+  It independently derives columns and baselines from declared geometry, fixed-point
+  rounding and original font metrics; verifies first labels/annotations once and
+  repeated headers; and rejects source, position, label and repetition mutations.
+- `comparison-final.log`: **332 preceding PDFs byte-identical**, plus both saved
+  original-Harano VMB table PDFs. `source-preservation.log` verifies unchanged original
+  full-book package and Harano font hashes.
+- `pagination-tests.log`: **99 tests pass, 0.20s**, plus doc-tests. Workspace
+  all-features check passes in **7.84s** (`check-all.log`); default check passes in
+  **3.71s** (`check-default.log`). The cached external xcrun/Xcode
+  DVTFilePathFSEvents warning remains; no warning-free build is claimed.
+
+`harano-definition-tables.pdf` is an actual driver **4-page, 27,457-byte** PDF,
+SHA-256 `164dff9a33cc88e4e5876305d091e896adf9538f2154923a1d18e1714d0ec077`.
+`harano-evidence.log` records source font metrics: UPEM 1000, hhea 1151/-286,
+digit-one GID 18 and advance 471. At 12pt the digit advance is 5.651992797851562pt;
+with the declared 12pt gap the note indent is 17.651992797851562pt. Independently
+computed first note baseline is 178.32398986816pt. The first two pages were rendered
+and visually inspected (`harano-definition-first.png`, `harano-definition-second.png`);
+`harano-definition-text.txt` confirms extracted text and repeated headers. This
+fixture verifies actual original-font ink, without claiming human publication approval.
+
+`check-01.log` preserves a missing body source-state field from an incomplete edit;
+`check-02.log` passes after propagation. `cli-tests-verified.log` records 147 passes
+and one original-Harano failure: the synthetic fixture's 48pt body height rejects
+owner node 4 with Oversize under the original font. The original-font fixture now
+explicitly uses 80pt body height, matching earlier original-font table fixtures;
+its 48pt note region and separator and the original font remain unchanged.
+`harano-01.log` and the final 148-test run pass. This is a fixture geometry change,
+not evidence that the engine now fits that body table into 48pt. Earlier failed
+logs are retained. Subsequent test-only refinement requires the forced-suffix
+refusal to be exactly page-stability JointPageNoFit rather than any error.
+
+```text
+python3 workspace/target/vmb-design/20260910/definition-pages/run-cli-final.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/definition-pages/final-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_definition_table_pdf.py workspace/target/vmb-design/20260910/definition-pages/final-probes --self-test
+python3 workspace/target/vmb-design/20260910/definition-pages/compare-final-inputs.py
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910
+```
+
+Private definition-table page/PDF success is now proven for these fixtures. The
+flat-only footnote API retains its mixed-content guard. Remaining body/page forms,
+full-book/public/managed-host/author/human gates remain incomplete. No VMB producer
+code change, new Go test or GitHub Actions use is claimed. The full goal stays active.
+
+Final verification: the test-only forced-suffix diagnostic refinement passes
+`tests-05.log` (**1 test, 10.67s**), specifically page-stability JointPageNoFit.
+Targeted production Rust formatting, the new Python checker syntax and both
+repositories' `/usr/bin/git diff --check` pass.
+
+
+## Book-2 natural cell continuations (design §14.193)
+
+ADR-0059 connects unequal natural cell heights to independent original-cell cursors
+when merged common-cut gaps cannot fit the maximum body capacity after repeated
+headers. Prepare this mode before issuing a cursor; keep existing common-cut output
+when it is sufficient. The bounded interval/source scan shares the current work
+owner. Preserve whole-table keeps, paragraph keeps, captions, header artifacts,
+spanning-band geometry, source closure and genuine oversize refusal. Frozen inputs
+never opt into this path.
+
+The original Harano failure at a 48pt body frame was a real common-cut limitation:
+its normal 17.244003295898438pt and tall 32pt cell lines have no common internal cut
+in that row. Both cells can progress independently within 48pt. The preceding 80pt
+fixture remains, and a second 48pt case now succeeds with the same unmodified font
+and 48pt note region. This resolves the narrow-body limitation explicitly left open
+in §14.192; no font, glyph size or measured line height is changed.
+
+Evidence: `workspace/target/vmb-design/20260910/natural-cell-cuts`;
+authoritative PDF set **`verified-probes`**.
+
+- `natural-03.log`: **1 test, 1.62s**, covering seven forms: flat, nested, repeated
+  header, caption, rowspan, paragraph-keep refusal and genuine oversize refusal.
+  Successful forms verify physical source closure, header roles, bounded height,
+  exact/one-short record/work budgets and actual private driver callbacks.
+- `cli-tests-verified.log`: **149 tests pass, 22.96s**, including both original-Harano
+  body heights and all ten hash-verified saved VMB jobs.
+- `independent-verified.log`: **396 source PDFs /189 actual driver callbacks /
+  1,251 pages /15,474 structure nodes /467 annotations /14 explicit unsupported
+  inputs /2,851 tamper rejections**.
+- `natural-independent-verified.log`: **10 PDFs /30 pages /62 alterations rejected**.
+  `tools/verify_book_v2_natural_cell_pdf.py` derives the expected baselines from the
+  declared 17/23pt line heights and known font metrics, and columns from the original
+  180pt body width. It verifies original text once, nested placement, caption order,
+  repeated headers and the retained spanning-row geometry without using layout
+  probe coordinates as expected positions.
+- `definition-independent-verified.log`: **6 PDFs /20 pages /48 alterations rejected**,
+  including both 48pt and 80pt original-Harano body frames. The checker requires the
+  narrow case with `--require-narrow`; it still verifies the preceding evidence set.
+- `comparison-verified.log`: all **384 preceding PDFs byte-identical**, plus both
+  original-Harano VMB table PDFs. `source-preservation.log` rechecks original package
+  and font hashes. Twelve distinct PDFs are added; the preceding 80pt case remains.
+- `pagination-tests.log`: **99 tests, 0.17s**, plus doc-tests.
+  `frozen-table-tests.log`: **21 tests, 7.86s**, including legacy source/caption/keep
+  behavior and long-rowspan search. `check-all.log`: workspace all-features check
+  **3.39s**; `check-default.log`: workspace default check **2.91s**.
+
+`harano-definition-48pt.pdf` is a **4-page, 27,453-byte** actual driver PDF,
+SHA-256 `af85c12adf7bf60b49b0bb831a97b8ecfae4868c475de492ac7d27fa0ffe8ad5`.
+`harano-definition-48pt.txt` records independent extraction; the rendered first
+page (`harano-definition-48pt-first.png`) was visually inspected. The body now
+continues its two natural left-cell lines and one tall right-cell line on page 2,
+while the footnote header/row continues on all four pages without repeated labels.
+
+Retained exploratory failures: `natural-01.log` used invalid boolean spelling and
+`natural-02.log` used a nonexistent table style property; the fixture now uses the
+existing paragraph keep_with_next contract. `natural-independent.log` initially
+expected three spanning pages. Independent source-order deficit calculation gives
+row heights 92pt then 68pt: the spanning left cell contributes its deficit to row 2
+before the next source cell raises row 1. The last 20pt of row 2 occupies a fourth
+nonpainting page. The checker was corrected to this existing allocation rule,
+without shrinking the engine's measured row geometry. `natural-independent-final.log`
+and the authoritative verified log pass. Initial 394-PDF evidence omitted the old
+80pt fixture; the final 396-PDF run restores it and adds 48pt as a separate case.
+
+```text
+python3 workspace/target/vmb-design/20260910/natural-cell-cuts/run-cli-verified.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_table
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/natural-cell-cuts/verified-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_natural_cell_pdf.py workspace/target/vmb-design/20260910/natural-cell-cuts/verified-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_definition_table_pdf.py workspace/target/vmb-design/20260910/natural-cell-cuts/verified-probes --self-test --require-narrow
+python3 workspace/target/vmb-design/20260910/natural-cell-cuts/compare-verified-inputs.py
+```
+
+The cached external xcrun/Xcode DVTFilePathFSEvents warning remains. No VMB producer
+code change, new Go test or GitHub Actions use is claimed. Remaining body/page forms,
+full-book/public/managed-host/author/human gates remain incomplete; the goal is active.
+
+Final test-only page-count assertions pass in `natural-04.log` (1 test); targeted
+Rust formatting, both Python checker syntax checks and both repositories' Git
+whitespace checks pass. All verification handles are terminal.
+
+
+## Book-2 selected page masters (design §14.194)
+
+ADR-0060 shares the existing style rule ranking with a source-bound, allocation-free
+master query. It charges every rule and binary-search visit, preserves the source
+owner and base/advanced master identities, and checks physical page/work limits.
+The driver uses the selected first body frame. Assembly retains a charged choice
+for each materialized page, checks its body against the actual frame receipt, and
+uses per-page paper/trim geometry. Annotation rectangles use their source height;
+all destination/name-tree/outline coordinates use their target page's height.
+
+Evidence: `workspace/target/vmb-design/20260910/page-masters`;
+authoritative PDF set **`complete-probes`**.
+
+- `cli-tests-complete.log`: **151 tests pass, 33.56s**, including original Harano,
+  all ten hash-verified VMB jobs, work/page/record/byte budget checks and actual
+  page-reference convergence. The new cases cover first/even/default choices,
+  later source-order ties, source-only named priority, exact/one-short choice work,
+  physical page overflow, unused masters and typed PageFrameMismatch before callback.
+- `independent-complete.log`: **403 source PDFs /192 actual driver callbacks /
+  1,266 pages /15,562 structure nodes /479 annotations /13 explicit unsupported
+  inputs /2,929 tamper rejections**. The independent checker selects from original
+  wire rules separately from Rust and validates every page box and Y transform,
+  source-page annotation rectangle and target-page destination. Additional mutations
+  substitute another page's MediaBox/TrimBox and the wrong destination-page height.
+- `master-geometry-independent.log`: **4 PDFs /12 pages** verify literal expected
+  boxes [280×240, 260×220, 240×200]pt and asymmetric trims
+  [7,17,273,237], [7,17,253,217], [7,17,233,197]pt, original body origins, generated
+  page labels [3,1,2] and one reference annotation per page. Both component and actual
+  driver outputs are checked for controlled TrueType and unchanged Harano.
+- `comparison-complete.log`: all **396 preceding PDFs byte-identical**, plus both
+  saved original-Harano VMB table outputs. `source-preservation.log` confirms the
+  original full-book package and font hashes. Seven distinct PDFs are added.
+- `pagination-tests.log`: **99 tests, 0.16s**, plus doc-tests.
+  `style-tests.log`: **14 tests, 0.00s**, plus **1 compile-fail doc-test, 0.19s**.
+- `check-all.log`: workspace all-features check **15.64s**.
+  `check-default.log`: workspace default check **7.25s**. Targeted Rust formatting
+  and Python verifier syntax pass. The cached external xcrun/Xcode
+  DVTFilePathFSEvents warning remains; no warning-free build is claimed.
+
+The visible-font artifact `harano-selected-page-masters.pdf` is **3 pages,
+12,164 bytes**, SHA-256
+`d763e948c6cc0f99ccad533ab41c0d4bbf528e9ca234b782335ec3e194bab3e8`.
+The controlled TrueType artifact `selected-page-masters.pdf` is **11,522 bytes**,
+SHA-256 `bbae5d9f1086c0a55f6b7e5cb76082b2e821a0b7402658e51f9142b73da9c460`.
+`harano-selected-page-masters.txt` extracts 左側右側3, 左側右側1, 左側右側2 on the
+three pages. The first page was rendered and inspected; the controlled empty-outline
+font remains geometry/structure evidence only. The final asymmetric trim retains
+all body content inside the trim. Earlier final/verified probe directories retain
+preliminary trim fixtures and are not the authoritative final set.
+
+Retained exploratory failures: `check-01.log` lacked the borrowed key's explicit
+lifetime; `check-02.log` missed the annotation loop's selected source master.
+`check-03.log` passed after correction, with an unused driver binding subsequently
+removed. `driver-01.log` passed four tests and failed only the new negative test's
+error downcast: the observed failure was the intended PDF pipeline
+Assembly(PageFrameMismatch), not a bare assembly error. The test now checks the
+actual wrapper and all later full runs pass. `preceding-independent.log` failed
+on the old two-master UnsupportedPageMaster record, whose guard was intentionally
+removed. The current strict checker accepts the newly produced positive PDF and
+expects 13 remaining guarded records, rather than accepting that obsolete refusal.
+All 396 preceding positive PDFs still match byte-for-byte.
+
+```text
+python3 workspace/target/vmb-design/20260910/page-masters/run-cli-complete.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-style --all-features
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/page-masters/complete-probes --self-test
+python3 workspace/target/vmb-design/20260910/page-masters/compare-complete-inputs.py
+```
+
+Current limits remain explicit: body-frame changes require actual reflow, named
+source transitions remain guarded, mixed-note frame preparation still requires one
+master, and header/footer content and columns are not connected. These page forms,
+other remaining body forms, full-book/public/manifest/managed-host/author/human gates
+remain required. No VMB producer code change, new Go test or GitHub Actions use is
+claimed. The full design goal remains active.
+
+
+## Book-2 variable page frames (design §14.195)
+
+**2026-09-10 — progress, not full-design completion.** ADR-0061 separates the
+source-bound maximum measurement body/note regions from the physical first/even/odd
+page rectangles. The private driver charges preparation once and explicitly uses
+the plan-aware line convergence entrypoint. Existing component frame contracts stay
+available. Horizontal origins and widths must agree; vertical origins and heights
+may differ. Named source transitions, running content and columns remain guarded.
+
+The page search uses actual body height for enumeration/ranking and actual body/note
+rectangles for simultaneous fit. Temporary page geometry is restored after each
+selection attempt, including errors. Selected pages retain both rectangles through
+stable comparison and physical placement. PDF assembly validates stable page frames
+against the source plan and selected master. Measurement maxima are not accepted as
+physical geometry. Tables retain one arena at the maximum capacity and select their
+source-cursor representation using the smallest reachable region when heights vary;
+note capacity deducts the separator. No source-skipping or arbitrary blank-page
+fallback is introduced when the current empty page cannot fit an indivisible item.
+
+Authoritative evidence is under
+`workspace/target/vmb-design/20260910/page-frames/final-probes`:
+
+- `cli-tests-final.log`: **155 tests, 49.71s**, including all ten hash-verified saved
+  VMB jobs and unchanged original-Harano font fixtures. `jobs.json` records inputs.
+- `independent-final.log`: **413 source PDFs**, including **197 actual driver
+  callbacks**, **1,308 pages**, **16,008 structure nodes**, **531 annotations**,
+  **13 explicit unsupported inputs**, **3,015 tamper rejections**.
+- `geometry-independent.log`: **10 variable-frame PDFs / 42 pages / 76 alterations
+  rejected**. Expected geometry comes from source line heights, original font
+  ascender/descender/advance metrics, source column widths and actual region bottoms.
+  Tests include ordinary body, ordinary notes, body table, definition table and
+  unchanged-Harano Japanese notes. Component and actual driver bytes are inspected.
+- `comparison-final.log`: all **403 preceding PDFs byte-identical**, plus both saved
+  original-Harano VMB table outputs. `source-preservation.log` checks the unchanged
+  original full-book package and original Harano font hashes. Ten PDFs are added.
+- `pagination-tests.log`: **99 tests, 0.28s**, plus doc-tests.
+- `frozen-table-tests.log`: **21 existing production-table tests, 7.33s**.
+- `check-all.log`: workspace all-features check **15.37s**;
+  `check-default.log`: workspace default check **5.44s**. Targeted Rust formatting,
+  Python verifier syntax and both repositories' Git diff checks pass. The cached
+  external xcrun/Xcode DVTFilePathFSEvents warning remains; no warning-free build is
+  claimed.
+
+`harano-variable-page-frames.pdf` contains **5 pages, 34,412 bytes**, SHA-256
+`90f9db066315c22b25e9070c7e6466f99db16a9e5b72a9c4c0fbab5441004e21`.
+The first page was rendered and inspected: Japanese body text, the original note
+reference, separator and first definition marker/text are visible. The extraction
+is retained in `harano-variable-page-frames.txt`. Four controlled TrueType artifacts
+are listed in `artifact-hashes.log`; their empty glyph outlines are source/geometry
+and structure evidence, not visible typography evidence.
+
+The source tests confirm body page counts of 1/2/3/2/3 lines at 16/32/48/32/48pt
+capacities, seven note lines continuing at the selected note bottoms, and unequal
+17/23pt table cells on 24/48/96pt pages. The Harano fixture uses authored 20pt line
+height and 20/40/60pt capacities. Plan work and actual driver work both pass at the
+observed exact limit and fail with one less. Changing body or note X/width fails as
+HorizontalReflow. A first 8pt body fails JointPageNoFit for a 16pt line instead of
+skipping to the larger second page.
+
+Retained exploratory logs: `tests-01.log` records a Rust test borrow error corrected
+by retaining the source span before pushing a reference. `tests-02.log` passes the
+new ordinary body/note test. `tests-03.log` passes five of seven selected tests; the
+two failures revealed that existing note-free fixtures intentionally retain source
+frames larger than their very small media boxes. The new plan preserves the prior
+note-free contract while retaining the existing containment checks for note regions.
+`tests-04.log` records a test error accessor correction from a method to the public
+field. `complete-probes` and its 153-test/411-PDF results are preliminary; the final
+set also includes separator-aware minimum note table capacity, explicit horizontal
+and short-page refusals, and the new visible Harano fixture. All final tests pass.
+
+```text
+python3 workspace/target/vmb-design/20260910/page-frames/run-cli-final.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/page-frames/final-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_page_frames_pdf.py workspace/target/vmb-design/20260910/page-frames/final-probes --self-test --require-harano
+python3 workspace/target/vmb-design/20260910/page-frames/compare-final-inputs.py
+```
+
+This connects varying same-width page frames, not horizontal reflow or all page
+forms. Remaining body/page forms, original full-book execution, public runner and
+manifest integration, managed-host scale evidence and author/human acceptance still
+require work. No VMB producer code change, new Go test or GitHub Actions use is
+claimed. The full design goal remains active.
+
+
+## Book-2 named page scopes (design §14.196)
+
+**2026-09-10 — progress, not full-design completion.** ADR-0062 resolves used body
+page names from original source nesting and typed style values. Auto children stay
+in their enclosing named scope, nested explicit scopes override it until End, and
+definition streams do not select body masters. A source-bound plan retains owner/name
+associations and three physical classes per name. Line passes borrow this single
+plan. Work covers visits, name lookups, master choices and sorting; retained name
+records and string bytes are reserved against the command's remaining allowances.
+
+The mixed page search stops at name changes, diagnoses keeps across those policy
+boundaries, and preserves names through table continuations and pending-note-only
+pages. Selected names and rectangles participate in stability and final source/PDF
+master checks. The successor style validator accepts table page names while frozen
+table-1 validation remains auto-only. Conflicting names within one parallel table,
+named definition contents and explicit named properties on standalone forced-break
+nodes remain diagnosed. Ordinary source breaks inside a named enclosing region
+retain the existing first/consecutive/last progress behavior.
+
+Authoritative evidence is under
+`workspace/target/vmb-design/20260910/named-pages/accepted-probes`:
+
+- `cli-tests-accepted.log`: **160 tests, 39.45s**, including all ten hash-verified saved
+  VMB jobs and original-Harano fixtures. `jobs.json` records the preserved inputs.
+- `independent-accepted.log`: **427 source PDFs**, including **204 actual driver
+  callbacks**, **1,360 pages**, **16,236 structure nodes**, **547 annotations**,
+  **13 explicit unsupported inputs**, **3,149 tamper rejections**.
+- `geometry-accepted.log`: **14 named-page PDFs / 52 pages / 98 alterations rejected**.
+  Original body scopes determine expected names, page boxes and reference labels.
+  Source font metrics, container indentation, columns and note bottoms determine
+  paint origins. Both component and actual driver PDFs are inspected, including
+  empty leading/consecutive/trailing named pages and unchanged-Harano reference/nested scopes.
+- `comparison-accepted.log`: all **413 preceding PDFs byte-identical**, plus both saved
+  original-Harano VMB table outputs. `source-preservation.log` checks unchanged full-
+  book package and font hashes. Fourteen PDFs are added.
+- `pagination-tests.log`: **99 tests, 0.24s**, plus doc-tests.
+- `style-tests.log`: **15 tests, 0.00s**, plus **1 compile-fail doc-test, 0.50s**.
+  The new test accepts a named table through only the successor entrypoint while
+  retaining the old named-table rejection and unrelated property restrictions.
+- `check-all.log`: workspace all-features check **17.14s**.
+- `check-default.log`: workspace default-features check **14.68s**.
+- `frozen-table-tests.log`: **21 legacy production-table tests, 13.86s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph policy test, 0.27s**;
+  the old pending-policy behavior remains intact.
+- `format-check.log`: targeted Rust formatting check passes; both modified Python
+  checkers also parse successfully. The cached external Xcode
+  DVTFilePathFSEvents warning remains in Cargo output.
+
+`harano-named-references.pdf` has **3 pages, 12,164 bytes**, SHA-256
+`86c4c8b26c7952de737d3701300ce0277065a102708602a90b80720af3eaec77`.
+Its second, explicitly named appendix page uses the 300×260pt master even though
+it is physically even, and displays the original Japanese text with reference “1”.
+That page was rendered and inspected; `harano-named-references.txt` retains extraction.
+`harano-named-nested.pdf` has **4 pages, 9,376 bytes**, SHA-256
+`9b9e1ae025de526ae96586fefbf6981f12719dc3176cf94a3b43503122a59f4a`.
+Other controlled TrueType artifacts and hashes are in `artifact-hashes.log`; their
+empty outlines remain source/structure/geometry evidence only.
+
+The positive matrix covers default/appendix/default with converged 3/1/2 references,
+appendix/short/appendix/default scope restoration, named leading/consecutive/trailing explicit
+breaks, two named table pages followed by default body, and four named pages where
+only notes remain after the first. Source-plan record, string-byte and work ceilings
+pass at the observed exact allowance and fail with one less; actual driver work is
+also exact/one-short tested. Negative cases preserve owner-specific keep/parallel/
+definition diagnostics and prevent dropping an explicit standalone named-break
+property. No synthetic source break or arbitrary blank-page workaround is added.
+
+Exploratory logs are retained. `tests-01.log` rejected the test's invalid
+`solution.appendix` selector; the closed registry uses `semantic_container.appendix`.
+`tests-02.log` then exposed the old auto-only table-page preflight even for an unused
+named-table rule. The successor-only validator/cascade fixes that without changing
+frozen entrypoints; `tests-03.log` passes the five-case actual-driver matrix.
+`complete-probes` contains the preliminary 159-test/427-PDF set; the final run adds
+an explicit standalone named-break diagnostic test. `geometry-complete.log` initially
+omitted the source semantic-base start indent of four fixed units; the corrected
+independent formula includes one or two actual container levels and passes without
+loosening coordinate tolerance. `preceding-independent.log` verifies the prior 413
+PDF set with the new checker. The accepted set adds consecutive source breaks
+inside the named region and passes all tamper checks. `cli-tests-verified.log`
+records an exploratory failure from an empty semantic-container test input, which
+the existing decoder rejects. That invalid fixture was removed; the decoder
+contract was retained. `accepted-probes` supersedes those incomplete probes.
+
+```text
+python3 workspace/target/vmb-design/20260910/named-pages/run-cli-accepted.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-style --all-features
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/named-pages/accepted-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_named_pages_pdf.py workspace/target/vmb-design/20260910/named-pages/accepted-probes --self-test --require-harano
+python3 workspace/target/vmb-design/20260910/named-pages/compare-accepted-inputs.py
+```
+
+Horizontal reflow, the explicitly remaining named-break/parallel/definition forms,
+running regions, columns, other remaining body/page forms, original full-book runs,
+public runner/manifest integration, managed-host scale evidence and author/human
+acceptance still require work. No VMB producer code change, new Go test or GitHub
+Actions use is claimed. The full design goal remains active.
+
+
+## Book-2 explicit break page names (design §14.197)
+
+**2026-09-10 — progress, not full-design completion.** ADR-0063 connects authored
+page properties on original body page-break nodes. The successor source flow keeps
+computed names and exact node identities in a bounded sorted registry; verification
+rebuilds that registry and the optional source encoding includes it. Legacy flows
+leave it empty. Source text limits bound the strings; the page plan charges live
+registry records/bytes, sorting and lookup to cumulative command allowances.
+
+The used name selects the page that consumes that break. End restores the enclosing
+name, or default at the root. Name changes and forced advancement remain distinct
+boundaries. Mixed pagination only absorbs the next outside-table break if its used
+name matches the current page. Otherwise it retains that original node for the next
+named region. There is no synthetic source node, fake paragraph or paint receipt.
+Named definitions and conflicting parallel-table names retain owner diagnostics,
+including the new explicit-break negative fixtures. Component collection without a
+bound name plan also keeps its pending-policy guard.
+
+Authoritative evidence is under
+`workspace/target/vmb-design/20260910/named-breaks/final-probes`:
+
+- `cli-tests-final.log`: **160 tests, 33.44s**, including ten hash-verified saved VMB
+  jobs and original-Harano fixtures. `jobs.json` retains all original input hashes.
+- `independent-final.log`: **435 source PDFs**, **208 actual driver callbacks**,
+  **1,416 pages**, **16,280 structure nodes**, **547 annotations**, **13 explicit
+  unsupported inputs**, **3,213 tamper rejections**.
+- `geometry-final.log`: **22 named-page PDFs / 108 pages / 154 alterations rejected**.
+  The additional nested/root explicit-break fixtures use original break kinds and
+  classes, literal empty/text page sequences, original master declarations and font
+  metrics. Both component and actual-driver output are inspected.
+- `comparison-final.log`: all **427 preceding PDFs byte-identical**, as are both
+  saved original-Harano VMB table PDFs. Eight PDFs are added. `source-preservation.log`
+  verifies unchanged original full-book package and Harano font hashes.
+- `pagination-tests.log`: **99 tests, 0.21s**, plus doc-tests.
+- `frozen-table-tests.log`: **21 legacy production-table tests, 7.74s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph policy test, 0.18s**.
+- `check-all.log`: workspace all-features check **9.24s**.
+- `check-default.log`: workspace default-features check **6.44s**.
+
+The additional source-owner test re-verifies the exact immutable flow and confirms
+all three named break identities map to the original local name. Cumulative record,
+string-byte and work allowances pass exactly and fail with one less. The full driver
+also passes at its observed exact work allowance and fails one short. Source closure
+is checked after actual page placement and PDF assembly in all positive matrix cases.
+
+Each new fixture contains three locally named breaks, one ordinary break and two
+paragraphs. Name changes plus the four authored breaks produce seven pages; text
+appears only on physical pages 2 and 5. Nested scopes return to appendix, while root
+breaks return to the default source name. The final two empty pages retain the final
+short name. `harano-named-standalone.pdf` has **7 pages / 8,059 bytes**, SHA-256
+`c4efbc2146885c4813595c0480d28bba0179e6a5aec7d08e4dd5b35db863f8c1`.
+The second page was rendered and inspected, and `harano-standalone.txt` retains the
+original Japanese extraction on the two text pages. `harano-named-explicit.pdf` has
+**7 pages / 8,292 bytes**, SHA-256
+`d9941390c2fefe16e6bbe16b2dcfb4ff8920d741bb152fc6f962d2aba9ba42a1`.
+`artifact-hashes.log` records all eleven named fixtures. Controlled TrueType outlines
+remain empty and provide source/structure/geometry evidence only.
+
+Exploratory `tests-01.log` exposed the old unconditional absorption of the next break:
+its local name was retained in source but skipped during page selection. The selector
+now checks the used-name boundary; `tests-02.log` passes the targeted cases.
+`complete-probes` is the preliminary set before adding root standalone cases. The
+final probes supersede it. Cargo still reports the cached external Xcode
+DVTFilePathFSEvents warning; no warning-free host claim is made.
+
+```text
+python3 workspace/target/vmb-design/20260910/named-breaks/run-cli-final.py
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_table
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_body_retains_named_paragraph_page_for_its_pending_policy
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/named-breaks/final-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_named_pages_pdf.py workspace/target/vmb-design/20260910/named-breaks/final-probes --self-test --require-harano --require-explicit
+python3 workspace/target/vmb-design/20260910/named-breaks/compare-final-inputs.py
+```
+
+Horizontal reflow, conflicting parallel/definition page names, running regions,
+columns, other remaining body/page forms, original full-book runs, public runner/
+manifest integration, managed-host scale evidence and author/human acceptance remain
+open. No VMB producer change, new Go test or GitHub Actions use is claimed. The full
+design goal remains active.
+
+
+## Book-2 horizontal page origins (design §14.198)
+
+**2026-09-10 — progress, not full-design completion.** ADR-0064 removes the X-equality
+restriction for same-width selected page regions. Measurement origins remain fixed;
+selected body/note origins remain separate. Actual mixed placement computes the two
+independent deltas and moves ordinary/table fragments, repeated headers, viewports
+and bound list/note markers once. Equation numbers use the moved parent viewport.
+The separator already uses selected note bounds. Source closure now compares block
+viewport X against source measurement plus the selected region delta, retaining the
+position guard. Checked coordinate arithmetic and cumulative work remain in force.
+Zero deltas preserve the prior output path. Width disagreement still requires reflow.
+
+Authoritative evidence is under
+`workspace/target/vmb-design/20260910/horizontal-origins/complete-probes`:
+
+- `cli-tests-complete.log`: **162 tests, 40.25s**, including the ten hash-verified
+  saved VMB jobs and original-Harano fixtures. `jobs.json` retains those inputs.
+- `independent-complete.log`: **475 source PDFs**, **228 actual driver callbacks**,
+  **1,608 pages**, **17,760 structure nodes**, **695 annotations**, **13 explicit
+  unsupported inputs**, **3,589 tamper rejections**.
+- `geometry-corrected.log`: **40 horizontal-origin PDFs / 192 pages / 120 alterations
+  rejected**. Paired original/shifted PDFs retain exact source, font and dimensions.
+  The independent checker uses source master X differences, actual PDF text,
+  annotation rectangles and named destinations. Its fixed-unit tolerance is unchanged.
+- `comparison-complete.log`: all **435 preceding PDFs byte-identical**, as are both
+  saved original-Harano VMB table outputs. Forty paired PDFs are added.
+  `source-preservation.log` verifies unchanged full-book package and Harano hashes.
+- `prior-frame-geometry.log`: **10 fixed-origin frame PDFs / 42 pages / 76 alterations
+  rejected**. `prior-name-geometry.log`: **22 fixed-origin named PDFs / 108 pages /
+  154 alterations rejected**. Those original fixtures remain checked separately;
+  tagged horizontal pairs use the new checker.
+- `pagination-tests.log`: **99 tests, 0.21s**, plus doc-tests.
+- `frozen-table-tests.log`: **21 legacy production-table tests, 8.22s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph policy test, 0.17s**.
+- `check-all.log`: workspace all-features check **3.37s**.
+- `check-default.log`: workspace default-features check **3.28s**.
+- `format-check.log`: targeted Rust formatting passes. All three affected Python
+  checkers parse successfully. The external cached Xcode warning remains.
+
+Eight controlled source forms cover ordinary body, notes, unequal body/note table
+cells, named references, nested names, repeated table headers with lists and notes,
+and numbered vector blocks. Two original-Harano forms cover notes and references.
+Each form runs at original and moved origins, normalizing only declared region X in
+the actual placement comparison. Original owner/source/item identities, bounds,
+viewports, list/note/equation marker positions and separator geometry must otherwise
+match. Body origins are 40/15/25/55pt and note origins are 10/45/20/60pt in original
+master order; selection includes physical first/parity and named overrides. Relative
+movement therefore includes both signs and notes to the left of body. Moved full
+runs pass at exact observed work and fail with one less.
+
+`harano-notes-shifted.pdf` has **5 pages / 33,432 bytes**, SHA-256
+`2511b789fe3697f60c354814f4ff3b41f3a2bad092dd2285ce5639939113195f`.
+Its third page was rendered and inspected: three body lines begin at 40pt, while
+three continuation-note lines follow the independent 10pt note origin and marker
+gutter. `harano-notes-shifted.txt` retains extraction. The original paired PDF is
+byte-identical to the earlier original-Harano variable-frame artifact.
+`harano-references-shifted.pdf` has **3 pages / 12,176 bytes**, SHA-256
+`fbcaf3fe26b25399f3e32069299f5c31e4492377650193869d42965add0a54e5`.
+All twenty paired artifacts are listed in `artifact-hashes.log`. Controlled TrueType
+outlines remain empty and provide geometry/source/structure evidence only.
+
+Exploratory `tests-01.log` records test-helper visibility errors. `tests-02.log`
+records invalid node order in a newly repeated vector fixture; its local source
+renumberer now includes equation-number nodes. `tests-03.log` then exposed a real
+source-closure check still using measured block X after page translation. The check
+now uses the selected region delta, and `tests-04.log` passes all eight controlled
+forms. `geometry-complete.log` records the independent checker's initial point/fixed-
+unit mismatch; correcting the unit conversion produces `geometry-corrected.log`
+without loosening tolerance or changing PDF output.
+
+```text
+python3 workspace/target/vmb-design/20260910/horizontal-origins/run-cli-complete.py
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_table
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/horizontal-origins/complete-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_horizontal_origins_pdf.py workspace/target/vmb-design/20260910/horizontal-origins/complete-probes --self-test --require-harano
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_page_frames_pdf.py workspace/target/vmb-design/20260910/horizontal-origins/complete-probes --self-test --require-harano
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_named_pages_pdf.py workspace/target/vmb-design/20260910/horizontal-origins/complete-probes --self-test --require-harano --require-explicit
+python3 workspace/target/vmb-design/20260910/horizontal-origins/compare-complete-inputs.py
+```
+
+Width-dependent reflow, conflicting parallel/definition page names, running regions,
+columns, other remaining body/page forms, original full-book runs, public runner/
+manifest integration, managed-host scale evidence and author/human acceptance remain
+open. No VMB producer change, new Go test or GitHub Actions use is claimed. The full
+design goal remains active.
+
+
+## Book-2 source-start inline widths (design §14.199)
+
+**2026-09-10 — progress, not full-design completion.** ADR-0065 adds an exact-source
+width assignment and projects its selected lines through actual Book-2 shaping.
+The common minimum-demerit kernel chooses width by original logical start. Selected
+lines retain that width; the full assignment enters a distinct fingerprint. Fixed
+widths preserve prior canonical bytes. Whole clusters, hard breaks and atomic visual
+overhang remain enforced. All width slots consume shared work; profile slots and
+width records consume remaining projection records. A new preparation requires new
+binding even when its content hash is equal. Selected widths must fit the containing
+envelope. These line results are frameless; physical width disagreement still emits
+HorizontalReflow.
+
+Evidence is under `workspace/target/vmb-design/20260910/source-line-widths/`:
+
+- `linebreak-tests-final.log`: **50 unit tests, 0.07s**, plus **1 Unicode conformance
+  integration test, 0.07s** and doc-tests. A brute-force oracle compares **729 dense
+  schedules** against all **32 complete partitions** of six units. Every schedule
+  checks minimum total demerit, complete original coverage, selected width, exact
+  work/line limits and one-short rejection. Additional cases cover indivisible
+  clusters, unselected width fingerprints, invalid cardinality, empty paragraphs,
+  source hard breaks and negative-origin atomic vectors.
+- `cli-tests-complete.log`: **164 tests, 30.54s**, with original Harano and all ten
+  hash-verified saved VMB jobs. Both new source-width projection tests pass.
+- `source-proofs/controlled.json`: fixed ends **4/8/11**, variable ends **2/4/8/11**;
+  **54 records / 33 work visits**. Actual source text remains `R R R R R R`.
+- `source-proofs/harano.json`: fixed ends **4/8/12**, variable ends **2/5/8/12**;
+  **58 records / 60 work visits**. The original 12 Japanese characters use original
+  glyph IDs 2088/2822/1224. First width is **24pt**, later source starts **48pt**.
+  The proof records original font hash, canonical breaks and projected clusters.
+  Rust assertions verify original glyph pointers and parsed spans, exact remaining
+  record/work budgets, foreign preparation rejection and insufficient envelope.
+- `independent-complete.log`: **475 source PDFs / 228 actual driver callbacks /
+  1,608 pages / 17,760 structure nodes / 695 annotations / 13 explicit unsupported
+  inputs / 3,589 tamper rejections**. No variable-width PDF is claimed in this stage.
+- `comparison-complete.log`: all **475 preceding PDFs** and both saved original VMB
+  table PDFs are **byte-identical**. `source-preservation.log` verifies the unchanged
+  original full-book package and Harano font hashes. `jobs.json` records saved inputs.
+- `pagination-tests.log`: **99 tests, 0.15s**, plus doc-tests.
+- `frozen-table-tests.log`: **21 legacy table tests, 7.31s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph policy test, 0.16s**.
+- `check-all.log`: workspace all-features check **5.75s**.
+- `check-default.log`: workspace default-features check **5.49s**.
+
+The controlled font has empty outlines; it supplies source and geometry evidence.
+The unchanged original Harano test supplies actual admitted CFF glyph projection.
+Neither is physical page feedback. Existing native-math regressions pass through the
+common kernel, but variable-width native-math projection is not separately tested.
+Exploratory `cli-tests-01.log` and `cli-tests-02.log` retain compile failures for an
+unsupported PositiveLength comparison and a missing test import; both were fixed
+before the accepted run. The cached external Xcode DVTFilePathFSEvents warning remains.
+
+```text
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-linebreak
+python3 workspace/target/vmb-design/20260910/source-line-widths/run-cli-complete.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/source-line-widths/complete-probes --self-test
+python3 workspace/target/vmb-design/20260910/source-line-widths/compare-complete-inputs.py
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_table
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_body_retains_named_paragraph_page_for_its_pending_policy
+```
+
+Physical page/source width feedback, re-itemization across reshape passes, body/note/
+table width placement, remaining parallel/definition page names, running regions,
+columns, full-book/public/manifest/managed-host work and author/human acceptance remain
+open. There is no VMB producer change or new Go test. No GitHub Actions were used.
+The full-design goal remains active.
+
+Final review: `format-check.log` passes targeted Rust formatting; `/usr/bin/git diff
+--check` passes in Typaxis and the companion VMB repository. All test/check processes
+completed successfully. Review of `book_v2_converged_pdf.rs`, `book_v2_reshape.rs`,
+`book_v2_frames.rs` and the source page plan confirms the next integration boundary:
+physical-page feedback must survive rebuilding shaped paragraphs and regenerate
+width bindings for each exact preparation. Frames and body/table/note measurements
+currently still use one paragraph envelope. Those contracts must be updated together
+before the HorizontalReflow guard can be relaxed.
+
+
+## Book-2 source-width reshape (design §14.200)
+
+**2026-09-10 — progress, not full-design completion.** ADR-0066 binds borrowed dense
+width assignments to the exact immutable source flow rather than a previous shape.
+Each projection validates paragraph and width cardinality, compares original source
+scalars and atomic owner/span/kind to newly prepared units, and creates fresh exact
+item bindings. Anchors and container boundaries take no width slots; empty paragraphs
+retain one slot. Different source flows require new assignments, including regenerated
+page labels. Binding allocation is preflighted with prior records and retained native
+computations; shared projection charges the records once. Source visits share the
+candidate work allowance.
+
+The actual shaping/rebreak loop now accepts these assignments. It uses selected byte
+ends as shaping context, rebinds after every new preparation, and requires matching
+selected fingerprints. Initial selection and all reshapes share cumulative work and
+pass limits. Original native computations are reused. The fixed-width driver route
+is preserved. Retained frames remain measurement envelopes; this is not yet feedback
+from selected physical page widths.
+
+Authoritative evidence is under
+`workspace/target/vmb-design/20260910/source-width-reshape/`:
+
+- `cli-tests-final.log`: **168 tests, 33.38s**, including six source-width tests,
+  original Harano, and all ten hash-verified saved VMB jobs. PDFs were recorded into
+  fresh `accepted-probes`; `jobs.json` retains the unchanged input hashes.
+- `source-proofs-final/controlled.json`: stable ends **2/4/8/11**, **2 reshape passes /
+  138 total visits**. `harano.json`: **2/5/8/12**, **2 passes / 222 visits**.
+- `source-proofs-final/harano-graphemes.json`: six original `か` + combining-dakuten
+  pairs retain **two scalar units per shaped cluster** and original glyph ID **853**.
+  Stable ends are **2/4/8/12**, **2 passes / 162 visits**. Source text is not normalized
+  or replaced to produce this result. `source-proof-summary.log` lists all three.
+- Each text fixture checks exact remaining records, work and reshape passes, and
+  one-short rejection. A content-identical foreign flow is rejected. Original glyph
+  pointer identity and complete source text are checked after actual stable shaping.
+- The native fixture retains the exact original computation owner, one inline native
+  occurrence and the selected first-line end at unit 7; it checks prior native records
+  with exact/one-short limits and shared work/pass exhaustion.
+- Mixed cases cover dense/sparse assignments in table cells, lists and demanded note
+  paragraphs with generated marker text. Original vector/math-vector cases additionally
+  cover soft/hard breaks, anchors and an anchor-only empty paragraph. Source ranges and
+  required widths match ordinary selection when supplied widths equal the envelopes.
+- `independent-final.log`: **475 source PDFs / 228 actual driver callbacks / 1,608 pages /
+  17,760 structure nodes / 695 annotations / 13 explicit unsupported inputs /
+  3,589 tamper rejections**.
+- `comparison-final.log`: all **475 preceding PDFs** and both saved VMB table PDFs are
+  **byte-identical**. `source-preservation.log` verifies unchanged full-book package and
+  original Harano font hashes. No new variable-physical-width PDF is claimed.
+- `layout-tests.log`: **69 unit tests, 0.36s**, plus **1 doc-test, 0.60s**.
+- `pagination-tests.log`: **99 tests, 0.18s**, plus doc-tests.
+- `frozen-table-tests.log`: **21 legacy table tests, 7.51s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph policy test, 0.16s**.
+- `check-all.log`: workspace all-features check **4.21s**.
+- `check-default.log`: workspace default-features check **4.44s**. It retains the
+  existing `has_spans` unused-assignment warning in `production_table_kernel.rs`.
+- `format-check.log`: targeted Rust formatting passes. The cached external Xcode
+  DVTFilePathFSEvents warning remains; a warning-free build is not claimed.
+
+Exploratory `check-01.log` exposed an exhaustive-match fallback warning, removed before
+accepted verification. `tests-02.log` records a test receipt-method compile error.
+`tests-03.log` and `tests-04.log` then pass four and six focused tests. The first full
+`cli-tests-complete.log` has **167 pass / 1 fail** because newly added break/anchor
+spans moved backward in source order. `vector-tests-05.log` retained one missed anchor
+span correction. The fixture now uses source-monotone spans and `vector-tests-06.log`
+passes, followed by the clean final 168-test run. Source admission was not weakened.
+
+During `vector-tests-06`, the live test process waited in macOS `_dyld_start` before
+entering the test harness. `startup-6426.sample.txt` records that live startup state.
+The existing process was observed through normal successful completion, not restarted
+because of an observation timeout. All verification handles are terminal and successful
+for the accepted runs.
+
+```text
+python3 workspace/target/vmb-design/20260910/source-width-reshape/run-cli-final.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/source-width-reshape/accepted-probes --self-test
+python3 workspace/target/vmb-design/20260910/source-width-reshape/compare-final-inputs.py
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-layout --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_table
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_body_retains_named_paragraph_page_for_its_pending_policy
+```
+
+Physical-page-to-source width feedback, actual body/note/table width placement, remaining
+parallel/definition names, running regions, columns, full-book/public/manifest/managed-
+host work and author/human acceptance remain open. HorizontalReflow remains enforced.
+There is no VMB producer change, new Go test or GitHub Actions use. The full-design goal
+remains active.
+
+
+## Book-2 paragraph page-width feedback (design §14.201)
+
+**2026-09-10 — progress, not full-design completion.** ADR-0067 maps actual placed,
+source-closed paragraph lines back to dense original unit-start width candidates.
+It requires the issuing search's exact closure/sequence. Available width comes from
+the paragraph envelope plus the selected body/note region width difference. Original
+owners, complete source ranges and the flow content fingerprint are retained. Fresh
+shaping uses the exact-source rebinding introduced in §14.200.
+
+Semantic and repeated visits are distinct; repeated header/caption text must request
+the same width. Every observed paragraph needs complete original semantic coverage.
+Unreferenced definitions remain wholly unobserved, with provisional measurement
+widths. Empty paragraphs retain one slot. Changed root widths in flows containing
+tables are rejected pending proper column/cell remeasurement. Result and scratch
+records are preflighted, and all visits consume the existing search work allowance.
+The report's match flag concerns paragraph line widths, not whole-page/PDF acceptance.
+
+The shared body collector now computes end/center slack and empty-line bounds using
+`line.inline_size()`, with the paragraph width retained as a containing envelope.
+This fixes provisional narrow lines being aligned to the envelope's far edge.
+Fixed-width geometry is unchanged.
+
+Evidence root: `workspace/target/vmb-design/20260910/page-width-feedback/`.
+
+- `cli-tests-final.log`: **171 tests, 33.45s**, including all three new feedback tests,
+  original Harano and ten hash-verified saved VMB jobs. `jobs.json` retains those inputs.
+- `width-proofs/` contains **nine** actual component page round trips, summarized in
+  `width-proof-summary.log`. Start/end/center are checked independently against the
+  selected line's width, required width, paragraph origin and actual fragment bounds.
+- Controlled original text: **4 → 1 pages**, **403 → 280 work**, **142 final records**.
+- Original Harano text: **4 → 2 pages**, **491 → 462 work**, **183 final records**.
+- Anchor-only empty paragraphs: **1 → 1 pages**, **71 → 71 work**, **80 final records**.
+  The recorded text buffer remains original input metadata and is not painted.
+- Every returned slot is **7,864,311 raw units**, the declared 120pt body minus the
+  original 9-raw-unit container insets. The first narrow candidate does not match
+  physical width; the replayed candidate does. A rebuilt equivalent flow matches the
+  source-content fingerprint and receives freshly bound assignments. Shared work
+  passes exactly and fails one short. These new tests do not generate PDF bytes.
+- The mixed test includes repeated table headers over four body rows, a list and its
+  demanded footnote, plus one unreferenced definition. Semantic and repeated coverage
+  remain distinct. Full page selection, placement, closure and feedback pass at exact
+  shared remaining record/work limits and fail one short. A foreign search cannot
+  consume another search's closure.
+- `independent-final.log`: **475 source PDFs / 228 actual driver callbacks / 1,608 pages /
+  17,760 structure nodes / 695 annotations / 13 explicit unsupported inputs /
+  3,589 tamper rejections** in fresh `accepted-probes`.
+- `comparison-final.log`: all **475 preceding PDFs** and both saved original VMB table
+  PDFs are **byte-identical**. `source-preservation.log` confirms original full-book
+  package and Harano hashes. There is no new variable-physical-width PDF claim.
+- `pagination-tests.log`: **99 tests, 0.19s**, plus doc-tests.
+- `frozen-table-tests.log`: **21 legacy table tests, 7.48s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph policy test, 0.16s**.
+- `check-all.log`: workspace all-features check **5.05s**.
+- `check-default.log`: workspace default-features check **3.79s**.
+- `format-check.log`: targeted formatting passes. The existing default pagination
+  `has_spans` warning and cached external Xcode warning remain; warning-free status
+  is not claimed.
+
+`check-01.log` initially reported an unused re-export before the public Book-2 export
+chain was completed. `tests-01.log` passes the first controlled test, `tests-02.log`
+passes all three focused tests with original Harano, and `tests-03.log` passes the
+controlled/mixed tests after adding empty paragraphs. The final full run includes
+all cases. All accepted verification processes are terminal and successful.
+
+```text
+python3 workspace/target/vmb-design/20260910/page-width-feedback/run-cli-final.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/page-width-feedback/accepted-probes --self-test
+python3 workspace/target/vmb-design/20260910/page-width-feedback/compare-final-inputs.py
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_table
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_body_retains_named_paragraph_page_for_its_pending_policy
+```
+
+Variable-width master admission, combined width/generated-label driver feedback, actual
+body/note/table/block width placement, remaining parallel/definition page names, running
+regions, columns, full-book/public/manifest/managed-host work and author/human acceptance
+remain open. HorizontalReflow stays enforced. No VMB producer change, new Go test or
+GitHub Actions use is claimed. The full-design goal remains active.
+
+
+## Book-2 variable page widths (design §14.202)
+
+**2026-09-10 — progress, not full-design completion.** ADR-0068 connects actual
+paragraph width feedback to the private source-to-PDF driver. The source-aware
+frame plan retains varying first/parity/named body and note widths, with separate
+maximum measurement envelopes. Strict component APIs retain their old contract;
+width-changing table/figure/block-math flows still require dedicated remeasurement.
+
+A closed physical candidate feeds original unit-start widths into fresh shaping.
+Acceptance requires actual selected widths and the complete dense assignment to
+match. Generated page-label changes invalidate the width memo. Width retries reset
+PDF stability, while the existing consecutive complete-PDF comparison remains for
+page references. Physical math finalization independently rejects provisional widths.
+
+The original Harano footnote fixture exposed an unrestricted two-state width cycle.
+Brent detection retains one source/assignment digest. On a cycle, source-closed
+line ends become legal subdivision constraints; later passes may split further,
+but cannot merge across them. Fresh itemization validates complete ordered ends,
+cluster atomicity and legal breaks. Original mandatory breaks and vector overhang
+remain enforced. Empty paragraphs keep one zero end. The separate refined algorithm
+binds widths and ends in canonical JCS. This is minimum cost within the retained
+partition, not a claim of globally optimal joint page/line breaking. Infeasible
+inputs and insufficient resource caps still fail; no source text or font is changed.
+
+All views, retained ends, width hashing/validation and retries consume existing
+record/work/pass ceilings. The cycle detector uses bounded storage. The final
+physical checks remain independent of this candidate-generation policy.
+
+Evidence root: `workspace/target/vmb-design/20260910/variable-page-widths/`.
+
+- `cli-tests-final.log`: **175 tests, 41.09s**, including original Harano and ten
+  hash-verified saved VMB jobs. The new direct component test rejects provisional
+  math finalization; cycle tests cover periods 1–17 and nonrepeating assignments.
+- `linebreak-tests-accepted.log`: **52 unit tests, 0.08s**, Unicode conformance
+  **1 test, 0.07s**. The new exhaustive test compares **648** width/retained-end
+  schedules with every legal subdivision and checks exact/one-short work and line
+  limits. Invalid, missing, reversed, duplicate and cluster-interior ends fail.
+  Empty paragraphs and original mandatory breaks/atomic vector overhang are covered.
+- `width-pdfs/` contains six actual driver PDFs and their observations. Each case
+  repeats at exact observed work with identical PDF bytes and fails one work short.
+- Controlled body: **2 pages / 4 width passes / 0 refinements / 17,023 work**.
+  Controlled notes: **3 pages / 5 width passes / 0 refinements / 27,159 work**.
+  Controlled references: **5 pages / 11 width passes / 0 refinements / 105,400 work**.
+- Original Harano body: **3 pages / 5 width passes / 0 refinements / 14,110,167 work**.
+  Original Harano notes: **8 pages / 12 width passes / 2 refinements / 14,146,157 work**.
+  Original Harano references: **11 pages / 15 width passes / 0 refinements /
+  42,538,407 work**, final generated page labels **8, 1, 5**.
+- `width-summary.log` records all byte counts and SHA-256 values. Harano notes:
+  **13,851 bytes**, SHA-256
+  `92365d590ccc822c412645ba18ea20b42326f039eb4884fb698bca243ac6ff72`.
+  Harano references: **18,398 bytes**, SHA-256
+  `e1bd862cc8d6b0fe2fe1fa82c35f3a81243b238c4328019775d173d7ddab4896`.
+- `independent-widths-final.log`: **12 PDFs / 64 pages / 68 alterations rejected**.
+  The dedicated verifier reads original hash-pinned Harano cmap/hmtx/hhea, and
+  derives body/note widths, glyph advances, center alignment and baselines from
+  source declarations. It checks complete original text, marker occurrences,
+  physical page labels/destinations and altered body/note geometry or labels.
+- `harano-notes-page4.png` is a Poppler rendering of the actual original-font PDF;
+  visual inspection confirms body, separator, note marker and separate note lines.
+  The tiny test regions intentionally create short lines; this is not full-book
+  visual or human acceptance. Controlled fixtures retain empty-outline test fonts.
+- `independent-final.log`: **487 source PDFs / 234 actual driver callbacks /
+  1,672 pages / 17,892 structure nodes / 715 annotations / 13 explicit unsupported
+  inputs / 3,721 tamper rejections** in fresh `accepted-probes`.
+- `comparison-final.log`: all **475 preceding PDFs** and both saved original VMB
+  table PDFs remain **byte-identical**. `source-preservation.log` verifies the
+  original full-book package and Harano font hashes; `jobs.json` records saved jobs.
+- `pagination-tests.log`: **99 tests, 0.25s**, plus doc-tests.
+- `layout-tests.log`: **69 tests, 0.39s**, and **1 compile-fail doc-test, 0.35s**.
+- `frozen-table-tests.log`: **21 legacy tests, 7.85s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph test, 0.17s**.
+- `format-check.log`, `diff-check.log` and `python-check.log`: targeted Rust formatting,
+  both repository diff checks, new-file whitespace and Python syntax pass. All
+  accepted verification processes are terminal and successful.
+- `check-all.log`: workspace all-features check **6.60s**.
+- `check-default.log`: workspace default-features check **5.25s**.
+  The existing default pagination `has_spans` unused-assignment warning and cached
+  external Xcode DVTFilePathFSEvents warning remain; warning-free status is not claimed.
+
+Exploratory `tests-02.log` and `tests-03.log` reproduced Harano note page-pass
+exhaustion; `trace-04.log` identifies the alternating assignments. `tests-05.log`
+passes all six fixtures after constrained refinement. The initial full CLI compile
+needed explicit imports in the new component guard test. The first added atomic
+refinement assertion attempted equality on a non-PartialEq selected type
+(`linebreak-tests-final.log`); it was replaced by original ranges/kinds/overhang/atom
+checks and passes in `linebreak-tests-accepted.log`. No validator or source fixture
+was weakened to obtain success.
+
+```text
+python3 workspace/target/vmb-design/20260910/variable-page-widths/run-cli-final.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/variable-page-widths/accepted-probes --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_variable_width_pdf.py workspace/target/vmb-design/20260910/variable-page-widths/accepted-probes --harano-font /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf --self-test
+python3 workspace/target/vmb-design/20260910/variable-page-widths/compare-final-inputs.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-linebreak
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-layout --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_table
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_body_retains_named_paragraph_page_for_its_pending_policy
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+Width-dependent tables and block objects, remaining parallel/definition page names,
+running regions, columns, full-book/public/manifest/managed-host work and author/human
+acceptance remain open. No VMB producer change, new Go test or GitHub Actions use is
+claimed. Companion design §15.96 records the same scope. The full-design goal remains
+active.
+
+
+## Book-2 block page widths (design §14.203)
+
+**2026-09-10 — progress, not full-design completion.** ADR-0069 extends the private
+width loop to original fixed-size figures and display formulas. Parent-width
+candidates are bound to the exact flow and original block event order. Missing,
+extra, duplicate, reordered, foreign-flow and oversized assignments fail. Framed
+shaping applies candidates to block regions, preserves original parent frames and
+paragraph envelopes, and includes the candidates in the frame fingerprint. The
+frameless paragraph API rejects block assignments explicitly.
+
+Actual raster/ordinary SVG/vector/native geometry uses the rebound parent. Fixed
+image dimensions, SVG scale, native computations, source ranges and admitted
+identity remain intact. Captions use paragraph feedback. Equation numbers retain
+their existing right-hand placement and minimum gap; too-narrow numbered geometry
+fails rather than inventing a below-formula fallback.
+
+Source-closed placement returns target parent widths from the original measurement
+frame and actual body/note width delta. Full block assignments participate in driver
+comparison and cycle hashing. Semantic and repeated visits remain separate, with
+conflicts and duplicate original consumption rejected. Unreferenced blocks keep
+measurement widths. Table width changes still require column/cell remeasurement.
+
+Final math processing checks block widths for varying plans and explicit block
+candidates, including a component caller without a page plan. Retained frames,
+feedback and coverage storage are precharged; source/lookup/sort/hash/comparison
+and physical visits consume the shared work allowance. The fixed and paragraph-only
+paths retain their bytes.
+
+Evidence root: `workspace/target/vmb-design/20260910/block-widths/`.
+
+- `cli-tests-accepted-03.log`: **178 tests, 59.72s**, original Harano and ten saved
+  hash-verified VMB jobs included. The accepted run uses fresh `accepted-probes-03`
+  and `block-pdfs-03`, including separate VMB `*-accepted-03.pdf` outputs.
+- The component test checks start/center/end alignment after real shaping, original
+  parent and block resource identity, exact/one-short shaping work, malformed
+  bindings, an insufficient number gap and provisional finalization rejection.
+- `block-pdfs-03`: **18 actual driver PDFs**. Controlled fonts cover vector figures
+  with captions/numbered formulas, centered native display math, PNG, JPEG and
+  ordinary SVG in body and footnotes. Unchanged Harano covers the four figure
+  families in both regions. Native math retains the controlled MATH-capable font;
+  Harano is not substituted for that math font.
+- All eighteen cases repeat successfully at exact observed driver work and fail
+  one work short. Seventeen use **2 width passes / 4 reshape passes / 4 page passes**;
+  controlled vector notes use **3 / 6 / 6**, with their content continued over
+  **2 physical pages**. Body cases have **3 pages**, other notes have **1 page**.
+- `block-summary-03.log` records every page/byte count, SHA-256 and work observation.
+  Harano vector body: **25,979 bytes**, SHA-256
+  `a823df6011e54d01f9162270075bffcbce6d442db6c2cabdc53b3507eb67ccb5`.
+  Harano vector notes: **18,146 bytes**, SHA-256
+  `5f5cb4c5bcb9f3355e09f5b186ccd1fbe3727e66874b4a59d70dfc520212137c`.
+  Centered native body: **15,928 bytes**, SHA-256
+  `e610c58f19e39fef301e1bf9528676874442e59fd7b176e4acd624245c6420a6`.
+- `independent-blocks-03.log`: **36 PDFs / 74 pages / 72 alterations rejected**.
+  Checks use declared master widths, original container/block indents, fixed
+  raster dimensions and SVG scale, original Harano advances and number width.
+  Native centering uses actual glyph extents plus verified embedded advances.
+  This checks physical alignment, without claiming an independent native-math
+  optimizer. Altered or missing block placements fail.
+- `independent-accepted-03.log`: **523 source PDFs / 252 actual driver callbacks /
+  1,746 pages / 18,664 structure nodes / 751 annotations / 13 unsupported inputs /
+  3,955 tamper rejections**.
+- `comparison-accepted-03.log`: all **487 preceding PDFs**, original VMB table-caption
+  **31,046 bytes** and table-alignment **31,111 bytes** remain **byte-identical**.
+  `source-preservation.log` and `jobs.json` retain original package/font/job hashes.
+- `harano-vector-notes-page1.png`: actual Poppler rendering visually inspected for
+  body/footnote text, original SVGs, caption, separator and right-hand number.
+  This is a small fixture rendering, not full-book or human acceptance.
+- `layout-tests.log`: **69 tests, 0.47s**, plus **1 compile-fail doc-test, 0.45s**.
+- `pagination-tests.log`: **99 tests, 0.29s**; final guard verification is also
+  recorded in `pagination-tests-final.log` (**99 tests, 0.29s**).
+- `frozen-table-tests.log`: **21 legacy tests, 8.98s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph test, 0.18s**.
+- `check-all-final.log`: workspace all-features check **8.44s**.
+- `check-default-final.log`: final default-feature check **5.26s**, successful. The initially unused
+  block-width helper was gated to book-v2-staging rather than suppressing warnings.
+  Existing pagination `has_spans` and external Xcode warnings remain.
+- `format-check.log`, `python-check.log` and `diff-check.log`: targeted formatting,
+  verifier/run-script syntax, both repository diffs and new-file whitespace checks.
+
+Exploratory evidence is retained. `component-tests-01.log` exposed a too-narrow
+centered numbered formula; the successful alignment case supplies enough width,
+while a dedicated negative case preserves the original 4,000,000-raw-unit failure.
+`component-tests-02.log` succeeds. `tests-03.log` found array indexing syntax in a
+JSON fixture macro; `tests-04.log` found that the generic node renumberer omitted
+number owners. The shared number-aware helper fixes that fixture identity.
+`tests-05.log` found an out-of-parent reference span; `tests-06.log` found overlapping
+native math domains in duplicated source; `tests-07.log` rejected a spurious document
+span field; `tests-08.log` found the same math-domain issue across body/definition.
+The corrected native fixture writes two or three distinct original input copies
+with exact matching identity mappings; no validator was weakened. `tests-09.log`
+passes all ten controlled cases, and the accepted full run adds all eight Harano
+cases and finalization guards.
+
+`cli-tests-accepted.log` passed 176 tests but two VMB output writers correctly rejected
+reused create-new paths. `run-cli-accepted-03.py` assigns fresh VMB outputs and probes;
+all 178 tests pass. This was an evidence-path collision, not a source/PDF regression.
+The independent block parser initially tried to treat the nonpainting replacement-
+text carrier as a Type0 glyph font; it now reads native extents from actual Type0
+paint glyphs, while vector placement and replacement-text checks remain separate.
+
+```text
+python3 workspace/target/vmb-design/20260910/block-widths/run-cli-accepted-03.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/block-widths/accepted-probes-03 --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_block_width_pdf.py workspace/target/vmb-design/20260910/block-widths/accepted-probes-03 --harano-font /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf --self-test
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-layout --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_table
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_body_retains_named_paragraph_page_for_its_pending_policy
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+Width-dependent tables, remaining parallel/definition page names, running regions,
+columns, full-book/public/manifest/managed-host work and author/human acceptance
+remain open. No VMB producer change, new Go test or GitHub Actions use is claimed.
+Companion design §15.97 records the same scope. The full-design goal remains active.
+
+
+## Book-2 root table width frames (design §14.204)
+
+Implemented source-bound root-table width candidates in the actual shaping path.
+This is the table hierarchy remeasurement prerequisite; physical table-width
+feedback and varying-width table PDFs remain open. ADR-0070, design §14.204 and
+companion design §15.98 record the same scope.
+
+`BookV2SourceWidthAssignments::with_root_table_widths` borrows all original root
+owners and candidate parent widths in event order. Nested tables inherit the
+newly resolved spanning cells. The shared frame traversal reuses the original
+fixed/fraction resolver, table/cell/source identities and indentation. It rebuilds
+caption, header, paragraph and nested frames before actual line shaping. Missing,
+extra, duplicate, reversed, nested, non-table and foreign-flow bindings fail;
+widths above the original parent or exhausted fixed/fraction columns also fail.
+A frameless source-width projection rejects table assignments.
+
+`BookV2BodyInlineFrames` retains the complete original projection and exposes its
+original table, paragraph and owner measurements. Before the second allocation,
+the full original record bound and new bound must fit together. Additional work is
+prepaid conservatively as original records × 64 × source-event lookup depth,
+covering the extra hierarchy traversal, column passes, lookups and encoding.
+Every real shaping pass pays again from the shared remaining allowance. The new
+projection uses `typaxis.book-2-table-width-frames/1`; no-candidate paths retain
+previous fingerprints and output bytes.
+
+Paragraph feedback and final math serialization explicitly reject table candidates
+with `PendingRegion("table_width_reflow")`, including component callers without a
+varying page plan. Actual component pagination/source closure is tested but does
+not authorize these provisional narrower tables for PDF output. Page-master
+`HorizontalReflow` remains until physical table widths and continuations are bound.
+
+Evidence is under `workspace/target/vmb-design/20260910/table-width-frames/`:
+
+- `tests-05.log`: **2 tests, 7.80s**. Controlled-font and unchanged Harano cases each
+  cover body and footnotes, two root tables, nested tables, captions, headers,
+  colspan and rowspan. Each changes **16 paragraph frames** and produces actual
+  additional lines compared with the original width. Original text and glyph
+  pointers remain intact. Independently calculated column widths/offsets check
+  both **+1 and −1 raw-unit residuals** on the last fractional column.
+- Controlled body: **714,924 work / 2 reshape passes**; controlled notes:
+  **725,685 / 2**. Harano body: **717,306 / 2**; Harano notes: **728,097 / 2**.
+  All four cases succeed at exact observed work/passes and reject either one
+  work or one pass short. Retained frame charge is at least twice the original
+  projection charge. Invalid bindings and provisional finalization are rejected.
+- `run-cli-accepted-01.py` / `cli-tests-accepted-01.log`: **180 tests, 61.07s**, all
+  ignored original-font and hash-verified VMB jobs explicitly enabled. Fresh
+  output paths include both VMB create-new PDF destinations.
+- `independent-accepted-01.log`: **523 source PDFs / 252 actual driver callbacks /
+  1,746 pages / 18,664 structure nodes / 751 annotations / 13 unsupported inputs /
+  3,955 tamper rejections**. These are existing accepted PDFs; this stage does not
+  add a provisional-table PDF to the accepted corpus.
+- `comparison-accepted-01.log`: **all 523 preceding PDFs byte-identical**. Original
+  VMB table-caption **31,046 bytes**, SHA-256
+  `40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`, and table-alignment
+  **31,111 bytes**, SHA-256
+  `30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02`, are also byte-identical.
+- `layout-tests.log`: **69 tests, 0.47s**, plus **1 compile-fail doc-test, 0.53s**.
+- `pagination-tests.log`: **99 tests, 0.27s**.
+- `frozen-table-tests.log`: **21 legacy tests, 8.82s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph policy test, 0.21s**.
+- `check-all.log`: workspace all-features check **5.59s**.
+- `check-default.log`: workspace default-feature check **5.06s**. Existing
+  pagination `has_spans` and cached external Xcode warnings remain.
+- `source-preservation.log`: original full-book package, Harano and Arial hashes
+  recomputed and unchanged. `jobs.json` records all ten original VMB job hashes.
+- `format-check.log`, `python-check.log`, `diff-check.log`: targeted formatting,
+  runner syntax, both repository diffs and new-file whitespace verification.
+
+The exploratory `tests-01.log` exposed an inaccessible nested test helper; the
+fixture now uses the existing sibling table-caption renumberer, which covers all
+of its node kinds. `tests-02.log` and `tests-03.log` correctly rejected ASCII words
+that could not fit the 37pt fixed-cell text frame with their break-space advance.
+The controlled valid fixture uses the original-font-compatible text “Pro Pro Pro”;
+no line feasibility rule was relaxed. `tests-04.log` passes; `tests-05.log` adds
+unchanged Japanese Harano text, both residual signs and actual line-count growth.
+`check-01.log` was the initial successful all-features check; final checks are above.
+
+```text
+python3 workspace/target/vmb-design/20260910/table-width-frames/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/table-width-frames/accepted-probes-01 --self-test
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-layout --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_table
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_body_retains_named_paragraph_page_for_its_pending_policy
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+Physical table-width feedback/continuation, remaining parallel/definition page
+names, running regions, columns, other book forms, full-book/public/manifest/
+managed-host work and author/human acceptance remain open. No VMB producer change,
+new Go test or GitHub Actions use is claimed. The full-design goal remains active.
+
+
+## Book-2 table page widths (design §14.205)
+
+Connected source-bound root-table remeasurement to physical page-width feedback
+and actual private PDFs. ADR-0071, design §14.205 and companion design §15.99 record
+this increment. Different widths within one table continuation and table-local
+block feedback remain explicit implementation work, not accepted substitutions.
+
+`book_v2_table_width_feedback.rs` reads the issuing search's source-closed selected
+body and definition table parts, including nonpainting/zero-height parts. Original
+root owners, global item membership and definition demand remain distinct from
+body/local definition positions. Targets use the original parent plus actual
+body/note root-width delta. Unreferenced definitions retain measurement widths;
+selected continuations of one root must agree or return
+`table_continuation_width_reflow`.
+
+Feedback stores ordered root targets and the physical match result. The driver
+rebinds them to each fresh source flow, includes them in complete assignment
+comparison/digest, and remeasures columns/cells before actual shaping and page
+selection. Table paragraphs explicitly use the new table-frame fallback; stale
+dense paragraph widths and paragraph-only retained-boundary refinement are not
+applied to those frames. Resource/pass ceilings and generated-label invalidation
+remain. Table-local blocks currently diagnose `table_block_width_reflow`.
+
+Math/PDF finalization independently checks root targets with explicit candidates
+or a varying-width plan containing tables. Unrebound component callers cannot
+skip this guard. It also checks table lines against resolved cell/caption frames,
+with ordinary lines still checked against actual page-root widths. The reflow
+page plan admits tables for these checks; its source scan charge and strict
+component-plan width rejection remain.
+
+Target/coverage allocation, candidate/leaf visits, lookups, hashing/comparisons and
+final verification consume shared budgets. Review found that first-pass and
+non-block measurement lookups can fall through the block registry into the full
+region map. `measurement_region_lookup_work` now includes that lookup depth;
+retained-table lookups use their original region map depth. This corrects work
+accounting without changing accepted PDF bytes.
+
+Evidence is under `workspace/target/vmb-design/20260910/table-page-widths/`:
+
+- `tests-04.log`: **3 tests, 32.08s**, controlled and unchanged Harano body/note
+  PDFs plus unrebound component finalization rejection.
+- `tests-05.log`: **3 tests, 38.29s**, extended with a root table whose caption
+  continues across equal-width first/even pages, followed by a wider root table.
+  Final post-accounting-fix verification is the complete accepted run below.
+- `run-cli-accepted-02.py` / `cli-tests-accepted-02.log`: **183 tests, 68.55s**,
+  including all explicitly enabled original-font and ten hash-verified VMB jobs.
+  Every final output path, including both VMB create-new destinations, is fresh.
+- `table-pdfs-02`: **6 actual driver PDFs**, controlled/Harano × body/notes/
+  continuation. Each is **3 pages / 3 width passes / 6 reshape passes / 6 page
+  passes**, succeeds at exact observed driver work and rejects one work short.
+- `table-summary-02.log`: all page/byte counts, hashes and work. Controlled body
+  **68,173 bytes / 2,609,190 work**, notes **80,844 / 2,820,215**, continuation
+  **48,183 / 1,584,384**. Harano body **73,363 / 17,078,649**, notes
+  **91,659 / 17,375,809**, continuation **52,681 / 16,040,326**.
+- Harano body SHA-256
+  `6c9e55e4657d52d353cb58b53e7745b2eba59e2fb3e6be0fccf422f0026ae4bd`;
+  Harano notes `12ca9b68b68bca168128528386bafb28968130256f393b8a82aa85c0a947f490`;
+  Harano continuation `ec2fd89940c5007aca2134c3819ae76a2e963ec67374dbee6c87d9a8688418d3`.
+- `independent-tables-accepted-02.log`: **12 PDFs / 36 pages / 24 alterations
+  rejected**. The checker follows PDF ParentTree/structure IDs to distinguish
+  each original paragraph, so a wide caption cannot mask an overwide fixed-cell
+  line at the same X origin. Declared masters, original font advances, fractional
+  rounding and authored indents determine each caption/cell/nested frame. Full
+  original strings, cell line width, X placement and per-digit right-aligned
+  footnote markers are checked. Displaced/missing text fails.
+- `independent-accepted-02.log`: **535 source PDFs / 258 actual driver callbacks /
+  1,782 pages / 20,092 structure nodes / 775 annotations / 13 unsupported inputs /
+  4,067 tamper rejections**.
+- `comparison-accepted-02.log`: **all 523 preceding PDFs byte-identical**, as are
+  the original VMB table-caption **31,046 bytes** and table-alignment **31,111 bytes**.
+- `harano-note-table-page1.png` / `render.log`: Poppler crop of the actual first
+  Harano note-table page visually inspected for separator, number, column/nested
+  origins and original Japanese glyphs. This fixture crop is not full-book or
+  human acceptance.
+- `layout-tests.log`: **69 tests, 0.55s**, plus **1 compile-fail doc-test, 0.35s**.
+- `pagination-tests.log`: **99 tests, 0.29s**.
+- `frozen-table-tests.log`: **21 legacy tests, 12.54s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph policy test, 0.24s**.
+- `check-all.log`: workspace all-features check **19.37s**.
+- `check-default.log`: workspace default-feature check **0.09s**, cached unaffected
+  default-feature outputs. Existing external Xcode and pagination warnings remain.
+- `source-preservation.log`: original full-book package, Harano and Arial hashes
+  recomputed unchanged; `jobs.json` records the ten original VMB job hashes.
+- `format-check.log`, `python-check.log`, `diff-check.log`: targeted formatting,
+  verifier/runner syntax, both repository diffs and new-file whitespace checks.
+
+Exploratory evidence remains. `check-01.log` exposed a helper visibility boundary,
+fixed with visibility limited to the existing body-flow module. `tests-01.log`
+passes the earlier root-frame component test with actual feedback plus independent
+finalization mismatch. `tests-02.log` correctly rejects invalid node order: the
+number-aware figure helper visits captions after table cells. The table fixture
+now uses the existing table-caption helper, preserving required preorder;
+`tests-03.log` passes both controlled PDFs. No source validator was weakened.
+
+The first independent attempt passed the whole wire instead of its page-masters
+field to the master selector. The second exposed a real font-metric distinction:
+Harano digits have different advances. The verifier now computes the maximum
+marker column and each digit's right alignment from the unchanged original font.
+`independent-tables-03.log` passes the initial 8 PDFs; `independent-tables-04.log`
+passes the extended 12. `cli-tests-accepted-01.log` passed 183 tests in 75.85s before
+continuation coverage and the measurement-lookup accounting fix; final evidence is
+`accepted-probes-02`, never a mixture of old/new output directories.
+
+```text
+python3 workspace/target/vmb-design/20260910/table-page-widths/run-cli-accepted-02.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/table-page-widths/accepted-probes-02 --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_table_width_pdf.py workspace/target/vmb-design/20260910/table-page-widths/accepted-probes-02 --harano-font /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf --self-test
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-layout --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_table
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_body_retains_named_paragraph_page_for_its_pending_policy
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+Different widths within a continued table, table-local block feedback, remaining
+parallel/definition page names, running regions, columns, other book forms,
+full-book/public/manifest/managed-host work and author/human acceptance remain
+open. No VMB producer change, new Go test or GitHub Actions use is claimed. The
+full-design goal remains active.
+
+
+## Book-2 table block widths (design §14.206)
+
+Connected fixed-size table-local figures and display math to the remeasured
+cell/container parent frame and actual private PDFs. ADR-0072, design §14.206 and
+companion design §15.100 record this increment. Different physical widths within
+one continued table and the remaining full-design release gates remain open.
+
+`BookV2SourceWidthAssignments::with_inherited_table_blocks` explicitly enables
+inherited table-block widths. The driver uses the mode with ordered original
+block owners and root-table targets. The charged original event traversal tracks
+nesting depth/root-table scope with checked arithmetic and no allocation. It still
+validates every block owner/order; only table-local widths use the new projection
+instead of a stale numeric observation. Ordinary blocks retain explicit targets.
+The effective parent width remains part of the frame fingerprint.
+
+`BookV2BodyInlineFrames::inherited_block_region` distinguishes the hierarchy frame
+before an explicit block override from both the original maximum measurement and
+the final block parent. Existing retained block records preserve it. Physical
+feedback uses exact item/root-table membership and the inherited width. Root-table
+physical targets remain independently checked, so a provisional table still causes
+remeasurement. Math/PDF finalization independently rejects explicit block widths
+that differ from the inherited table frame, including a caller with an already
+matching root table. Lookup depth includes the registry and region-map fallback.
+
+Declared image sizes, SVG scale, native computation, glyph/resource identity,
+caption source and right-hand equation-number minimum gap are preserved. Native
+copies retain distinct original source ranges and identity mappings. Existing
+source validators are unchanged. `table_block_width_reflow` is replaced by these
+actual remeasurement/feedback/finalization checks.
+
+Evidence is under `workspace/target/vmb-design/20260910/table-block-widths/`:
+
+- `tests-01.log`: **2 tests, 30.05s**, **18 actual driver PDFs**. Controlled fonts
+  cover vector figures/captions/numbered formulas, centered native display math,
+  PNG, JPEG and ordinary SVG in body/notes. Unchanged Harano covers the four figure
+  families in both regions; native math retains its controlled MATH-capable font.
+- `component-01.log`: **1 test, 0.13s**. Explicit and inherited modes reuse the
+  same original block assignments. Inherited parents follow the source table;
+  explicit narrower parents are independently rejected at math finalization even
+  with a matching fixed-width page plan. Both modes succeed at exact observed
+  shaping work and reject one work short.
+- `run-cli-accepted-01.py` / `cli-tests-accepted-01.log`: **186 tests, 86.51s**, all
+  explicitly enabled original-font and ten hash-verified VMB jobs included, with
+  fresh probe and VMB create-new output paths.
+- `table-block-pdfs-01`: **18 actual driver PDFs**, each converging in **3 width /
+  6 reshape / 6 page passes**. Body cases have **3 pages**, notes **1 page**.
+  Each succeeds at exact observed driver work and rejects one work short.
+- `table-block-summary-01.log` records every size/hash/work observation. Harano
+  vector body: **31,569 bytes / 15,433,565 work**, SHA-256
+  `955850f12f578cefe10796bd413f8a58581b9695944894825218a705ff9db9b9`.
+  Harano vector notes: **20,031 bytes / 14,650,522 work**, SHA-256
+  `711c6a25494585873afa6954e899260ff4f2628bca779f5a79b0cc7fcd234ce6`.
+  Native body: **21,414 bytes / 1,034,539 work**, SHA-256
+  `4af6ec9a01561447c746c48a937a62a20cc5707b8de3c49b645460c3634a289d`.
+- `independent-table-blocks-accepted-01.log`: **36 PDFs / 72 pages / 72 alterations
+  rejected**. The checker validates the declared nested-table/spanning-cell topology
+  and two fixed 20pt columns, derives the 40pt source parent offset, and checks
+  block/number alignment, fixed image sizes, SVG scale and native centering. Native
+  extents use actual glyph positions and verified font advances; mathematical
+  global-layout optimality is not claimed.
+- `independent-blocks-accepted-01.log`: existing non-table block regression,
+  **36 PDFs / 74 pages / 72 alterations rejected**, with the same checker default.
+- `independent-accepted-01.log`: **571 source PDFs / 276 actual driver callbacks /
+  1,854 pages / 21,728 structure nodes / 811 annotations / 13 unsupported inputs /
+  4,301 tamper rejections**.
+- `comparison-accepted-01.log`: **all 535 preceding PDFs byte-identical**. Original
+  VMB table-caption **31,046 bytes** and table-alignment **31,111 bytes** are also
+  byte-identical.
+- `harano-table-vector-note-page1.png` / `render.log`: actual Poppler crop visually
+  inspected for the indented nested-table content, original caption/formulas,
+  separator and right-hand number. This small fixture crop is not full-book or
+  human acceptance.
+- `layout-tests.log`: **69 tests, 0.50s**, plus **1 compile-fail doc-test, 0.54s**.
+- `pagination-tests.log`: **99 tests, 0.22s**.
+- `frozen-table-tests.log`: **21 legacy tests, 7.90s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph policy test, 0.17s**.
+  All authoritative verification sessions completed successfully.
+- `check-all.log`: successful cached workspace all-features check **0.09s**;
+  `check-default.log`: successful cached default-feature check **0.06s**.
+  `check-01.log` records the initial compiled all-feature check. Existing external
+  Xcode and pagination warnings remain.
+- `source-preservation.log`: original full-book package, Harano and Arial hashes
+  recomputed unchanged. `jobs.json` records all ten original VMB job hashes.
+- `format-check.log`, `python-check.log`, `diff-check.log`: targeted formatting,
+  verifier/runner syntax, both repository diffs and new-file whitespace checks.
+
+The new fixture wraps existing original-source block inputs in two nested tables,
+with a parent spanning cell. Native source ranges are not duplicated further.
+Its number-aware traversal visits table captions before rows and retains equation
+number owners. The shared PDF test harness is parameterized for table fixtures;
+existing block fixtures use the original path. All stage test/check attempts
+completed successfully; no failed production-code experiment is hidden.
+
+```text
+python3 workspace/target/vmb-design/20260910/table-block-widths/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_pdf_assembly.py workspace/target/vmb-design/20260910/table-block-widths/accepted-probes-01 --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_block_width_pdf.py workspace/target/vmb-design/20260910/table-block-widths/accepted-probes-01 --harano-font /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf --tables --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_block_width_pdf.py workspace/target/vmb-design/20260910/table-block-widths/accepted-probes-01 --harano-font /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf --self-test
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-layout --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_table
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_body_retains_named_paragraph_page_for_its_pending_policy
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace --all-features
+CARGO_BUILD_JOBS=4 cargo check --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 --workspace
+```
+
+Different widths within a continued table, remaining parallel/definition page
+names, running regions, columns, other book forms, full-book/public/manifest/
+managed-host work and author/human acceptance remain open. No VMB producer change,
+new Go test or GitHub Actions use is claimed. The full-design goal remains active.
+
+
+## Book-2 table width occurrences (design 14.207)
+
+ADR-0073 retains each source-closed selected root-table occurrence at its actual
+body/note parent width. The report verifies the exact source flow and issuing
+mixed-page search. It keeps original root owners, page and definition indexes,
+paragraph logical-unit ranges, block owners and mandatory-break owners. Repeated
+header/caption pieces remain separate from semantic consumption; zero-height
+selected tables remain observable. Logical units are not UTF-8 byte offsets.
+
+Count the occurrence vector and each piece vector before allocation, precharge
+records, and include both counting and materialization visits in shared work.
+Checked counts and one exact allocation per vector avoid uncharged quadratic
+copying from repeated exact-one capacity growth. Hash original source identity,
+the algorithm tag and every occurrence/piece/repeat flag. Content comparison is
+only a rebinding aid and does not grant a foreign search access to a closure.
+
+Evidence is under `workspace/target/vmb-design/20260910/table-width-occurrences/`:
+
+- `tests-05.log`: **2 tests, 14.23s**, **20 component cases** across controlled and
+  unchanged Harano fonts, body/notes, natural continuation, repeated headers,
+  mandatory caption page breaks, paragraph splits and empty zero-height tables.
+  Semantic unit ranges cover every source paragraph exactly once; repeated ranges
+  refer back to the same original owners. Japanese cases use scalar counts while
+  retaining their original multibyte spans. A note with an empty table includes a
+  real padding paragraph, preserving the existing empty-definition rejection.
+- Each component succeeds at exact cumulative work and records and rejects one
+  short. A second search with identical source cannot use the original closure.
+  Conflicting-width finalization still returns `table_continuation_width_reflow`.
+  Controlled split body/note observations use **2,033 / 3,151 work** and
+  **1,575 / 2,318 records**; Harano split body/note uses **2,810 / 4,436 work** and
+  **1,733 / 2,690 records**, with **5 / 4 physical occurrences**.
+- The existing explicit/inherited table-block component now independently
+  compares report block-owner order with the original complete assignments. Its
+  original finalization and exact-shaping-budget checks remain in the full suite.
+- `run-cli-accepted-01.py` / `cli-tests-accepted-01.log`: **188 tests, 106.98s**,
+  including explicitly enabled original fonts and all ten hash-verified VMB jobs.
+  All generated probes and VMB create-new destinations are fresh.
+- `run-independent.py` / `independent-accepted-01.log`: **571 source PDFs / 276
+  actual driver callbacks / 1,854 pages / 21,728 structure nodes / 811 annotations /
+  13 explicit unsupported inputs / 4,301 tamper rejections**.
+- `comparison-accepted-01.log`: **all 571 preceding PDFs byte-identical**. VMB
+  table-caption **31,046 bytes**, SHA-256
+  `40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`, and
+  table-alignment **31,111 bytes**, SHA-256
+  `30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02`,
+  are also byte-identical. This increment adds no heterogeneous-width PDF claim.
+- `source-preservation.log` recomputes unchanged original full-book package,
+  Harano and Arial hashes; `jobs.json` retains the ten original job hashes.
+- `tests-01.log` records an initial test-harness failure: finalization was attempted
+  after spending the exact report work budget. Its additional work is now tested
+  separately. `tests-03.log` records the existing `EmptyFootnote` rejection for an
+  all-empty definition; the zero-height-note fixture now includes real content.
+  Intermediate `tests-02.log` and `tests-04.log` passed. Neither failed experiment
+  relaxed a production validator. `tests-05.log` and the full suite are authoritative.
+
+Additional local verification completed through `run-local-checks.py`, with Cargo
+commands serialized against the same locked target directory:
+
+- `pagination-tests.log`: **99 tests, 0.32s**.
+- `layout-tests.log`: **69 tests, 0.67s**, plus **1 compile-fail doc-test, 0.57s**.
+- `frozen-table-tests.log`: **21 legacy tests, 13.39s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph test, 0.27s**.
+- `check-all.log`: workspace all-features check, **6.44s**.
+- `check-default.log`: workspace default-features check, **5.18s**.
+- `format-check.log`, `python-check.log`, `diff-check.log`: targeted Rust format,
+  runner syntax, both repository diff checks and new-file whitespace succeeded.
+  Existing Xcode/pagination warnings remain. All authoritative test/check sessions
+  completed; process startup waits were polled without overlapping Cargo jobs.
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_table_width_occurrences -- --include-ignored --nocapture
+python3 workspace/target/vmb-design/20260910/table-width-occurrences/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-width-occurrences/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-width-occurrences/run-local-checks.py
+```
+
+The report provides source positions for the next per-occurrence cell-width,
+horizontal-origin and repeated-header remeasurement. The driver and finalization
+retain the heterogeneous-continuation rejection until that actual geometry and
+page convergence are implemented. Remaining parallel/definition page names,
+running regions, columns, other book forms, full-book/public/manifest/managed-host
+work and author/human acceptance remain open. The full-design goal remains active.
+
+
+## Book-2 table occurrence frames (design 14.208)
+
+ADR-0074 adds actual source-hierarchy remeasurement for each observed table parent.
+The layout API retains its exact input frame owner and original measurement, builds
+root assignments in original event order, substitutes one root, and uses the shared
+fixed/fraction/table-cell resolver. Other roots retain original maximum widths;
+nested tables derive their new spanning-cell frames. The existing source markers,
+style indents, grid and ±1 raw rounding residuals are retained.
+
+The occurrence report can now attach remeasured paragraph frames to original
+logical-unit ranges and block parent frames to original owners. It keeps repeated
+header/caption frames per occurrence without consuming semantic source twice.
+Forced breaks have no frame, and empty selected tables remain observed. A distinct
+digest tag includes actual start/width pairs; the observations-only API preserves
+its earlier behavior and hash encoding.
+
+Projection records include the original complete hierarchy bound, the temporary
+root-list upper bound and the result record. Precharge 64 times this count times
+source-event lookup depth as a conservative work bound. Pagination prepays both
+records and work before attempting a projection; failed attempts cannot refund
+search budget. The initial implementation creates a transient full hierarchy per
+occurrence and retains selected source frames. It does not establish full-book
+performance acceptance or use these frames as physical-PDF authorization.
+
+Evidence is under `workspace/target/vmb-design/20260910/table-occurrence-frames/`:
+
+- `tests-01.log`: **2 tests, 13.66s**, controlled and unchanged Harano body/note
+  **20 cases**. Analytic positions use the original two equal-fraction columns,
+  independent ties-to-even half-width arithmetic, physical parent and original
+  note-marker offset. Tests cover natural continuation, paragraph splits, repeated
+  headers, forced caption page breaks and zero-height tables. All original semantic
+  unit ranges remain complete and once-only; repeated ranges keep their owners.
+- Each report succeeds at exact work/record budgets and rejects one short and a
+  foreign issuing search. Controlled split body/note: **206,369 / 236,671 work**,
+  **2,107 / 2,926 records**. Harano split body/note: **258,242 / 237,980 work**,
+  **2,398 / 3,298 records**, **5 / 4 occurrences**. Finalization still rejects
+  heterogeneous continuation widths because fresh shaping/placement is pending.
+- `run-components.py` / `root-projection-tests-01.log`: **2 tests, 8.24s**.
+  Body/note roots with fixed/fraction columns, nested tables, caption/header,
+  colspan/rowspan and both signs of residual match existing explicit remeasurement.
+  Untargeted roots return to original measurement frames. Exact projection work
+  and records succeed; one-short budgets, foreign frame verification, nonexistent
+  or nested target owners, excessive parent widths and exhausted fixed columns
+  fail. The input frame fingerprint remains unchanged.
+- `block-projection-tests-01.log`: **1 test, 0.12s**. The occurrence report returns
+  source table-derived block parents in both explicit and inherited component
+  modes. Old explicit numeric overrides do not replace the reported source parent;
+  existing finalization mismatch and exact shaping-work checks remain intact.
+- `run-cli-accepted-01.py` / `cli-tests-accepted-01.log`: **190 tests, 103.71s**,
+  including original-font cases and all ten hash-verified VMB jobs with fresh
+  probe/create-new destinations.
+- `source-preservation.log` recomputes unchanged original book package, Harano and
+  Arial hashes. `jobs.json` records original VMB inputs. `format-check.log` and
+  `python-check.log` cover targeted Rust formatting and local runner syntax.
+- `check-01.log` records the initial successful all-feature layout API check.
+  `check-02.log` exposed an incorrect direct reference to the linebreak crate from
+  pagination; the error mapping now uses the existing layout error variant,
+  without adding a dependency or relaxing source validation. All component and
+  full-suite runs above use the corrected code.
+
+Final verification completed successfully through `run-independent.py` and
+`run-local-checks.py`; all Cargo commands were serialized:
+
+- `independent-accepted-01.log`: **571 source PDFs / 276 actual driver callbacks /
+  1,854 pages / 21,728 structure nodes / 811 annotations / 13 explicit unsupported
+  inputs / 4,301 tamper rejections**.
+- `comparison-accepted-01.log`: **all 571 preceding PDFs byte-identical**. VMB
+  table-caption **31,046 bytes**, SHA-256
+  `40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`, and
+  table-alignment **31,111 bytes**, SHA-256
+  `30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02`,
+  are also byte-identical.
+- `pagination-tests.log`: **99 tests, 0.19s**.
+- `layout-tests.log`: **69 tests, 0.41s**, plus **1 compile-fail doc-test, 0.38s**.
+- `frozen-table-tests.log`: **21 legacy tests, 8.15s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph test, 0.23s**.
+- `check-all.log`: workspace all-features check, **6.43s**.
+- `check-default.log`: cached workspace default-features check, **0.05s**.
+- Both repository diffs and new-file whitespace passed final checks. Existing
+  Xcode/pagination warnings remain. All authoritative sessions completed.
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_table_occurrence_frames -- --include-ignored --nocapture
+python3 workspace/target/vmb-design/20260910/table-occurrence-frames/run-components.py
+python3 workspace/target/vmb-design/20260910/table-occurrence-frames/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-occurrence-frames/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-occurrence-frames/run-local-checks.py
+```
+
+Per-source frames must next feed actual shaping and per-occurrence placement,
+including repeated-header layouts, before physical page convergence and final
+validation can accept heterogeneous-width continuations. Remaining parallel/
+definition names, running regions, columns, other book forms, full-book/public/
+manifest/managed-host work and author/human acceptance remain open. No new public
+profile, heterogeneous-width PDF or completed full-design goal is claimed.
+
+
+## Book-2 source unit starts (design 14.209)
+
+ADR-0075 adds body-relative origins to exact-source width assignments. Every
+supplied origin profile requires paired widths and one entry per original logical
+unit (one slot for an empty paragraph). Before allocation, validate source owner,
+counts and retained records. Traverse source events and check each start-plus-width
+against the original body or generated-marker-adjusted note-content envelope.
+Copy the origins into the fresh frame owner and hash presence, owner, starts and
+widths under a separate algorithm. Frameless callers reject these assignments.
+
+Every actual shaping pass rebinds source widths/units and retains the corresponding
+origins. The collector reads the selected line's original start unit, uses its
+candidate start and selected width for alignment, and carries the result through
+physical body/note translation and source closure. Original paragraph envelopes,
+glyph references and spans remain intact. Finalization checks explicit origins
+independently even on a fixed-width plan; unchanged width cannot authorize a shifted
+source paragraph. Heterogeneous root-table continuation rejection remains active.
+
+Evidence is under `workspace/target/vmb-design/20260910/source-unit-starts/`:
+
+- `tests-04.log`: **3 tests, 4.55s**, including controlled and unchanged Harano
+  body/note source frames from actual heterogeneous table occurrences. Profiles
+  bind original semantic unit ranges, then run fresh shaping, line selection,
+  body collection, table measurement, page selection, placement and source closure.
+  Each selected width matches its original-unit candidate. Start/center/end
+  alignment and translated physical x positions are checked for every source line;
+  glyph pointers still reference their original runs.
+- Controlled body/note convergence uses **4,128 / 4,323 candidate/frame work**;
+  **5 / 6 lines** move horizontally, **2 / 3 paragraphs** change line count,
+  **9 / 10 lines** use narrower widths. Harano body/note uses **5,085 / 5,505 work**;
+  **5 / 6 lines** move, **0 / 3 paragraphs** change line count, **10 / 11 lines**
+  narrow. Harano body demonstrates that changed width need not change line count.
+  These component counters do not claim full driver/font-admission work totals.
+- Each actual convergence succeeds at exact observed candidate/frame work and
+  rejects one short. Retained frame charge increases by exactly the outer profile
+  records, result record and all copied unit origins. Frameless origin use fails.
+- The separate fixed-width table test covers body/notes, nested fixed/fraction
+  tables, captions and headers. Original origins finalize successfully; shifting
+  one source paragraph by **1 raw** at unchanged widths fails independently with
+  `WidthMismatch`. Valid and shifted convergence use **3,888 / 3,915 work** for
+  body/notes, each with exact/one-short checks. Missing paired widths, short/long
+  unit slices, wrong outer length, foreign flow and out-of-envelope starts fail.
+- `tests-01.log` records a test-only reference to a non-direct style dependency;
+  expected alignment now comes from the original fixture's declared column styles.
+  `tests-02.log` exposed an overly strict test assumption that narrower Harano text
+  must change line count. The corrected test verifies actual widths, origins and
+  glyphs while separately recording line-count changes. `tests-03.log` passed;
+  `tests-04.log` additionally verifies physical page placement and source closure.
+  No production rejection was weakened to pass these tests.
+- `run-cli-accepted-01.py` / `cli-tests-accepted-01.log`: **193 tests, 84.05s**, all
+  original-font cases and ten hash-verified VMB jobs enabled, fresh probe and
+  create-new VMB output paths used.
+- `check-01.log`: initial all-features implementation check succeeded in **7.14s**.
+  `source-preservation.log` recomputes unchanged original full-book package, Harano
+  and Arial hashes; `jobs.json` records all ten source jobs. Targeted Rust format
+  and runner syntax checks are in `format-check.log` and `python-check.log`.
+
+Final verification completed through `run-independent.py` and serialized Cargo
+commands in `run-local-checks.py`:
+
+- `independent-accepted-01.log`: **571 source PDFs / 276 actual driver callbacks /
+  1,854 pages / 21,728 structure nodes / 811 annotations / 13 explicit unsupported
+  inputs / 4,301 tamper rejections**.
+- `comparison-accepted-01.log`: **all 571 preceding PDFs byte-identical**. VMB
+  table-caption **31,046 bytes**, SHA-256
+  `40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`, and
+  table-alignment **31,111 bytes**, SHA-256
+  `30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02`,
+  are also byte-identical.
+- `pagination-tests.log`: **99 tests, 0.30s**.
+- `layout-tests.log`: **69 tests, 1.43s**, plus **1 compile-fail doc-test, 1.19s**.
+- `frozen-table-tests.log`: **21 legacy tests, 11.09s**.
+- `frozen-named-body-tests.log`: **1 legacy named-paragraph test, 0.21s**.
+- `check-all.log`: workspace all-features check, **6.35s**.
+- `check-default.log`: workspace default-features check, **4.69s**.
+- Both repository diffs and new-file whitespace passed final checks. Existing
+  Xcode/pagination warnings remain. All authoritative sessions are terminal.
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_source_unit_starts -- --include-ignored --nocapture
+python3 workspace/target/vmb-design/20260910/source-unit-starts/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/source-unit-starts/run-independent.py
+python3 workspace/target/vmb-design/20260910/source-unit-starts/run-local-checks.py
+```
+
+The private driver still needs joint width/origin feedback and convergence, with
+per-occurrence repeated-header variants, before heterogeneous table PDF output can
+be accepted. This increment proves real source-frame rebinding and provisional
+page placement, not a new heterogeneous PDF or full-book acceptance. Remaining
+parallel/definition names, running regions, columns, other book forms, full-book/
+public/manifest/managed-host work and author/human acceptance remain open.
+
+
+## Book-2 table source profiles (design 14.210)
+
+Implemented on 2026-09-10 under [ADR-0076](../adr/ADR-0076-book-2-table-source-profiles.md).
+This increment connects actual heterogeneous table paragraph PDFs through source
+width/origin feedback. Conflicting repeated frames and changing table-local block
+frames remain explicit pending cases; this is private staging, not full design
+or public/full-book acceptance.
+
+Changes:
+
+- `book_v2_table_source_profiles.rs` maps remeasured physical table pieces to
+  original paragraph-unit widths and starts. It validates issuing source/search,
+  observed root coverage (including zero-height roots and demanded notes), exact
+  source-line ranges and one semantic occurrence per observed unit. Repeated pieces
+  may agree with the original profile; conflicting repeated width/origin requires
+  `table_repeated_frame_reflow`. Changing block parent frames require
+  `table_block_frame_reflow`.
+- Exact source assignments and retained frames carry an explicit occurrence mode.
+  Paired origins are required; frameless use fails. Driver fallback is restricted
+  to the old `table_continuation_width_reflow` diagnostic and retains its failed
+  search charges. Fresh passes bind full source widths/starts, keep maximum source
+  envelopes and compare mode, all source profiles and other root/block candidates.
+- Existing cycle detection and retained legal source ends now handle these table
+  paragraphs. Label changes still discard candidates. All copies, source lookups,
+  frame reprojections and comparisons use the common work/record limits.
+- Final math processing independently remeasures actual table occurrences, checking
+  selected source widths and horizontal starts. Fixed plans with explicit origins
+  are also checked. Ordinary paragraph, block and source/resource checks remain.
+- `book_v2_table_source_profile_pdf_tests.rs` adds controlled and original Harano
+  body/note cases for natural, split and caption-forced continuations. Existing
+  page-frame regression now accepts a real heterogeneous table while retaining
+  the short-page no-fit assertion. Source-origin tests exercise both finalization
+  modes, including unchanged widths with a one-raw displaced origin and missing
+  origin profiles.
+- `verify_book_v2_table_source_pdf.py` reconstructs semantic structure ordinals from
+  original source (including generated table sections/note links), obtains paragraph
+  identity through the actual PDF ParentTree, and checks declared columns, original
+  font metrics, three alignments, body/note bounds, note markers and exact source
+  coverage. It does not use driver-observed frame coordinates as expected geometry.
+
+Evidence root: `workspace/target/vmb-design/20260910/table-source-profiles/`.
+All authoritative commands completed locally without GitHub Actions.
+
+- `component-01.log`: **1 occurrence/profile test, 0.48s**. Controlled body/note
+  natural, split, forced and empty cases pass exact work/record budgets and reject
+  one short; conflicting headers and foreign issuers fail. Example split body/note
+  profile totals: **207,644 / 238,052 work**, **2,773 / 3,650 records**. Header cases
+  remain observational/rejection tests, not heterogeneous header PDFs.
+- `tests-01.log`: **2 dedicated PDF tests, 35.87s**, controlled plus original Harano.
+  All 12 cases succeed at exact full-driver work and reject one short. Initial
+  dedicated probe paths were relative to the test crate; those generated private
+  artifacts were moved into `pdfs-01`. The accepted integration uses absolute,
+  fresh paths in `pdfs-accepted-01` and `accepted-probes-01`.
+- Controlled natural/split/forced body work: **630,408 / 2,919,795 / 768,354**;
+  notes: **706,228 / 2,678,467 / 844,444**. Width feedback counts are **2 / 4 / 2**
+  in each region; page counts are **3 / 5 / 3**.
+- Harano natural/split/forced body work: **14,800,802 / 16,518,232 / 14,933,724**;
+  notes: **14,895,787 / 20,570,039 / 15,029,044**. Width feedback counts are
+  **2 / 3 / 2** for body and **2 / 11 / 2** for notes. Harano split notes use
+  **1 refinement, 22 line passes and 22 page passes**, ending at **5 pages**.
+  These are full-driver totals, distinct from component candidate/frame counters.
+- `run-cli-accepted-01.py` / `cli-tests-accepted-01.log`: **195 tests, 123.37s**,
+  original Harano/Arial and ten hash-verified VMB jobs enabled. The new test cases
+  add 12 source PDFs and 12 actual driver PDFs. The enhanced unchanged-width origin
+  and short-page tests also pass in this authoritative run.
+- `independent-source-01.log` caught a checker assumption that PDF `/ID` equaled
+  the source node ID. The corrected mapping is reconstructed from original source
+  topology, without relaxing column/source checks or modifying production output.
+  `independent-source-02.log`: **24 PDFs / 88 pages / 144 alterations rejected**.
+  Alterations cover shifted text, missing text, changed text, duplicate text,
+  missing pages and an extra empty page.
+- `run-independent.py` / `independent-accepted-01.log`: **595 source PDFs /
+  288 actual driver callbacks / 1,942 pages / 22,416 structure nodes /
+  835 annotations / 13 explicit unsupported inputs / 4,533 tamper rejections**.
+- `comparison-accepted-01.log`: **all 571 preceding PDFs byte-identical**. VMB
+  table-caption **31,046 bytes**, SHA-256
+  `40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`, and
+  table-alignment **31,111 bytes**, SHA-256
+  `30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02`,
+  are also byte-identical.
+- Serialized `run-local-checks.py`: pagination **99 tests, 0.37s**; layout
+  **69 tests, 0.57s** plus **1 compile-fail doc-test, 0.53s**; legacy table
+  **21 tests, 11.55s**; legacy named-body **1 test, 0.29s**; all-features check
+  **0.15s**, default-features check **0.08s**. Initial `check-01.log` was **8.55s**.
+- `source-preservation.log` recomputes unchanged original full-book package,
+  Harano and Arial hashes; `jobs.json` contains the ten job hashes. Targeted Rust
+  format and Python syntax checks pass (`format-check.log`, `python-check.log`).
+- Poppler rendered Harano split-note page 3 at 120 dpi to
+  `harano-split-notes-page3.png`; visual inspection confirms the continued two
+  columns, differing alignment, legible unchanged Japanese glyphs and separation
+  from the note rule. This inspection does not claim human/PDF-UA acceptance.
+
+```text
+python3 workspace/target/vmb-design/20260910/table-source-profiles/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_table_source_pdf.py workspace/target/vmb-design/20260910/table-source-profiles/accepted-probes-01 --harano-font /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-source-profiles/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-source-profiles/run-local-checks.py
+/opt/homebrew/bin/pdftoppm -f 3 -l 3 -r 120 -png -singlefile workspace/target/vmb-design/20260910/table-source-profiles/pdfs-accepted-01/harano-split-notes.pdf workspace/target/vmb-design/20260910/table-source-profiles/harano-split-notes-page3
+```
+
+The source-profile driver connection supersedes the heterogeneous paragraph guard
+recorded in increments 14.207–14.209. Different repeated header/caption frames and
+changing table-local block frames still need their own physical variants. Remaining
+parallel/definition names, running regions, columns, other book forms, full-book/
+public/manifest/managed-host work and author/human acceptance remain open. Current
+per-occurrence full projections and charged linear owner lookups are not evidence
+of full-book scaling acceptance.
+
+
+## Book-2 table block source profiles (design 14.211)
+
+Implemented on 2026-09-10 under [ADR-0077](../adr/ADR-0077-book-2-table-block-source-profiles.md).
+This increment extends heterogeneous table paragraph support with block parent
+widths and starts connected
+to fresh shaping, physical geometry and the private PDF driver. Different frames
+for repeated copies of the same source still require further implementation.
+
+Changes:
+
+- `BookV2SourceWidthAssignments::with_block_starts` pairs body-relative origins
+  with complete source-order block widths. Reject foreign owners/flows, mismatched
+  counts, missing widths, incompatible inherited-table mode, and out-of-envelope
+  starts. The frameless entry point rejects origins explicitly.
+- `book_v2_block_source_starts.rs` applies starts to existing owned region records
+  after width rebinding. Preserve original/inherited frames, use the original
+  note-content envelope excluding its generated marker, and charge source-event
+  and region-lookup work. Width and origin hashes bind the original block owner;
+  layout does not allocate another retained origin vector.
+- Occurrence feedback initializes source-order block candidates and overlays actual
+  remeasured table parents. Origin/visit vectors are precharged. Every observed
+  block requires one semantic occurrence; differing repeated width or start fails
+  with `table_repeated_frame_reflow`. Ordinary blocks retain physical width logic.
+- The driver binds explicit starts with block widths, compares all origins, charges
+  comparisons and includes them in the cycle digest. Existing width-only callers
+  retain inherited-table mode and previous encoding. Paragraph and block profiles
+  share convergence, label invalidation and all cumulative limits.
+- Existing vector/native/raster placement kernels consume the new parent start and
+  width. Fixed sizes, original bindings, alignment, captions and equation-number
+  gaps remain required. Finalization remeasures complete occurrence block frames
+  independently. Fixed page plans also reject an origin displaced by one raw unit
+  at unchanged width.
+- `book_v2_table_block_source_pdf_tests.rs` uses one 1:2 fractional table with a
+  forced caption break and original wrappers in the second cell. Ten controlled
+  vector/native/PNG/JPEG/SVG body/note cases and eight unchanged-Harano figure cases
+  reach actual PDF. The source span encloses all original native copies.
+- `verify_book_v2_table_block_source_pdf.py` derives columns from original source
+  and declared masters, checking actual vector/native/raster alignment, fixed sizes
+  and number positions. The existing block verifier has an explicit fractional
+  fixture option; its ordinary and nested-fixed-table modes are also reverified.
+
+Evidence root: `workspace/target/vmb-design/20260910/table-block-source-profiles/`.
+No GitHub Actions were used.
+
+- `check-01.log`: initial all-features check, **7.52s**.
+- `tests-01.log`: initial controlled native fixture failed `InvalidSourceSpan`
+  because its new parent table used only the first paragraph's source range while
+  containing multiple original wrappers. Harano figure cases passed. Corrected
+  only the test table's enclosing span; retained native source and span validation.
+- `tests-02.log`: **2 dedicated PDF tests, 28.14s**, all **18 cases** successful,
+  each at exact full-driver work and rejecting one short. Fresh absolute artifact
+  paths are `pdfs-02`; accepted integration output is `pdfs-accepted-01`.
+- Every case uses **2 width feedback passes, 4 line passes and 4 page passes**.
+  Body continuations have **4 pages**; note continuations have **2 pages**.
+  Full-driver work is recorded below; these are not component-only counters.
+
+| Kind | Controlled body | Controlled notes | Harano body | Harano notes |
+| --- | ---: | ---: | ---: | ---: |
+| Vector | 1,318,219 | 432,144 | 15,563,806 | 14,677,767 |
+| Native | 975,416 | 319,721 | — | — |
+| PNG | 1,294,915 | 519,929 | 15,391,785 | 14,632,320 |
+| JPEG | 1,097,105 | 322,112 | 15,193,974 | 14,434,504 |
+| SVG | 1,097,904 | 322,657 | 15,194,774 | 14,435,052 |
+
+- `component-01.log`: **1 origin/finalization test, 0.57s**; also included in the
+  integrated 198-test run. Body/note fixed-table origins succeed; a one-raw shift
+  at unchanged width fails in both finalization modes. Foreign flow, short/long
+  slices, missing/reversed width entries, envelope overflow and incompatible
+  inheritance fail; frameless use fails.
+- `component-02.log`: **1 enhanced test, 0.48s**, run after adding exact feedback
+  work/record boundary assertions to the same component (no production changes
+  after integration). Body/note feedback uses **328,165 / 105,146 work** and
+  **2,327 / 1,243 records**; exact limits pass and one short fails.
+  Candidate/frame work for body is **951 / 1,146** in ordinary/occurrence mode;
+  notes **513 / 630**. Valid and displaced origins have equal work, each with
+  exact success and one-short rejection for actual shaping.
+- `run-cli-accepted-01.py` / `cli-tests-accepted-01.log`: **198 tests, 109.85s**,
+  all original Harano/Arial cases and ten hash-verified VMB jobs enabled. Fresh
+  probe and create-new VMB paths were used.
+- `independent-block-source-01.log`: **36 PDFs / 108 pages / 108 alterations
+  rejected**, covering shifted, missing and duplicate blocks.
+- `run-independent.py` / `independent-accepted-01.log`: **631 source PDFs /
+  306 actual driver callbacks / 2,050 pages / 23,584 structure nodes /
+  871 annotations / 13 explicit unsupported inputs / 4,875 tamper rejections**.
+- `comparison-accepted-01.log`: **all 595 preceding PDFs byte-identical**. VMB
+  table-caption **31,046 bytes**, SHA-256
+  `40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`, and
+  table-alignment **31,111 bytes**, SHA-256
+  `30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02`,
+  are also byte-identical.
+- `independent-preceding-widths.log`: ordinary block **36 PDFs / 74 pages / 72
+  alterations**; fixed-column nested-table block **36 / 72 / 72**; preceding
+  heterogeneous table paragraphs **24 / 88 / 144** all pass.
+- Serialized `run-local-checks.py`: pagination **99 tests, 0.22s**; layout
+  **69 tests, 0.48s** plus **1 compile-fail doc-test, 0.51s**; legacy table
+  **21 tests, 9.20s**; legacy named-body **1 test, 0.19s**; all-features check
+  **5.50s**, default-features check **6.04s**. Existing Xcode warnings remain.
+- `source-preservation.log` recomputes unchanged full-book package, Harano and Arial
+  hashes; `jobs.json` records ten jobs. Targeted Rust format and Python syntax
+  checks pass (`format-check.log`, `python-check.log`).
+- Poppler rendered Harano vector-note page 2 at 120 dpi to
+  `harano-vector-notes-page2.png`. Visual inspection confirms the caption above
+  the second-column content, original vector paints, right-side equation number
+  and note-rule separation. This is not author/human or PDF-UA acceptance.
+
+```text
+TYPAXIS_BOOK_V2_TABLE_BLOCK_SOURCE_PROBE=/Users/kazuyoshitoshiya/t/typaxis/workspace/target/vmb-design/20260910/table-block-source-profiles/pdfs-02 TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_table_block_source_profiles -- --include-ignored --nocapture
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_block_source_starts -- --nocapture
+python3 workspace/target/vmb-design/20260910/table-block-source-profiles/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_table_block_source_pdf.py workspace/target/vmb-design/20260910/table-block-source-profiles/accepted-probes-01 --harano-font /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf --self-test
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-block-source-profiles/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-block-source-profiles/run-local-checks.py
+```
+
+This connection replaces the prior `table_block_frame_reflow` diagnostic for
+source block continuations. Different physical frames for repeated copies still
+require variants; do not overwrite one source profile. Remaining parallel/definition
+names, running regions, columns, other book forms, public/full-book/manifest/
+managed-host/scaling work and author/human acceptance remain open. No source text,
+resource identity or author approval was fabricated to pass a gate.
+
+
+## Book-2 line variant seeds (design 14.212)
+
+Implemented on 2026-09-10 under [ADR-0078](../adr/ADR-0078-book-2-line-variant-seeds.md).
+This increment retains actually converged source contexts and reconstructs distinct
+live shape/frame/line graphs for different header widths. It does not select those
+graphs as repeated physical paint or create a new heterogeneous-header PDF.
+
+Changes:
+
+- `book_v2_line_variant_seed.rs` adds a sealed seed retaining immutable original
+  flow, policy, resources, vector/native bindings, limits, body/page frame plan and
+  source width/origin assignments. Only actual shape/line convergence constructs
+  the seed. It owns paragraph shaping-context ends and the observed stable line
+  fingerprint. Existing UTF-8 context conventions preserve atomic placeholders and
+  mandatory breaks; no source rewrite or transient line index is retained.
+- Capture preflights context/seed copies against prior records and the observed
+  graph, and charges capture visits to candidate/frame work. Initial shaping keeps
+  existing stage-local record ceilings; complete multi-variant build allocation
+  accounting is not claimed by this API.
+- Replay accepts the sealed immutable inputs plus budgets, precharges the observed
+  graph bound and new input/result records before shaping, and runs actual shape,
+  inline, frame, line and footnote preparation. It checks the rebuilt fingerprint
+  and graph bound before invoking an owner-scoped callback.
+- Distinct variants can coexist while referencing the same source flow and native
+  computations. Their shape/prepared/line/footnote owners remain distinct; cross-
+  owner receipt checks reject mixing them. Current pagination/driver behavior is
+  unchanged; repeated-frame conflicts continue to fail pending physical integration.
+- `book_v2_line_variant_seed_tests.rs` exercises two simultaneous body/note header
+  variants with controlled and original Harano fonts. The existing native source-
+  width test now also rebuilds distinct line graphs while sharing the original
+  native computation and retaining its original inline atom once in each graph.
+
+Evidence root: `workspace/target/vmb-design/20260910/line-variant-seeds/`.
+All verification ran locally without GitHub Actions.
+
+- `check-01.log`: initial all-features check, **9.37s**.
+- `tests-01.log`: corrected a test-only integer inference error by explicitly
+  typing the fixed-point width helper input as `i64`.
+- `tests-02.log`: body variants passed, while the note wide fixture correctly
+  rejected a 220pt root parent exceeding its marker/gap-reduced envelope. The
+  accepted note fixture uses 200pt; no production width guard was relaxed.
+- `tests-03.log`: **2 controlled/Harano tests, 8.37s**, each covering body and notes.
+  Body root parent widths are **140 / 220pt**, note parents **140 / 200pt**.
+  The two reconstructed graphs change **10 paragraph line counts** and independently
+  measure header heights of **92 / 46pt** for controlled fonts and **92 / 69pt**
+  for Harano. Different prepared/shaped owners share the same original source;
+  foreign assignments and cross-line/footnote receipts fail.
+- Each capture succeeds at exact observed candidate/frame work and rejects one
+  short. Context/seed record capacity passes exactly at `max_fragments` and rejects
+  one more prior record. Replay separately passes exact work/record limits and
+  rejects one short; nested callbacks keep both real graphs alive simultaneously.
+
+| Header case | Capture candidate/frame work | Narrow replay work | Both live record charge |
+| --- | ---: | ---: | ---: |
+| Controlled body | 205,113 | 68,255 | 3,870 |
+| Controlled notes | 227,373 | 75,665 | 4,274 |
+| Harano body | 206,243 | 68,655 | 3,270 |
+| Harano notes | 228,846 | 76,181 | 3,619 |
+
+- These counters are component candidate/frame work, not full font-admission/PDF
+  driver costs. The live charge is the cumulative value from the nested second
+  reconstruction with both seeds and the first graph's prior charge.
+- `native-01.log`: **1 native source-width test, 0.04s**. Narrow/wide seed work
+  **175 / 101**, replay work **53 / 29**, combined live charge **696 records**.
+  Different selected line counts retain the same original `BookV2NativeMath`
+  pointer and original inline atom owner, with independent text shape owners.
+- `run-cli-accepted-01.py` / `cli-tests-accepted-01.log`: **200 tests, 120.12s**,
+  original Harano/Arial and ten hash-verified VMB jobs enabled. All output paths
+  are fresh and absolute, including create-new VMB writers.
+- `run-independent.py` / `independent-accepted-01.log`: **631 source PDFs /
+  306 actual driver callbacks / 2,050 pages / 23,584 structure nodes /
+  871 annotations / 13 explicit unsupported inputs / 4,875 tamper rejections**.
+- `comparison-accepted-01.log`: **all 631 preceding PDFs byte-identical**. VMB
+  table-caption **31,046 bytes**, SHA-256
+  `40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`, and
+  table-alignment **31,111 bytes**, SHA-256
+  `30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02`,
+  are also byte-identical.
+- Serialized `run-local-checks.py`: pagination **99 tests, 0.28s**; layout
+  **69 tests, 0.57s** plus **1 compile-fail doc-test, 0.44s**; legacy table
+  **21 tests, 9.90s**; legacy named-body **1 test, 0.22s**; all-features check
+  **6.83s**, default-features check **0.07s**. Existing Xcode/pagination warnings
+  remain. All authoritative sessions completed.
+- `source-preservation.log` recomputes unchanged full-book package, Harano and Arial
+  hashes; `jobs.json` records ten VMB jobs. Targeted Rust format and Python runner
+  syntax checks pass (`format-check.log`, `python-check.log`).
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_line_variant_seeds -- --include-ignored --nocapture
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_native_source_widths_rebind_atoms -- --nocapture
+python3 workspace/target/vmb-design/20260910/line-variant-seeds/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/line-variant-seeds/run-independent.py
+python3 workspace/target/vmb-design/20260910/line-variant-seeds/run-local-checks.py
+```
+
+Per-occurrence selection, header height reservation/placement, repeated-source
+closure and PDF assembly remain to be connected. `table_repeated_frame_reflow`
+continues to reject conflicting repeated frames. Remaining page names, running
+regions, columns, other book forms, public/full-book/manifests/managed-host/scaling
+work and author/human acceptance are also open. This is real reconstruction and
+table measurement evidence, not a new repeated heterogeneous PDF or full design
+completion.
+
+
+## Book-2 line variant sets (design 14.213)
+
+Implemented on 2026-09-10 under [ADR-0079](../adr/ADR-0079-book-2-line-variant-sets.md).
+`book_v2_line_variant_set.rs` reconstructs nonempty ordered sets in five stable,
+preallocated ownership layers. Every variant is valid before the single callback;
+there is no callback recursion proportional to variant count. Exact source/resource/
+native owner checks reject same-content foreign inputs. Captured context charges,
+observed graph bounds, input views and owner records are precharged conservatively;
+work includes compatibility checks, stage visits and actual candidate/frame replay.
+Downstream body/table/page/PDF accounting and physical header integration remain open.
+
+Evidence: `workspace/target/vmb-design/20260910/line-variant-sets/`.
+All commands ran locally, without GitHub Actions.
+
+- `check-01.log`: all-features check **10.40s**.
+- `tests-01.log`: **2 controlled/Harano tests, 13.37s**, each covering body/notes.
+  Three simultaneous narrow/wide/narrow graphs have distinct prepared/shape owners,
+  correct individual fingerprints and independently measured header heights.
+  Cross-owner footnotes, empty sets and same-fingerprint foreign flows fail.
+  Ordered fingerprints differ; exact work/record limits pass and one short fails.
+- Set work / record charges: controlled body **205,052 / 5,278**;
+  controlled notes **227,222 / 5,821**; Harano body **206,502 / 4,468**;
+  Harano notes **228,970 / 4,939**. The 32-entry controlled body case uses
+  **2,184,545 work / 44,079 records**. These are component counters, not PDF costs.
+- `native-01.log`: **1 test, 0.05s**; a two-entry set uses **107 work / 710 records**.
+  Both graphs share the original native computation; a distinct computation owner
+  with the same fingerprint is rejected. Original inline atoms remain in each graph.
+- `run-cli-accepted-01.py`: **200 tests, 142.12s** with original Harano/Arial and ten
+  hash-verified VMB jobs. Fresh absolute output paths were used throughout.
+- `run-independent.py`: **631 source PDFs / 306 actual driver callbacks /
+  2,050 pages / 23,584 structure nodes / 871 annotations / 13 unsupported inputs /
+  4,875 tamper rejections**. All **631 preceding PDFs** and both original VMB table
+  outputs are byte-identical (`comparison-accepted-01.log`).
+- Serialized `run-local-checks.py`: pagination **99 tests, 0.33s**;
+  layout **69 tests, 0.61s** plus **1 compile-fail doc-test, 0.47s**;
+  legacy tables **21 tests, 9.77s**; legacy named-body **1 test, 0.20s**;
+  all-features check **6.71s**, default check **0.16s**. All sessions completed.
+- `source-preservation.log`, `jobs.json`, `format-check.log` and `python-check.log`
+  retain unchanged original source/font hashes and passing targeted formatting/
+  runner syntax checks. Existing Xcode/pagination warnings remain.
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_line_variant_seeds -- --include-ignored --nocapture
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_native_source_widths_rebind_atoms -- --nocapture
+python3 workspace/target/vmb-design/20260910/line-variant-sets/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/line-variant-sets/run-independent.py
+python3 workspace/target/vmb-design/20260910/line-variant-sets/run-local-checks.py
+```
+
+Physical header variant selection, reservation/placement, repeated-source closure
+and PDF integration remain open; `table_repeated_frame_reflow` still rejects
+conflicting repeated frames. No new heterogeneous repeated-header PDF or full
+book/design completion is claimed. Other names, running regions, columns,
+public/manifests/managed-host/scaling and author/human acceptance remain open.
+
+
+## Book-2 table header variants (design 14.214)
+
+Implemented on 2026-09-10 under [ADR-0080](../adr/ADR-0080-book-2-table-header-variants.md).
+`book_v2_table_header_variant.rs` binds a semantic base table measurement to a
+separate live variant from the exact source-compatible reconstructed set. It
+retains both owners, computes the variant's complete header band and visits real
+nested caption/cell content iteratively. Leaves retain variant-local global item
+indexes, original paragraph unit ranges/block owners, cell identity and relative
+top. Root captions are excluded; nested captions and complete nested tables are
+included; forced breaks have no repeated paint. Capacity checks use actual header
+height, without changing the existing physical page search.
+
+The component precharges conservative whole-graph traversal/output bounds, the
+set and both measurements' retained charges, or a larger caller ledger, before
+allocating either vector. Identity/preflight/traversal/hash visits share a work
+allowance. A separate same-fingerprint measurement cannot enter the association;
+verification requires the exact retained pair. No source-consumption or page/PDF
+authorization is produced.
+
+Evidence: `workspace/target/vmb-design/20260910/table-header-variants/`.
+All commands ran locally without GitHub Actions.
+
+- `check-01.log`: all-features check **6.52s**.
+- `flat-tests-01.log`: the test harness initially ran downstream header preparation
+  while testing a reconstructed set's near-full record ledger. Corrected the
+  harness to test header budgets on the ordinary set; the production record
+  rejection was preserved. Each component now has its own exact-boundary checks.
+- `flat-tests-02.log`: **2 controlled/Harano tests, 13.24s**, each covering body
+  and notes with narrow/wide/narrow simultaneous measurements.
+- `nested-tests-01.log`: **2 controlled/Harano tests, 18.55s**, each covering body
+  and notes with a complete nested table and its caption/forced break inside the
+  parent header, plus a root caption which must not repeat.
+- `book_v2_table_header_variant_tests.rs` derives expected paragraph owners from
+  authored header JSON. Each original logical unit is covered once, with no root
+  caption/body leakage, duplicate variant item, lost nested caption or out-of-band
+  leaf. Independent variants have different actual line counts/heights; a duplicate
+  narrow variant has equal geometry but remains a different owner.
+- Exact work/record/capacity limits pass; one short fails. Invalid table indexes,
+  wrong retained pairs and an outside reconstruction with equal measurement
+  fingerprint fail. Existing native set owner tests remain in the full CLI run.
+
+| Header case | Narrow / wide height (raw units) | Narrow / wide leaves | Wide work / records |
+| --- | ---: | ---: | ---: |
+| Flat controlled body | 6,029,312 / 3,014,656 | 8 / 4 | 42 / 7,993 |
+| Flat controlled notes | 6,029,312 / 3,014,656 | 8 / 4 | 42 / 8,809 |
+| Flat Harano body | 6,029,312 / 4,521,984 | 8 / 6 | 50 / 6,823 |
+| Flat Harano notes | 6,029,312 / 4,521,984 | 8 / 6 | 50 / 7,532 |
+| Nested controlled body | 30,015,488 / 16,515,072 | 40 / 22 | 130 / 13,424 |
+| Nested controlled notes | 30,015,488 / 22,544,384 | 40 / 30 | 162 / 14,312 |
+| Nested Harano body | 39,187,384 / 21,853,898 | 52 / 29 | 158 / 11,708 |
+| Nested Harano notes | 39,187,384 / 21,853,898 | 52 / 29 | 158 / 12,417 |
+
+One raw unit is 1/65,536pt. These complete component headers need not fit the
+fixture's existing page; exact-height capacity checks are not physical PDF evidence.
+Work/records are header-component charges, not full driver/scaling costs.
+
+- `run-cli-accepted-01.py` / `cli-tests-accepted-01.log`: **202 tests, 118.28s**,
+  original Harano/Arial and ten hash-verified VMB jobs enabled, with fresh absolute
+  output paths including the create-new VMB writers.
+- `run-independent.py` / `independent-accepted-01.log`: **631 source PDFs /
+  306 actual driver callbacks / 2,050 pages / 23,584 structure nodes /
+  871 annotations / 13 unsupported inputs / 4,875 tamper rejections**.
+- `comparison-accepted-01.log`: **all 631 preceding PDFs byte-identical**; VMB
+  table-caption **31,046 bytes**, SHA-256
+  `40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`, and
+  table-alignment **31,111 bytes**, SHA-256
+  `30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02`,
+  are byte-identical too. No new repeated-header PDF is counted.
+- Serialized `run-local-checks.py`: pagination **99 tests, 0.38s**;
+  layout **69 tests, 0.55s** plus **1 compile-fail doc-test, 0.47s**;
+  legacy table **21 tests, 10.21s**; legacy named-body **1 test, 0.21s**;
+  all-features check **0.07s**, default check **0.06s**. All sessions completed.
+- `source-preservation.log` recomputes unchanged full-book package/Harano/Arial
+  hashes; `jobs.json` records ten VMB jobs. Targeted format and runner syntax checks
+  pass (`format-check.log`, `python-check.log`); new-file whitespace checks and both
+  repositories' `/usr/bin/git diff --check` pass. Existing warnings remain.
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_line_variant_seeds -- --include-ignored --nocapture
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_table_header_variants -- --include-ignored --nocapture
+python3 workspace/target/vmb-design/20260910/table-header-variants/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-header-variants/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-header-variants/run-local-checks.py
+```
+
+Next connections are per-continuation variant selection and actual search capacity,
+variant-aware repeated placements/source closure, and glyph/resource/PDF assembly.
+The base source must still be consumed once; variant-local indexes cannot enter
+base-line source receipts. Existing `table_repeated_frame_reflow` remains. The new
+focused fixtures exercise paragraphs, not block-header PDFs. Remaining names,
+running regions, columns, full-book/public/manifests/managed-host/scaling and
+actual author/human acceptance are open. No full design completion is claimed.
+
+
+## Book-2 table header selection (design 14.215)
+
+Implemented on 2026-09-10 under [ADR-0081](../adr/ADR-0081-book-2-table-header-selection.md).
+`book_v2_table_header_selection.rs` connects the actual header geometry candidate
+to table continuation selection. Original header/caption consumption must already
+be complete. The source cursor, row bands and caption coordinates keep the base
+measurement; one selection uses the variant height for reservation, remaining
+capacity, cell tops, retries and used height. Common cuts, independent cells,
+spanning rows and nested tables use this distinction. Ordinary mode is restored
+on success, no-fit or error without refunding the search ledger.
+
+Only old root-header paint is suppressed. Body-cell child-table repetitions keep
+their base measurement. A separate selection type owns the base semantic fragment,
+borrows the exact header and returns a measurement owner with each paint item
+index. Its underlying single-owner fragment remains private; existing mixed-page
+and PDF paths cannot silently consume indexes from a different line graph.
+
+Header accounting now separates shared set/base history from independent variant
+measurements and projection bounds. A larger caller ledger does not hide an
+independent graph behind a maximum. The search retains and charges exact variant
+measurement references once, prepays header projection bounds per attempt, and
+charges registry lookup/growth copies and result records. Equal geometry with a
+separately allocated table measurement still adds its independent record charge.
+Repeated header uses conservatively overcount projection storage; minimal allocation
+or full-book performance acceptance is not claimed.
+
+Evidence root: `workspace/target/vmb-design/20260910/table-header-selection/`.
+All verification ran locally without GitHub Actions.
+
+- `check-01.log`: initial all-features check **7.97s**.
+- `tests-01.log`: corrected a test intended to distinguish common-cut capacity;
+  unequal line heights could force the same cut despite freed header space. The
+  common-cut fixture now has equal line heights; other fixtures retain unequal
+  cell heights and their independent continuation paths.
+- `tests-02.log`, `tests-03.log`: the fixture initially enlarged an unused named
+  master, so reachable header capacity remained too small and correctly returned
+  `TableHeaderOversize`. It now enlarges the reachable default measurement envelope,
+  retaining smaller reachable masters. No production capacity guard was relaxed.
+- `tests-04.log`: **2 tests, 48.92s**, with narrow and wide base measurements.
+  Subsequent review found that independent header dependencies needed separate
+  accounting; the final implementation retains each measurement and prepays each
+  projection use instead of relying on a maximum of total header charges.
+- `tests-05.log`: **2 tests, 44.47s**, after that production accounting correction.
+- `tests-06.log`: **2 tests, 45.19s**, with additional equal-fingerprint, independently
+  allocated measurement assertions. This strengthens budget regression evidence:
+  adding that live graph must increase the ledger by at least its own record charge,
+  while its selected geometry fingerprint remains identical. Production code did
+  not change after the accepted full CLI run below.
+- The final targeted tests cover **40 combinations**: controlled/Harano fonts,
+  body/notes, common cuts/forced breaks/row spans/nested headers/nested body tables,
+  and narrow/wide base measurements. Both bases alternate between taller and
+  shorter actual header variants. A pair of choices from the same cursor demonstrates
+  changed body capacity. All original table items, including forced breaks and
+  nested initial headers, are consumed exactly once; root repetitions never enter
+  semantic ranges. Paint indexes resolve only through their attached measurement.
+- Leaf heights stay inside the selected fragment, body paint follows the chosen
+  header, and child-table repetitions retain the base owner. A no-fit header trial
+  restores ordinary selection. Initial cursors fail the continuation-only API.
+  Each complete search passes exact cumulative work/record limits and rejects one
+  short, including failed trials and registry growth.
+
+| Final targeted family | Cases | Selected table fragments per case | Search work per case | Charged records per case |
+| --- | ---: | ---: | ---: | ---: |
+| Controlled | 20 | 7–88 | 1,565–12,304 | 32,392–106,456 |
+| Original Harano | 20 | 8–150 | 2,664–20,664 | 32,636–150,777 |
+
+These are component table fragments, not physical-page/PDF counts. For example,
+Harano nested-body narrow-base searches retain **150 fragments** and **2,120 base-owned
+child-header paint leaves** per body/note case; the wide base uses **86 fragments**
+and **530 child-header paint leaves**. Root header variants remain separately owned.
+
+- `run-cli-accepted-01.py` / `cli-tests-accepted-01.log`: **204 tests, 114.10s**,
+  original Harano/Arial and ten hash-verified VMB jobs enabled. Paths are fresh and
+  absolute, including create-new VMB writers. This full run precedes only the
+  additional test-only equal-geometry allocation assertions in `tests-06.log`.
+- `run-independent.py` / `independent-accepted-01.log`: **631 source PDFs /
+  306 actual driver callbacks / 2,050 pages / 23,584 structure nodes /
+  871 annotations / 13 unsupported inputs / 4,875 tamper rejections**.
+- `comparison-accepted-01.log`: **all 631 preceding PDFs byte-identical**. VMB
+  table-caption **31,046 bytes**, SHA-256
+  `40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`, and
+  table-alignment **31,111 bytes**, SHA-256
+  `30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02`,
+  are also byte-identical. No new heterogeneous repeated-header PDF is counted.
+- Serialized `run-local-checks.py`: pagination **99 tests, 0.20s**; layout
+  **69 tests, 0.45s** plus **1 compile-fail doc-test, 0.72s**; legacy tables
+  **21 tests, 8.86s**; legacy named-body **1 test, 0.19s**; all-features check
+  **5.25s**, default check **4.57s**. All sessions completed.
+- `source-preservation.log` recomputes unchanged full-book/Harano/Arial hashes;
+  `jobs.json` records ten VMB jobs. Targeted Rust format, runner syntax and new-file
+  whitespace checks pass. Both repositories' `/usr/bin/git diff --check` pass.
+  Existing Xcode/pagination warnings remain.
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_table_header_selection -- --include-ignored --nocapture
+python3 workspace/target/vmb-design/20260910/table-header-selection/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-header-selection/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-header-selection/run-local-checks.py
+```
+
+Next, the mixed body/footnote scheduler must choose a header association for each
+physical table occurrence, retain its geometry owner through placement and source
+closure, and close the actual variant glyphs/resources for display/PDF assembly.
+Current private driver `table_repeated_frame_reflow` remains. Other page names,
+running regions, columns, full-book/public/manifests/managed-host/scaling and actual
+author/human acceptance are still open. This is real table capacity/selection
+integration, not full design completion or a new repeated-header PDF.
+
+<a id="book-2-table-header-catalog-design-14216"></a>
+
+## Book-2 physical-page header catalog — design §14.216
+
+Added ADR-0082's sealed catalog of exact root-table/header associations, deriving
+keys from actual variant parent frames. Each entry independently reprojects the
+original hierarchy and verifies all header line widths/source-unit starts and
+present block frames. Empty, reversed, duplicate, foreign-base and missing-width
+catalog requests fail; a valid root-width label with a line width differing by one
+layout unit also fails.
+
+Both body and definition mixed candidate enumeration/evaluation now use the active
+physical page width, retaining original parent insets and footnote marker/gap
+geometry. Continuations select actual header capacity, including earlier-capacity
+retries. The internally converted page selection retains the exact header owner
+and combined fingerprint; base semantic ranges consume source once. Legacy
+single-owner caption/cell/source placement fails explicitly, so this is physical
+page selection without variant placement, stable geometry or PDF authorization.
+
+Catalog preparation preserves shared history separately from independent graph
+charges and prepays hierarchy projections/storage. Binding before state issuance
+checks flow/limits and conservatively adds the complete catalog charge to the
+existing search ledger. Lookup, enumeration, failed trials and retained candidates
+remain cumulative. This intentionally overcounts overlapping input history; no
+minimal-memory or full-book performance acceptance is inferred.
+
+Evidence root: `workspace/target/vmb-design/20260910/table-header-catalog/`.
+All commands run locally; no GitHub Actions.
+
+- `check-01.log`, `tests-01.log`: initial compile errors were confined to the new
+  integration (private ledger field and nonexistent stable-result fingerprint).
+  The test now uses actual mixed-page selection, since stable geometry requires
+  placement, which is deliberately still unavailable for these variants.
+- `tests-02.log`: independent hierarchy projection correctly required the original
+  frame charge as prior history. The catalog now supplies it after prepaying the
+  full projection bound; the production guard remains intact.
+- `tests-03.log`, `tests-04.log`: separated selection work measurements from the
+  intentionally failing placement trial. A one-short selection budget must fail
+  selection itself, rather than be swallowed as an expected placement failure.
+- `tests-05.log`, `tests-06.log`: test import/type annotation corrections.
+- `tests-07.log`: corrected test comparison of definition-local source ranges with
+  global table items. Semantic coverage now compares global ranges, while local
+  source ranges are separately verified.
+- `tests-08.log`: a nested fixture exceeded its explicit 32-candidate lookback.
+  The test now declares a 256-candidate limit; production lookback checks remain.
+  Review also separated catalog shared history from independent measurement and
+  projection charges before applying the caller-prior maximum.
+- `tests-09.log`: **2 tests, 27.04s**, eight physical-page cases pass.
+- `tests-10.log`: **2 tests, 26.30s**, additionally verifies catalog binding after
+  state creation is rejected, selection exact work and one-short limits, and
+  cumulative record exact success/one-short rejection with larger caller history.
+- Each case alternates **140pt/220pt** physical regions and actually selects both
+  header widths. Controlled/original Harano × body/notes × common/nested headers
+  gives eight cases. All original table items, including nested caption breaks,
+  are consumed once. Variant leaves retain their exact measurement owners.
+  Complete legacy placement rejects `table_header_variant_placement`.
+
+| Font / table | Body pages / repeated variants | Note pages / repeated variants | Body / note selection work | Body / note charged records |
+| --- | ---: | ---: | ---: | ---: |
+| Controlled / common | 13 / 12 | 13 / 12 | 7,889 / 11,701 | 59,480 / 71,275 |
+| Controlled / nested header | 4 / 2 | 4 / 2 | 37,049 / 63,538 | 88,611 / 123,388 |
+| Original Harano / common | 15 / 14 | 15 / 14 | 8,060 / 11,792 | 55,916 / 69,298 |
+| Original Harano / nested header | 5 / 3 | 5 / 3 | 35,266 / 60,458 | 88,270 / 128,219 |
+
+Catalog preparation charges **396,062–616,547 work** and **26,793–39,889 records**
+per case. Search work above excludes prior catalog/line rebuilding; the catalog
+record charge is conservatively included in the search ledger. These are selected
+physical page counts, not placed/PDF pages.
+
+- `run-cli-accepted-01.py` / `cli-tests-accepted-01.log`: **206 tests, 124.22s**,
+  with original Harano/Arial and ten hash-verified VMB jobs. All output paths were
+  fresh and absolute, including the create-new VMB PDF writers.
+- `run-independent.py` / `independent-accepted-01.log`: **631 source PDFs /
+  306 actual driver callbacks / 2,050 pages / 23,584 structure nodes /
+  871 annotations / 13 unsupported inputs / 4,875 tamper rejections**.
+- `comparison-accepted-01.log`: **all 631 preceding PDFs byte-identical**. VMB
+  table-caption **31,046 bytes**, SHA-256
+  `40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`, and
+  table-alignment **31,111 bytes**, SHA-256
+  `30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02`,
+  are byte-identical too. No new repeated-header PDF is counted.
+- Serialized `run-local-checks.py`: pagination **99 tests, 0.29s**; layout
+  **69 tests, 0.59s** and **1 compile-fail doc-test, 0.52s**; legacy table
+  **21 tests, 9.38s**; legacy named-body **1 test, 0.18s**; all-features check
+  **7.17s** and default check **0.06s**. All sessions completed successfully.
+- `source-preservation.log` recomputes unchanged full-book/Harano/Arial hashes;
+  `jobs.json` records ten original VMB jobs. Targeted Rust formatting, runner
+  syntax and new-file whitespace checks pass. Both repositories' Git whitespace
+  checks pass. Existing Xcode and default pagination warnings remain.
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_table_header_catalog -- --include-ignored --nocapture
+python3 workspace/target/vmb-design/20260910/table-header-catalog/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-header-catalog/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-header-catalog/run-local-checks.py
+```
+
+Next, retain both geometry owners through physical placement and original-source
+closure, include actual variant glyphs/resources in display/PDF assembly, and
+construct the catalog inside the private convergence driver. Stable mixed geometry
+currently requires placement. `table_repeated_frame_reflow` remains; running
+regions, columns, remaining page-name scopes, full-book/public/manifests/managed-
+host/scaling and actual author/human acceptance are still open. This step completes
+physical-page header choice, not the entire design or a new repeated-header PDF.
+
+<a id="book-2-table-header-placement-design-14217"></a>
+
+## Book-2 mixed-page header placement — design §14.217
+
+Added ADR-0083's sparse association between each placed root-header fragment and
+its exact header measurement/global item. Mixed placement resolves each index in
+that measurement's body or definition stream; ordinary base source and body-cell
+child repetitions retain their original flow. Nested captions retain absent cell
+roles and explicit repetition. Geometry getters expose the owner association;
+callers must use it to resolve fragment indexes.
+
+Bounds, baselines and block viewports use the real owning flow. Shared list/note
+marker placement now has a per-fragment operation, preserving legacy whole-page
+behavior. Variant pages resolve marker bindings through the same exact flow and
+translate fragments/viewports/markers from that measurement's region origin to
+the actual page origin. Repeated list markers paint again; definition markers do
+not. Equation-number lookup also resolves the owning block/shape flow. Dedicated
+new tests cover paragraph/list geometry, not a new numbered block-header PDF.
+
+Prepay sparse association records and conservative growth-copy work, then retain
+all lookup/placement/stable-pass charges on the existing ledger. Stable geometry
+comparison includes exact header references and variant item indexes. Empty
+associations preserve the old path. Single-owner table paint queries remain
+rejected, while the mixed placer uses explicit owner-aware leaves. Source closure
+rejects actual variant-bearing pages with `table_header_variant_source_closure`;
+no new PDF authority is issued before variant source and glyph/resource closure.
+
+Evidence root: `workspace/target/vmb-design/20260910/table-header-placement/`.
+All commands run locally, without GitHub Actions.
+
+- `check-01.log`: initial export-chain compile correction for the new public
+  geometry-owner type. `check-02.log`: all-features check **9.01s**.
+- `tests-01.log`: the shared fixture numbering helper did not visit list items.
+  It now follows the list `items` stream while retaining table/caption source order.
+- `tests-02.log`, `tests-03.log`: explicitly add the list's text style using the
+  fixture's actual paragraph text declaration, so real marker shaping is required.
+- `tests-04.log`: moving the footnote x origin exceeded the small original media
+  width. The fixture now declares 600pt media/trim width before applying independent
+  body/note offsets. The production note-region containment guard was retained.
+- `tests-05.log`: **2 tests, 31.60s**. Eight combinations stabilize through real
+  placement in **2 passes**: controlled/unchanged Harano, body/notes, list-bearing
+  common headers/nested headers. Widths alternate **140pt/220pt**, and physical
+  body/note x origins move independently.
+- `tests-06.log`: **2 tests, 28.43s**, additionally independently computes each list
+  marker's x from its actual shaped advance/frame, checks marker baseline against
+  the paragraph and checks the definition marker against its original binding.
+- Every placed fragment resolves through its exact measurement. Tests compare
+  original item/source ownership, width, height, x, baseline and page index; each
+  variant entry matches the selected header's relative top and original cell role.
+  Caption repetition and absence of duplicate definition markers are retained.
+  Base semantic coverage consumes every original table item exactly once.
+- Selection, stable-placement trials, final placement and guarded closure pass exact
+  cumulative work/record limits and reject one short, including larger caller
+  history. Previous catalog-only tests now accept mixed placement while still
+  testing rejection by the old single-owner leaf query.
+
+| Font / table | Body pages / paint fragments / header leaves | Note pages / paint fragments / header leaves | Body / note list markers | Body / note work | Body / note records |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Controlled / list header | 8 / 192 / 53 | 8 / 193 / 53 | 8 / 8 | 21,557 / 29,465 | 72,165 / 94,493 |
+| Controlled / nested header | 4 / 232 / 62 | 4 / 241 / 70 | 0 / 0 | 81,443 / 135,000 | 124,457 / 192,503 |
+| Original Harano / list header | 8 / 188 / 51 | 9 / 213 / 72 | 8 / 9 | 21,242 / 30,560 | 70,709 / 99,816 |
+| Original Harano / nested header | 5 / 315 / 133 | 5 / 317 / 133 | 0 / 0 | 82,801 / 133,286 | 132,483 / 211,147 |
+
+These are actual placed geometry counts, not PDF counts. Work excludes initial
+line/catalog construction; records include the conservative catalog binding charge.
+No new block/header PDF is counted by this stage.
+
+- `run-cli-accepted-01.py` / `cli-tests-accepted-01.log`: **208 tests, 152.69s**,
+  original Harano/Arial and ten hash-verified VMB jobs enabled. Fresh absolute
+  output paths include create-new VMB PDF writers.
+- `run-independent.py` / `independent-accepted-01.log`: **631 source PDFs /
+  306 actual driver callbacks / 2,050 pages / 23,584 structure nodes /
+  871 annotations / 13 unsupported inputs / 4,875 tamper rejections**.
+- `comparison-accepted-01.log`: **all 631 preceding PDFs byte-identical**. VMB
+  table-caption **31,046 bytes**, SHA-256
+  `40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879`, and
+  table-alignment **31,111 bytes**, SHA-256
+  `30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02`,
+  also remain byte-identical. No variant-header PDF is newly counted.
+- Serialized `run-local-checks.py`: pagination **99 tests, 0.28s**; layout
+  **69 tests, 0.58s**, plus **1 compile-fail doc-test, 0.46s**; legacy tables
+  **21 tests, 9.32s**; legacy lists **11 tests, 1.38s**; legacy named body
+  **1 test, 0.20s**; all-features check **6.17s**, default check **4.82s**.
+- Initial `frozen-body-footnote-tests.log` selected **zero tests**, so it is not
+  validation evidence. The actual legacy names use `production_footnote`.
+  `frozen-body-footnote-tests-02.log` then runs **66 tests, 12.88s**, covering the
+  existing demand/placement/marker/display paths. The runner now uses that filter
+  and rejects test checks that execute no passing tests. No production change was
+  needed, and completed unrelated checks were not rerun.
+- `source-preservation.log` confirms unchanged full-book/Harano/Arial bytes/hashes;
+  `jobs.json` records ten original VMB jobs. Targeted Rust formatting, runner
+  syntax, new-file whitespace and both repositories' Git whitespace checks pass.
+  All live sessions have completed. Existing Xcode and default pagination warnings
+  remain.
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_table_header_placement -- --include-ignored --nocapture
+python3 workspace/target/vmb-design/20260910/table-header-placement/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-header-placement/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-header-placement/run-local-checks.py
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging production_footnote
+```
+
+Next, verify original-unit repetition through source closure, resolve each actual
+variant's math and shaped glyph/resources for display/PDF assembly, and build the
+catalog in the private convergence driver. Stable mixed placement now exists;
+`table_header_variant_source_closure` and private-driver
+`table_repeated_frame_reflow` retain their respective gates. Remaining page-name
+scopes, running regions, columns, full-book/public/manifests/managed-host/scaling
+and actual author/human acceptance remain open. This completes actual header
+placement/stability, not the entire design or new repeated-header PDF acceptance.
+
+## Book 2 table header source closure (design 14.218)
+
+Implement ADR-0084: close variant-bearing stable mixed pages against original
+logical units. A bounded original-source index groups by stable paragraph index
+and checks the owner separately; block groups require the exact original source.
+Prepay storage, sorting, lookup, interval-walk and selected-leaf association work.
+No NodeId ordering or cross-variant line-ordinal equivalence is assumed.
+
+Match each selected header leaf to one ordered placed association, its exact
+header reference/global item, actual body/definition-local item, original owner,
+cell/caption repetition role and relative top. Resolve actual selected units and
+map them onto intersecting original line records. Splits and joins are allowed;
+gaps, overlaps, outside intervals and fabricated empty lines are rejected. Base
+semantic coverage remains exactly once, including referenced definitions and
+nonpainting forced breaks. Actual repeats cannot legitimize unreferenced source.
+
+Every fragment's source/math validation uses its actual owning flow. Variant
+bounds and physical-origin translation are checked; inline vector/native receipts
+and baselines retain their existing checks through that flow. The closure exposes
+its verified variant count and a bounds-checked fragment-flow resolver. Replace
+`table_header_variant_source_closure` with this proof, retaining explicit downstream
+`table_header_variant_width_feedback` and `table_header_variant_math_terminals`
+gates. No-header behavior and PDF output remain unchanged.
+
+Evidence root: `workspace/target/vmb-design/20260910/table-header-source-closure/`.
+All commands run locally, without GitHub Actions.
+
+- `check-01.log`: all-features compile, **7.26s**.
+- `tests-01.log`: **2 tests, 28.17s**, eight narrow-base combinations.
+- `tests-02.log`: **1 pass / 1 failure**, the wide-base controlled nested fixture
+  did not produce both continuation widths. Increase its body content to 64
+  paragraphs; retain the production width/owner checks.
+- `tests-03.log`: **2 tests, 86.89s**, sixteen combinations: controlled/unchanged
+  Harano, body/notes, list-bearing common/nested headers, narrow/wide base. Both
+  physical continuation widths are exercised and real placement stabilizes in two
+  passes. Source coverage, repeated counts and exact/one-short work/record limits
+  are checked. Later resolver assertions and overlap/block-source checks are also
+  included in the accepted full CLI and pagination runs below.
+- `unit-tests-01.log`: **4 tests, 0.00s**. Cross-line splits/joins, exact boundaries,
+  missing/outside/overlapping intervals, original empty lines and exact/one-short
+  lookup/walk limits.
+- `cli-tests-accepted-01.log`: **208 tests, 160.98s**, original Harano/Arial and ten
+  hash-verified VMB jobs enabled. Every geometry fragment's public flow resolver is
+  checked against its exact owner; invalid page/fragment indexes return None.
+  Width feedback and final math-terminal calls retain their explicit new gates.
+
+| Font / table / base | Body semantic / repeated | Note semantic / repeated | Body / note work | Body / note records |
+| --- | ---: | ---: | ---: | ---: |
+| Controlled / list / narrow | 139 / 53 | 140 / 53 | 37,906 / 46,395 | 72,585 / 94,916 |
+| Controlled / nested / narrow | 170 / 62 | 171 / 70 | 101,072 / 155,377 | 124,973 / 193,022 |
+| Controlled / list / wide | 101 / 37 | 102 / 37 | 36,700 / 42,655 | 90,049 / 110,786 |
+| Controlled / nested / wide | 279 / 164 | 288 / 180 | 234,493 / 324,729 | 546,620 / 941,254 |
+| Original Harano / list / narrow | 137 / 51 | 141 / 72 | 37,208 / 47,571 | 71,123 / 100,242 |
+| Original Harano / nested / narrow | 182 / 133 | 184 / 133 | 103,925 / 155,020 | 133,035 / 211,705 |
+| Original Harano / list / wide | 150 / 51 | 153 / 79 | 45,661 / 57,539 | 105,253 / 149,292 |
+| Original Harano / nested / wide | 415 / 405 | 417 / 405 | 304,764 / 438,452 | 867,206 / 1,524,171 |
+
+Counts are actual geometry/source-closure records from tests-03, not new PDFs.
+Work excludes initial line/catalog construction; records conservatively include
+catalog binding and transient source-proof storage. The dedicated fixtures contain
+paragraph/list geometry, with zero semantic/repeated math terminals.
+
+- `independent-accepted-01.log`: **631 source PDFs / 306 actual driver callbacks /
+  2,050 pages / 23,584 structure nodes / 871 annotations / 13 unsupported inputs /
+  4,875 tamper rejections**.
+- `comparison-accepted-01.log`: **all 631 preceding PDFs byte-identical**; both
+  original VMB table-caption/alignment PDFs also remain byte-identical, with their
+  preceding 31,046 / 31,111 byte sizes and SHA-256 values unchanged.
+- The initial independent invocation used system Python, which lacks pypdf and
+  failed before PDF verification. The accepted invocation uses the bundled Python
+  runtime listed below; it completes both verification and byte comparison.
+- Serialized `run-local-checks.py`: pagination **103 tests, 0.19s**; layout
+  **69 tests, 0.35s**, plus **1 compile-fail doc-test, 0.90s**; legacy tables
+  **21 tests, 7.63s**, lists **11 tests, 1.01s**, footnotes **66 tests, 11.60s**,
+  named body **1 test, 0.17s**; all-features check **4.89s**, default check **0.05s**.
+  Each test command must execute a positive passing count.
+- `source-preservation.log` retains full-book/Harano/Arial bytes and hashes;
+  `jobs.json` records ten original VMB jobs. Targeted Rust formatting and runner
+  syntax, new-file whitespace and both repositories' Git whitespace checks pass.
+  All verification sessions completed. Existing Xcode and
+  default pagination warnings remain.
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_table_header_placement -- --include-ignored --nocapture
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-pagination --features book-v2-staging source_closure::headers::tests
+python3 workspace/target/vmb-design/20260910/table-header-source-closure/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-header-source-closure/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-header-source-closure/run-local-checks.py
+```
+
+Next, make width feedback and math-terminal consumers resolve actual variant
+owners, close their shaped glyph/resources for display/PDF assembly and construct
+catalogs inside the private convergence driver. `table_repeated_frame_reflow`
+remains there. Dedicated native/vector/block-header PDF acceptance, remaining
+page-name scopes, running regions, columns, full-book/public/manifests/managed-host/
+scaling and actual author/human acceptance remain open. This completes original
+source closure for placed headers, not the entire design or new header PDF output.
+
+## Book 2 table header width feedback (design 14.219)
+
+Implement ADR-0085: source-closed variant pages now expose raw table occurrences,
+remeasured table frames and original-source paragraph frame feedback. Each piece
+records separate header ownership; remeasured reports retain actual variant start
+and width. Resolve source positions from the owning flow's global/local stream,
+including base-owned child repetitions, without using variant line ordinals in
+the base. Precount pieces, reserve once and retain projection/lookup/walk/hash
+charges. Variant flags and measured frames affect report fingerprints; the old
+no-variant encoding and budgets remain unchanged.
+
+Compare actual variant frames against independently reprojected original table
+hierarchy at each physical root parent width. Require repeated paint and both
+matching dimensions before excluding it from the base source assignment. The
+original semantic header owns its width/origin once. Paragraph and block feedback
+skip sparse variant indexes before any base lookup; source-profile collection and
+final table-frame validation check the actual variant frame. Final paragraph
+validation first performs that table proof. Retained cycle boundaries use original
+semantic lines. Old single-width paragraph/root/block APIs remain guarded; callers
+need the per-occurrence frame API.
+
+Evidence root: `workspace/target/vmb-design/20260910/table-header-width-feedback/`.
+All commands run locally, without GitHub Actions.
+
+- `check-01.log`: compile found that ProductionInlineFrame deliberately has no
+  public constructor. Store the observed (start, width) tuple without expanding
+  layout construction authority; subsequent test compilations pass.
+- `tests-01.log`: **2 tests, 86.24s**, sixteen combinations with actual repeated
+  frame reporting and base source feedback. Source closure remains successful.
+- `tests-02.log`: the independent test helper's sum needed explicit usize because
+  serde_json also supplies numeric equality implementations; fix that annotation.
+- `tests-03.log`: **2 tests, 86.56s**, controlled/unchanged Harano, body/notes,
+  list-bearing common/nested headers and narrow/wide base. Both continuation
+  widths are exercised and actual placement stabilizes in two passes.
+- Compare raw and remeasured report identity/source positions/repetition/variant
+  flags; raw frames remain absent. Independently resolve every reported header
+  piece through actual placed metadata, selected original units and measured frame.
+  Check every semantic paragraph interval's feedback width and start, and require
+  at least one different-width header copy without overwriting that assignment.
+- Retain and compare original selected line ends. Cumulative exact/one-short work
+  and record limits include raw reports, two occurrence reprojections, source
+  profile assembly and boundary retention, including larger caller history.
+- All sixteen fixtures deliberately keep provisional base body widths and correctly
+  report **matches=false**. Candidate feedback success does not claim final width
+  convergence or new header PDFs. Dedicated fixtures contain paragraph/list header
+  geometry; block handling is present but new native/vector/block PDF acceptance
+  remains open.
+
+| Font / table / base / region | Report pieces | Cumulative work | Cumulative records |
+| --- | ---: | ---: | ---: |
+| Controlled / list / narrow / body | 192 | 3,365,272 | 83,543 |
+| Controlled / list / narrow / notes | 192 | 3,510,238 | 106,237 |
+| Controlled / nested / narrow / body | 233 | 2,509,035 | 133,844 |
+| Controlled / nested / narrow / notes | 241 | 2,641,846 | 202,128 |
+| Controlled / list / wide / body | 138 | 3,972,186 | 102,393 |
+| Controlled / list / wide / notes | 138 | 4,095,112 | 123,417 |
+| Original Harano / list / narrow / body | 188 | 3,363,206 | 81,353 |
+| Controlled / nested / wide / body | 444 | 13,510,453 | 582,492 |
+| Controlled / nested / wide / notes | 468 | 13,755,561 | 977,531 |
+| Original Harano / list / narrow / notes | 211 | 3,942,140 | 111,858 |
+| Original Harano / nested / narrow / body | 316 | 3,111,707 | 142,496 |
+| Original Harano / nested / narrow / notes | 316 | 3,260,376 | 221,402 |
+| Original Harano / list / wide / body | 201 | 5,290,042 | 119,343 |
+| Original Harano / list / wide / notes | 230 | 6,804,867 | 166,454 |
+| Original Harano / nested / wide / body | 821 | 23,044,459 | 917,894 |
+| Original Harano / nested / wide / notes | 821 | 23,441,372 | 1,575,361 |
+
+- `cli-tests-accepted-01.log`: **208 tests, 144.72s**, including original Harano/
+  Arial and ten hash-verified original VMB jobs, with fresh absolute output paths.
+
+- `independent-accepted-01.log`: **631 source PDFs / 306 actual driver callbacks /
+  2,050 pages / 23,584 structure nodes / 871 annotations / 13 unsupported inputs /
+  4,875 tamper rejections**. `comparison-accepted-01.log` confirms **all 631 prior
+  PDFs byte-identical**. Original VMB table-caption/alignment PDFs remain identical
+  at 31,046 / 31,111 bytes with their preceding SHA-256 hashes.
+- Serialized `run-local-checks.py`: pagination **103 tests, 0.16s**; layout
+  **69 tests, 0.40s**, plus **1 compile-fail doc-test, 0.90s**; legacy tables
+  **21 tests, 7.57s**, lists **11 tests, 0.99s**, footnotes **66 tests, 10.94s**,
+  named body **1 test, 0.17s**; all-features check **5.10s**, default **0.06s**.
+  The runner requires a positive test count for each test command.
+- `source-preservation.log` confirms original full-book/Harano/Arial bytes and
+  hashes; `jobs.json` records ten unchanged VMB jobs. Targeted Rust formatting,
+  runner syntax, changed-file whitespace and both repositories' Git whitespace
+  checks pass. All verification sessions completed. Existing Xcode and default
+  pagination warnings remain.
+
+Counts are source/frame observations, including forced-break events where present,
+not PDF counts. Work excludes initial line/catalog construction; records include
+conservative catalog binding, source closure and retained feedback. The projection
+work is prepaid conservatively at each physical occurrence.
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_table_header_placement -- --include-ignored --nocapture
+python3 workspace/target/vmb-design/20260910/table-header-width-feedback/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-header-width-feedback/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-header-width-feedback/run-local-checks.py
+```
+
+The private driver must still construct catalogs and converge base profiles while
+retaining independently measured header variants. Math terminals, actual shaped
+glyph/resource closure and PDF assembly remain open, with
+`table_header_variant_math_terminals` and `table_repeated_frame_reflow` retained.
+Remaining named scopes, running content, columns, full-book/public/manifests/
+managed-host/scaling and real author/human acceptance also remain open. This stage
+completes per-occurrence header frame feedback, not the entire design.
+
+## Book 2 table header math terminals (design 14.220)
+
+Implement ADR-0086: finalize actual math terminals from variant-bearing source
+closures after independent table-source and paragraph/block physical-width checks.
+Remove the blanket table_header_variant_math_terminals rejection. The preceding
+sixteen varying-width fixtures retain provisional base widths and now fail final
+math validation with WidthMismatch, preserving the actual convergence requirement.
+
+Resolve each physical fragment through its exact verified flow before reading
+selected inline/vector/native data. Retain original receipt owners, global
+terminal fragment identities, physical pens/baselines/viewports, original cell
+roles and explicit repetition. Counts must equal semantic/repeated source counts;
+original native computations and vector bindings remain shared. Equation number
+encoding uses actual placed geometry.
+
+Append a tagged owner section only when header variants exist: a 40-byte prefix
+(tag hash and count), then 180 bytes per header fragment, including nonmath leaves.
+Each entry records physical page/local fragment/variant global item and header,
+lines, blocks, vector bindings and native computation fingerprints. Precompute the
+full canonical bound and charge spool before allocation; charge owner lookups,
+traversal and complete hashing. No-header canonical bytes and budgets are retained.
+Display construction rejects these terminals with PendingHeaderVariants until
+text/markers/figures/font resources use the same actual owners.
+
+Evidence root: `workspace/target/vmb-design/20260910/table-header-math-terminals/`.
+All commands run locally, without GitHub Actions.
+
+- `check-01.log`: all-features check **7.07s**.
+- `tests-01.log`: **1 test, 0.39s**, native inline/display formula headers in body
+  and notes, using two independently rebuilt graphs at the same physical width.
+- `tests-02.log`: **1 test, 0.60s**, native body/notes in both split/join directions.
+  Preserve a legal boundary after the seven-unit Result prefix in one seed. The
+  two actual selected headers differ in line count and height; either is the base.
+- `tests-03.log`: **2 tests, 0.75s**, eight native/vector × body/notes × split/join
+  cases. Vector cases include a nonmath inline vector, vector figure, inline math,
+  block math and an equation number. Formula count is exactly two semantic plus
+  two per repeated header; vectors produce one actual equation number per page.
+- The independent canonical decoder now resolves every terminal through its
+  physical page/fragment's actual flow. It checks inline/block binding identities,
+  original native receipt pointers, signed physical offsets, viewport geometry,
+  repetition/cell roles, equation-number bytes and every owner-extension field.
+- Exact cumulative work/record/spool limits pass, one-short fails, including larger
+  caller record history and prior spool. Native computation spool is checked as a
+  mandatory lower bound; terminal byte size includes the new owner extension.
+  Display-builder rejection is exercised for every successful terminal result.
+
+| Formula / region / repeat direction | Pages | Semantic / repeated formulas | Work | Records | Spool / canonical bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Native / body / split | 8 | 2 / 14 | 5,523,725 | 28,192 | 91,522 / 6,100 |
+| Vector / body / split | 12 | 2 / 22 | 8,354,930 | 33,940 | 12,220 / 12,220 |
+| Native / body / join | 7 | 2 / 12 | 4,834,594 | 26,636 | 89,650 / 4,228 |
+| Vector / body / join | 9 | 2 / 16 | 6,268,935 | 29,210 | 7,621 / 7,621 |
+| Native / notes / split | 8 | 2 / 14 | 5,681,901 | 31,445 | 91,522 / 6,100 |
+| Native / notes / join | 7 | 2 / 12 | 4,973,389 | 30,006 | 89,650 / 4,228 |
+| Vector / notes / split | 12 | 2 / 22 | 8,590,816 | 37,185 | 12,220 / 12,220 |
+| Vector / notes / join | 9 | 2 / 16 | 6,446,598 | 32,668 | 7,621 / 7,621 |
+
+- `cli-tests-accepted-01.log`: **210 tests, 140.65s**, original Harano/Arial and
+  ten hash-verified VMB jobs enabled. Fresh absolute output paths include
+  create-new VMB writers. This includes the sixteen varying-width fixtures' new
+  final WidthMismatch rejection and all preexisting canonical decoder cases.
+
+- `independent-accepted-01.log`: **631 source PDFs / 306 actual driver callbacks /
+  2,050 pages / 23,584 structure nodes / 871 annotations / 13 unsupported inputs /
+  4,875 tamper rejections**. `comparison-accepted-01.log` confirms **all 631 prior
+  PDFs byte-identical**; both original VMB table PDFs retain their 31,046 / 31,111
+  byte sizes and preceding SHA-256 hashes. No variant PDF is newly counted.
+- Serialized `run-local-checks.py`: pagination **103 tests, 0.21s**; layout
+  **69 tests, 0.42s**, plus **1 compile-fail doc-test, 0.49s**; legacy tables
+  **21 tests, 7.52s**, lists **11 tests, 0.95s**, footnotes **66 tests, 12.15s**,
+  named body **1 test, 0.17s**; all-features check **7.02s**, default **0.05s**.
+  The runner rejects a test command that executes no passing tests.
+- `source-preservation.log` confirms unchanged original full-book/Harano/Arial
+  bytes and hashes; `jobs.json` records ten original VMB jobs. Targeted Rust
+  formatting, runner syntax, changed/new-file whitespace and both repositories'
+  Git whitespace checks pass. All verification sessions completed. Existing
+  Xcode and default pagination warnings remain.
+
+Work includes source/physical-width closure and terminal construction after seed/
+header catalog preparation. Figures contribute source/owner records but no formula
+terminal. These are actual geometry and canonical-terminal counts, not new PDFs.
+The dedicated fixtures use controlled fonts and a valid constant physical width;
+retained boundaries change real line ordinals in both directions without relaxing
+final width verification.
+
+```text
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_header_math_terminals -- --nocapture
+python3 workspace/target/vmb-design/20260910/table-header-math-terminals/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-header-math-terminals/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-header-math-terminals/run-local-checks.py
+```
+
+Next, make display text/marker/figure and font/resource consumers resolve actual
+variants, then connect catalog generation and width convergence inside the private
+PDF driver. PendingHeaderVariants and table_repeated_frame_reflow retain those
+boundaries. Original Harano variant-math/PDF acceptance, remaining named scopes,
+running content, columns, full-book/public/manifests/managed-host/scaling and actual
+author/human acceptance remain open. This completes math terminals for verified
+variant geometry, not the entire design or new variant PDF output.
+
+
+## Book-2 table header display (design §14.221)
+
+Actual-flow display and font-use enumeration are implemented under ADR-0087.
+Math terminals retain a bounds-checked global fragment resolver, with an exact
+precharged flow-reference array only for variant pages. Text, markers, equation
+numbers, images and placed anchors use the actual flow; font-use views resolve
+that flow's shape/native instance table. Display construction verifies actual
+owners, admitted resources and limits, charging each page/header inspection.
+PendingHeaderVariants now guards body resource verification pending resource/PDF
+integration.
+
+Evidence: `workspace/target/vmb-design/20260910/table-header-display/`.
+
+- `check-01.log`: initial all-features check succeeded in 22.85s. It accidentally
+  used a separate build target, subsequently preserved as `initial-check-target/`;
+  the successful command output is in the tool transcript. All later cargo
+  commands use the fixed shared target. A sandboxed read-only process inspection
+  was denied; no result or verification was inferred from that inspection.
+- `tests-01.log`: 2 tests, 1.09s; `tests-02.log`: 2 tests, 1.08s. Eight native/vector
+  × body/notes × split/join cases include repeated list markers and anchors.
+  Independently check every actual text cluster/font, original glyph ID and
+  physical position, exact text, marker/number/vector/anchor owner pointers,
+  font-instance IDs/table fingerprints/admitted-font pointers and resolver bounds.
+  Exact cumulative work/record limits succeed, one short fails. Resource
+  verification still rejects variants in this stage.
+
+| Formula / region / repeat direction | Pages | Display work | Records | Text / markers / images / anchors | Font glyphs |
+| --- | ---: | ---: | ---: | --- | ---: |
+| Native / body / split | 8 | 5,694,178 | 29,707 | 272 / 8 / 0 / 8 | 328 |
+| Native / body / join | 7 | 4,984,111 | 28,045 | 259 / 7 / 0 / 7 | 308 |
+| Native / notes / split | 8 | 5,852,621 | 33,005 | 280 / 9 / 0 / 8 | 337 |
+| Native / notes / join | 7 | 5,123,163 | 31,458 | 267 / 8 / 0 / 7 | 317 |
+| Vector / body / split | 12 | 8,610,155 | 36,027 | 324 / 12 / 24 / 12 | 384 |
+| Vector / body / join | 9 | 6,461,110 | 30,945 | 285 / 9 / 18 / 9 | 330 |
+| Vector / notes / split | 12 | 8,846,348 | 39,325 | 332 / 13 / 24 / 12 | 393 |
+| Vector / notes / join | 9 | 6,639,050 | 34,450 | 293 / 10 / 18 / 9 | 339 |
+
+- `cli-tests-accepted-01.log`: 210 tests, 137.98s, original Harano/Arial and ten
+  hash-verified VMB jobs, fresh absolute output paths.
+- `independent-accepted-01.log`: 631 source PDFs, 306 actual driver callbacks,
+  2,050 pages, 23,584 structure nodes, 871 annotations, 13 unsupported inputs and
+  4,875 tamper rejections. `comparison-accepted-01.log`: all 631 prior PDFs and
+  both original VMB table PDFs byte-identical. These include no new variant PDF.
+- Serialized local checks: pagination 103 tests / 0.16s; layout 69 / 0.35s and
+  one compile-fail doc-test / 0.63s; legacy tables 21 / 7.59s, lists 11 / 0.88s,
+  footnotes 66 / 10.96s, named body 1 / 0.17s; all-features check 5.37s and
+  default check 0.05s. All sessions completed; existing Xcode/default warnings
+  remain. Source-preservation hashes and ten VMB job identities are recorded.
+
+```text
+CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging book_v2_header_math_terminals -- --nocapture
+python3 workspace/target/vmb-design/20260910/table-header-display/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-header-display/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-header-display/run-local-checks.py
+```
+
+Next: actual glyph/resource closure and PDF consumers, followed by private driver
+catalog generation and width convergence. Dedicated raster/nonpainting/Harano
+variant display acceptance, table_repeated_frame_reflow, remaining named scopes,
+running content, columns, full-book/public/manifests/managed-host/scaling and actual
+author/human acceptance remain open. This stage does not complete design 28.
+
+## Book-2 table header resources (design §14.222)
+
+ADR-0088 connects actual variant displays to resource selection, font closure,
+program writing and CID extraction. A resource-selection identity check verifies
+the exact admitted ledger and limits already checked for every actual header by
+the immutable display constructor. The PDF-facing verification retains
+PendingHeaderVariants. Existing per-use font-table fingerprint guards, capacity
+bounds, cumulative allocation/sort/hash budgets and payload identity checks remain.
+
+Evidence root: `workspace/target/vmb-design/20260910/table-header-resources/`.
+No GitHub Actions were used.
+
+- `tests-01.log`: 2 tests / 1.33s, eight native/vector × body/notes × split/join
+  resource cases. Glyph selection matches the actual paint union; each use keeps
+  exact source/text/instance/admitted-font ownership. Closures and programs retain
+  selected original GIDs and subset mappings; CIDs preserve each occurrence's
+  exact extraction. Shared vector payloads retain all physical image uses.
+- `tests-context-01.log` records the missing generated test font after the bundled
+  PDF Python lacked FontTools. System Python has FontTools and generated it.
+  `tests-context-02.log` and `-03.log` reject incorrect test-helper media spellings;
+  the helper now uses the wire contract's sfnt-truetype-glyf / sfnt-cff1 values.
+  No production parser exception or fallback was added.
+- `tests-context-04.log`: 1 test / 1.43s, four actual contextual-GSUB cases.
+  `tests-resources-01.log`: 2 tests / 4.52s, stronger repeated-only-glyph assertions
+  plus four original Harano CFF cases. `tests-all-01.log`: 4 tests / 4.69s, all
+  sixteen displays with resource probes enabled.
+- The deterministic 1,308-byte header-context.ttf has SHA-256
+  `1b9440f5d251569d2d80854f60de0f7a26a38d7e708ac9c433ade457e3cc5aeb`.
+  Its contextual f+space+i substitution maps GID 71 to 59. A legal retained line
+  boundary after f+space selects GID 71. In body and note split cases it is absent
+  from every original text paint, present in repeated header paint and retained
+  by selection/subset/CID. Both original/repeated line-graph directions are tested.
+  Generator rerun is byte-identical; no original Harano/system font is altered.
+- Every resource case checks exact work/record/spool limits and one short, larger
+  caller history and a +17 prior-work shift without fingerprint/program changes.
+  The Harano cases use the same Latin fixture to exercise original CFF programs;
+  they do not claim general Japanese header or native Harano math acceptance.
+- `resource-independent-dev.log` initially exposed an incorrect checker assumption
+  that embedded TrueType programs contain cmap. The established TrueType program
+  contract omits cmap and uses CID mapping/extraction. The checker now requires
+  original/subset outline and horizontal-metric equality for every mapped glyph,
+  CFF cmap retention, actual CID widths and Unicode ambiguity/extraction.
+  `resource-independent-dev-02.log`: 16 displays, 12 TrueType / 4 CFF subsets,
+  252 mapped glyphs, 5,628 CID uses, 2 repeated-only glyph cases and 48 tamper
+  rejections. Tampering covers program hashes, selected-glyph omission and dense
+  mapping corruption. These are resource probes, not PDFs.
+- `cli-tests-accepted-01.log`: 212 tests / 163.16s, original Harano/Arial and ten
+  hash-verified VMB jobs, fresh absolute outputs and sixteen resource probes.
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf TYPAXIS_BOOK_V2_HEADER_RESOURCE_PROBE=/Users/kazuyoshitoshiya/t/typaxis/workspace/target/vmb-design/20260910/table-header-resources/header-resource-probes-dev CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging native_tests::header_terminals -- --include-ignored --nocapture
+python3 tools/verify_book_v2_header_resources.py workspace/target/vmb-design/20260910/table-header-resources/header-resource-probes-dev --self-test
+python3 workspace/target/vmb-design/20260910/table-header-resources/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-header-resources/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-header-resources/run-local-checks.py
+```
+
+Final regression evidence for §14.222:
+
+- `independent-accepted-01.log`: 631 source PDFs / 306 actual driver callbacks /
+  2,050 pages / 23,584 structure nodes / 871 annotations / 13 unsupported inputs /
+  4,875 tamper rejections. `comparison-accepted-01.log`: all 631 preceding PDFs
+  and both original VMB table PDFs remain byte-identical. No new variant PDF is
+  counted. `resource-independent-accepted-01.log` independently confirms all
+  sixteen accepted-run resource probes and the same 252 glyphs / 5,628 uses /
+  48 tamper rejections as the dedicated run.
+- Serialized local checks: pagination 103 tests / 0.47s; layout 69 / 0.83s and
+  one compile-fail doc-test / 0.68s; legacy tables 21 / 8.18s, lists 11 / 1.01s,
+  footnotes 66 / 12.07s, named body 1 / 0.17s; all-features check 5.91s and default
+  check 0.05s. All verification sessions completed successfully. Existing Xcode,
+  default pagination and original controlled-font timestamp warnings remain.
+- `source-preservation.log` verifies unchanged original full-book, Harano and
+  Arial sizes/hashes. `jobs.json` records ten hash-verified original VMB jobs.
+  `fixture-preservation.log` records deterministic contextual-font regeneration.
+  `format-syntax-whitespace.log` covers targeted Rust formatting, runner/checker/
+  generator syntax and changed/new-source whitespace; Git whitespace checks are
+  run for both repositories. The new helper is formatted independently to preserve
+  unrelated existing formatting in the surrounding vector-test module.
+
+Next: verify PDF consumers against actual variant displays, then connect automatic
+catalog generation and width convergence in the private PDF driver. Resource-only
+probes grant no PDF authority. PendingHeaderVariants/table_repeated_frame_reflow,
+raster headers, remaining named scopes/running content/columns, full-book/public/
+manifests/managed-host/scaling and actual author/human acceptance remain open.
+The entire design and VMB producer/Go acceptance are not complete.
+
+## Book-2 table header PDF (design §14.223)
+
+ADR-0089 connects actual header variants through complete PDF assembly. Remove
+the obsolete PendingHeaderVariants gate/error after actual display ownership and
+resource closure acceptance. Exact admitted ledger/limits, source closure, final
+physical widths and per-use font-table identity remain required. PDF source
+structure, note/table relations and navigation metadata use the shared immutable
+semantic source; physical paints/anchors/fonts use actual display records.
+The independent nonpainting-line probe now resolves the actual global fragment
+flow before reading selected line items.
+
+Evidence: `workspace/target/vmb-design/20260910/table-header-pdf/`.
+
+- `tests-01.log`: 2 tests / 9.14s, eight controlled native/vector × body/notes ×
+  split/join cases through the existing complete body/resource/structure/
+  navigation/assembly chain. `independent-dev-01.log`: 8 PDFs / 72 pages /
+  932 structure nodes / 8 annotations / 52 tamper rejections.
+- `tests-02.log`: 4 tests / 12.23s, sixteen cases including unchanged original
+  Harano CFF and contextual GSUB. `embedded-dev-02.log`: all 16 PDFs / 156 pages /
+  5,628 actual CID glyph paints match their independently verified resource
+  programs, widths, CID maps and ToUnicode choices.
+- `tests-extra-01.log`: 1 test / 4.70s, four body/note split/join cases containing
+  raster and anchor-only nonpainting header leaves. Regions are 160pt high so the
+  fixed 12pt-wide raster and repeated header fit without shrinking; other cases
+  retain 100pt regions. Physical width remains a valid constant 240pt.
+  Assert one original nonpainting line and raster plus one of each per repeated
+  page. Empty-line source anchors remain original destinations; repeated copies
+  do not acquire semantic bindings. Image payload selection now independently
+  counts distinct actual payloads, including the raster and shared vector.
+- `independent-extra-01.log`: 4 PDFs / 22 pages / 480 structure nodes /
+  4 annotations / 26 tamper rejections. `embedded-extra-01.log`: 1,086 actual CID
+  paints. `resources-extra-01.log`: four TrueType subsets / 64 mapped glyphs /
+  1,086 CID uses / 12 tamper rejections.
+- The reused test chain checks exact work/record/spool/output bounds, one short,
+  prior work, failure-state budget retention and identical bytes from the stateful
+  PDF pipeline and independent component assembly. These are actual assembled
+  PDFs; their catalogs are explicitly prepared by test fixtures, not automatically
+  by the private width-convergence driver.
+- `tools/verify_book_v2_header_pdfs.py` joins PDF and resource probes by exact
+  display fingerprint. It compares embedded program hashes, CID widths/maps and
+  ToUnicode, then parses page operators and compares the complete actual CID
+  paint multiset. The separate BMA Type3 anchor font is excluded from text glyph
+  counts. GID 71 in contextual split cases must be drawn only inside Artifact.
+- `embedded-dev-03.log` caught an ineffective CID mutation: modifying a flattened
+  reader page then cloning the original page tree lost the Contents replacement.
+  The self-test now mutates the cloned writer tree and reparses serialized bytes.
+  `embedded-dev-04.log` confirms 34 actual modified-PDF rejections across the
+  sixteen cases: font-program and CID corruption in every PDF, plus removal of
+  Artifact tags in both repeated-only-glyph cases. No unchanged PDF is counted as
+  a successful mutation test.
+- `render-evidence.json` identifies unchanged original Harano body/note PDFs and
+  their hashes. Poppler `pdftoppm -f 1 -l 2 -scale-to 1000 -png` rendered the first
+  and repeated page of each. Visual inspection confirms the extra retained line
+  break on repetition, vector/number placement, independent body/note origins,
+  and no repeated footnote definition marker. These are controlled Latin fixtures,
+  not full Japanese-book, human-review or PDF/UA acceptance.
+- `cli-tests-accepted-01.log`: 213 tests / 133.61s, original Harano/Arial and ten
+  hash-verified VMB jobs enabled, with fresh absolute PDF/resource probe paths.
+
+```text
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBE=/Users/kazuyoshitoshiya/t/typaxis/workspace/target/vmb-design/20260910/table-header-pdf/probes-dev-02 TYPAXIS_BOOK_V2_HEADER_RESOURCE_PROBE=/Users/kazuyoshitoshiya/t/typaxis/workspace/target/vmb-design/20260910/table-header-pdf/resource-probes-dev-02 CARGO_BUILD_JOBS=4 cargo test --manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910 -p typaxis-cli --bin typaxis --features book-v2-staging native_tests::header_terminals -- --include-ignored --nocapture
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 tools/verify_book_v2_header_pdfs.py workspace/target/vmb-design/20260910/table-header-pdf/probes-dev-02 workspace/target/vmb-design/20260910/table-header-pdf/resource-probes-dev-02 --self-test
+python3 workspace/target/vmb-design/20260910/table-header-pdf/run-cli-accepted-01.py
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 workspace/target/vmb-design/20260910/table-header-pdf/run-independent.py
+python3 workspace/target/vmb-design/20260910/table-header-pdf/run-local-checks.py
+```
+
+Final regression evidence for §14.223:
+
+- `independent-accepted-01.log`: **651 source PDFs / 306 actual private-driver
+  callbacks / 2,228 pages / 25,940 structure nodes / 891 annotations /
+  13 unsupported inputs / 5,005 tamper rejections**. The additional twenty PDFs
+  come from explicitly prepared variant catalogs; they do not increase the
+  private-driver callback count.
+- `resource-independent-accepted-01.log`: **20 variant displays / 16 TrueType and
+  4 CFF subsets / 316 mapped glyphs / 6,714 CID uses / 2 repeated-only glyph
+  cases / 60 tamper rejections**. `embedded-accepted-01.log` verifies **20 variant
+  PDFs / 178 pages / 6,714 actual CID glyph paints / 42 serialized modified-PDF
+  rejections**, tying those actual paints and embedded fonts to verified resources.
+- `comparison-accepted-01.log`: **all 631 previous PDFs byte-identical**, both
+  original VMB table PDFs retain their 31,046 / 31,111 bytes and prior SHA-256
+  hashes, and **all twenty dedicated variant PDFs byte-match the full run**.
+- Serialized local checks: pagination **103 tests / 0.17s**; layout **69 / 0.36s**
+  plus **one compile-fail doc-test / 0.96s**; legacy tables **21 / 7.48s**, lists
+  **11 / 0.87s**, footnotes **66 / 10.56s**, named body **1 / 0.17s**;
+  all-features check **4.04s**, default **0.05s**. Every verification session
+  completed. Existing Xcode/default pagination/font timestamp warnings remain.
+- `source-preservation.log` verifies unchanged original full-book, Harano and
+  Arial bytes/hashes. `jobs.json` records ten hash-verified VMB jobs. Targeted
+  Rust formatting, runner/checker syntax and changed/new-line whitespace pass;
+  both repositories receive final Git whitespace checks.
+
+Next: generate catalogs inside the private driver and converge actual varying
+header widths. The explicit variant PDF gate is now removed; the driver still
+retains table_repeated_frame_reflow. Remaining named scopes, running content,
+columns, full-book/public/manifests/managed-host/scaling and actual author/human
+acceptance remain open. These verified PDFs do not complete the entire design,
+public export or VMB producer/Go acceptance.
+
+## Book-2 automatic table header catalog (design §14.224)
+
+ADR-0090 connects actual missing-width discovery, sibling convergence, sealed
+catalog construction and the private PDF source-width loop. Empty catalogs
+validate source/limits and return the original table index/owner plus exact parent
+width on attempted continuation. Source-event root widths preserve original
+hierarchy and marker gaps. Other roots keep original measurement widths; header
+siblings recompute their own lines without copying base semantic width/start or
+retained-end assignments. Native computations and admitted/vector owners remain
+exact shared references. All ownership layers coexist during catalog use.
+
+Discovery retains failed search work/records, pays one page pass per attempt and
+precharges request insertion/lookup/storage. No missing variant is silently
+replaced by the base header. The private driver enters discovery only on the
+ordinary repeated-frame feedback gate, preserves spent work, and uses actual
+variant frame feedback before stable page/source/math/display/PDF acceptance.
+Every source-width iteration rebuilds source-bound graphs. The no-header path
+retains its original accounting and remains subject to byte comparison.
+
+Record budgets distinguish prior input/line history from retained block/body/table
+projections. Exact set membership proves shared line ownership. Header creation
+and selection preserve the largest history plus independent retained projections,
+instead of multiplying a complete history for each measurement and candidate.
+A catalog-owned search constructor prepays its complete ledger before allocation;
+its private binding does not debit that same history twice. The independent
+setter still conservatively charges a whole catalog. Failed candidates/replays
+and all distinct graph allocations remain charged.
+
+Evidence: `workspace/target/vmb-design/20260910/table-header-driver/` (completed
+work dated 2026-09-11; the staging directory continues the existing build series).
+
+- Development checks caught an omitted exhaustive error match, invalid empty
+  catalog expectations, and obsolete complete-measurement charging expectations.
+  The initial helper also exposed historical-ledger multiplication in variant
+  construction, per-candidate measurement reservation and catalog binding. The
+  retained-record split and prepaid constructor address those causes.
+- `catalog-tests-03.log`: 1 test / 42.76s before the retained-ledger correction;
+  actual body/note, normal/nested discovery took three attempts and requested
+  two widths. Final checks use exact record ceilings instead of binary probing,
+  and avoid repeating the same builder boundary suite in placement-only tests.
+- `math-tests-01.log`: 2 tests / 5.83s; generated catalogs reach native/vector math
+  terminals while preserving original computation/binding pointers. Full
+  regression also exercises original Harano, contextual and raster/nonpainting
+  automatic catalog preparation through the reused header fixtures.
+- `driver-tests-05.log`: 1 test / 14.67s, actual controlled body/note PDFs after
+  width convergence, five pages each. The driver probe was corrected to use the
+  complete body/resource oracle for variant closures; the math-only oracle's
+  preflight budget intentionally does not include header owner verification.
+- `driver-tests-06.log`: **2 tests / 149.74s**, eight actual source-to-PDF callbacks
+  covering body/notes, ordinary/nested headers, controlled TrueType and unchanged
+  original Harano Japanese text. Page counts are 5/5/3/3 and 6/6/4/4. The controlled
+  body case repeats at exactly its observed cumulative work and rejects one less.
+  Fixtures explicitly permit 128 global line/page passes; observed line passes
+  are 14–66 and page passes 14–42, without refunding discovery or feedback work.
+- `independent-driver-02.log`: **16 source PDFs / 8 actual driver callbacks /
+  72 pages / 1,496 structure nodes / 16 annotations / 128 tamper rejections**.
+  These PDFs are actual driver output plus their independent component builds.
+- `render-evidence.json` identifies the original Harano body/note driver PDFs by
+  hash. Poppler renders both complete first/repeated pages and physical-region
+  crops. Visual inspection confirms different Japanese line partitions at
+  140pt/220pt widths, no observed glyph overlap, and a definition marker only on
+  the original note page. This is fixture inspection, not human/PDF/UA acceptance.
+- `source-preservation.log` verifies unchanged original full-book, Harano and Arial
+  hashes; `jobs.json` identifies ten unchanged VMB exports used for regression.
+
+- `cli-tests-accepted-02.log`: **215 tests / 227.28s**, all passing with original
+  Harano/Arial and ten VMB jobs enabled. The first full run was deliberately
+  terminated after its two obsolete charge assertions failed; it is not a
+  completed passing run (`first-full-run-status.log`). Fresh `accepted-02` paths
+  hold the corrected full run. Independent projection charging remains tested.
+- `independent-accepted-02.log`: **667 source PDFs / 314 actual driver callbacks /
+  2,300 pages / 27,436 structure nodes / 907 annotations / 13 explicit unsupported
+  inputs / 5,133 tamper rejections**.
+- `comparison-accepted-02.log`: **all 651 preceding PDFs byte-identical**; original
+  VMB table-caption/alignment PDFs remain 31,046 / 31,111 bytes with unchanged
+  SHA-256 hashes. **All 16 dedicated automatic-driver/component PDFs byte-match
+  the corrected full run**. A copied runner postamble initially pointed to the
+  preceding stage's twenty dedicated fixture paths; it now compares this stage's
+  sixteen actual new PDFs, and the complete runner terminates successfully.
+- `resource-independent-accepted-02.log`: unchanged **20 displays / 16 TrueType +
+  4 CFF subsets / 316 mapped glyphs / 6,714 CID uses / two repeated-only glyph
+  cases / 60 tamper rejections**. `embedded-accepted-02.log`: **20 PDFs / 178 pages /
+  6,714 actual CID paints / 42 serialized modified-PDF rejections**. These are the
+  existing dedicated native/vector/contextual/raster header fixtures; the new
+  sixteen driver/component PDFs receive the source/PDF independent verifier.
+- Serialized local checks: pagination **103 tests / 0.19s**; layout **69 / 0.37s**
+  plus **one compile-fail doc-test / 0.80s**; legacy tables **21 / 8.73s**, lists
+  **11 / 0.93s**, footnotes **66 / 11.10s**, named body **one / 0.17s**;
+  all-features check **8.71s**, default check **5.51s**. All these sessions ended
+  successfully. Existing Xcode/default pagination/font warnings remain.
+- An additional exploratory `cargo check --workspace --features
+  typaxis-pagination/book-v2-staging` fails with **seven non-exhaustive
+  DescriptionList matches** in the unchanged `typaxis-machine-profile` sources
+  (`check-feature-unification.log`). Selecting only pagination's staging feature
+  enables shared syntax/document variants without enabling machine-profile's
+  matching feature. This mixed workspace configuration remains open; it is not
+  counted as a passing check. The new pagination width-request error is available
+  independently of feature flags, and its CLI error mapping remains exhaustive.
+- Targeted Rust formatting, staged Python syntax, source hashes and final Git
+  whitespace checks record the implementation inputs and documentation changes.
+
+Next: address the mixed workspace feature configuration and extend actual
+varying-width native/vector/raster driver coverage, including fixed non-header
+body objects and independently repeated inner body-table headers. Catalogs are
+currently regenerated per source-width pass; retain their observed work/pass
+cost rather than claiming large-book performance. Remaining named scopes,
+running content, columns, original full-book/public/manifests/managed-host/scaling
+and actual author/human acceptance remain open. The entire design is not complete.
+
+
+<a id="book-2-feature-unification-design-14225"></a>
+## 225. 依存crateのfeature統合と契約境界（設計§14.225、2026-09-11）
+
+ADR-0091に従い、共有DescriptionList carrier／payloadとCffV2 shaping errorをfeature非依存のenum形状にした。消費側の明示的な処理・拒否を常設し、Book2専用の入口・語彙・lowering・layoutはfeatureで隔離する。凍結契約のserde gate、sealedなWireSemanticKind、source/style/profileの受入条件は維持する。外部integration testは通常libraryのfeature状態で空／非空listのdecodeと手作りtyped carrierのencodeを拒否する。
+
+証跡はworkspace/target/vmb-design/20260910/feature-unification。共通Cargo引数は--manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910、環境はCARGO_BUILD_JOBS=4。各Cargo実行を直列化した。
+
+- run-feature-matrix.py: cargo check --workspace --features <crate>/book-v2-staging。cli、display-list、document、document-package、layout、machine-input、machine-profile、manifest、pagination、pdf、resources、shaping、style、syntaxの14構成すべて成功。matrix.jsonと各matrix-typaxis-*.logを保存した。
+- run-boundary-tests.py: document-packageの外部semantic_carrier_featuresを通常／book-v2-stagingでそれぞれ2 tests成功。9共通crateの通常featureテストはintegration/doc-testを含め491 checks成功。既存ignored 3件を成功件数に含めない。carrier-default.log、carrier-staging.log、default-boundary-tests.logへ記録した。
+- check-default-02.logとcheck-pagination-02.logも成功。先行check-default-01.logとcheck-pagination-01.logの開発中エラーは成功扱いにしない。共通matchの変更中に専用algorithmのcfgも外れた箇所を戻し、syntaxの通常経路には明示的な拒否を追加した。pagination-only構成で露呈したCLIのCffV2分岐も同じ共有enum方針で修正した。
+- CLI／PDF／凍結profileの統合回帰は次節に記録する。依存featureによる旧契約の受入拡張は行わない。
+
+§224とADR-0090のmixed workspace feature未対応を本節で解消する。公開CLI、全巻、manifest、性能、著者および人手受入の未完は継続する。
+
+<a id="book-2-header-math-driver-design-14226"></a>
+## 226. 異幅の数式・画像headerを実driverからPDFへ接続確認（設計§14.226、2026-09-11）
+
+既存header fixtureの作成部分を共有関数へ抽出し、実with_converged_book_v2_pdfにnative、vector／式番号、vector＋raster／非描画行、元原ノ味vectorの本文／脚注8ケースを追加した。最大line/page passは128、lookbackは256、maximum workは1,000,000,000を明示する。元vector metrics、画像12pt、source、font bytesを維持する。
+
+成功ケースの物理幅はnative本文／脚注とvector本文が100・140・180pt、vector脚注が120・160・200pt。異なる原点も含む。本文／脚注ともnative 7ページ、vector 11ページ、raster 6ページ、原ノ味vector 11ページに収束した。各ケースでwidth pass 4、line pass 26、page pass 17を計上する。最終source closure、実terminal kind、元数式2件と反復2×(ページ数−1)件、vector式番号、画像／非描画行の各ページ一回と元意味source一回を照合する。実displayからのresource probeと完全なbody/resource/PDF oracleを通す。
+
+100ptのvector脚注は固定の隣接vectorとlist／脚注insetが収まらず、header base convergenceのAtomic(NoFeasibleLine)で拒否し、callbackでPDFを返さないことを第三のテストにした。収まるように元vectorを縮めない。
+
+証跡はworkspace/target/vmb-design/20260910/header-math-driver。以下は実行時の経緯と成功範囲である。
+
+- tests-01.logのIdentityは新fixtureのmaster ID順序が不正だった。正順へ直したtests-02.logではnative本文／脚注が収束し、検証ヘルパーの固定総work枠に達した。body display／font selection／closure／TrueType／CFF program検証の初期枠を、入力の累積work＋10,000,000へ変更した。exact成功・1不足拒否・prior伝播・失敗後の非返却の確認は維持する。
+- tests-03.logは100pt vector脚注のNoFeasibleLineを検出した未成功実行。tests-04.logは元Haranoを明示した3 tests／11.22秒成功、8 actual callbacksと独立componentを合わせた16 PDFをprobes-04へ保存した。
+- run-cli-accepted-01.pyは無変更のVMB job 10件と原Harano／Arialのパスを設定し、book_v2_resources -- --include-ignoredを実行した。cli-tests-accepted-01.log: 218 tests成功、ignored 0件、241.22秒。job hashとパスはjobs.jsonに保存した。
+- 新しいresource probeは実callbackのdisplayから作り、従来20ケースに8件を追加した。後段の境界検証ヘルパーの局所変数整理後もfinal-driver-tests.logで3 tests／11.02秒成功を確認した。
+- render-evidence.jsonはPoppler 144dpiによる原Harano脚注、raster本文、native本文の先頭3ページの領域描画9件のコマンド・hashを保持する。原Harano脚注の3幅での改行、式番号、脚注定義番号が初回だけに現れることを確認した。controlled fontの黒矩形／非描画glyphはgeometry専用fixtureであり、本文の可読性や人手受入を主張しない。
+
+固定non-header body objectと内側body table headerの到達性、残る名前指定、柱/footer content、段組、元全巻、公開CLI、manifest、管理ホスト、性能、著者および人手受入は未完である。
+
+
+§226の最終独立検証と回帰結果:
+
+- run-independent-01.py（pypdfを持つbundled Python）: verify_book_v2_pdf_assembly.py --self-testは683 source PDFs、322 actual driver callbacks、2,440 pages、29,320 structure nodes、923 annotations、13 explicit unsupported inputs、5,237 tamper rejections成功。independent-accepted-02.logに保存した。ファイル名の02は前runnerから継承したlog名で、対象は本節のaccepted-probes-01である。
+- comparison-accepted-02.log: 前節の667 PDFは全件byte一致。原ノ味VMB table_caption 31,046 bytesとtable_alignment 31,111 bytesも元hashを維持する。専用probes-04の16 PDFも全体実行とbyte一致した。
+- verify_book_v2_header_resources.py --self-test（system Python／FontTools）: 28 variant displays、22 TrueType／6 CFF subsets、446 mapped glyphs、9,382 CID uses、2 repeated-only glyph cases、84 tamper rejections成功。controlled fontの低いcreated/modified timestampに関するFontTools警告は記録した。
+- verify_book_v2_header_pdfs.py --self-test: 28 variant PDFs、248 pages、9,382 actual CID paints、再serializeした58改変PDFの拒否を確認した。実display fingerprintで照合し、埋込みprogram、CID幅/map、ToUnicode、全CID描画を検証した。
+- run-local-checks.py: pagination 103 tests／0.17秒、layout 69 tests／0.35秒とdoc-test 1件／0.89秒、従来table 21／7.68秒、list 11／0.89秒、footnote 66／9.84秒、named-body 1／0.16秒成功。workspace --all-features checkは13.33秒、通常checkは8.54秒で成功した。検証ヘルパー整理後の3 driver testsも成功した。Cargoコマンドは前節の共通引数を使用し、実際のリストはrunnerに保存した。
+- source-preservation.jsonで元全巻package、原Harano、原Arialのbyte長とSHA-256一致を確認した。10 VMB jobのhash検査は全体runnerのjobs.jsonにある。外部producerの再exportは行っていない。
+
+独立PDF検証は機械的なsource／構造／描画・resource照合であり、PDF/UAまたは著者・人手受入の代替ではない。§225のfeature構成不備と本節の専用異幅driver検証は完了したが、設計28全体は未完である。
+
+
+<a id="book-2-table-source-reachability-design-14227"></a>
+## 227. 配置したsourceに限る表の再計測（設計§14.227、2026-09-11）
+
+ADR-0092に従い、広い先頭ページだけに配置する固定body objectを、後続headerの狭幅で拒否する問題を修正した。header専用割当ては正確なrootを持ち、headだけを候補幅へ再計測する。caption／body cellは元envelope parentを保持し、head内の子表はcaption／bodyを含めて反復内容として再計測する。完全な元source・admitted resource・vector binding・native計算を保持し、本文の削除や画像縮小を行わない。
+
+固定列子表のケースは、独立幅検証でも全root投影が未配置の子表を拒否することを示した。検証済みsource範囲と実variant leafからownerを集め、確保前の計上、整列・重複排除後にsource eventの祖先を確定する。実際に必要な表・セル・list／脚注insetとlocal styleを候補幅へ再投影し、未観測の枝は元parentを保持する。root自体の列が物理幅へ収まる要件は保持する。header catalogの独立frame検証もこのsource単位APIへ移した。
+
+スコープ付き結果は正確なframe ownerと要求owner列を借用する。段落の元index／ownerと要求集合、region照会の集合所属を検証し、範囲外を拒否する。owner数がevent数を超える場合は走査前に拒否し、重複・逆順・root外・非leafも拒否する。bitmapとstackの2×event件数、走査・整列・照会・hashを事前に計上し、新しいalgorithm IDとroot／owner列をfingerprintに含める。旧全root APIの予算／encodingは保持する。
+
+証跡はworkspace/target/vmb-design/20260910/header-reachability。Cargoの共通引数は--manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910、環境はCARGO_BUILD_JOBS=4。Cargo実行は直列化し、独立Python検証だけを並行実行した。
+
+- tests-01.log: 220ptの先頭ページに160ptのbody図を置くケースで、header body flowのWidthMismatchを再現した。tests-03.logでは本文／脚注の2ケースが3ページへ収束した。tests-02.logは内部関数の追加引数を一つの呼出元へ渡し忘れた開発中コンパイル失敗で、成功扱いにはしない。
+- tests-04.log: body／captionの図が成功した後、固定列子表がpage widthsのWidthMismatchで拒否された。source単位の独立再投影を接続したtests-05.logでは8ケースが成功した。tests-06.logはテストclosureの借用期間のエラーを検出した未成功実行である。
+- tests-07.log: 本文／脚注 × body／caption × 直接図／固定列子表の8ケースと、狭い先頭ページの拒否を含む2 testsが11.72秒で成功した。全8ケースは3ページ、物理幅140・180・220pt。160ptの図はpage 0に一回だけ、12ptのheader図は各ページへ一回配置される。実際に要求した子表が170pt固定列を140pt parentへ収めようとする場合は拒否する。範囲外・非leaf・重複・逆順owner、段落index／owner不一致、未要求regionとwork／recordのexact成功・1不足拒否を確認した。
+- probes-07は8 actual callbacksと独立componentを合わせた16 PDF、resources-07は8実displayのsource／font／CID証跡を持つ。render-evidence.jsonは本文と入れ子脚注、body／captionの先頭・継続ページ8画像のPoppler 144dpiコマンドとhashを持つ。大きな図が最初だけに現れ、後続にはheader内の小さな図とvectorが反復する配置を確認した。controlled fontの可読性や人手受入は主張しない。
+- run-cli-accepted-01.py: 元VMB job 10件と原Harano／Arialを明示したbook_v2_resources -- --include-ignoredは220 tests／237.94秒、ignored 0件で成功した。job hashとパスはjobs.jsonへ保存した。
+- verify_book_v2_pdf_assembly.py --self-testは699 source PDFs、330 actual driver callbacks、2,488 pages、31,328 structure nodes、939 annotations、13 explicit unsupported inputs、5,365 tamper rejections成功。independent-accepted-01.logへ記録した。
+- FontToolsによるverify_book_v2_header_resources.py --self-testは36 variant displays、30 TrueType／6 CFF subsets、574 mapped glyphs、11,198 CID uses、2 repeated-only glyph cases、108 tamper rejections成功。verify_book_v2_header_pdfs.py --self-testは36 variant PDFs／272 pages／11,198 CID paints、再serializeした74改変PDFの拒否を確認した。
+- 最初の比較scriptは旧fingerprint由来のファイル名が存在せず停止した。PDF内容の差ではないことを調べ、compare-accepted-01.pyで完全wireのcanonical hashとdriver／component区別により32件を一意に対応付けた。旧683 PDFは全件byte一致し、driverのページ数・body／footnote領域も一致した。32件は新しい計測fingerprintによってファイル名だけが変わる。byte-correspondence.jsonへ旧／新path・wire hash・実PDFのSHA-256と1対1の対応を保存した。VMB table_caption 31,046 bytes、table_alignment 31,111 bytes、および専用16 PDFと全体実行のbyte一致も確認した。
+- run-local-checks.py: 最終専用2 tests／11.65秒、pagination 103／0.20秒、layout 69／0.37秒とdoc-test 1／0.94秒、従来table 21／7.66秒、list 11／0.92秒、footnote 66／11.11秒、named-body 1／0.16秒成功。workspace --all-features checkは6.03秒、通常checkは5.19秒で成功した。
+- source-preservation.jsonで元全巻package・原Harano・原Arialのbyte長とSHA-256を再確認した。10 VMB jobのhashは全体runnerで照合し、再exportは行わない。
+
+元source全体の暫定graphを保持する費用や全巻性能を、この到達性修正の成功へ含めない。専用の固定native/vector body検証、内側body table headerの独立反復、残る名前指定・柱/footer content・段組・元全巻・公開CLI・manifest・管理ホスト・性能・著者および人手受入は未完である。
+
+
+最終追加確認: tests-08.logは狭い先頭ページの拒否理由をWidthMismatchへ限定したassertionを含め、2 tests／11.74秒で成功した。本文owner 22／脚注owner 26でheader body flowのWidthMismatchを確認し、単なる任意エラーを成功条件としない。変更したRustファイルの対象限定rustfmt check、検証runnerのPython構文、両repositoryのgit diff --checkも確認した。
+
+
+<a id="book-2-independent-nested-headers-design-14228"></a>
+
+## 228. 内側の表が独立して続く場合の反復header（設計§14.228、2026-09-11）
+
+ADR-0093に従い、rootだけに限定していたheader catalogを、本文セルやcaptionから独立して続く子表へ接続した。keyと不足幅要求は元target table index／ownerと祖先rootのparent幅を保持する。元のparent関係をたどり、物理body／footnote幅からrootのparentを求めて、source leafまでの列・セル・insetを独立再計測する。child幅へページ差分を直接加算しない。
+
+private driverは元source eventからtarget headのleaf ownerとrootを収集し、整列・重複排除してsource幅割当てへ保持する。対象祖先／leafは候補幅で再計測し、未選択枝は元envelope parentを保持する。head内の別の子表はcaption／bodyも含めて反復対象となる。完全な意味source・resource・計算を保持し、root-only headerの従来投影も維持する。
+
+再帰child searchへ物理region／正確なcatalogを渡し、実header高さを確保する。trialの各variant leafはheader参照・header leaf index・相対位置を保持し、rollbackで一緒に切り戻す。分割の戻し幅、source範囲、物理配置と幅feedbackを実measurementへ結び付ける。自身のheaderがなくても子孫variantがあれば単一owner照会を拒否する。sparse physical fragment ownerを通じて既存の数式・描画・font／PDF経路を使い、元sourceは一度だけ消費する。source集合・投影scratch・整列／lookup／走査・paint対応・fingerprintの予算を事前に支払い、失敗後も返却しない。variant付きnested hashにはheader／leaf対応を追加し、variantなしのencodingは維持する。
+
+証跡はworkspace/target/vmb-design/20260910/nested-body-header。Cargo共通引数は--manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910、CARGO_BUILD_JOBS=4。Cargoは直列で実行し、独立Python検証のみ並行実行した。
+
+- check-01.logはsource scope／catalog拡張のcompile成功。check-02.logはpaint leafの借用期間とhelper可視性の開発中compile error、check-03.logで修正後の成功を確認した。
+- tests-01／02.log: 親子のheadがある16段落fixtureはline pass上限128へ達してIterationLimitとなった。tests-03.logで上限512を明示すると本文は16ページ・222 line passes・72 page passes・7,244,655 recordsで成功したが、脚注はpage stabilityのFragmentLimitで停止した。このstressケースを受入成功には含めない。
+- tests-04.log: 本文・子表の各セルを8段落にした2 actual callbacksが成功（1 test／29.37秒）。幅収束に本文9回、脚注8回を要した。以後の専用fixtureではline上限512・page上限128を明示し、追加のno-head／caption／parallel／deepの子表セルは4段落とした。三段の子表・孫表は一列にして祖先幅の連鎖を検証する。
+- tests-05.log: 既存driverテストと追加ケースの6 tests成功、明示fontを要する2 testsはこの実行ではignored。tests-06.logでは元Haranoを明示し、10 tests／144.73秒、ignored 0件で成功した。新規6 testsは下表の12 callbacksを含む。親headなし本文ではdriver workのexact再現と1不足拒否も検証した。
+
+| ケース | font | region | pages | width passes | line passes | page passes | records |
+|---|---|---|---:|---:|---:|---:|---:|
+| 親子head | controlled TT | 本文 | 8 | 9 | 178 | 58 | 2,216,847 |
+| 親子head | controlled TT | 脚注 | 16 | 8 | 156 | 51 | 4,278,796 |
+| caption内 | controlled TT | 本文 | 4 | 9 | 108 | 49 | 880,931 |
+| caption内 | controlled TT | 脚注 | 4 | 9 | 108 | 49 | 1,089,349 |
+| 三段 | controlled TT | 本文 | 3 | 8 | 160 | 50 | 756,283 |
+| 三段 | controlled TT | 脚注 | 3 | 8 | 160 | 50 | 974,878 |
+| 親headなし | controlled TT | 本文 | 4 | 7 | 46 | 31 | 406,428 |
+| 親headなし | controlled TT | 脚注 | 4 | 5 | 34 | 22 | 513,610 |
+| 親headなし | 原Harano | 本文 | 6 | 8 | 58 | 37 | 635,740 |
+| 親headなし | 原Harano | 脚注 | 6 | 8 | 58 | 37 | 925,162 |
+| 左右並行 | controlled TT | 本文 | 4 | 8 | 310 | 65 | 2,174,582 |
+| 左右並行 | controlled TT | 脚注 | 8 | 6 | 222 | 47 | 2,765,170 |
+
+case-evidence.jsonに各callbackのwork／record／spool／outputを保存した。全ケースの物理body／footnote幅は140／220ptで、footnote marker等のinsetを保持する。実header table identityの集合が期待する親／子／孫に一致し、意味source閉包・実frame・字形／subset／CIDを通過することを要求した。
+
+- probes-06は既存ケースを含む28 actual callbacks＋componentの56 PDFs。独立構造検証は352 pages、5,008 structure nodes、56 annotations、400 tamper rejections成功。resources-06の20 displaysは16 TrueType／4 CFF subsets、208 mapped glyphs、14,971 CID uses、60 tamper rejections成功。controlled fontのtimestamp警告は既存fixture由来で、検証成功行を別に記録した。
+- render-cases.py／render-evidence.jsonは原Haranoの親headなし本文／脚注とcontrolled TTの左右並行の先頭・継続ページ、計8 cropのPoppler 144dpiコマンド／物理領域を保存する。原Haranoでは子表の改行と脚注marker・separatorを確認した。controlled fontの字形は元から非描画であり、白いcropを可読性や人手受入の根拠にしない。
+- run-cli-accepted-01.py: VMB job 10件、元HaranoとArialを明示したbook_v2_resources -- --include-ignoredは226 tests／243.38秒、ignored 0件で成功した。jobs.jsonにpackage hashとpathを保存した。
+
+- run-independent-01.py: 独立構造検証は723 source PDFs（342 actual driver callbacks）、2,628 pages、32,956 structure nodes、963 annotations、13 explicit unsupported inputs、5,533 tamper rejections成功。48 variant displaysの40 TrueType／8 CFF subsets、652 mapped glyphs、23,501 CID uses、2 repeated-only glyph cases、144 tamper rejectionsも成功した。実埋込み検証は48 variant PDFs／342 pages／23,501 CID glyph paints、98改変PDFの拒否を確認した。
+- compare-accepted-01.py: 従来699 PDFは全件byte一致、ファイル名変更0件。driverのbody／footnote物理領域とページ数も一致した。byte-correspondence.jsonに完全wireのcanonical hash、旧／新path、PDF SHA-256と一対一対応を保存した。VMB table_caption 31,046 bytesとtable_alignment 31,111 bytesも一致した。
+- run-local-checks.py: 最終の親headなし本文／脚注とwork境界（1 test／11.40秒）、pagination 103／0.16秒、layout 69／0.35秒＋doc-test 1／0.82秒、従来table 21／7.45秒、list 11／0.86秒、footnote 66／10.05秒、named-body 1／0.17秒成功。workspace --all-features checkは7.51秒、通常checkは5.42秒で成功した。
+- source-preservation.jsonで元全巻package・原Harano・原Arialのbyte長とSHA-256を再確認した。VMB job 10件のhashも全体runnerで照合し、元データの再exportは行っていない。
+
+新規12 callbacksを独立した子表headerの受入とし、再構築費用やstress失敗を除外して全巻性能へ拡大しない。専用のnested数式・画像・rowspan・強制改ページvariant検証、固定native/vector body、残る名前指定・柱/footer content・段組・元全巻・公開CLI・manifest・管理ホスト・性能・著者および人手受入は未完である。元Haranoの日本語fixtureをPDF/UAや日本語全巻の人手受入へ拡大せず、VMB producer／Go testの完了も主張しない。
+
+最終整合確認: 変更したproduction Rustへの対象限定rustfmt check、runnerのPython AST、両repositoryのgit diff --checkが成功した。15変更sourceのbyte長・SHA-256をfinal-source-hashes.json、変更前snapshotとの差分をchanges.patchへ保存した。全体回帰後の変更はコメント／テスト書式と台帳のみで、実装の処理は変更していない。
+
+
+<a id="book-2-shared-header-replay-design-14229"></a>
+
+## 229. 同じroot幅のheader計測共有と計上済み投影の保持（設計§14.229、2026-09-11）
+
+ADR-0094に従い、元root ownerとparent幅が同じheader要求をgroup化し、元headのleaf集合を併合して一つのsibling graphへ再構築する。targetごとのrequest-to-group対応、headerの意味範囲・geometry・identityは保持する。root-onlyは従来scope、複数headerを含むgroupはsource scopeを用い、root／幅／source／label反復の異なる計測は共有しない。各headerはcatalogで元sourceから独立frame検証を受ける。
+
+分割trialは、正確にbindされたcatalog、同一base、catalog記録数を含むsearch台帳、catalog内の正確なheader参照を確認して、計上済みの投影とmeasurementを借用する。bounded identity走査と新しいselection ownerを払い、nested paintコピーは既存leaf allocatorで払う。catalogのない単独header選択は保守的な従来計上を維持する。失敗した試行の費用は返却しない。group／source集合・併合容量・整列・lookupを事前計上し、元のreplay vector容量上限も維持する。
+
+証跡はworkspace/target/vmb-design/20260910/header-shared-replay。Cargo共通引数は--manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910、CARGO_BUILD_JOBS=4。Cargoは直列、独立Python検証のみ並行で実行した。
+
+- check-01.logはgroup化のcompile成功。tests-01.logでは親子headerが同じmeasurementを参照することを確認したが、16段落脚注は依然page stabilityのFragmentLimitとなった。group化だけで十分とは扱わず、catalog保持分のtrialごとの重複計上を調べた。
+- tests-02.logでは計上済み所有の検査を接続し、長い脚注の実PDF callbackへ到達した。その後のPDF assembly検証ヘルパーが、入力の累積workより小さい固定総量を使ってResource(Work)で失敗した。tests-03.logはWORK名の置換漏れによるcompile失敗。tests-04.logでassembly検証は通ったが、pipeline検証ヘルパーにも同じ固定総量の問題を確認した。これらを成功扱いにはしない。
+- PDF assembly／pipelineの検証枠1億workを、入力の消費済みworkへ加算する形へ修正した。exact work／record／spool／output成功、1不足拒否、prior 17の伝播、失敗後の再試行拒否を維持し、productionの上限は増やさない。
+- tests-05.logは16段落を削らず、親子双方にheadを持つ本文／脚注の2 callbacks（1 test／58.82秒）が成功した。line上限512、page上限128、work上限10億は§14.228のstress再試行と同じで、record上限は通常の1,000万のまま。成功値は次表のとおり。
+
+| region | pages | width passes | line passes | page passes | records | work | PDF bytes |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 本文 | 16 | 11 | 142 | 72 | 2,663,903 | 504,012,404 | 416,260 |
+| 脚注 | 32 | 11 | 142 | 72 | 3,820,045 | 716,417,650 | 663,366 |
+
+§14.228の同じ16段落本文で記録した222 line passes／7,244,655 recordsに対し、今回142／2,663,903となった。脚注のrecord上限拒否も解消した。128 line passes以内の受入を主張せず、実際の必要量142と再収束11回を記録する。
+
+- 親子・並行・三段fixtureは、同じ物理root幅のheaderが正確に同じmeasurement参照を使うことをassertする。親headなしの既存work境界に加え、最終の三段本文でもexact再現・1不足拒否を確認した（final-driver-tests.log: 本文／脚注を含む1 test／16.45秒）。
+- probes-05の4 source PDFs（2 actual callbacks）は独立検証で96 pages、508 structure nodes、4 annotations、26 tamper rejections成功。全体実行との4 PDF byte一致をdedicated-comparison.logへ記録した。
+- run-cli-accepted-01.pyは元VMB job 10件・原Harano／Arialを明示し、book_v2_resources -- --include-ignoredの227 tests／302.51秒、ignored 0件が成功した。jobs.jsonへ元package hash／pathを保存した。
+- run-independent-01.py: 727 source PDFs（344 actual callbacks）、2,724 pages、33,464 structure nodes、967 annotations、13 explicit unsupported inputs、5,559 tamper rejections成功。50 variant displaysの42 TrueType／8 CFF subsets、663 mapped glyphs、31,306 CID uses、2 repeated-only glyph cases、150 tamper rejections成功。実埋込み50 variant PDFs／390 pages／31,306 CID glyph paintsと102改変PDF拒否も成功した。
+- compare-accepted-01.pyで従来723 PDFは全件byte一致した。16件はgraph fingerprintによりファイル名が変わるため、完全wireのcanonical hashとdriver／component区別で一意に対応付けた。driverのページ数・body／footnote領域も一致する。byte-correspondence.jsonへ旧／新path・wire hash・PDF hashを保存し、既存342 actual callbacksのcharges／passes対応をcost-correspondence.jsonへ保存した。VMB table_caption 31,046 bytesとtable_alignment 31,111 bytesも一致した。
+- ローカル回帰はpagination 103／0.22秒、layout 69／0.43秒＋doc-test 1／1.08秒、従来table 21／8.00秒、list 11／1.17秒、footnote 66／12.52秒、named-body 1／0.17秒成功。workspace --all-features checkは5.10秒、通常checkは0.05秒で成功した。全体回帰後の追加assertionは、上記の最終三段driver testで検証した。
+- source-preservation.jsonで元全巻package・原Harano／Arialのbyte長とSHA-256を再確認した。元VMB job 10件のhashも全体runnerで照合し、再exportしていない。
+
+catalogの追加幅発見ごと、およびsource／label反復ごとの再構築は残る。今回の改善を全巻性能やline上限128以内の完了へ拡大しない。独立child variantの専用数式・画像・rowspan・強制改ページ、固定native/vector body、残る名前指定・柱/footer content・段組・元全巻・公開CLI・manifest・管理ホスト・性能・著者および人手受入は未完である。VMB producer／Go test、PDF/UAや人手受入の完了も主張しない。
+
+長い新規fixtureはcontrolled TrueTypeを使う。無変更Haranoは既存回帰で維持し、新規32ページfixtureの可読性、原ノ味での同規模性能や全巻の人手受入を主張しない。
+
+最終確認: 対象production Rustのrustfmt check、追加テスト部分の書式、変更行の末尾空白、runnerのPython ASTを確認した。6変更sourceのbyte長／SHA-256をfinal-source-hashes.json、変更前snapshotとの差分をchanges.patchへ保存した。最終の追加三段work境界はローカル再実行で検証済みで、以後のsource変更は書式のみである。
+
+
+<a id="book-2-nested-header-media-design-14230"></a>
+
+## 230. 独立した子表headerの数式・画像PDF回帰（設計§14.230、2026-09-11）
+
+親bodyセル内で独立して続く子表のheadにnative数式、SVG数式と式番号、PNG図版、非描画anchorを保持する専用試験を追加した。親にも別の段落headを持たせ、実variantが元table index 0／1へ対応することを検査する。既存のterminal canonical bytes／source参照／実配置検証に加え、意味数式2件、各継続ページの反復数式2件、式番号・PNG・anchorの配置数と意味source一回の消費をassertする。font resource／埋込みPDF検証にも接続した。
+
+証跡はworkspace/target/vmb-design/20260910/nested-header-media。Cargo共通引数は--manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910、CARGO_BUILD_JOBS=4。productionコード・予算・公開登録は変更せず、2個のテストsourceを変更した。
+
+- tests-01.log: native本文9ページ／脚注10ページは成功したが、fixtureの共用採番helperが式番号nodeを走査せずSVG入力がEquationNumberNodeIdで拒否された。既存header fixtureの式番号対応helperをmodule scopeへ移動して再利用した。
+- tests-02.log: 採番後、親head追加分を含まない100pt高さでSVG本文がheader discovery pages／Oversizeとなった。これを成功扱いにしない。元数式・画像metricsを保持し、nested fixtureのbody／footnote物理領域を32pt高く明示した。非nested fixtureの入力は変更しない。
+- tests-03.log: header_terminals::driver -- --include-ignored --nocaptureは6 tests／17.20秒、ignored 0件で成功した。既存8 callbacksと新規8 callbacks、固定SVGが狭い脚注へ収まらない旧／子表の拒否2 testsを含む。原Haranoのpathを明示し、line／page上限128、lookback256、work10億、通常record上限1,000万で実行した。
+
+| 子表header | font | region | pages | records | work | PDF bytes |
+|---|---|---|---:|---:|---:|---:|
+| native | controlled TT | 本文 | 5 | 250,589 | 85,025,327 | 64,427 |
+| native | controlled TT | 脚注 | 6 | 274,389 | 89,743,648 | 72,845 |
+| SVG | controlled TT | 本文 | 8 | 269,807 | 93,324,789 | 78,055 |
+| SVG | controlled TT | 脚注 | 8 | 285,685 | 95,651,281 | 83,140 |
+| SVG＋PNG | controlled TT | 本文 | 5 | 254,779 | 87,546,990 | 68,109 |
+| SVG＋PNG | controlled TT | 脚注 | 5 | 272,808 | 89,755,232 | 72,736 |
+| SVG | 原Harano | 本文 | 8 | 302,866 | 107,583,781 | 81,407 |
+| SVG | 原Harano | 脚注 | 11 | 342,166 | 118,441,743 | 98,521 |
+
+表のPDF bytesは実際の出力ファイル長で、途中生成分を含むoutput chargeとは区別する。case-evidence.jsonに両方を保存した。全8 casesはwidth feedback 4回、line passes 44回、page passes 23回。幅は100／140／180pt、SVG脚注は既存の固定寸法とinsetを保持した120／160／200pt。狭い100pt脚注の子表SVGはheader base convergence／Atomic(NoFeasibleLine)で拒否し、callbackへ到達しなかった。
+
+- run-independent.py 03: 32 source PDFs／16 actual callbacks／252 pages／3,912 structure nodes／32 annotations／208 tamper rejections成功。16 variant displaysの12 TrueType／4 CFF subsets、260 mapped glyphs、5,470 CID uses、48 tamper rejections成功。実埋込み16 variant PDFs／126 pages／5,470 CID glyph paintsと32改変PDF拒否も成功した。
+- render-cases.pyは原Haranoの新規本文／脚注の各先頭・継続ページをPoppler 100dpiで描画し、コマンドとPDF／PNG hashをrender-evidence.jsonへ保存した。4画像で親子head、幅に応じた改行、SVG数式と式番号、脚注marker／separatorの描画を確認した。これは英字本文とcontrolled数式fixtureであり、日本語全巻・PDF/UA・人手受入の証拠にはしない。
+
+- run-cli-accepted-01.pyは元VMB job 10件・原Harano／Arialを明示し、book_v2_resources -- --include-ignoredの230 tests／282.16秒、ignored 0件で成功した。jobs.jsonに各packageのhashとpathを保持する。
+- run-independent-01.py: 全743 source PDFs（352 actual callbacks）、2,836 pages、35,492 structure nodes、983 annotations、13 explicit unsupported inputs、5,663 tamper rejections成功。58 variant displaysの48 TrueType／10 CFF subsets、793 mapped glyphs、34,108 CID uses、2 repeated-only glyph cases、174 tamper rejections成功。実埋込み58 variant PDFs／446 pages／34,108 CID glyph paintsと118改変PDF拒否も成功した。
+- compare-accepted-01.pyで従来727 PDFは全件byte一致し、名前変更0件、driverのページ数とbody／footnote領域も一致した。VMB table_caption 31,046 bytes、table_alignment 31,111 bytesも一致する。旧／新path、完全wireのcanonical hash、PDF hashの対応をbyte-correspondence.jsonへ保存した。専用32 PDFと全体実行のbyte一致もdedicated-correspondence.jsonへ保存した。
+- source-preservation.jsonで元全巻package・原Harano／Arialのbyte長とSHA-256を再確認した。VMB jobの再exportは行っていない。2変更テストsourceのhashをfinal-source-hashes.json、変更前との差分をchanges.patchへ保存した。対象driverテストのrustfmt check、共用採番helperの移動差分、runnerのPython構文を確認した。production sourceが変わらないため、前回成功済みのpagination／layout／frozen各試験の追加反復は行わない。
+
+この専用回帰で子表variantの数式・画像検証を補完した。rowspan・強制改ページvariant、固定native/vector body、残る名前指定・柱/footer content・段組・元全巻・公開CLI・manifest・管理ホスト・性能・著者および人手受入は未完である。原Haranoの英字fixtureを日本語全巻・PDF/UA・人手受入へ拡大せず、VMB producer／Go testの完了も主張しない。
+
+<a id="book-2-page-region-text-design-14231"></a>
+
+## 231. 柱・footerの元sourceから専用flowと字形への接続（設計§14.231、2026-09-11）
+
+ADR-0095に従い、選択済みmasterとHeader／Footer指定、正確なnavigation ownerから元regionの段落を準備するBookV2PageRegionTextFlowを追加した。SourceTextFlowのnavigation型引数を本文と分け、元source bufferの文字列を借用してnode／span／language／soft・hard break／ordinary styleを保持する。本文や脚注のparagraph／markerを混ぜない。元master／region／roleを専用fingerprintへ束縛し、同じmasterの別物理ページで同じsource identityを保持する。
+
+共通paragraph shaping engineへPageRegion variantを追加し、source flowとは別のBookV2PageRegionTextShapeで実TrueType／CFF /2字形と選択line contextを保持する。ledger／limits／epochと正確なflow参照を照合する。page-plan／PDF側の未描画region拒否は維持し、この時点では柱・footer入りの新しいPDFを発行しない。
+
+証跡はworkspace/target/vmb-design/20260910/page-region-flow。Cargo共通引数は--manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910、CARGO_BUILD_JOBS=4。
+
+- check-01.logは開発中compile failure。既存本文用WireStagingSourceSpanとpage-regionのWireSourceSpanの型差、およびnavigationに存在しないfingerprint getterの使用を修正した。regionのsource identityは完全canonical input、master、role、ownerへ直接束縛する。check-02.logでsyntax／shapingのcompile成功（5.14秒）を確認した。
+- tests-01.logはテスト側NodeId import不足のcompile failure。tests-02／03.logではfixtureの旧微小page寸法と、新規footer headingの必須anchor_id:null欠落を修正した。拒否されたfixtureを成功扱いにしない。
+- tests-04.logは通常source／master検証2 tests成功。原Harano日本語もshape済みだったが、二つの行区間を二つのrunと同一視したassertionで失敗した。日本語のscript境界による3 runsを維持し、元source範囲の連続被覆、選択改行をまたがないこと、境界へ到達することを検証する形へ修正した。
+- tests-05.logはbook_v2_page_region_flow -- --include-ignored --nocaptureの3 tests／1.20秒、ignored 0件成功。controlled TTのResultと無変更原Haranoの「本文の柱」を、paragraph header／heading footerでshapeした。headerはtext／soft break／text／hard breakの4 sites、footerはtext 1 site。保持recordはそれぞれ9／6で、exact prior成功、1不足とu64::MAX prior拒否を確認した。
+- 元text bufferへのpointer、元UTF-8／span、別role、本文paragraphを含まないこと、正確なbody／navigation／shape owner、実selected master、欠けたregion、epoch0・別epoch・不正context ownerを検査した。日本語は6／12 byteの選択境界で被覆され、scalar途中の1 byte境界を拒否する。同じmasterの次ページ選択ではflow fingerprintが一致した。
+
+- run-cli-accepted-01.pyは元VMB job 10件・原Harano／Arialを明示し、book_v2_resources -- --include-ignoredの233 tests／269.37秒、ignored 0件で成功した。追加したlanguage=und、12pt、元font hashとglyph runのsource ownerのassertionはfinal-region-tests.logの3 tests／1.90秒で最終確認した。
+- run-local-checks.py: syntax 138 tests／1.42秒、doc-test 12／4.80秒が成功し、region carrierを本文flowへ渡せないcompile-failも通った。shapingは通常25 testsとdoc-test 1／1.13秒が成功した。通常実行でignoredとなる原Harano専用2 testsは、下記の追加実行で解決した。workspace --all-features checkは17.61秒、通常checkは6.71秒で成功した。
+- run-independent-01.py: 既存743 source PDFs（352 actual callbacks）、2,836 pages、35,492 structure nodes、983 annotations、13 explicit unsupported inputs、5,663 tamper rejections成功。58 variant displaysの48 TrueType／10 CFF subsets、793 mapped glyphs、34,108 CID uses、174 tamper rejections成功。実埋込み58 variant PDFs／446 pagesと118改変PDF拒否も成功した。今回は新しい柱・footer PDFの受入を含まない。
+- compare-accepted-01.pyで従来743 PDFは全件byte一致、名前変更0件、driverのページ数とbody／footnote領域も一致した。VMB table_caption 31,046 bytes、table_alignment 31,111 bytesも一致する。byte-correspondence.jsonに完全wireと旧／新PDFの対応を保存した。
+
+原Haranoの全異体字試験を明示的に実行すると、14,780 UVSのGID／cluster検査は通ったが、subsetのbytes hashだけが古いgoldenと一致しなかった（shaping-original-tests.log）。assertionを元cmap／全UVS検査と任意の調査出力の後へ移し、検証対象を保存した再実行でも同じ6,563,684 bytes／SHA-256 ed75bb3d39d6653e40d39a56c3e00bdf09d1ac2879a417a66441183775958ed5となった（shaping-original-output.log）。この調査実行の失敗も保存し、hashだけを先に書き換えることはしなかった。
+
+- tools/verify_harano_cff_subset.pyで元fontとの14,674字形の全輪郭・advance、14,002 base mappings、14,780 UVSを独立比較し成功した。selected_outline_mapping_sha256は127b543d1f072edb1af4e404c9cacc6544be0485f50bb903b60a64c10bc4108bで、2026-09-07 checkpointの記録と同じである。source FD 3／5／12／14、CFF／hmtx幅不一致0も維持した。FontTools 4.51.0の結果をivs-independent.logへ保存した。
+- tools/verify_cff_subset_raster.cを既存Homebrew FreeTypeのinclude／library flagsでcc -Wall -Wextra -Werrorにより構築し、FreeType 2.14.3で12／24／48／96pxの58,696 unhinted bitmap／origin／advance比較が成功した（ivs-raster.log）。元全巻・元font・元書籍データは変更していない。
+- 上記の根拠を確認して全異体字subsetのgoldenを現在のbytes hashへ更新した。CFF production処理は変更していない。以前のSFNT全bytesの変更箇所まで復元できたという主張はせず、元字形・mapping・描画が一致する独立証拠と、今回の2回の決定的出力に基づく試験goldenの更新として記録する。
+- shaping-original-final.logは原Harano専用2 tests／4.00秒、ignored 0件で成功した。operations 7,422,048、segments 1,354,039、14,674 glyphsを維持した。最終subset／GID mappingと独立検証対象のbyte一致をivs-final-correspondence.jsonへ保存した。このtest-only更新後に全CLIを反復せず、変更されたcrateの該当2 testsを実行した。
+
+source-preservation.jsonで元全巻package・原Harano／Arialのbyte長とSHA-256を再確認し、VMB job 10件のhashも保持した。9変更sourceのhashをfinal-source-hashes.json、変更前との差分をchanges.patchへ保存した。新規Rustと更新したCFFテストのrustfmt check、変更行の末尾空白、runnerのPython構文を確認した。
+
+柱・footerの物理行配置・高さ／overflow・反復Artifact描画・実resource／PDF closure、driver累積work／失敗試行費用への統合は未完であり、現行driverは内容の未描画を拒否する。残るrowspan・強制改ページvariant、固定native/vector body、名前指定、段組、元全巻、公開CLI／manifest、管理ホスト、性能、著者および人手受入も未完である。今回のsource／shapeと原Harano subset検証を、新規柱入りPDF・全巻・PDF/UAや人手受入へ拡大しない。

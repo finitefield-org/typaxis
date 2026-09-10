@@ -130,6 +130,7 @@ pub struct Failure {
     pub kind: FailureKind,
     pub message: String,
     failed_manifest_policy: FailedManifestPolicy,
+    processing_diagnostic: Option<typaxis_diagnostics::Diagnostic>,
 }
 
 #[allow(dead_code)] // focused MI2 slice-test fact type; no public execution entrance
@@ -852,11 +853,16 @@ enum FailedManifestPolicy {
 }
 
 impl Failure {
+    pub(crate) fn processing_diagnostic(&self) -> Option<&typaxis_diagnostics::Diagnostic> {
+        self.processing_diagnostic.as_ref()
+    }
+
     pub fn input(message: impl Into<String>) -> Self {
         Self {
             kind: FailureKind::Input,
             message: with_default_diagnostic_code(message.into(), "P1000"),
             failed_manifest_policy: FailedManifestPolicy::Publish,
+            processing_diagnostic: None,
         }
     }
     pub fn usage(message: impl Into<String>) -> Self {
@@ -864,6 +870,7 @@ impl Failure {
             kind: FailureKind::Usage,
             message: message.into(),
             failed_manifest_policy: FailedManifestPolicy::Publish,
+            processing_diagnostic: None,
         }
     }
     pub fn io(message: impl Into<String>) -> Self {
@@ -871,6 +878,7 @@ impl Failure {
             kind: FailureKind::Io,
             message: message.into(),
             failed_manifest_policy: FailedManifestPolicy::Publish,
+            processing_diagnostic: None,
         }
     }
     pub fn internal(message: impl Into<String>) -> Self {
@@ -878,6 +886,7 @@ impl Failure {
             kind: FailureKind::Internal,
             message: with_default_diagnostic_code(message.into(), "I9001"),
             failed_manifest_policy: FailedManifestPolicy::Publish,
+            processing_diagnostic: None,
         }
     }
     pub fn limit(message: impl Into<String>) -> Self {
@@ -885,6 +894,7 @@ impl Failure {
             kind: FailureKind::Limit,
             message: with_default_diagnostic_code(message.into(), "I9000"),
             failed_manifest_policy: FailedManifestPolicy::Publish,
+            processing_diagnostic: None,
         }
     }
 
@@ -893,6 +903,7 @@ impl Failure {
             kind: FailureKind::Internal,
             message: with_default_diagnostic_code(message.into(), "I9190"),
             failed_manifest_policy: FailedManifestPolicy::Publish,
+            processing_diagnostic: None,
         }
     }
 
@@ -901,6 +912,7 @@ impl Failure {
             kind: FailureKind::Io,
             message: "resource admission I/O failed: UnsupportedContainedOpen".to_owned(),
             failed_manifest_policy: FailedManifestPolicy::LeaveTargetsUntouched,
+            processing_diagnostic: None,
         }
     }
 
@@ -4656,6 +4668,7 @@ pub(crate) struct ProductionBookBuildOutput {
     flow_registry_sha256: [u8; 32],
     fragment_count: u64,
     trace_json: String,
+    layout_pass_count: std::num::NonZeroU16,
 }
 
 impl ProductionBookBuildOutput {
@@ -4668,6 +4681,7 @@ impl ProductionBookBuildOutput {
         [u8; 32],
         u64,
         String,
+        std::num::NonZeroU16,
     ) {
         (
             self.pdf,
@@ -4676,6 +4690,7 @@ impl ProductionBookBuildOutput {
             self.flow_registry_sha256,
             self.fragment_count,
             self.trace_json,
+            self.layout_pass_count,
         )
     }
 }
@@ -4694,18 +4709,6 @@ pub(crate) fn build_production_book_pdf(
     limits: &typaxis_core::M4EffectiveResourceLimits,
     config: &EffectiveConfig,
 ) -> Result<ProductionBookBuildOutput, Failure> {
-    use typaxis_core::{sha256, Length, NonNegativeLength, Point, PositiveLength};
-    use typaxis_display_list::{
-        BookInternalLinkInput, BookLanguagePaintInputV2, BookNavigationDestinationBinding,
-        BookNavigationSelectedPage, DestinationView, MarkedContentStandardPaintInputV2,
-        NamedDestination, SelectedStructureAnnotationInput, SelectedStructurePaintOwner,
-        StagingPrecomposedVectorDisplayLayoutInput, StructureOwner, StructureRole,
-    };
-    use typaxis_pagination::{
-        StagingAtomicVectorBlockPaginationInput, StagingAtomicVectorKeepSuccessorInput,
-        StagingFigureCaptionBlockInput,
-    };
-
     if config.contract() != typaxis_core::DocumentPackageContractId::V1_4
         || config.stream_compression() != typaxis_core::PdfStreamCompression::None
     {
@@ -4713,543 +4716,119 @@ pub(crate) fn build_production_book_pdf(
             "production-book-1 requires contract 1.4 and --no-compress",
         ));
     }
-    // The profile receipt owns its sealed preflight session; its nested
-    // authorizations are the package-bound capabilities rechecked by every
-    // downstream consumer.
-    let vector_profile = profile.base().base().authorization();
-    let book_profile = profile.base().authorization();
-    let accessibility = profile.authorization();
-
-    let native_math_view =
-        typaxis_syntax::StagingMathProfileView::new_for_production(package, limits)
-            .map_err(map_production_input_error)?;
-    let native_math_session = typaxis_syntax::StagingMathProfileSessionIdentity::fresh();
-    let native_math_profile =
-        typaxis_syntax::StagingMathProfileAuthorization::bind_production_profile_receipt(
-            native_math_view,
-            profile.base().base().fingerprint(),
-            package,
-            limits,
-            &native_math_session,
-        )
-        .map_err(map_production_input_error)?;
-    let native_math_layout =
-        typaxis_layout::layout_staging_math(package, &native_math_profile, limits, admitted)
-            .map_err(map_production_input_error)?;
-    let native_math_display = typaxis_display_list::build_staging_math_display(
-        package,
-        &native_math_profile,
-        limits,
-        admitted,
-        &native_math_layout,
-    )
-    .map_err(map_production_internal_error)?;
-
-    let bindings =
-        typaxis_layout::bind_staging_precomposed_vectors(package, vector_profile, limits, admitted)
-            .map_err(map_production_input_error)?;
-    let math_flows = typaxis_layout::prepare_staging_math_vector_flows(
-        package,
-        vector_profile,
-        limits,
-        admitted,
-        &bindings,
-    )
-    .map_err(map_production_input_error)?;
-    let block_layout = typaxis_layout::prepare_staging_precomposed_vector_blocks(
-        package,
-        vector_profile,
-        limits,
-        admitted,
-        &bindings,
-        &math_flows,
-    )
-    .map_err(map_production_input_error)?;
-    let inline_input = typaxis_layout::prepare_staging_precomposed_vector_inline_inputs(package)
-        .map_err(map_production_input_error)?;
-    let inline_selected = typaxis_layout::layout_staging_precomposed_vector_inlines(
-        package,
-        vector_profile,
-        limits,
-        admitted,
-        &bindings,
-        &inline_input,
-    )
-    .map_err(map_production_input_error)?;
-
-    let positive_20pt = PositiveLength::new(
-        Length::from_raw(20 * 65_536).ok_or_else(|| Failure::internal("invalid 20pt extent"))?,
-    )
-    .ok_or_else(|| Failure::internal("invalid positive 20pt extent"))?;
-    let captions = block_layout
-        .blocks()
-        .iter()
-        .flat_map(|block| block.caption_owners().iter().copied())
-        .map(|owner| StagingFigureCaptionBlockInput::new(owner, positive_20pt))
-        .collect::<Vec<_>>();
-    let keep_successors = block_layout
-        .blocks()
-        .iter()
-        .filter_map(|block| {
-            block.keep_with_next().then(|| {
-                block.following_sibling().map(|successor| {
-                    StagingAtomicVectorKeepSuccessorInput::new(
-                        block.owner(),
-                        successor.owner(),
-                        positive_20pt,
-                    )
-                })
-            })?
-        })
-        .collect::<Vec<_>>();
-    let initial_raw = if inline_selected.placements().is_empty() {
-        0
-    } else {
-        block_layout
-            .page_geometry()
-            .body()
-            .height()
-            .get()
-            .raw()
-            .checked_sub(1)
-            .ok_or_else(|| Failure::internal("invalid production body height"))?
-    };
-    let initial_consumed = NonNegativeLength::new(
-        Length::from_raw(initial_raw)
-            .ok_or_else(|| Failure::internal("invalid initial production block extent"))?,
-    )
-    .ok_or_else(|| Failure::internal("negative initial production block extent"))?;
-    let block_input = StagingAtomicVectorBlockPaginationInput::new(
-        &block_layout,
-        initial_consumed,
-        inline_selected.receipt().fragment_charge(),
-        captions,
-        keep_successors,
-    )
-    .map_err(map_production_input_error)?;
-    let block_selected = typaxis_pagination::paginate_staging_atomic_vector_blocks(
-        &block_layout,
-        &math_flows,
-        &block_input,
-        limits,
-    )
-    .map_err(map_production_input_error)?;
-    let layout_input = StagingPrecomposedVectorDisplayLayoutInput::new(
-        &inline_input,
-        &inline_selected,
-        &block_layout,
-        &math_flows,
-        &block_input,
-        &block_selected,
-    );
-    let vector_display = typaxis_display_list::build_staging_precomposed_vector_display(
-        package,
-        vector_profile,
-        limits,
-        admitted,
-        &bindings,
-        &layout_input,
-    )
-    .map_err(map_production_internal_error)?;
-    let figure_layout = typaxis_layout::layout_production_safe_vector_figures(
-        package,
-        vector_profile,
-        limits,
-        admitted,
-    )
-    .map_err(map_production_input_error)?;
-    let vector_page_count = u32::try_from(vector_display.pages().len())
-        .map_err(|_| Failure::limit("L5100: production page count overflow"))?;
-    let figure_display = typaxis_display_list::build_production_safe_vector_display(
-        package,
-        vector_profile,
-        limits,
-        admitted,
-        &figure_layout,
-        vector_page_count,
-    )
-    .map_err(map_production_internal_error)?;
-
-    let mut selected_bytes = Vec::with_capacity(160);
-    selected_bytes.extend_from_slice(&inline_selected.receipt().fingerprint());
-    selected_bytes.extend_from_slice(&block_selected.receipt().fingerprint());
-    selected_bytes.extend_from_slice(&figure_layout.receipt().fingerprint());
-    selected_bytes.extend_from_slice(&native_math_layout.fingerprint());
-    selected_bytes.extend_from_slice(&native_math_display.fingerprint());
-    let mut fragment_count = inline_selected
-        .receipt()
-        .fragment_charge()
-        .checked_add(block_selected.receipt().fragment_charge())
-        .ok_or_else(|| Failure::limit("L5110: production fragment count overflow"))?;
-    let geometry = vector_profile.page_geometry();
-    let pages = vector_display
-        .pages()
-        .iter()
-        .map(|page| BookNavigationSelectedPage {
-            page_index: page.page_index(),
-            width_raw: geometry.page_width().get().raw(),
-            height_raw: geometry.page_height().get().raw(),
-        })
-        .collect::<Vec<_>>();
-    let body = geometry.body();
-    let registry = typaxis_display_list::build_structure_registry_v2(
+    with_production_common_tagged_pdf(
         package,
         navigation,
         semantics,
-        accessibility,
-        limits,
-    )
-    .map_err(map_production_internal_error)?;
-
-    let mut next_paint_ordinal = vec![0u32; pages.len()];
-    for command in vector_display.commands() {
-        let page = next_paint_ordinal
-            .get_mut(command.page_index() as usize)
-            .ok_or_else(|| Failure::internal("production vector page is missing"))?;
-        *page = (*page).max(
-            command
-                .paint_ordinal()
-                .checked_add(1)
-                .ok_or_else(|| Failure::limit("L5110: production paint ordinal overflow"))?,
-        );
-    }
-    for placement in block_selected.placements() {
-        if let Some(number) = placement.equation_number() {
-            let page = next_paint_ordinal
-                .get_mut(placement.page_index() as usize)
-                .ok_or_else(|| Failure::internal("production equation page is missing"))?;
-            *page = (*page).max(
-                number
-                    .paint_ordinal()
-                    .checked_add(1)
-                    .ok_or_else(|| Failure::limit("L5110: production paint ordinal overflow"))?,
-            );
-        }
-    }
-    let mut standard_paints = Vec::new();
-    for node in registry.nodes().iter().filter(|node| {
-        node.paint_required()
-            && node.vector_binding_v2().is_none()
-            && node.equation_number_binding_v2().is_none()
-    }) {
-        let source_owner = match node.owner() {
-            StructureOwner::Source(owner) => Some(owner),
-            StructureOwner::Generated(_) => None,
-        };
-        let page_index = source_owner
-            .and_then(|owner| {
-                figure_display
-                    .commands()
-                    .find(|command| command.owner() == owner)
-                    .map(|command| command.page_index())
-                    .or_else(|| {
-                        native_math_display
-                            .draws()
-                            .iter()
-                            .find(|draw| draw.node_id() == owner)
-                            .map(|draw| draw.page_index())
-                    })
-            })
-            .unwrap_or(0);
-        let ordinal = next_paint_ordinal
-            .get_mut(page_index as usize)
-            .ok_or_else(|| Failure::limit("L5100: production standard paint page overflow"))?;
-        standard_paints.push(MarkedContentStandardPaintInputV2 {
-            page_index,
-            paint_ordinal: *ordinal,
-            semantic_fragment_ordinal: 0,
-            owner: SelectedStructurePaintOwner::Structure(node.structure_node_id()),
-        });
-        *ordinal = ordinal
-            .checked_add(1)
-            .ok_or_else(|| Failure::limit("L5110: production paint ordinal overflow"))?;
-    }
-    standard_paints.sort_by_key(|paint| (paint.page_index, paint.paint_ordinal));
-    for paint in &standard_paints {
-        selected_bytes.extend_from_slice(&paint.page_index.to_be_bytes());
-        selected_bytes.extend_from_slice(&paint.paint_ordinal.to_be_bytes());
-        if let SelectedStructurePaintOwner::Structure(owner) = paint.owner {
-            selected_bytes.extend_from_slice(&owner.get().to_be_bytes());
-        }
-    }
-    fragment_count = fragment_count
-        .checked_add(
-            u64::try_from(standard_paints.len())
-                .map_err(|_| Failure::limit("L5110: production fragment count overflow"))?,
-        )
-        .ok_or_else(|| Failure::limit("L5110: production fragment count overflow"))?;
-    let selected_layout_sha256 = sha256(&selected_bytes);
-
-    let destinations = navigation
-        .anchors()
-        .iter()
-        .enumerate()
-        .map(|(index, (anchor, owner))| {
-            let page_index = vector_display
-                .commands()
-                .find(|command| command.owner() == *owner)
-                .map_or(0, |command| command.page_index());
-            Ok(BookNavigationDestinationBinding {
-                source_node_id: *owner,
-                frame_id: u32::try_from(index)
-                    .map_err(|_| Failure::limit("P1120: destination count overflow"))?,
-                destination: NamedDestination {
-                    anchor_id: anchor.clone(),
-                    page_index,
-                    view: DestinationView::Xyz {
-                        point: Point {
-                            x: body.x(),
-                            y: body.y(),
-                        },
-                    },
-                },
-            })
-        })
-        .collect::<Result<Vec<_>, Failure>>()?;
-    let language_paints = standard_paints
-        .iter()
-        .filter_map(|paint| {
-            let SelectedStructurePaintOwner::Structure(id) = paint.owner else {
-                return None;
-            };
-            let node = registry.node(id)?;
-            let StructureOwner::Source(owner) = node.owner() else {
-                return None;
-            };
-            let language = navigation.languages().record(owner)?;
-            (language.effective_language.as_ref() != navigation.languages().document_language()
-                && matches!(
-                    language.node_kind,
-                    typaxis_document::StagingComputedLanguageOwnerKindV2::Text
-                        | typaxis_document::StagingComputedLanguageOwnerKindV2::Reference
-                        | typaxis_document::StagingComputedLanguageOwnerKindV2::FootnoteReference
-                        | typaxis_document::StagingComputedLanguageOwnerKindV2::InlineMath
-                        | typaxis_document::StagingComputedLanguageOwnerKindV2::DisplayMath
-                ))
-            .then_some(BookLanguagePaintInputV2 {
-                owner_node_id: owner,
-                occurrence: 0,
-                page_index: paint.page_index,
-                paint_ordinal: paint.paint_ordinal,
-            })
-        })
-        .collect::<Vec<_>>();
-    let links =
-        navigation
-            .internal_links()
-            .iter()
-            .enumerate()
-            .map(|(index, (owner, destination))| {
-                let offset = i64::try_from(index)
-                    .map_err(|_| Failure::limit("P1120: production link count overflow"))?
-                    .checked_mul(3 * 65_536)
-                    .ok_or_else(|| Failure::limit("P1120: production link geometry overflow"))?;
-                Ok(BookInternalLinkInput {
-                    owner_node_id: *owner,
-                    page_index: 0,
-                    destination: destination.clone(),
-                    x_raw: body.x().raw(),
-                    y_raw: body.y().raw().checked_add(offset).ok_or_else(|| {
-                        Failure::limit("P1120: production link geometry overflow")
-                    })?,
-                    width_raw: 8 * 65_536,
-                    height_raw: 2 * 65_536,
-                })
-            })
-            .collect::<Result<Vec<_>, Failure>>()?;
-    let book = typaxis_display_list::select_staging_book_navigation_v2(
-        navigation,
-        book_profile,
-        limits,
-        selected_layout_sha256,
-        fragment_count.max(1),
-        &pages,
-        &destinations,
-        &language_paints,
-        &links,
-        &vector_display,
-    )
-    .map_err(map_production_internal_error)?;
-    let annotations = registry
-        .nodes()
-        .iter()
-        .filter(|node| node.role() == StructureRole::Link)
-        .enumerate()
-        .map(|(index, node)| {
-            let StructureOwner::Source(owner) = node.owner() else {
-                return Err(Failure::internal("generated Link structure node"));
-            };
-            let annotation_id = u32::try_from(index)
-                .map_err(|_| Failure::limit("P1120: production annotation count overflow"))?;
-            Ok(SelectedStructureAnnotationInput {
-                annotation_id,
-                page_index: 0,
-                annotation_ordinal: annotation_id,
-                owner_node_id: owner,
-            })
-        })
-        .collect::<Result<Vec<_>, Failure>>()?;
-    let form_isolation =
-        typaxis_display_list::prove_vector_form_structure_isolation_v2(&vector_display)
-            .map_err(map_production_internal_error)?;
-    let vector_plan = typaxis_display_list::build_vector_marked_content_plan_v2(
-        &registry,
-        accessibility,
-        limits,
-        navigation,
-        book_profile,
-        &book,
-        &standard_paints,
-        &annotations,
-        &vector_display,
-        &form_isolation,
-        &block_selected,
-        &math_flows,
-    )
-    .map_err(map_production_internal_error)?;
-    let combined_display = typaxis_display_list::build_staging_combined_vector_display_v2(
-        package,
-        &vector_display,
-        Some(&figure_display),
+        profile,
         admitted,
-        &registry,
-        vector_plan.selected_binding(),
-    )
-    .map_err(map_production_internal_error)?;
-    let candidates = typaxis_resources::VectorContentCandidateRegistry::from_admitted(
-        admitted,
-        package.resources(),
-    )
-    .map_err(map_production_internal_error)?;
-    let form_plans = typaxis_resources::finalize_staging_combined_safe_vector_forms_v2(
-        &combined_display,
-        &candidates,
         limits,
-    )
-    .map_err(map_production_internal_error)?;
-    let contribution = typaxis_pdf::build_staging_combined_safe_vector_pdf_contribution_v2(
-        &combined_display,
-        &form_plans,
-        &candidates,
-        limits,
-    )
-    .map_err(map_production_internal_error)?;
-    let raster_image_ids = production_raster_figure_ids(package, admitted)?;
-    let raster_images = typaxis_resources::freeze_admitted_raster_images_for_pdf(
-        admitted,
-        &raster_image_ids,
-        limits.base(),
-    )
-    .map_err(|error| Failure::input(format!("production raster freeze failed: {error:?}")))?;
-    let serialization = vector_plan
-        .authorize_pdf_serialization(
-            &registry,
-            accessibility,
-            limits,
-            navigation,
-            book_profile,
-            &book,
-            &vector_display,
-            &form_isolation,
-            &block_selected,
-            &math_flows,
-        )
-        .map_err(map_production_internal_error)?;
-    let tagged = typaxis_pdf::write_production_tagged_pdf_v2(
-        package,
-        navigation,
-        semantics,
-        accessibility,
-        book_profile,
-        &book,
-        &registry,
-        serialization,
-        &vector_display,
-        &combined_display,
-        &form_isolation,
-        admitted,
-        &form_plans,
-        &candidates,
-        &contribution,
-        &native_math_profile,
-        &native_math_display,
-        &raster_images,
-        limits,
-        &typaxis_core::EngineIdentity::compiled(),
+        typaxis_linebreak::JapaneseLineBreakMode::Normal,
+        limits.base().get().max_fragments,
         config.fingerprint(),
+        |diagnostic, pdf, observation| {
+            let marked = diagnostic
+                .source()
+                .structure_objects()
+                .annotations()
+                .marked();
+            let structure = marked.structure();
+            let display = structure.display();
+            let book = typaxis_manifest::build_production_book_navigation_manifest(
+                package,
+                navigation,
+                profile.base().authorization(),
+                &pdf,
+                limits,
+            )
+            .map_err(|e| map_common_assembly_error("book manifest", e))?;
+            let safe = typaxis_manifest::build_production_safe_vector_manifest(
+                marked.content(),
+                profile.base().base().authorization(),
+                &book,
+                &pdf,
+                admitted,
+                limits,
+            )
+            .map_err(|e| map_common_assembly_error("safe manifest", e))?;
+            let math =
+                typaxis_manifest::build_production_math_vector_manifest(display, &safe, limits)
+                    .map_err(|e| map_common_assembly_error("math manifest", e))?;
+            let tagged = typaxis_manifest::build_production_tagged_manifest(
+                structure, &pdf, &safe, &math, limits,
+            )
+            .map_err(|e| map_common_assembly_error("tagged manifest", e))?;
+            // Root members copy each canonical record once. Reserve that cost
+            // and the fixed-field trace before allocating either projection.
+            let records = tagged
+                .record_charge()
+                .checked_add(5)
+                .ok_or_else(|| Failure::limit("L5110: production root records"))?;
+            let spool = [
+                book.manifest().canonical_jcs(),
+                safe.manifest().canonical_jcs(),
+                math.manifest().canonical_jcs(),
+                tagged.manifest().canonical_jcs(),
+            ]
+            .iter()
+            .try_fold(tagged.spool_charge(), |n, record| {
+                n.checked_add(record.len() as u64)
+            })
+            .and_then(|n| n.checked_add(2048))
+            .ok_or_else(|| Failure::limit("D8101: production root spool"))?;
+            if records > limits.base().get().max_fragments {
+                return Err(Failure::limit("L5110: production root records"));
+            }
+            if spool > limits.base().get().max_spool_bytes {
+                return Err(Failure::limit("D8101: production root spool"));
+            }
+            let vector_fields =
+                typaxis_manifest::StagingProductionBuildManifestVectorFields::built(
+                    book.manifest(),
+                    safe.manifest(),
+                    math.manifest(),
+                    tagged.manifest(),
+                )
+                .map_err(map_production_internal_error)?;
+            let selected_layout_sha256 = pdf.final_pdf().selected_layout_fingerprint().bytes();
+            let fragment_count = display
+                .source()
+                .geometry()
+                .pages()
+                .iter()
+                .try_fold(0u64, |n, page| n.checked_add(page.fragments().len() as u64))
+                .ok_or_else(|| Failure::limit("L5110: production fragment count"))?;
+            // This is the driver's cumulative count of completed page selections,
+            // including each generated Page-reference retry. It is not the
+            // line-reshape count or just the final inner stability run.
+            let layout_pass_count = std::num::NonZeroU16::new(observation.page_passes)
+                .filter(|count| count.get() >= 2 && count.get() <= limits.base().get().max_layout_passes)
+                .ok_or_else(|| Failure::internal("common layout pass accounting mismatch"))?;
+            let trace_json = production_trace_json(
+                layout_pass_count,
+                selected_layout_sha256,
+                observation.flow_registry_sha256,
+                profile.fingerprint(),
+                fragment_count,
+                display.source().line_layout().fingerprint(),
+                display.source().block_layout().receipt().fingerprint(),
+                display.source().line_layout().native_math_fingerprint(),
+                display.source().geometry().mixed().map(|geometry| {
+                    geometry.sequence().measurements_fingerprint()
+                }),
+                display.fingerprint(),
+            );
+            Ok(ProductionBookBuildOutput {
+                pdf: pdf.into_final_pdf(),
+                vector_fields,
+                selected_layout_sha256,
+                flow_registry_sha256: observation.flow_registry_sha256,
+                fragment_count,
+                trace_json,
+                layout_pass_count,
+            })
+        },
     )
-    .map_err(map_production_internal_error)?;
-    let safe = typaxis_manifest::build_staging_safe_vector_manifest_v2(
-        package,
-        vector_profile,
-        limits,
-        admitted,
-        &bindings,
-        navigation,
-        &combined_display,
-        &candidates,
-        &form_plans,
-        &contribution,
-        &tagged,
-    )
-    .map_err(map_production_internal_error)?;
-    let math = typaxis_manifest::build_staging_math_vector_manifest(package, &bindings, &safe)
-        .map_err(map_production_internal_error)?;
-    let book_manifest = typaxis_manifest::build_staging_book_navigation_manifest_v2(
-        package,
-        navigation,
-        book_profile,
-        &book,
-        &vector_display,
-        &tagged,
-        limits,
-        &typaxis_core::EngineIdentity::compiled(),
-    )
-    .map_err(map_production_internal_error)?;
-    let tagged_manifest = typaxis_manifest::build_staging_tagged_pdf_manifest_v2(
-        package,
-        navigation,
-        semantics,
-        accessibility,
-        book_profile,
-        &book,
-        &registry,
-        &vector_plan,
-        &vector_display,
-        &form_isolation,
-        &block_selected,
-        &math_flows,
-        &tagged,
-        &safe,
-        &math,
-        limits,
-        &typaxis_core::EngineIdentity::compiled(),
-    )
-    .map_err(map_production_internal_error)?;
-    let vector_fields = typaxis_manifest::StagingProductionBuildManifestVectorFields::built(
-        &book_manifest,
-        &safe,
-        &math,
-        &tagged_manifest,
-    )
-    .map_err(map_production_internal_error)?;
-    let trace_json = production_trace_json(
-        selected_layout_sha256,
-        math_flows.receipt().fingerprint(),
-        profile.fingerprint(),
-        fragment_count,
-        &inline_selected,
-        &block_selected,
-        &vector_display,
-    );
-    Ok(ProductionBookBuildOutput {
-        pdf: tagged.into_final_pdf(),
-        vector_fields,
-        selected_layout_sha256,
-        flow_registry_sha256: math_flows.receipt().fingerprint(),
-        fragment_count,
-        trace_json,
-    })
 }
 
 fn map_production_input_error(error: impl std::fmt::Display) -> Failure {
@@ -5259,65 +4838,6 @@ fn map_production_input_error(error: impl std::fmt::Display) -> Failure {
     } else {
         Failure::input(message)
     }
-}
-
-fn production_raster_figure_ids(
-    package: &typaxis_syntax::ValidatedStagingSemanticPackage,
-    admitted: &AdmittedResourceLedger,
-) -> Result<Vec<typaxis_core::ImageResourceId>, Failure> {
-    fn visit(
-        blocks: &[typaxis_syntax::machine_profile_boundary::StagingM4Block],
-        admitted: &AdmittedResourceLedger,
-        output: &mut std::collections::BTreeSet<typaxis_core::ImageResourceId>,
-    ) -> Result<(), Failure> {
-        use typaxis_syntax::machine_profile_boundary::StagingM4Block;
-        for block in blocks {
-            match block {
-                StagingM4Block::Figure {
-                    image_id, caption, ..
-                } => {
-                    let image = admitted
-                        .image(*image_id)
-                        .ok_or_else(|| Failure::input("production Figure resource is missing"))?;
-                    if matches!(
-                        image.media_kind(),
-                        typaxis_resources::AdmittedImageMediaKind::Png
-                            | typaxis_resources::AdmittedImageMediaKind::JpegBaseline
-                    ) {
-                        output.insert(*image_id);
-                    }
-                    visit(caption, admitted, output)?;
-                }
-                StagingM4Block::VectorFigure { caption, .. }
-                | StagingM4Block::SemanticContainer {
-                    blocks: caption, ..
-                } => visit(caption, admitted, output)?,
-                StagingM4Block::List { items, .. } => {
-                    for item in items {
-                        visit(&item.blocks, admitted, output)?;
-                    }
-                }
-                StagingM4Block::Table { head, body, .. } => {
-                    for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
-                        visit(&cell.blocks, admitted, output)?;
-                    }
-                }
-                StagingM4Block::Paragraph { .. }
-                | StagingM4Block::Heading { .. }
-                | StagingM4Block::PageBreak { .. }
-                | StagingM4Block::DisplayMath { .. }
-                | StagingM4Block::MathVectorBlock { .. } => {}
-            }
-        }
-        Ok(())
-    }
-
-    let mut output = std::collections::BTreeSet::new();
-    visit(&package.document().blocks, admitted, &mut output)?;
-    for footnote in &package.document().footnotes {
-        visit(&footnote.blocks, admitted, &mut output)?;
-    }
-    Ok(output.into_iter().collect())
 }
 
 fn map_production_internal_error(error: impl std::fmt::Display) -> Failure {
@@ -5330,13 +4850,16 @@ fn map_production_internal_error(error: impl std::fmt::Display) -> Failure {
 }
 
 fn production_trace_json(
+    layout_pass_count: std::num::NonZeroU16,
     selected_layout_sha256: [u8; 32],
     flow_registry_sha256: [u8; 32],
     profile_receipt_sha256: [u8; 32],
     fragment_count: u64,
-    inline: &typaxis_layout::StagingInlineVectorSelectedLayout,
-    blocks: &typaxis_pagination::StagingAtomicVectorBlockSelectedLayout,
-    display: &typaxis_display_list::StagingPrecomposedVectorDisplay,
+    inline: [u8; 32],
+    blocks: [u8; 32],
+    native: Option<[u8; 32]>,
+    tables: Option<[u8; 32]>,
+    display: [u8; 32],
 ) -> String {
     fn hex(value: [u8; 32]) -> String {
         const DIGITS: &[u8; 16] = b"0123456789abcdef";
@@ -5348,14 +4871,18 @@ fn production_trace_json(
         output
     }
     format!(
-        "{{\"block_layout_sha256\":\"{}\",\"contract\":\"typaxis.contract/1.4\",\"coordinate_unit\":\"pdf_point_1_65536\",\"flow_registry_sha256\":\"{}\",\"fragment_count\":{},\"inline_layout_sha256\":\"{}\",\"profile_receipt_sha256\":\"{}\",\"selected_layout_sha256\":\"{}\",\"vector_display_sha256\":\"{}\"}}",
-        hex(blocks.receipt().fingerprint()),
+        "{{\"block_layout_sha256\":\"{}\",\"contract\":\"typaxis.contract/1.4\",\"coordinate_unit\":\"pdf_point_1_65536\",\"flow_registry_sha256\":\"{}\",\"fragment_count\":{},\"inline_layout_sha256\":\"{}\",\"native_math_layout_sha256\":{},\"pass_count\":{},\"profile_receipt_sha256\":\"{}\",\"selected_layout_sha256\":\"{}\",\"selected_state\":{},\"table_measurements_sha256\":{},\"vector_display_sha256\":\"{}\"}}",
+        hex(blocks),
         hex(flow_registry_sha256),
         fragment_count,
-        hex(inline.receipt().fingerprint()),
+        hex(inline),
+        native.map_or_else(|| "null".to_owned(), |value| format!("\"{}\"", hex(value))),
+        layout_pass_count.get(),
         hex(profile_receipt_sha256),
         hex(selected_layout_sha256),
-        hex(display.receipt().fingerprint()),
+        layout_pass_count.get(),
+        tables.map_or_else(|| "null".to_owned(), |value| format!("\"{}\"", hex(value))),
+        hex(display),
     )
 }
 

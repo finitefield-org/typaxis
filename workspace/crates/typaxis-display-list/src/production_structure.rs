@@ -38,8 +38,12 @@ pub struct ProductionBodyStructureGroup {
     draws: Range<usize>,
     vector_usage_id: Option<u32>,
     is_text: bool,
+    is_native_math: bool,
 }
 impl ProductionBodyStructureGroup {
+    pub const fn is_native_math(&self) -> bool {
+        self.is_native_math
+    }
     pub const fn is_text(&self) -> bool {
         self.is_text
     }
@@ -94,12 +98,14 @@ impl<'v, 'd, 's, 'p, 'a> ProductionBodyStructure<'v, 'd, 's, 'p, 'a> {
             .get(page as usize)
             .map(|r| &self.groups[r.clone()])
     }
-    /// Registry replacement text applies only to vector occurrences. The PDF
+    /// Registry replacement text applies to atomic vector and native math occurrences. The PDF
     /// marked-content owner assembles body text from this group's selected
     /// draws; repeating the registry's full source on each line duplicates it.
     pub fn group_actual_text(&self, index: usize) -> Option<&str> {
         let group = self.groups.get(index)?;
-        group.vector_usage_id?;
+        if group.vector_usage_id.is_none() && !group.is_native_math {
+            return None;
+        }
         self.registry.node(group.node)?.actual_text()
     }
     pub const fn record_charge(&self) -> u64 {
@@ -142,6 +148,7 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
     let projection = project_structure(
         display.selected().line_layout(),
         display.draws(),
+        |_| false,
         display.selected().pages().len(),
         display.record_charge(),
         display.fingerprint(),
@@ -174,6 +181,7 @@ struct StructureProjection {
 fn project_structure(
     lines: &typaxis_layout::ProductionInlineLineLayout<'_, '_>,
     draws: &[ProductionBodyDraw<'_>],
+    is_artifact: impl Fn(usize) -> bool,
     page_count: usize,
     prior_charge: u64,
     display_fingerprint: [u8; 32],
@@ -207,6 +215,7 @@ fn project_structure(
     .map_err(|_| E::Registry)?;
     let spool_charge = (registry.canonical_jcs().len() as u64)
         .checked_mul(2)
+        .and_then(|n| n.checked_add(lines.native_math_spool_charge()))
         .ok_or(E::SpoolLimit)?;
     if spool_charge > limits.base().get().max_spool_bytes {
         return Err(E::SpoolLimit);
@@ -224,7 +233,7 @@ fn project_structure(
     }
     let mut source_nodes = BTreeMap::<NodeId, StructureNodeId>::new();
     let mut label_nodes = BTreeMap::<NodeId, StructureNodeId>::new();
-    let mut node_groups = Vec::new();
+    let mut node_groups: Vec<Vec<usize>> = Vec::new();
     node_groups
         .try_reserve_exact(registry.nodes().len())
         .map_err(|_| E::AllocationFailure)?;
@@ -260,7 +269,9 @@ fn project_structure(
         let mut previous_fragment = None;
         while let Some(draw) = draws.get(draw_index) {
             let (source, draw_page, fragment) = match draw {
+                ProductionBodyDraw::Math(m) => (m.owner(), m.page_index(), m.fragment_index()),
                 ProductionBodyDraw::Text(t) => (t.owner(), t.page_index(), t.fragment_index()),
+                ProductionBodyDraw::SvgFigure(r) => (r.owner(), r.page_index(), r.fragment_index()),
                 ProductionBodyDraw::Raster(r) => (r.owner(), r.page_index(), r.fragment_index()),
                 ProductionBodyDraw::Vector(v) => {
                     (v.binding().node_id(), v.page_index(), v.fragment_index())
@@ -282,7 +293,54 @@ fn project_structure(
             if !node.paint_required() {
                 return Err(E::InvalidPaint);
             }
+            if is_artifact(draw_index) {
+                // Copy roles come only from the verified mixed placement. A
+                // repeated source still needs its earlier semantic occurrence;
+                // the copy owns paint/resources, never an MCID or an MCR.
+                let original = node_groups[id.get() as usize]
+                    .first()
+                    .and_then(|index| groups.get(*index))
+                    .ok_or(E::InvalidPaint)?;
+                if original.page_index() >= page_index {
+                    return Err(E::InvalidPaint);
+                }
+                if draw.vector_paint().is_some() {
+                    vector_usage = vector_usage.checked_add(1).ok_or(E::RecordLimit)?;
+                }
+                previous_fragment = None;
+                draw_index += 1;
+                continue;
+            }
             let usage = match draw {
+                ProductionBodyDraw::Math(m) => {
+                    let actual = node.actual_text().ok_or(E::InvalidPaint)?;
+                    if node.role() != StructureRole::Formula
+                        || node.owner() != StructureOwner::Source(m.owner())
+                        || node.source_span() != Some(m.source_span())
+                        || node.vector_binding_v2().is_some()
+                        || node.equation_number_binding_v2().is_some()
+                        || node.alternative() != Some(actual)
+                        || sha256(actual.as_bytes()) != m.receipt().speech_sha256()
+                        || !node_groups[id.get() as usize].is_empty()
+                    {
+                        return Err(E::InvalidPaint);
+                    }
+                    None
+                }
+                ProductionBodyDraw::SvgFigure(r) => {
+                    if node.role() != StructureRole::Figure
+                        || node.owner() != StructureOwner::Source(r.owner())
+                        || node.source_span() != Some(r.source().source_span())
+                        || node.vector_binding_v2().is_some()
+                        || node.alternative() != Some(r.alternative())
+                        || !node_groups[id.get() as usize].is_empty()
+                    {
+                        return Err(E::InvalidPaint);
+                    }
+                    let usage = vector_usage;
+                    vector_usage = vector_usage.checked_add(1).ok_or(E::RecordLimit)?;
+                    Some(usage)
+                }
                 ProductionBodyDraw::Raster(r) => {
                     if node.role() != StructureRole::Figure
                         || node.vector_binding_v2().is_some()
@@ -405,6 +463,7 @@ fn project_structure(
                     draws: draw_index..draw_index + 1,
                     vector_usage_id: usage,
                     is_text: matches!(draw, ProductionBodyDraw::Text(_)),
+                    is_native_math: matches!(draw, ProductionBodyDraw::Math(_)),
                 });
             }
             previous_fragment = Some((id, fragment));
@@ -527,7 +586,9 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
     }
     pub fn group_actual_text(&self, index: usize) -> Option<&str> {
         let group = self.projection.groups.get(index)?;
-        group.vector_usage_id?;
+        if group.vector_usage_id.is_none() && !group.is_native_math {
+            return None;
+        }
         self.projection.registry.node(group.node)?.actual_text()
     }
     /// Separator paint is artifact content, excluded from MCIDs and ParentTree.
@@ -574,6 +635,11 @@ pub fn build_production_footnote_structure<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
     let projection = project_structure(
         display.source().line_layout(),
         display.draws(),
+        |index| {
+            display
+                .table_draw_role(index)
+                .is_some_and(|role| role.repeated_header())
+        },
         display.source().geometry().pages().len(),
         display.record_charge(),
         display.fingerprint(),

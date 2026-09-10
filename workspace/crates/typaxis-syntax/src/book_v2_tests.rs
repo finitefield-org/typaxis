@@ -47,13 +47,14 @@ fn renumber(value: &mut Value, next: &mut u32) {
             *next += 1;
         }
         for key in [
+            "term",
             "blocks",
             "children",
             "items",
+            "caption",
             "head",
             "body",
             "cells",
-            "caption",
             "equation_number",
             "footnotes",
         ] {
@@ -72,12 +73,18 @@ fn collect(
             output.push((block.node_id().get(), kind, block.span()));
         }
         match block {
+            BookV2Block::DescriptionList { items, .. } => {
+                for item in items {
+                    collect(&item.blocks, output);
+                }
+            }
             BookV2Block::List { items, .. } => {
                 for item in items {
                     collect(&item.blocks, output);
                 }
             }
-            BookV2Block::Table { head, body, .. } => {
+            BookV2Block::Table { caption, head, body, .. } => {
+                collect(caption, output);
                 for row in head.iter().chain(body) {
                     for cell in &row.cells {
                         collect(&cell.blocks, output);
@@ -123,7 +130,7 @@ fn wire_containers(value: &Value, output: &mut Vec<(u32, String, Value)>) {
 }
 
 #[test]
-fn all_twelve_kinds_preserve_typed_ownership_in_all_eight_recursive_slots() {
+fn all_successor_kinds_preserve_typed_ownership_in_all_eight_recursive_slots() {
     for kind in WireBookV2SemanticContainerKind::ALL {
         for slot in [
             "body",
@@ -515,13 +522,22 @@ fn successor_style_keeps_precedence_extends_and_authored_inheritance() {
     let flow = prepare_book_v2_text_flow(&styled, &navigation).unwrap();
     for paragraph in flow.paragraphs() {
         assert_eq!(paragraph.style().font_families().unwrap(), ["Authored"]);
-        assert_eq!(paragraph.style().font_size().unwrap().get().raw(), 12 * 65536);
-        assert_eq!(paragraph.style().line_height().unwrap().get().raw(), 16 * 65536);
-        assert_eq!(paragraph.style().block_style().text_align(), if paragraph.owner() == NodeId::new(5) {
-            typaxis_style::MachineTextAlign::End
-        } else {
-            typaxis_style::MachineTextAlign::Center
-        });
+        assert_eq!(
+            paragraph.style().font_size().unwrap().get().raw(),
+            12 * 65536
+        );
+        assert_eq!(
+            paragraph.style().line_height().unwrap().get().raw(),
+            16 * 65536
+        );
+        assert_eq!(
+            paragraph.style().block_style().text_align(),
+            if paragraph.owner() == NodeId::new(5) {
+                typaxis_style::MachineTextAlign::End
+            } else {
+                typaxis_style::MachineTextAlign::Center
+            }
+        );
     }
 }
 
@@ -611,3 +627,12 @@ fn assert_style_input_rejected(input: &Value) {
         assert!(style_book_v2_body(body).is_err());
     }
 }
+
+#[path = "book_v2_description_domain_tests.rs"]
+mod description_domains;
+
+#[path = "book_v2_table_caption_tests.rs"]
+mod table_captions;
+
+#[path = "book_v2_table_cell_style_tests.rs"]
+mod table_cell_styles;

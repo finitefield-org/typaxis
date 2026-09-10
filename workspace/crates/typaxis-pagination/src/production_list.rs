@@ -11,6 +11,15 @@ pub struct ProductionBodyListMarker {
     baseline: Length,
 }
 impl ProductionBodyListMarker {
+    #[cfg(feature = "book-v2-staging")]
+    pub(super) fn translate_x(
+        &mut self,
+        delta: Length,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        self.bounds = translate_page_rect_x(self.bounds, delta, self.owner)?;
+        Ok(())
+    }
+
     pub const fn owner(&self) -> NodeId {
         self.owner
     }
@@ -36,8 +45,8 @@ pub(super) struct MarkerBinding {
     pub baseline: Length,
 }
 
-pub(super) fn region_frame(
-    lines: &ProductionInlineLineLayout<'_, '_>,
+pub(super) fn region_frame_shared(
+    lines: BodyLines<'_, '_, '_>,
     body: Rect,
     owner: NodeId,
 ) -> Result<(Length, PositiveLength), ProductionBodyPaginationError> {
@@ -54,13 +63,13 @@ pub(super) fn region_frame(
 
 /// Recompute alignment against the actual containing item frame. In particular,
 /// center/end alignment is not a translation of a body-wide preparation.
-pub(super) fn block_frame(
-    lines: &ProductionInlineLineLayout<'_, '_>,
+pub(super) fn block_frame_shared(
+    lines: BodyLines<'_, '_, '_>,
     body: Rect,
     block: &typaxis_layout::StagingPreparedVectorBlock,
 ) -> Result<(Length, PositiveLength, Length), ProductionBodyPaginationError> {
     let owner = block.owner();
-    let (left, width) = region_frame(lines, body, owner)?;
+    let (left, width) = region_frame_shared(lines, body, owner)?;
     if left == body.x() && width == body.width() {
         return Ok((
             block.inner_frame_left(),
@@ -104,7 +113,7 @@ pub(super) fn block_frame(
     Ok((left, width, viewport_left))
 }
 
-pub(super) fn has_paint(item: &Item, lines: &ProductionInlineLineLayout<'_, '_>) -> bool {
+pub(super) fn has_paint_shared(item: &Item, lines: BodyLines<'_, '_, '_>) -> bool {
     match item.source {
         None => false,
         Some(ProductionBodyFragmentSource::ParagraphLine {
@@ -113,12 +122,13 @@ pub(super) fn has_paint(item: &Item, lines: &ProductionInlineLineLayout<'_, '_>)
         }) => lines.paragraphs()[paragraph_index as usize].lines()[line_index as usize]
             .items()
             .iter()
-            .any(|item| {
-                matches!(
-                    item,
-                    typaxis_layout::ProductionPlacedInline::Text(_)
-                        | typaxis_layout::ProductionPlacedInline::Vector(_)
-                )
+            .any(|item| match item {
+                typaxis_layout::ProductionPlacedInline::Text(_)
+                | typaxis_layout::ProductionPlacedInline::Vector(_)
+                | typaxis_layout::ProductionPlacedInline::Math(_) => true,
+                #[cfg(feature = "book-v2-staging")]
+                typaxis_layout::ProductionPlacedInline::BookV2Math(_) => true,
+                _ => false,
             }),
         Some(_) => true,
     }
@@ -130,13 +140,24 @@ pub(super) fn prepare_metrics(
     items: &mut [Item],
     bindings: &mut [MarkerBinding],
 ) -> Result<(), ProductionBodyPaginationError> {
+    prepare_metrics_shared(
+        BodyLines::Legacy(lines),
+        BodyBlocks::Legacy(blocks.blocks()),
+        items,
+        bindings,
+    )
+}
+pub(super) fn prepare_metrics_shared(
+    lines: BodyLines<'_, '_, '_>,
+    blocks: BodyBlocks<'_>,
+    items: &mut [Item],
+    bindings: &mut [MarkerBinding],
+) -> Result<(), ProductionBodyPaginationError> {
     let mut previous = None;
     for binding in bindings {
-        let marker = lines
-            .list_markers()
-            .get(binding.marker_index as usize)
+        let (owner, ascent, descent) = lines
+            .marker(binding.marker_index as usize, false)
             .ok_or_else(|| error(NodeId::new(0), E::ReceiptMismatch))?;
-        let owner = marker.source().owner();
         let index = binding
             .item_index
             .ok_or_else(|| error(owner, E::EmptyListItem))?;
@@ -147,14 +168,7 @@ pub(super) fn prepare_metrics(
         let item = items
             .get_mut(index)
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-        let baseline = prepare_marker_metrics(
-            lines,
-            blocks,
-            item,
-            marker.font().ascender(),
-            marker.font().descender(),
-            owner,
-        )?;
+        let baseline = prepare_marker_metrics_shared(lines, blocks, item, ascent, descent, owner)?;
         binding.baseline = baseline;
     }
     Ok(())
@@ -162,9 +176,9 @@ pub(super) fn prepare_metrics(
 
 /// Merge each label's vertical extent with the same real content item. Nested
 /// labels share the maximum leading/trailing; they do not add duplicate height.
-pub(super) fn prepare_marker_metrics(
-    lines: &ProductionInlineLineLayout<'_, '_>,
-    blocks: &StagingPrecomposedVectorBlockLayout,
+pub(super) fn prepare_marker_metrics_shared(
+    lines: BodyLines<'_, '_, '_>,
+    blocks: BodyBlocks<'_>,
     item: &mut Item,
     ascent: Length,
     descent: Length,
@@ -179,13 +193,20 @@ pub(super) fn prepare_marker_metrics(
             line_index,
         } => lines.paragraphs()[paragraph_index as usize].lines()[line_index as usize].baseline(),
         ProductionBodyFragmentSource::VectorBlock { block_index } => {
-            let block = &blocks.blocks()[block_index as usize];
+            let block = blocks
+                .get(block_index as usize)
+                .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
             match block.baseline() {
                 Some(b) => add(block.viewport_top_offset().get(), b.get(), owner)?,
                 None => ascent,
             }
         }
-        ProductionBodyFragmentSource::RasterFigure { .. } => ascent,
+        ProductionBodyFragmentSource::NativeMathBlock { block_index } => lines
+            .native_math_blocks()
+            .get(block_index as usize)
+            .ok_or_else(|| error(owner, E::ReceiptMismatch))?
+            .baseline(),
+        ProductionBodyFragmentSource::Figure { .. } => ascent,
     };
     if ascent <= descent {
         return Err(error(owner, E::ReceiptMismatch));
@@ -212,30 +233,45 @@ pub(super) fn place_marker(
     top: Length,
     body: Rect,
 ) -> Result<ProductionBodyListMarker, ProductionBodyPaginationError> {
+    place_marker_shared(
+        BodyLines::Legacy(lines),
+        binding,
+        fragment_index,
+        page_index,
+        top,
+        body,
+    )
+}
+pub(super) fn place_marker_shared(
+    lines: BodyLines<'_, '_, '_>,
+    binding: &MarkerBinding,
+    fragment_index: u32,
+    page_index: u32,
+    top: Length,
+    body: Rect,
+) -> Result<ProductionBodyListMarker, ProductionBodyPaginationError> {
     let marker = lines
-        .list_markers()
-        .get(binding.marker_index as usize)
+        .marker_geometry(binding.marker_index as usize, false)
         .ok_or_else(|| error(NodeId::new(0), E::ReceiptMismatch))?;
-    let owner = marker.source().owner();
+    let owner = marker.owner;
     let column = lines
         .frames()
-        .and_then(|f| f.lists().get(marker.source().list_index() as usize))
+        .and_then(|f| f.lists().get(marker.list_index.expect("list marker")))
         .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
     let slack = column
         .marker_width()
         .get()
-        .checked_sub(marker.advance().get())
+        .checked_sub(marker.advance.get())
         .filter(|n| *n >= Length::ZERO)
         .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
     let x = add(add(body.x(), column.marker_start(), owner)?, slack, owner)?;
     let baseline = add(top, binding.baseline, owner)?;
     let y = baseline
-        .checked_sub(marker.font().ascender())
+        .checked_sub(marker.ascent)
         .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
     let height = marker
-        .font()
-        .ascender()
-        .checked_sub(marker.font().descender())
+        .ascent
+        .checked_sub(marker.descent)
         .and_then(PositiveLength::new)
         .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
     Ok(ProductionBodyListMarker {
@@ -243,7 +279,7 @@ pub(super) fn place_marker(
         marker_index: binding.marker_index,
         fragment_index,
         page_index,
-        bounds: Rect::new(x, y, marker.advance(), height),
+        bounds: Rect::new(x, y, marker.advance, height),
         baseline,
     })
 }

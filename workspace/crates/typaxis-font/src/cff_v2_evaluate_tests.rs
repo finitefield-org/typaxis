@@ -1,4 +1,106 @@
 use super::*;
+
+#[test]
+fn cff_v2_execution_charges_growth_before_allocation_and_preserves_failed_work() {
+    let mut p = program();
+    let mut source = p.program.source.to_vec();
+    // Three path operators consume operands; their shared fixed-capacity
+    // stack is retained. Five outline commands grow the outline from 4 to 8.
+    let root = append(&mut source, &[139, 139, 21, 32, 29, 32, 29, 32, 29, 14]);
+    p.program.source = source.into();
+    p.program.charstrings[0] = root;
+    let limits = limits(M4ResourceLimits::default());
+    let run = |maximum: (usize, usize, usize)| {
+        let mut session = CffProgramEvaluationSessionV2::new(&limits);
+        let mut spent = (0usize, 0usize, 0usize);
+        let mut allocations = Vec::new();
+        let result = session.evaluate_with_charge(&p, 0, 500, &mut |records, bytes, work| {
+            let records_after = spent
+                .0
+                .checked_add(records)
+                .filter(|n| *n <= maximum.0)
+                .ok_or(Cff1Error::SubsetByteLimit)?;
+            let bytes_after = spent
+                .1
+                .checked_add(bytes)
+                .filter(|n| *n <= maximum.1)
+                .ok_or(Cff1Error::SubsetByteLimit)?;
+            spent.0 = records_after;
+            spent.1 = bytes_after;
+            if records > 0 {
+                allocations.push((records, bytes));
+            }
+            for _ in 0..work {
+                spent.2 = spent
+                    .2
+                    .checked_add(1)
+                    .filter(|n| *n <= maximum.2)
+                    .ok_or(Cff1Error::SubsetByteLimit)?;
+            }
+            Ok(())
+        });
+        (result, spent, session, allocations)
+    };
+    let (actual, spent, mut failed_session, allocations) =
+        run((usize::MAX, usize::MAX, usize::MAX));
+    let actual = actual.unwrap();
+    assert_eq!(actual.commands().len(), 5);
+    assert_eq!(allocations.len(), 3);
+    assert_eq!(
+        allocations[0].0,
+        TYPE2_OPERAND_STACK_LIMIT + TYPE2_CALL_DEPTH_LIMIT + 1
+    );
+    assert_eq!(
+        &allocations[1..],
+        &[(4, 4 * std::mem::size_of::<OutlineSegment>()); 2]
+    );
+    let mut legacy = CffProgramEvaluationSessionV2::new(&limits);
+    let expected = legacy.evaluate(&p, 0, 500).unwrap();
+    assert_eq!(
+        actual.commands().collect::<Vec<_>>(),
+        expected.commands().collect::<Vec<_>>()
+    );
+    assert_eq!(actual.control_bounds(), expected.control_bounds());
+    assert_eq!(
+        actual.canonical_charstring().unwrap(),
+        expected.canonical_charstring().unwrap()
+    );
+    assert!(run(spent).0.is_ok());
+    for maximum in [
+        (spent.0 - 1, spent.1, spent.2),
+        (spent.0, spent.1 - 1, spent.2),
+        (spent.0, spent.1, spent.2 - 1),
+    ] {
+        let (result, _, session, _) = run(maximum);
+        assert_eq!(result.unwrap_err().kind, Cff1Error::SubsetByteLimit);
+        assert!(session.operations_used() > 0);
+    }
+    let (result, refused, session, _) = run((spent.0, spent.1, spent.2 - 1));
+    assert_eq!(result.unwrap_err().kind, Cff1Error::SubsetByteLimit);
+    assert_eq!(refused, (spent.0, spent.1, spent.2 - 1));
+    assert_eq!(session.operations_used(), legacy.operations_used());
+    assert_eq!(
+        session.outline_segments_used(),
+        legacy.outline_segments_used()
+    );
+    // A subsequent allocation rejection does not erase the successful first
+    // glyph's operation/segment counters or execute a second program.
+    let before = (
+        failed_session.operations_used(),
+        failed_session.outline_segments_used(),
+    );
+    let error = failed_session
+        .evaluate_with_charge(&p, 0, 500, &mut |_, _, _| Err(Cff1Error::SubsetByteLimit))
+        .unwrap_err();
+    assert_eq!(error.kind, Cff1Error::SubsetByteLimit);
+    assert_eq!(
+        (
+            failed_session.operations_used(),
+            failed_session.outline_segments_used()
+        ),
+        before
+    );
+}
 fn limits(extension: M4ResourceLimits) -> M4EffectiveResourceLimits {
     M4EffectiveResourceLimits::new(
         typaxis_core::ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default())

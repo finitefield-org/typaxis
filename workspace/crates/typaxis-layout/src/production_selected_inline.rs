@@ -84,12 +84,42 @@ impl ProductionPlacedInlineVector {
     }
 }
 
+/// Source-authorized native computation at the actual selected line baseline.
+/// Glyph and rule coordinates remain local to this origin until pagination.
+#[derive(Debug)]
+pub struct ProductionPlacedInlineMath<'p> {
+    source_span: SourceSpan,
+    receipt: &'p crate::ValidatedMathReceipt,
+    pen_x: Length,
+    baseline: Length,
+}
+impl<'p> ProductionPlacedInlineMath<'p> {
+    pub const fn owner(&self) -> NodeId {
+        self.receipt.node_id()
+    }
+    pub const fn source_span(&self) -> SourceSpan {
+        self.source_span
+    }
+    pub const fn receipt(&self) -> &'p crate::ValidatedMathReceipt {
+        self.receipt
+    }
+    pub const fn pen_x(&self) -> Length {
+        self.pen_x
+    }
+    pub const fn baseline(&self) -> Length {
+        self.baseline
+    }
+}
+
 /// Source order within a selected line. A Break retains provenance and consumes
 /// no paint or extraction text; markup/anchors remain in the borrowed flow.
 #[derive(Debug)]
 pub enum ProductionPlacedInline<'p, 'a> {
     Text(ProductionPlacedTextCluster<'p, 'a>),
     Vector(ProductionPlacedInlineVector),
+    Math(ProductionPlacedInlineMath<'p>),
+    #[cfg(feature = "book-v2-staging")]
+    BookV2Math(crate::book_v2::BookV2PlacedInlineMath<'p,'p>),
     Break(ProductionExplicitBreak),
 }
 
@@ -158,6 +188,16 @@ impl<'p, 'a> ProductionInlineParagraphLineLayout<'p, 'a> {
     pub const fn inline_size(&self) -> PositiveLength {
         self.inline_size
     }
+    /// Selected width for this exact original-source line. The paragraph width
+    /// is only a containing envelope when source widths were supplied.
+    pub fn line_inline_size(&self, line: usize) -> Option<PositiveLength> {
+        self.selected
+            .as_ref()?
+            .lines()
+            .get(line)
+            .map(|l| l.inline_size())
+    }
+
     pub const fn font(&self) -> Option<&'p ProductionBodyFont> {
         self.font
     }
@@ -181,6 +221,24 @@ pub struct ProductionInlineLineLayout<'p, 'a> {
     pub(super) frames: Option<ProductionBodyInlineFrames<'p, 'a>>,
 }
 impl<'p, 'a> ProductionInlineLineLayout<'p, 'a> {
+    /// The actual native computation owner reused by this selected line layout.
+    /// Absence is distinct from a fabricated empty native layout receipt.
+    pub fn native_math_fingerprint(&self) -> Option<[u8; 32]> {
+        self.prepared.native_math().map(|m| m.fingerprint())
+    }
+    pub fn native_math_blocks(&self) -> &[crate::ProductionNativeMathDisplayBlock] {
+        self.prepared
+            .native_math()
+            .map_or(&[], |m| m.display_blocks())
+    }
+    pub fn native_math_receipt(&self, owner: NodeId) -> Option<&crate::ValidatedMathReceipt> {
+        self.prepared.native_math()?.receipt(owner)
+    }
+
+    pub fn native_math_spool_charge(&self) -> u64 {
+        self.prepared.native_math().map_or(0, |m| m.spool_charge())
+    }
+
     pub(super) const fn prepared_limit(&self) -> u64 {
         self.prepared.max_fragments
     }
@@ -193,7 +251,7 @@ impl<'p, 'a> ProductionInlineLineLayout<'p, 'a> {
     pub fn list_markers(&self) -> &[typaxis_shaping::ProductionListMarkerShape<'a>] {
         self.prepared.list_markers()
     }
-    pub fn figures(&self) -> &[ProductionPreparedRasterFigure<'a>] {
+    pub fn figures(&self) -> &[ProductionPreparedFigure<'a>] {
         &self.prepared.figures
     }
     pub fn vector_binding(
@@ -261,6 +319,64 @@ pub(super) fn layout_with_record_base<'p, 'a>(
     max_candidate_steps: u64,
     record_base: u64,
 ) -> Result<ProductionInlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
+    let projected = project_lines(
+        LineInputs {
+            max_fragments: prepared.max_fragments,
+            flow: InlineFlow::Legacy(prepared.flow),
+            shaped: prepared.shaped.paragraphs(),
+            paragraphs: &prepared.paragraphs,
+            footnote_markers: prepared.footnote_markers(),
+            native_math: prepared.native_math().map(InlineNativeMath::Legacy),
+            figure_count: prepared.figures.len(),
+            fingerprint: prepared.fingerprint(),
+        }, inline_sizes, max_candidate_steps, record_base,
+        PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM,
+    )?;
+    Ok(ProductionInlineLineLayout {
+        prepared,
+        paragraphs: projected.paragraphs,
+        output_records: projected.output_records,
+        candidate_steps: projected.candidate_steps,
+        fingerprint: projected.fingerprint,
+        frames: None,
+    })
+}
+
+pub(super) struct LineInputs<'p, 'a> {
+    pub max_fragments: u64,
+    pub flow: InlineFlow<'a>,
+    pub shaped: &'p [typaxis_shaping::ProductionBodyParagraphShape<'a>],
+    pub paragraphs: &'p [ProductionPreparedInlineParagraph],
+    pub footnote_markers: &'p [typaxis_shaping::ProductionFootnoteMarkerShape<'a>],
+    pub native_math: Option<InlineNativeMath<'p>>,
+    pub figure_count: usize,
+    pub fingerprint: [u8; 32],
+}
+pub(super) struct LineProjection<'p, 'a> {
+    pub paragraphs: Vec<ProductionInlineParagraphLineLayout<'p, 'a>>,
+    pub output_records: u64,
+    pub candidate_steps: u64,
+    pub fingerprint: [u8; 32],
+}
+pub(super) fn project_lines<'p, 'a>(
+    prepared: LineInputs<'p, 'a>,
+    inline_sizes: &[PositiveLength],
+    max_candidate_steps: u64,
+    record_base: u64,
+    algorithm: &str,
+) -> Result<LineProjection<'p, 'a>, ProductionInlinePreparationError> {
+    project_lines_with_source_widths(
+        prepared, inline_sizes, max_candidate_steps, record_base, algorithm, None,
+    )
+}
+pub(super) fn project_lines_with_source_widths<'p, 'a>(
+    prepared: LineInputs<'p, 'a>,
+    inline_sizes: &[PositiveLength],
+    max_candidate_steps: u64,
+    record_base: u64,
+    algorithm: &str,
+    source_widths: Option<&[Option<typaxis_linebreak::ProductionInlineSourceWidths<'_>>]>,
+) -> Result<LineProjection<'p, 'a>, ProductionInlinePreparationError> {
     use ProductionInlinePreparationErrorKind as E;
     let root = NodeId::new(0);
     if inline_sizes.len() != prepared.paragraphs.len() {
@@ -269,17 +385,35 @@ pub(super) fn layout_with_record_base<'p, 'a>(
     let mut remaining = prepared
         .max_fragments
         .checked_sub(record_base)
+        .and_then(|n| n.checked_sub(prepared.native_math.map_or(0, |m| m.record_charge())))
         .ok_or_else(|| error(root, E::UnitLimit))?;
+    if let Some(widths) = source_widths {
+        if widths.len() != prepared.paragraphs.len() {
+            return Err(error(root, E::ReceiptMismatch));
+        }
+        charge(&mut remaining, widths.len(), root)?;
+        for (source, p) in widths.iter().zip(prepared.paragraphs) {
+            if let Some(source) = source {
+                if !p.items.as_ref().is_some_and(|p| std::ptr::eq(p, source.source())) {
+                    return Err(error(p.owner, E::ReceiptMismatch));
+                }
+                charge(&mut remaining, source.sizes().len(), p.owner)?;
+                if let Some(ends) = source.retained_line_ends() {
+                    charge(&mut remaining, ends.len(), p.owner)?;
+                }
+            }
+        }
+    }
     // Definition marker glyphs remain retained through this selected-line owner,
     // even before their column/baseline is assigned. Carry their records once.
-    for marker in prepared.footnote_markers() {
+    for marker in prepared.footnote_markers {
         let owner = marker.source().owner();
         charge(&mut remaining, 1, owner)?;
         charge(&mut remaining, marker.glyph_run().glyphs.len(), owner)?;
         charge(&mut remaining, marker.glyph_run().clusters.len(), owner)?;
     }
     charge(&mut remaining, prepared.paragraphs.len(), root)?;
-    charge(&mut remaining, prepared.figures.len(), root)?;
+    charge(&mut remaining, prepared.figure_count, root)?;
     let mut paragraphs = Vec::new();
     paragraphs
         .try_reserve_exact(prepared.paragraphs.len())
@@ -296,10 +430,10 @@ pub(super) fn layout_with_record_base<'p, 'a>(
                 .ok_or_else(|| error(root, E::ArithmeticOverflow))?,
         )
         .map_err(|_| error(root, E::AllocationFailure))?;
-    digests.extend_from_slice(&sha256(PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM.as_bytes()));
-    digests.extend_from_slice(&prepared.fingerprint());
+    digests.extend_from_slice(&sha256(algorithm.as_bytes()));
+    digests.extend_from_slice(&prepared.fingerprint);
     for (index, (p, width)) in prepared.paragraphs.iter().zip(inline_sizes).enumerate() {
-        let shape = &prepared.shaped.paragraphs()[index];
+        let shape = &prepared.shaped[index];
         let mut placed = ProductionInlineParagraphLineLayout {
             owner: p.owner,
             inline_size: *width,
@@ -327,14 +461,12 @@ pub(super) fn layout_with_record_base<'p, 'a>(
                 p.owner,
             )?;
             budget.constrain_remaining_lines(remaining / 2);
-            let selected = break_production_inline(
-                items,
-                *width,
-                p.line_height
-                    .ok_or_else(|| error(p.owner, E::MissingTextStyle))?,
-                &mut budget,
-            )
-            .map_err(|e| error(p.owner, E::Atomic(e)))?;
+            let height = p.line_height.ok_or_else(||error(p.owner,E::MissingTextStyle))?;
+            let selected = if let Some(source) = source_widths.and_then(|widths| widths[index].as_ref()) {
+                typaxis_linebreak::break_production_inline_with_source_widths(source, height, &mut budget)
+            } else {
+                break_production_inline(items, *width, height, &mut budget)
+            }.map_err(|e| error(p.owner, E::Atomic(e)))?;
             charge(
                 &mut remaining,
                 selected
@@ -350,6 +482,9 @@ pub(super) fn layout_with_record_base<'p, 'a>(
                 .map_err(|_| error(p.owner, E::AllocationFailure))?;
             let mut cluster_cursor = 0;
             for line in selected.lines() {
+                if line.inline_size().get() > width.get() {
+                    return Err(error(p.owner, E::ReceiptMismatch));
+                }
                 let baseline = line
                     .line()
                     .metrics()
@@ -381,7 +516,7 @@ pub(super) fn layout_with_record_base<'p, 'a>(
                             let run = &shape.runs()[map.run_index as usize];
                             let cluster = &run.glyph_run().clusters[map.cluster_index as usize];
                             let source_span = cluster.source_span;
-                            let site = &prepared.flow.paragraphs()[index].items()
+                            let site = &flow_call!(prepared.flow, paragraphs())[index].items()
                                 [run.site_index() as usize];
                             let (whole, text) = inline_shape_text(prepared.flow, site)?;
                             let (start, end) = relative_shape_range(source_span, whole)
@@ -463,6 +598,30 @@ pub(super) fn layout_with_record_base<'p, 'a>(
                             vector_cursor += 1;
                             unit += 1;
                         }
+                        Unit::Math(math) => {
+                            let store = prepared
+                                .native_math
+                                .ok_or_else(|| error(math.owner(), E::ReceiptMismatch))?;
+                            let receipt = store
+                                .receipt(math.owner())
+                                .ok_or_else(|| error(math.owner(), E::ReceiptMismatch))?;
+                            let span = store
+                                .source_span(math.owner())
+                                .ok_or_else(|| error(math.owner(), E::ReceiptMismatch))?;
+                            let expected = typaxis_linebreak::ProductionNativeMathInlineItem::from_computation(
+                                math.owner(), p.owner, span, receipt.fingerprint(), receipt.computation(),
+                            ).map_err(|e| error(math.owner(), E::Atomic(e)))?;
+                            if expected != math {
+                                return Err(error(math.owner(), E::ReceiptMismatch));
+                            }
+                            let pen_x = shifted_pen(line, unit, math.owner())?;
+                            output.items.push(match receipt {
+                                NativeReceipt::Legacy(receipt) => ProductionPlacedInline::Math(ProductionPlacedInlineMath { source_span: span, receipt, pen_x, baseline }),
+                                #[cfg(feature = "book-v2-staging")]
+                                NativeReceipt::BookV2(receipt) => ProductionPlacedInline::BookV2Math(crate::book_v2::BookV2PlacedInlineMath::new(receipt, pen_x, baseline)),
+                            });
+                            unit += 1;
+                        }
                         Unit::Break(control) => {
                             output.items.push(ProductionPlacedInline::Break(control));
                             unit += 1;
@@ -531,13 +690,11 @@ pub(super) fn layout_with_record_base<'p, 'a>(
         digests.extend_from_slice(&sha256(&digest));
         paragraphs.push(placed);
     }
-    Ok(ProductionInlineLineLayout {
-        prepared,
+    Ok(LineProjection {
         paragraphs,
         output_records: prepared.max_fragments - remaining,
         candidate_steps: max_candidate_steps - budget.remaining_steps(),
         fingerprint: sha256(&digests),
-        frames: None,
     })
 }
 

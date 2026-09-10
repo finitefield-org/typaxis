@@ -1,5 +1,16 @@
 #![cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 use super::*;
+#[path = "book_v2_vmb_export_tests.rs"]
+mod vmb_export;
+#[path = "book_v2_math_terminal_tests.rs"]
+mod math_terminals;
+use math_terminals::assert_math_terminals;
+#[path = "book_v2_math_display_tests.rs"]
+mod math_display;
+use math_display::{assert_book_v2_body_resources, assert_math_display};
+#[path = "book_v2_driver_probe_tests.rs"]
+mod driver_probe;
+pub(crate) use driver_probe::record_driver_pdf;
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -54,7 +65,12 @@ impl Drop for Root {
     }
 }
 fn config(limits: ResourceLimits) -> EffectiveConfig {
-    EffectiveConfig::new(
+    config_with_extension(limits, M4ResourceLimits::default())
+}
+// Host settings only; this does not issue the successor's public config artifact.
+fn config_with_extension(limits: ResourceLimits, extension: M4ResourceLimits) -> EffectiveConfig {
+    EffectiveConfig::new_for_contract_with_m4_limits(
+        typaxis_core::DocumentPackageContractId::V1_4,
         false,
         PdfStreamCompression::Flate,
         vec![ConfigResourceRoot::ProjectRoot],
@@ -68,6 +84,7 @@ fn config(limits: ResourceLimits) -> EffectiveConfig {
         )
         .unwrap(),
         limits,
+        extension,
     )
     .unwrap()
 }

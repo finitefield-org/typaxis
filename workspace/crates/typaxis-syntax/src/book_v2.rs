@@ -4,8 +4,10 @@
 
 #[path = "book_v2_resource_policy.rs"]
 mod resource_policy;
-pub use resource_policy::{prepare_book_v2_resource_policy, BookV2ResourcePolicy,
-    BookV2ResourcePolicyError, BOOK_V2_RESOURCE_POLICY_ALGORITHM, BOOK_V2_RESOURCE_SET};
+pub use resource_policy::{
+    prepare_book_v2_resource_policy, BookV2ResourcePolicy, BookV2ResourcePolicyError,
+    BOOK_V2_RESOURCE_POLICY_ALGORITHM, BOOK_V2_RESOURCE_SET,
+};
 
 use super::*;
 use typaxis_document::book_v2::{BookV2Document, BookV2SemanticContainerKind};
@@ -215,6 +217,10 @@ fn lower_kind(kind: WireBookV2SemanticContainerKind) -> BookV2SemanticContainerK
         W::CommonError => D::CommonError,
         W::FormalizationNote => D::FormalizationNote,
         W::Quote => D::Quote,
+        W::ExercisePart => D::ExercisePart,
+        W::Choice => D::Choice,
+        W::Hint => D::Hint,
+        W::Assumption => D::Assumption,
     }
 }
 
@@ -255,7 +261,7 @@ impl StyledBookV2Body {
 pub fn style_book_v2_body(
     body: PreparedBookV2Body,
 ) -> Result<StyledBookV2Body, StagingSemanticSyntaxError> {
-    let rules = lower_semantic_style_rules(body.wire.style_sheet(), &body.limits)?;
+    let rules = lower_semantic_style_rules_version(body.wire.style_sheet(), &body.limits, true)?;
     let mut containers = BTreeMap::new();
     let mut vectors = BTreeMap::new();
     let mut math = BTreeMap::new();
@@ -313,6 +319,10 @@ fn cascade_book_kind(
         D::CommonError => S::CommonError,
         D::FormalizationNote => S::FormalizationNote,
         D::Quote => S::Quote,
+        D::ExercisePart => S::ExercisePart,
+        D::Choice => S::Choice,
+        D::Hint => S::Hint,
+        D::Assumption => S::Assumption,
     };
     typaxis_style::book_v2::cascade_book_v2_semantic_container_style(kind, classes, sheet, parent)
 }
@@ -324,14 +334,17 @@ impl AsRef<StagingM4MathNode> for PreparedBookMath {
 }
 
 pub use crate::book_navigation::book_v2::{
-    prepare_book_v2_navigation, BookV2ReferenceTarget, PreparedBookV2Language,
-    PreparedBookV2LanguageChild, PreparedBookV2Navigation,
+    prepare_book_v2_navigation, BookV2LanguageNodeKind, BookV2ReferenceTarget,
+    PreparedBookV2Language, PreparedBookV2LanguageChild, PreparedBookV2Navigation,
 };
 
 pub use super::production_flow::book_v2::{
     prepare_book_v2_text_flow, prepare_book_v2_text_flow_with_page_references,
     PreparedBookV2TextFlow, BOOK_V2_TEXT_FLOW_ALGORITHM,
+    prepare_book_v2_page_region_text_flow, BookV2PageRegionTextFlow, BookV2PageRegionKind,
+    BOOK_V2_PAGE_REGION_FLOW_ALGORITHM,
 };
+pub use super::production_flow::{BookV2DescriptionItem, BookV2DescriptionList};
 
 #[path = "book_v2_source.rs"]
 mod source;
@@ -339,3 +352,11 @@ pub use source::{
     prepare_admitted_book_v2_body, BookV2MappingFailure, BookV2SourceFailure,
     BookV2SourcePreparationError, SourceAdmittedBookV2Body,
 };
+
+#[path = "book_v2_structure.rs"]
+mod structure;
+pub use structure::*;
+
+#[path = "book_v2_page_masters.rs"]
+mod page_masters;
+pub use page_masters::*;

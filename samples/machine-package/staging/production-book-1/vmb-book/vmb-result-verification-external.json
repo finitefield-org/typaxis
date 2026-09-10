@@ -1,0 +1,270 @@
+{
+  "scope": "Authored result/exercise verification contribution, all prepared display fields and formal IDs, direct/result QR/chapter QR actual public builds",
+  "cases": [
+    {
+      "style": "direct",
+      "input": "/private/tmp/vmb-result-verification-public/typaxis-body-298450034",
+      "run": "/private/tmp/vmb-result-verification-public/typaxis-run-1009825588",
+      "final_input": "/private/tmp/vmb-result-verification-public/typaxis-body-1210757478",
+      "final_run": "/private/tmp/vmb-result-verification-public/typaxis-run-3882786528",
+      "pdf_byte_identical": true,
+      "pdf_sha256": "8ddfd766ab0e717942a0a5ae5177bc673ef77b883ef3b90e64905aabde09e053",
+      "pdf_bytes": 80983,
+      "objects": 69
+    },
+    {
+      "style": "qr-per-result",
+      "input": "/private/tmp/vmb-result-verification-public/typaxis-body-3065814789",
+      "run": "/private/tmp/vmb-result-verification-public/typaxis-run-2225119320",
+      "final_input": "/private/tmp/vmb-result-verification-public/typaxis-body-1322934182",
+      "final_run": "/private/tmp/vmb-result-verification-public/typaxis-run-2241308001",
+      "pdf_byte_identical": true,
+      "pdf_sha256": "2e17fe3e07c2171acc2ce77c1a0c6b279154f0023895aabb165e32fb9853cfcc",
+      "pdf_bytes": 83750,
+      "objects": 72
+    },
+    {
+      "style": "qr-per-chapter",
+      "input": "/private/tmp/vmb-result-verification-public/typaxis-body-3036228050",
+      "run": "/private/tmp/vmb-result-verification-public/typaxis-run-1816890229",
+      "final_input": "/private/tmp/vmb-result-verification-public/typaxis-body-4101560870",
+      "final_run": "/private/tmp/vmb-result-verification-public/typaxis-run-86474406",
+      "pdf_byte_identical": true,
+      "pdf_sha256": "bc9162ce750fbeca51186a9323bc1e85a78c07b85fd0ce1ae580c42d61c631cd",
+      "pdf_bytes": 85565,
+      "objects": 72
+    }
+  ],
+  "files": [
+    {
+      "path": "/private/tmp/vmb-result-verification-final-regression.log",
+      "bytes": 80678,
+      "sha256": "82def1a7353d59160ac4203e5b5818bb6d1d7f43018b1e7884f8c341db48f437"
+    },
+    {
+      "path": "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+      "bytes": 73517640,
+      "sha256": "08e3b3008e85efcc669f0df68982dab106cfddcc535b90da996a6a52bace526a"
+    },
+    {
+      "path": "/private/tmp/vmb-qr-decode",
+      "bytes": 99104,
+      "sha256": "a754d549a7ef24efffe948ce493f92eea395457c2810be30848837a25dcebe20"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-result-verification-independent-check.py",
+      "bytes": 5147,
+      "sha256": "99b1e12dd66d81c82f2e861fe39974ef83840c4c2a3a7fcfde721a35f3f72f16"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-verification-qr-check.py",
+      "bytes": 3285,
+      "sha256": "9542b151b99dedb7d4d045f10bc9bb8a62eca721bb9f785587c3232fe298a5dc"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-verification-qr-decode.swift",
+      "bytes": 566,
+      "sha256": "e95c3e2dd099ea385e0bb34eaf2cd4a0d5ec10e06a892d450646f119ee3ce424"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-result-verification-direct-content.json",
+      "bytes": 1929,
+      "sha256": "6cfbd342c2bfb2f0a0dd91667599bd91721fecea345dd2a5aa277682c5b2301b"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-result-verification-direct-verapdf.xml",
+      "bytes": 1387,
+      "sha256": "a1588e0e7a5a1f8306c01a6ad04d4ceca6d8ae4e71d359a7633147e04ce44759"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-body-298450034/document-package.json",
+      "bytes": 12726,
+      "sha256": "fa8a58096a3f191b16e86ea52565db3a600d79952f640d10b6043f539aa4c5c6"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-body-298450034/typaxis-source-map.json",
+      "bytes": 18319,
+      "sha256": "9e64b7cf835d9b16af5294c2288754619e8e63f8ef8f75bd0dae0136ff55d142"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-run-1009825588/output.pdf",
+      "bytes": 80983,
+      "sha256": "8ddfd766ab0e717942a0a5ae5177bc673ef77b883ef3b90e64905aabde09e053"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-run-1009825588/build-manifest.json",
+      "bytes": 16985,
+      "sha256": "79520d0d2fadb68e968fdd3e3e7c3161212e747b01ffe849483212a76d3b2401"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-run-1009825588/trace.json",
+      "bytes": 737,
+      "sha256": "be323e09726e6e9b9ed48522b1b1ac5dee520c25115939e2259655c021fabf5e"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-run-1009825588/page-300dpi.png",
+      "bytes": 88922,
+      "sha256": "ee8068bbb8c816b2ba95175a7b5c6206f23574f3da320b57052823bfb0bb5238"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-result-verification-qr-per-result-content.json",
+      "bytes": 3009,
+      "sha256": "09fefa4f253bd3dcca5400addba0fc83a1579bb2a128c53c0ec6fbee07cbed24"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-result-verification-qr-per-result-verapdf.xml",
+      "bytes": 1387,
+      "sha256": "a04e24dd4717d47a2b7230f68a940886ab40c3e8c552f8fe66fb13c57312670e"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-body-3065814789/document-package.json",
+      "bytes": 13625,
+      "sha256": "505ccedc765b928d280985696e7dc48f52dfe79c153de85cad11b80fd4fc76f5"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-body-3065814789/typaxis-source-map.json",
+      "bytes": 20701,
+      "sha256": "02b2b355c132b8edd307e9d83af74aba517cf0c2156e5f4aa0e2cfe56aa9c126"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-run-2225119320/output.pdf",
+      "bytes": 83750,
+      "sha256": "2e17fe3e07c2171acc2ce77c1a0c6b279154f0023895aabb165e32fb9853cfcc"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-run-2225119320/build-manifest.json",
+      "bytes": 17321,
+      "sha256": "38e8aefc00c3bb1ffe13c83c42332049ba3d8caefac313900993d67cc70fc238"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-run-2225119320/trace.json",
+      "bytes": 737,
+      "sha256": "e657d009014aea5e4e517503279cd711cfb3917b3c1043cc1d9cbb26edc07a27"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-run-2225119320/page-300dpi.png",
+      "bytes": 96867,
+      "sha256": "046b31117dd22e1d178c9885f75236920f767841192474fae3a903a50c446283"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-result-verification-qr-per-result-source-decoded.json",
+      "bytes": 46,
+      "sha256": "0bf97015704f3f39181731c229da0e541b56869f0534fdeeec97afc0bcb0c111"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-result-verification-qr-per-result-page-decoded.json",
+      "bytes": 46,
+      "sha256": "0bf97015704f3f39181731c229da0e541b56869f0534fdeeec97afc0bcb0c111"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-result-verification-qr-per-chapter-content.json",
+      "bytes": 2521,
+      "sha256": "27aea84bae325c0c2cb1f6e8bba29dd89c37b1667d47753adaf00a514bd21c8f"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-result-verification-qr-per-chapter-verapdf.xml",
+      "bytes": 1387,
+      "sha256": "350de870c1989ef1da168bed213f96a3a0240a037af619e73c2a00ba7641a5ea"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-body-3036228050/document-package.json",
+      "bytes": 13661,
+      "sha256": "10dbf57a07a99622905365074e6b8404794e0738082958985b0d2da6c01d4ac8"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-body-3036228050/typaxis-source-map.json",
+      "bytes": 21326,
+      "sha256": "9d9e11dea12058d5bc67bc6aa1040435387c0cf705b0fa6a21d0cf75b8bd54dd"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-run-1816890229/output.pdf",
+      "bytes": 85565,
+      "sha256": "bc9162ce750fbeca51186a9323bc1e85a78c07b85fd0ce1ae580c42d61c631cd"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-run-1816890229/build-manifest.json",
+      "bytes": 17323,
+      "sha256": "bcf0784b6787ad7b55dcf96929b7137275f29de18b0435415da67984d50549bd"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-run-1816890229/trace.json",
+      "bytes": 737,
+      "sha256": "4788791e2e9e0fed6a50fa03b349be1fe78ea4cc116203376d5a68daa70b1bc1"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-run-1816890229/page-300dpi.png",
+      "bytes": 103447,
+      "sha256": "3df5cdc4e77986fdf34bc5d4d5d268caff0b2d53047923eccaea64bd497d3b93"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-result-verification-qr-per-chapter-source-decoded.json",
+      "bytes": 90,
+      "sha256": "3b7c15fa102e2f4dd27ba530c64850a6d1ae002f958ddebd0c7cfeff72e4083e"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-result-verification-qr-per-chapter-page-decoded.json",
+      "bytes": 90,
+      "sha256": "3b7c15fa102e2f4dd27ba530c64850a6d1ae002f958ddebd0c7cfeff72e4083e"
+    },
+    {
+      "path": "/private/tmp/vmb-result-verification-public/typaxis-body-3036228050/verification/section.test.html",
+      "bytes": 588,
+      "sha256": "e30a86f2b396c1363161fe94cfb7558b95bc81013023678d30adc05a1978b459"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_verification.go",
+      "bytes": 10950,
+      "sha256": "0cfb7782493c9a374fa92b3383af191e718a44d2d3ef550f44083514171f0751"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_verification_test.go",
+      "bytes": 10856,
+      "sha256": "504c2f01181a83a833d3dede0b7a1179325beb6a53c52c9b69ba02e2f9f8cb18"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_body.go",
+      "bytes": 19246,
+      "sha256": "0987d1036a8d3b40de4cf4bd70fa0df1f98e5803c1e36bfc3c4fe793d5336edc"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_sidecar.go",
+      "bytes": 16397,
+      "sha256": "1174a02b940e3e7c5684822a917af6f32f9a79d21e092fb029ca03422888a271"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_semantic.go",
+      "bytes": 4553,
+      "sha256": "d22c7310de9e2c1a73f3896dabb11cb508dd241e8506b5a3772de6417db0c44d"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_companion.go",
+      "bytes": 16357,
+      "sha256": "a6eddce4c118e923766b6d4c2eedddc58f4ff1e5d05f23f31b2be6dea10cecf5"
+    }
+  ],
+  "go_tests": {
+    "command": "go test ./internal/rendertypaxis -count=1 -v",
+    "passed": 121,
+    "skipped": 2,
+    "seconds": 147.222,
+    "actual_cli_schema_and_original_raster_resources": true
+  },
+  "pdf_ua1": {
+    "passed_rules_each": 106,
+    "passed_checks": {
+      "direct": 1269,
+      "qr_per_result": 1293,
+      "qr_per_chapter": 1307
+    },
+    "failed_rules": 0,
+    "failed_checks": 0
+  },
+  "independent_qr_decoder": "macOS Vision CPU mode outside sandbox; exact source URL from each source PNG and each full Poppler 300 dpi PDF page; URLs not opened",
+  "limitations": [
+    "Prepared verification metadata is retained; no proof verification performed.",
+    "FormalStatement content/NPA source remain explicitly unsupported.",
+    "Formal renderer/runtime independent PDF validation/ArtifactSink and original full book/Harano remain incomplete.",
+    "Managed-host performance/reproducibility and human acceptance remain incomplete."
+  ],
+  "vmb_implementation_commit": "57f1f7cb"
+}

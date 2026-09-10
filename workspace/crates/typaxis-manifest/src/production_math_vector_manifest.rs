@@ -37,7 +37,13 @@ pub fn build_production_math_vector_manifest(
     }
     let mut count = 0u64;
     let mut extra = 4096u64;
-    for draw in display.draws() {
+    for (index, draw) in display.draws().iter().enumerate() {
+        if display
+            .table_draw_role(index)
+            .is_some_and(|role| role.repeated_header())
+        {
+            continue;
+        }
         if let typaxis_display_list::ProductionBodyDraw::Vector(vector) = draw {
             if let Some(math) = vector.math_binding() {
                 count = count.checked_add(1).ok_or(E::RecordLimit)?;
@@ -81,6 +87,12 @@ pub fn build_production_math_vector_manifest(
     }
     let mut placements = BTreeMap::new();
     for placement in manifest.resources().iter().flat_map(|r| r.placements()) {
+        if display
+            .table_draw_role(placement.paint_ordinal() as usize)
+            .is_some_and(|role| role.repeated_header())
+        {
+            continue;
+        }
         if placements.insert(placement.owner(), placement).is_some() {
             return Err(E::ReceiptMismatch);
         }
@@ -89,7 +101,13 @@ pub fn build_production_math_vector_manifest(
     facts
         .try_reserve_exact(usize::try_from(count).map_err(|_| E::RecordLimit)?)
         .map_err(|_| E::AllocationFailure)?;
-    for draw in display.draws() {
+    for (index, draw) in display.draws().iter().enumerate() {
+        if display
+            .table_draw_role(index)
+            .is_some_and(|role| role.repeated_header())
+        {
+            continue;
+        }
         if let typaxis_display_list::ProductionBodyDraw::Vector(vector) = draw {
             if let Some(math) = vector.math_binding() {
                 let placement = placements

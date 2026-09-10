@@ -2,6 +2,7 @@
 
 mod advanced;
 mod book_navigation;
+pub use typaxis_document::StagingDocumentMetadata;
 mod semantic_container;
 #[cfg(feature = "book-v2-staging")]
 #[doc(hidden)]

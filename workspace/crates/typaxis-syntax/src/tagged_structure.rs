@@ -1201,6 +1201,9 @@ impl SemanticCollector<'_> {
             let language = self.language(node_id, inherited_language)?;
             let span = Some(raw_block_span(value));
             match value {
+                WireStagingM4Block::DescriptionList { .. } => {
+                    return Err(StagingStructureSemanticError::InvalidSemanticTree);
+                }
                 WireStagingM4Block::Paragraph { children, .. } => {
                     self.push_record(
                         node_id,
@@ -1901,6 +1904,7 @@ impl SemanticCollector<'_> {
 
 fn raw_block_span(value: &WireStagingM4Block) -> WireStagingSourceSpan {
     match value {
+        WireStagingM4Block::DescriptionList { span, .. } => *span,
         WireStagingM4Block::Paragraph { span, .. }
         | WireStagingM4Block::Heading { span, .. }
         | WireStagingM4Block::List { span, .. }
@@ -1994,6 +1998,9 @@ fn blocks_have_content(
 ) -> Result<bool, StagingStructureSemanticError> {
     for value in values {
         let has_content = match value {
+            WireStagingM4Block::DescriptionList { .. } => {
+                return Err(StagingStructureSemanticError::InvalidSemanticTree);
+            }
             WireStagingM4Block::Paragraph { children, .. }
             | WireStagingM4Block::Heading { children, .. } => has_non_whitespace(&inline_text(
                 children,

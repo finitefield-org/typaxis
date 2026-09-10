@@ -1,9 +1,14 @@
 //! Atomic math completion bound to stable joint physical geometry.
 use super::*;
+#[path = "production_final_geometry.rs"]
+mod final_geometry;
+pub use final_geometry::{
+    ProductionFinalPage, ProductionFinalPageGeometry, ProductionFinalPageIter, ProductionFinalPages,
+};
 use typaxis_layout::{StagingMathVectorFlowRegistry, StagingMathVectorTerminalReceiptSet};
 
 pub struct ProductionBodyFootnoteMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    geometry: &'g ProductionBodyFootnotePlacedSequence<'q, 'b, 'f, 's, 'p, 'a>,
+    geometry: ProductionFinalPageGeometry<'g, 'q, 'b, 'f, 's, 'p, 'a>,
     terminals: StagingMathVectorTerminalReceiptSet,
     numbers: Vec<ProductionBodyEquationNumber>,
     spool_bytes: u64,
@@ -27,8 +32,8 @@ impl<'g, 'q, 'b, 'f, 's, 'p, 'a> ProductionBodyFootnoteMathTerminals<'g, 'q, 'b,
     pub fn record_charge(&self) -> u64 {
         self.record_charge
     }
-    pub fn geometry(&self) -> &'g ProductionBodyFootnotePlacedSequence<'q, 'b, 'f, 's, 'p, 'a> {
-        self.geometry
+    pub fn geometry(&self) -> &ProductionFinalPageGeometry<'g, 'q, 'b, 'f, 's, 'p, 'a> {
+        &self.geometry
     }
     pub fn terminals(&self) -> &StagingMathVectorTerminalReceiptSet {
         &self.terminals
@@ -60,6 +65,51 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         let flow = self.content.flow;
         if !std::ptr::eq(geometry.sequence(), stable.sequence())
             || flow.limits_fingerprint != limits.fingerprint()
+            || flow.blocks.receipt().math_flow_registry_fingerprint()
+                != registry.receipt().fingerprint()
+            || flow.blocks.receipt().layout_epoch_fingerprint()
+                != registry.receipt().layout_epoch_fingerprint()
+        {
+            return Err(error(root, E::ReceiptMismatch));
+        }
+        self.finalize_geometry_math(
+            ProductionFinalPageGeometry::Ordinary(geometry),
+            registry,
+            limits,
+        )
+    }
+    pub fn finalize_mixed_page_math<'g, 'q>(
+        &mut self,
+        stable: &ProductionBodyMixedStablePages<'b, 'f, 's, 'p, 'a>,
+        geometry: &'g ProductionBodyMixedPlacedSequence<'q, 'b, 'f, 's, 'p, 'a>,
+        registry: &'g StagingMathVectorFlowRegistry,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<
+        ProductionBodyFootnoteMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        ProductionBodyPaginationError,
+    > {
+        self.verify_mixed_sequence(stable.sequence())?;
+        if !std::ptr::eq(geometry.sequence(), stable.sequence()) {
+            return Err(error(NodeId::new(0), E::ReceiptMismatch));
+        }
+        self.finalize_geometry_math(
+            ProductionFinalPageGeometry::Mixed(geometry),
+            registry,
+            limits,
+        )
+    }
+    fn finalize_geometry_math<'g, 'q>(
+        &mut self,
+        geometry: ProductionFinalPageGeometry<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        registry: &'g StagingMathVectorFlowRegistry,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<
+        ProductionBodyFootnoteMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        ProductionBodyPaginationError,
+    > {
+        let root = NodeId::new(0);
+        let flow = self.content.flow;
+        if flow.limits_fingerprint != limits.fingerprint()
             || flow.blocks.receipt().math_flow_registry_fingerprint()
                 != registry.receipt().fingerprint()
             || flow.blocks.receipt().layout_epoch_fingerprint()
@@ -104,12 +154,25 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             .try_reserve_exact(registry.equation_number_shapes().len())
             .map_err(|_| error(root, E::AllocationFailure))?;
         let mut index = 0usize;
+        let mut repeated_numbers = 0usize;
         for page in geometry.pages() {
             self.step(root)?;
-            for placed in page.fragments() {
+            for (local_index, placed) in page.fragments().iter().enumerate() {
                 let fragment = placed.fragment();
+                let repeated = page
+                    .cell_role(local_index)
+                    .is_some_and(|r| r.repeated_header());
+                if repeated
+                    && matches!(fragment.source(), ProductionBodyFragmentSource::VectorBlock { block_index } if flow.blocks.blocks()[block_index as usize].equation_number().is_some())
+                {
+                    self.content.charge.take(1, fragment.owner())?;
+                    numbers
+                        .try_reserve(1)
+                        .map_err(|_| error(fragment.owner(), E::AllocationFailure))?;
+                    repeated_numbers += 1;
+                }
                 self.step(fragment.owner())?;
-                terminals::consume_selected_fragment(
+                terminals::place_selected_math_fragment(
                     index,
                     &fragment,
                     flow.blocks,
@@ -117,13 +180,16 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                     registry,
                     &mut ledger,
                     &mut numbers,
+                    !repeated,
                 )?;
                 index = index
                     .checked_add(1)
                     .ok_or_else(|| error(root, E::FragmentLimit))?;
             }
         }
-        if numbers.len() != registry.equation_number_shapes().len() {
+        if numbers.len().checked_sub(repeated_numbers)
+            != Some(registry.equation_number_shapes().len())
+        {
             return Err(error(root, E::ReceiptMismatch));
         }
         let terminals = ledger

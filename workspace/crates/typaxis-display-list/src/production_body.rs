@@ -15,6 +15,24 @@ use typaxis_pagination::{ProductionBodyFragmentSource, ProductionBodySelectedLay
 use typaxis_resource_admission::{AdmittedResourceLedger, VectorContentKey};
 use typaxis_syntax::PrecomposedVectorKind;
 
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_math_display.rs"]
+pub(crate) mod book_v2_math;
+
+#[path = "production_svg_figure.rs"]
+mod svg_figure;
+pub use svg_figure::{ProductionBodySvgFigureDraw, ProductionVectorPaint};
+
+#[path = "production_native_math.rs"]
+mod native_math;
+pub use native_math::{ProductionBodyNativeMathDraw, ProductionNativeMathPaint};
+
+#[path = "production_text_geometry.rs"]
+mod text_geometry;
+
+#[path = "production_number_geometry.rs"]
+mod number_geometry;
+
 #[path = "production_equation_numbers.rs"]
 mod equation_numbers;
 #[path = "production_footnote_display.rs"]
@@ -23,6 +41,9 @@ pub use footnotes::{
     build_production_footnote_display, ProductionBodyFootnoteDisplay,
     ProductionFootnoteSeparatorDraw,
 };
+#[path = "production_marker_geometry.rs"]
+mod marker_geometry;
+
 #[path = "production_list.rs"]
 mod list;
 
@@ -189,7 +210,9 @@ impl<'d> ProductionBodyVectorDraw<'d> {
 pub enum ProductionBodyDraw<'d> {
     Text(ProductionBodyTextDraw<'d>),
     Vector(ProductionBodyVectorDraw<'d>),
+    SvgFigure(ProductionBodySvgFigureDraw<'d>),
     Raster(ProductionBodyRasterDraw<'d>),
+    Math(ProductionBodyNativeMathDraw<'d>),
 }
 
 #[derive(Debug)]
@@ -434,7 +457,13 @@ fn project_display<'d, 'p, 'a>(
             marker_cursor += 1;
         }
         match fragment.source() {
-            ProductionBodyFragmentSource::RasterFigure { figure_index } => {
+            ProductionBodyFragmentSource::NativeMathBlock { block_index } => {
+                let draw = native_math::project_native_math_block(lines, block_index, index,
+                    *fragment, admitted, &mut remaining)?;
+                draws.try_reserve(1).map_err(|_| error(fragment.owner(), E::AllocationFailure))?;
+                draws.push(ProductionBodyDraw::Math(draw));
+            }
+            ProductionBodyFragmentSource::Figure { figure_index } => {
                 let figure = lines
                     .figures()
                     .get(figure_index as usize)
@@ -443,26 +472,40 @@ fn project_display<'d, 'p, 'a>(
                 let image = admitted
                     .image(figure.image_id())
                     .ok_or_else(|| error(figure.owner(), E::ReceiptMismatch))?;
-                if image.content_hash() != figure.admitted_sha256()
-                    || image.width().get() != figure.pixel_width()
-                    || image.height().get() != figure.pixel_height()
-                {
+                if image.content_hash() != figure.admitted_sha256() {
                     return Err(error(figure.owner(), E::ReceiptMismatch));
                 }
                 take(&mut remaining, 1, figure.owner())?;
-                draws
-                    .try_reserve(1)
-                    .map_err(|_| error(figure.owner(), E::AllocationFailure))?;
-                draws.push(ProductionBodyDraw::Raster(ProductionBodyRasterDraw {
-                    owner: figure.owner(),
-                    page_index: fragment.page_index(),
-                    fragment_index: index,
-                    image,
-                    alternative: figure.source().alternative(),
-                    viewport: fragment
-                        .viewport()
-                        .ok_or_else(|| error(figure.owner(), E::ReceiptMismatch))?,
-                }));
+                draws.try_reserve(1).map_err(|_| error(figure.owner(), E::AllocationFailure))?;
+                let viewport = fragment.viewport().filter(|v| v.width() == figure.width() && v.height() == figure.height())
+                    .ok_or_else(|| error(figure.owner(), E::ReceiptMismatch))?;
+                let draw = match figure.media() {
+                    typaxis_layout::ProductionFigureMedia::Raster { pixel_width, pixel_height } => {
+                        if image.admitted_safe_vector().is_some() || image.width().get() != pixel_width || image.height().get() != pixel_height {
+                            return Err(error(figure.owner(), E::ReceiptMismatch));
+                        }
+                        ProductionBodyDraw::Raster(ProductionBodyRasterDraw {
+                            owner: figure.owner(), page_index: fragment.page_index(), fragment_index: index,
+                            image, alternative: figure.source().alternative(), viewport,
+                        })
+                    }
+                    typaxis_layout::ProductionFigureMedia::Svg { content_key, scale_raw } => {
+                        if VectorContentKey::from_admitted(image).ok() != Some(content_key) {
+                            return Err(error(figure.owner(), E::ReceiptMismatch));
+                        }
+                        let mut digest = [0u8; 104];
+                        digest[..32].copy_from_slice(&selected.fingerprint());
+                        digest[32..64].copy_from_slice(&content_key.source_sha256());
+                        digest[64..96].copy_from_slice(&content_key.ir_fingerprint());
+                        digest[96..100].copy_from_slice(&index.to_be_bytes());
+                        digest[100..].copy_from_slice(&fragment.page_index().to_be_bytes());
+                        ProductionBodyDraw::SvgFigure(ProductionBodySvgFigureDraw {
+                            source: figure.source(), page_index: fragment.page_index(), fragment_index: index,
+                            content_key, scale_raw, viewport, fingerprint: sha256(&digest),
+                        })
+                    }
+                };
+                draws.push(draw);
             }
             ProductionBodyFragmentSource::ParagraphLine {
                 paragraph_index,
@@ -512,44 +555,9 @@ fn project_display<'d, 'p, 'a>(
                             {
                                 return Err(error(owner, E::ReceiptMismatch));
                             }
-                            take(&mut remaining, cluster.glyphs().len() + 1, owner)?;
-                            let mut glyphs = Vec::new();
-                            let mut advance = Length::ZERO;
-                            glyphs
-                                .try_reserve_exact(cluster.glyphs().len())
-                                .map_err(|_| error(owner, E::AllocationFailure))?;
-                            for glyph in cluster.glyphs() {
-                                advance = plus(advance, glyph.glyph().advance_x, owner)?;
-                                glyphs.push(ProductionBodyGlyph {
-                                    original_gid: glyph.glyph().original_gid,
-                                    x: plus(fragment.bounds().x(), glyph.x(), owner)?,
-                                    y: plus(fragment.bounds().y(), glyph.y(), owner)?,
-                                });
-                            }
-                            let height = font
-                                .ascender()
-                                .checked_sub(font.descender())
-                                .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
-                            if advance.raw() < 0 || height.raw() < 0 {
-                                return Err(error(owner, E::ReceiptMismatch));
-                            }
-                            let logical_bounds = if let (Some(width), Some(height)) =
-                                (PositiveLength::new(advance), PositiveLength::new(height))
-                            {
-                                let baseline = fragment
-                                    .baseline()
-                                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                                Some(Rect::new(
-                                    plus(fragment.bounds().x(), cluster.pen_x(), owner)?,
-                                    baseline
-                                        .checked_sub(font.ascender())
-                                        .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
-                                    width,
-                                    height,
-                                ))
-                            } else {
-                                None
-                            };
+                            let (glyphs, logical_bounds) = text_geometry::project_cluster(
+                                cluster, font, *fragment, &mut remaining,
+                            )?;
                             let (buffer, start, end, generated_provenance) = match cluster
                                 .source_span()
                             {
@@ -629,7 +637,16 @@ fn project_display<'d, 'p, 'a>(
                                 ),
                             )?)
                         }
+                        ProductionPlacedInline::Math(math) => {
+                            ProductionBodyDraw::Math(native_math::project_native_math(
+                                math, fragment.page_index(), index, fragment.bounds(), admitted, &mut remaining,
+                            )?)
+                        }
                         ProductionPlacedInline::Break(_) => continue, // No paint/text; the selected flow retains the node.
+                        // This owner accepts only the legacy source graph. A
+                        // successor projection must pass its own display gate.
+                        #[allow(unreachable_patterns)]
+                        _ => return Err(error(fragment.owner(), E::ReceiptMismatch)),
                     };
                     draws
                         .try_reserve(1)

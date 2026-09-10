@@ -11,6 +11,15 @@ use std::collections::BTreeSet;
 use std::fmt;
 use typaxis_core::{push_jcs_string, sha256, ValidatedResourceLimits, JSON_SAFE_INTEGER_MAX};
 
+#[path = "table_caption.rs"]
+mod table_caption;
+#[path = "table_cell_classes.rs"]
+mod table_cell_classes;
+
+#[path = "description_list.rs"]
+mod description_list;
+pub use description_list::{WireSemanticDescriptionItem, WireDescriptionTerm};
+
 pub const STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT: &str = "typaxis.contract/1.4";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -59,6 +68,10 @@ pub trait WireSemanticKind:
     sealed_semantic_kind::Sealed + serde::de::DeserializeOwned + Serialize + Clone + fmt::Debug + Eq
 {
     const CONTRACT: &'static str;
+    const DESCRIPTION_LISTS: bool = false;
+    const NUMBER_BINDINGS: bool = false;
+    const TABLE_CAPTIONS: bool = false;
+    const TABLE_CELL_STYLES: bool = false;
     const DEBUG_NAME: &'static str;
     const ROOT_SHAPE_ERROR: &'static str;
     fn contract_error() -> StagingSemanticDecodeError;
@@ -425,6 +438,7 @@ impl WireStagingM4Inline {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename = "WireStagingM4ListItem", deny_unknown_fields)]
+#[serde(bound = "K: WireSemanticKind")]
 pub struct WireSemanticListItem<K> {
     pub node_id: u32,
     pub span: WireStagingSourceSpan,
@@ -435,9 +449,17 @@ pub struct WireSemanticListItem<K> {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename = "WireStagingM4TableCell", deny_unknown_fields)]
+#[serde(bound = "K: WireSemanticKind")]
 pub struct WireSemanticTableCell<K> {
     pub node_id: u32,
     pub span: WireStagingSourceSpan,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "table_cell_classes::deserialize::<K, _>",
+        serialize_with = "table_cell_classes::serialize::<K, _>"
+    )]
+    pub classes: Option<Vec<String>>,
     pub colspan: u16,
     pub rowspan: u16,
     pub blocks: Vec<WireSemanticBlock<K>>,
@@ -447,6 +469,7 @@ pub struct WireSemanticTableCell<K> {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename = "WireStagingM4TableRow", deny_unknown_fields)]
+#[serde(bound = "K: WireSemanticKind")]
 pub struct WireSemanticTableRow<K> {
     pub node_id: u32,
     pub span: WireStagingSourceSpan,
@@ -456,7 +479,10 @@ pub struct WireSemanticTableRow<K> {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+// Shared carrier shape is feature-independent. Sealed K capabilities and the
+// contract-specific decoder/encoder still gate successor-only content.
 #[serde(rename = "WireStagingM4Block", tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(bound = "K: WireSemanticKind")]
 pub enum WireSemanticBlock<K> {
     Paragraph {
         node_id: u32,
@@ -486,11 +512,22 @@ pub enum WireSemanticBlock<K> {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         language: Option<String>,
     },
+    DescriptionList {
+        node_id: u32,
+        span: WireStagingSourceSpan,
+        classes: Vec<String>,
+        #[serde(deserialize_with = "description_list::deserialize_items", serialize_with = "description_list::serialize_items")]
+        items: Vec<WireSemanticDescriptionItem<K>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+    },
     Table {
         node_id: u32,
         span: WireStagingSourceSpan,
         classes: Vec<String>,
         columns: Vec<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "table_caption::deserialize", serialize_with = "table_caption::serialize")]
+        caption: Option<Vec<WireSemanticBlock<K>>>,
         head: Vec<WireSemanticTableRow<K>>,
         body: Vec<WireSemanticTableRow<K>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -560,6 +597,7 @@ pub enum WireSemanticBlock<K> {
 impl<K> WireSemanticBlock<K> {
     pub const fn node_id(&self) -> u32 {
         match self {
+            Self::DescriptionList { node_id, .. } => *node_id,
             Self::Paragraph { node_id, .. }
             | Self::Heading { node_id, .. }
             | Self::List { node_id, .. }
@@ -575,6 +613,7 @@ impl<K> WireSemanticBlock<K> {
 
     pub const fn span(&self) -> WireSourceSpan {
         let span = match self {
+            Self::DescriptionList { span, .. } => span,
             Self::Paragraph { span, .. }
             | Self::Heading { span, .. }
             | Self::List { span, .. }
@@ -591,6 +630,7 @@ impl<K> WireSemanticBlock<K> {
 
     pub fn classes(&self) -> &[String] {
         match self {
+            Self::DescriptionList { classes, .. } => classes,
             Self::Paragraph { classes, .. }
             | Self::Heading { classes, .. }
             | Self::List { classes, .. }
@@ -606,6 +646,7 @@ impl<K> WireSemanticBlock<K> {
 
     pub fn language(&self) -> Option<&str> {
         match self {
+            Self::DescriptionList { language, .. } => language.as_deref(),
             Self::Paragraph { language, .. }
             | Self::Heading { language, .. }
             | Self::List { language, .. }
@@ -640,6 +681,7 @@ impl WireStagingSourceSpan {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename = "WireStagingM4Footnote", deny_unknown_fields)]
+#[serde(bound = "K: WireSemanticKind")]
 pub struct WireSemanticFootnote<K> {
     pub footnote_id: String,
     pub node_id: u32,
@@ -651,7 +693,16 @@ pub struct WireSemanticFootnote<K> {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename = "WireStagingM4Document", deny_unknown_fields)]
+#[serde(bound = "K: WireSemanticKind")]
 pub struct WireSemanticDocument<K> {
+    #[cfg(any(test, feature = "book-v2-staging"))]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "number_bindings::deserialize_bindings::<K, _>",
+        serialize_with = "number_bindings::serialize_bindings::<K, _>"
+    )]
+    pub number_bindings: Option<Vec<WireBookV2NumberBinding>>,
     pub node_id: u32,
     pub blocks: Vec<WireSemanticBlock<K>>,
     pub footnotes: Vec<WireSemanticFootnote<K>>,
@@ -1352,6 +1403,9 @@ fn validate_frozen_carrier(
     root: &Value,
     policy: &DocumentPackageDecodePolicy<'_>,
 ) -> Result<(WirePageMasterSet, WireAdvancedPageMasterSet), StagingSemanticDecodeError> {
+    #[cfg(any(test, feature = "book-v2-staging"))]
+    let book_descriptions = root.get("contract").and_then(Value::as_str)
+        == Some(crate::book_v2::BOOK_V2_DOCUMENT_PACKAGE_CONTRACT);
     let mut compatibility = root.clone();
     let object = compatibility
         .as_object_mut()
@@ -1369,6 +1423,10 @@ fn validate_frozen_carrier(
             "document must be an object",
         ))?;
     document.remove("language");
+    #[cfg(any(test, feature = "book-v2-staging"))]
+    if book_descriptions {
+        document.remove("number_bindings");
+    }
     flatten_semantic_blocks(document.get_mut("blocks").ok_or(
         StagingSemanticDecodeError::Shape("document blocks are required"),
     )?)?;
@@ -1405,6 +1463,17 @@ fn validate_frozen_carrier(
                 "style selector is required",
             ))?
             .to_owned();
+        #[cfg(any(test, feature = "book-v2-staging"))]
+        if book_descriptions {
+            if let Some(classes) = selector.strip_prefix("description_list")
+                .or_else(|| selector.strip_prefix("description_term"))
+                .or_else(|| selector.strip_prefix("table_cell")) {
+                rule.as_object_mut().and_then(|rule| rule.get_mut("selector"))
+                    .ok_or(StagingSemanticDecodeError::Shape("style selector is required"))?
+                    .clone_from(&Value::String(format!("paragraph{classes}")));
+                continue;
+            }
+        }
         if let Some(classes) = selector.strip_prefix("display_math") {
             rule.as_object_mut()
                 .and_then(|rule| rule.get_mut("selector"))
@@ -1478,6 +1547,14 @@ fn flatten_semantic_blocks(value: &mut Value) -> Result<(), StagingSemanticDecod
                     ))?;
                 flattened.append(children);
             }
+            #[cfg(any(test, feature = "book-v2-staging"))]
+            Some("description_list") => {
+                description_list::flatten_for_carrier_validation(object)?;
+                // Reuse the ordinary list traversal only inside this temporary view.
+                let mut one = Value::Array(vec![block]);
+                flatten_semantic_blocks(&mut one)?;
+                flattened.append(one.as_array_mut().expect("temporary array"));
+            }
             Some("list") => {
                 let items = object
                     .get_mut("items")
@@ -1500,6 +1577,13 @@ fn flatten_semantic_blocks(value: &mut Value) -> Result<(), StagingSemanticDecod
                 flattened.push(block);
             }
             Some("table") => {
+                // Only the temporary frozen-carrier validation view flattens
+                // captions. The original typed table and canonical bytes retain
+                // their ownership, order, spans and complete recursive content.
+                if let Some(mut caption) = object.remove("caption") {
+                    flatten_semantic_blocks(&mut caption)?;
+                    flattened.append(caption.as_array_mut().expect("validated caption array"));
+                }
                 for section in ["head", "body"] {
                     let rows = object
                         .get_mut(section)
@@ -1522,6 +1606,7 @@ fn flatten_semantic_blocks(value: &mut Value) -> Result<(), StagingSemanticDecod
                                         "table cell must be an object",
                                     ))?;
                             cell.remove("language");
+                            cell.remove("classes");
                             let children =
                                 cell.get_mut("blocks")
                                     .ok_or(StagingSemanticDecodeError::Shape(
@@ -1972,6 +2057,20 @@ fn validate_precomposed_vector_wire_shape(root: &Value) -> Result<(), StagingSem
                         visit_inlines(children, &format!("{pointer}/children"))?;
                     }
                 }
+                #[cfg(any(test, feature = "book-v2-staging"))]
+                "description_list" => {
+                    if let Some(items) = object.get("items").and_then(Value::as_array) {
+                        for (item_index, item) in items.iter().enumerate() {
+                            let at = format!("{pointer}/items/{item_index}");
+                            if let Some(children) = item.get("term").and_then(|v| v.get("children")) {
+                                visit_inlines(children, &format!("{at}/term/children"))?;
+                            }
+                            if let Some(blocks) = item.get("blocks") {
+                                visit_blocks(blocks, &format!("{at}/blocks"))?;
+                            }
+                        }
+                    }
+                }
                 "list" => {
                     if let Some(items) = object.get("items").and_then(Value::as_array) {
                         for (item_index, item) in items.iter().enumerate() {
@@ -1987,6 +2086,9 @@ fn validate_precomposed_vector_wire_shape(root: &Value) -> Result<(), StagingSem
                     }
                 }
                 "table" => {
+                    if let Some(caption) = object.get("caption") {
+                        visit_blocks(caption, &format!("{pointer}/caption"))?;
+                    }
                     for section in ["head", "body"] {
                         if let Some(rows) = object.get(section).and_then(Value::as_array) {
                             for (row_index, row) in rows.iter().enumerate() {
@@ -2243,10 +2345,10 @@ fn validate_precomposed_vector_wire_shape(root: &Value) -> Result<(), StagingSem
     Ok(())
 }
 
-fn validate_semantic_container_shape<K>(
+fn validate_semantic_container_shape<K: WireSemanticKind>(
     document: &WireSemanticDocument<K>,
 ) -> Result<(), StagingSemanticDecodeError> {
-    fn visit<K>(blocks: &[WireSemanticBlock<K>]) -> Result<(), StagingSemanticDecodeError> {
+    fn visit<K: WireSemanticKind>(blocks: &[WireSemanticBlock<K>]) -> Result<(), StagingSemanticDecodeError> {
         for block in blocks {
             match block {
                 WireSemanticBlock::SemanticContainer { blocks, .. } => {
@@ -2257,13 +2359,24 @@ fn validate_semantic_container_shape<K>(
                     }
                     visit(blocks)?;
                 }
+                WireSemanticBlock::DescriptionList { items, .. } => {
+                    description_list::validate_shape::<K>(items)?;
+                    for item in items {
+                        visit(&item.blocks)?;
+                    }
+                }
                 WireSemanticBlock::List { items, .. } => {
                     for item in items {
                         visit(&item.blocks)?;
                     }
                 }
-                WireSemanticBlock::Table { head, body, .. } => {
+                WireSemanticBlock::Table { caption, head, body, .. } => {
+                    table_caption::validate::<K>(caption)?;
+                    if let Some(caption) = caption {
+                        visit(caption)?;
+                    }
                     for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
+                        table_cell_classes::validate::<K>(&cell.classes)?;
                         visit(&cell.blocks)?;
                     }
                 }
@@ -2685,12 +2798,21 @@ fn validate_math_wire<K>(document: &WireSemanticDocument<K>) -> Result<(), Stagi
             match value {
                 WireSemanticBlock::Paragraph { children, .. }
                 | WireSemanticBlock::Heading { children, .. } => inlines(children)?,
+                WireSemanticBlock::DescriptionList { items, .. } => {
+                    for item in items {
+                        inlines(&item.term.children)?;
+                        blocks(&item.blocks)?;
+                    }
+                }
                 WireSemanticBlock::List { items, .. } => {
                     for item in items {
                         blocks(&item.blocks)?;
                     }
                 }
-                WireSemanticBlock::Table { head, body, .. } => {
+                WireSemanticBlock::Table { caption, head, body, .. } => {
+                    if let Some(caption) = caption {
+                        blocks(caption)?;
+                    }
                     for row in head.iter().chain(body) {
                         for cell in &row.cells {
                             blocks(&cell.blocks)?;
@@ -2747,6 +2869,22 @@ fn document_node_count<K>(
                         )?)
                         .ok_or(StagingSemanticDecodeError::Limit)?;
                 }
+                WireSemanticBlock::DescriptionList { items, .. } => {
+                    for item in items {
+                        let term_depth = depth.checked_add(2).ok_or(StagingSemanticDecodeError::Limit)?;
+                        if term_depth > max_depth {
+                            return Err(StagingSemanticDecodeError::Limit);
+                        }
+                        // An item and its authored term are distinct original owners.
+                        *count = count.checked_add(2).ok_or(StagingSemanticDecodeError::Limit)?;
+                        *count = count.checked_add(count_inline_nodes(
+                            &item.term.children,
+                            term_depth.checked_add(1).ok_or(StagingSemanticDecodeError::Limit)?,
+                            max_depth,
+                        )?).ok_or(StagingSemanticDecodeError::Limit)?;
+                        blocks(&item.blocks, count, term_depth, max_depth)?;
+                    }
+                }
                 WireSemanticBlock::List { items, .. } => {
                     for item in items {
                         let item_depth = depth
@@ -2770,10 +2908,14 @@ fn document_node_count<K>(
                 }
                 WireSemanticBlock::Table {
                     columns,
+                    caption,
                     head,
                     body,
                     ..
                 } => {
+                    if let Some(caption) = caption {
+                        blocks(caption, count, depth.checked_add(1).ok_or(StagingSemanticDecodeError::Limit)?, max_depth)?;
+                    }
                     *count = count
                         .checked_add(
                             u64::try_from(columns.len())
@@ -2941,8 +3083,22 @@ fn staging_m4_ast_node_count_parts<K>(
         .checked_add(u64::try_from(keyword_count).map_err(|_| StagingSemanticDecodeError::Limit)?)
         .and_then(|count| count.checked_add(u64::try_from(outline_count).ok()?))
         .ok_or(StagingSemanticDecodeError::Limit)?;
+    #[cfg(any(test, feature = "book-v2-staging"))]
+    let numbering_nodes = if let Some(bindings) = &document.number_bindings {
+        if bindings.is_empty() || max_depth < 3 {
+            return Err(StagingSemanticDecodeError::Limit);
+        }
+        1u64.checked_add(bindings.len() as u64)
+            .ok_or(StagingSemanticDecodeError::Limit)?
+    } else {
+        0
+    };
+    #[cfg(not(any(test, feature = "book-v2-staging")))]
+    let numbering_nodes = 0u64;
+    let page_nodes = advanced_page_node_count(page_masters)?;
     document_node_count(document, max_depth)?
-        .checked_add(advanced_page_node_count(page_masters)?)
+        .checked_add(numbering_nodes)
+        .and_then(|count| count.checked_add(page_nodes))
         .and_then(|count| count.checked_add(navigation_nodes))
         .ok_or(StagingSemanticDecodeError::Limit)
 }
@@ -3965,3 +4121,9 @@ mod tests {
         ));
     }
 }
+
+#[cfg(any(test, feature = "book-v2-staging"))]
+#[path = "book_v2_number_bindings.rs"]
+mod number_bindings;
+#[cfg(any(test, feature = "book-v2-staging"))]
+pub use number_bindings::WireBookV2NumberBinding;

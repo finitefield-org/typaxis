@@ -1,0 +1,256 @@
+{
+  "scope": "Feature-gated contract-1.5 typed body preparation. No successor style, host source/resource, profile, flow/layout/structure/PDF admission or full-book success.",
+  "typaxis_commit": "cc99bc1ef9d3eb62d4d0c76a2ce605b6d12a8422",
+  "working_tree": "Other previously existing implementation and evidence changes remain uncommitted; CLI was built from that working tree plus this commit.",
+  "tests": {
+    "domain_unit": 2,
+    "document_package_unit": 51,
+    "document_package_property": 4,
+    "document_package_compile_fail": 1,
+    "syntax_unit": 79,
+    "syntax_compile_fail": 8,
+    "kind_slot_matrix": {
+      "kinds": 12,
+      "slots": 8,
+      "dense_preorder_syntax_checked": true
+    },
+    "cli_container": 3,
+    "cli_nested": 1,
+    "vmb_formal_public": {
+      "top_level": 1,
+      "mode_builds": 3,
+      "seconds": 14.508
+    }
+  },
+  "commands": [
+    "cargo test --manifest-path workspace/Cargo.toml -p typaxis-document -p typaxis-document-package -p typaxis-syntax --features typaxis-syntax/book-v2-staging --locked --target-dir /private/tmp/typaxis-vmb-book-build",
+    "cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli production_body_container_ --locked --target-dir /private/tmp/typaxis-vmb-book-build",
+    "cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli production_body_nested_container_ --locked --target-dir /private/tmp/typaxis-vmb-book-build",
+    "cargo build --manifest-path workspace/Cargo.toml -p typaxis-cli --locked --target-dir /private/tmp/typaxis-vmb-book-build",
+    "VMB_TYPAXIS_CLI=/private/tmp/typaxis-vmb-book-build/debug/typaxis VMB_TYPAXIS_PACKAGE_FONT=\"/System/Library/Fonts/Supplemental/Arial Unicode.ttf\" VMB_TYPAXIS_FORMAL_OUTPUT=/private/tmp/vmb-book-v2-body-public go test ./internal/rendertypaxis -run \"^TestBookFormalActualPublicBuild$\" -count=1 -v (cwd: /Users/kazuyoshitoshiya/v/vmb-container/vmb-core)",
+    "/private/tmp/typaxis-vmb-book-build/debug/typaxis capabilities --format json",
+    "/private/tmp/typaxis-vmb-book-build/debug/typaxis check-package /private/tmp/typaxis-book-v2-body-public-rejection/{document-package,unsupported-kind}.json --profile typaxis.machine-pdf/production-book-1 --config /private/tmp/vmb-book-v2-body-public/typaxis-run-2313591989/book-config.toml --package-root /private/tmp/typaxis-book-v2-body-public-rejection --resource-root /private/tmp/typaxis-book-v2-body-public-rejection --emit-diagnostics /private/tmp/typaxis-book-v2-body-public-rejection/{document-package,unsupported-kind}-diagnostics.json (two separate invocations)"
+  ],
+  "public_gate": {
+    "current_contract": "typaxis.contract/1.4",
+    "profiles": 8,
+    "capabilities_byte_identical": true,
+    "frozen_1_4_schema_count": 29,
+    "frozen_schemas_byte_identical": true,
+    "contract_1_5_rejection": "P1103",
+    "successor_kind_under_1_4_rejection": null,
+    "unsupported_kind_probe_observed": "P1102 FontFaces budget 1 exceeded by 2; this run did not reach semantic-kind validation.",
+    "correction": "The earlier P1102-only classification was insufficient. See book-v2-flow-external.json for a fresh diagnostic plus a supported-kind control after removing the unused second font declaration."
+  },
+  "legacy_pdf_builds": [
+    {
+      "mode": "inline",
+      "input": "/private/tmp/vmb-book-v2-body-public/typaxis-body-2828576422",
+      "run": "/private/tmp/vmb-book-v2-body-public/typaxis-run-2313591989",
+      "pdf_bytes": 86633,
+      "pdf_sha256": "0a3e0fea2f6eb01208eba383bf8a61ca3dbcfc795a6b4f3f87d87e4aaddf354f",
+      "byte_identical_to_previous_independently_validated_pdf": true,
+      "previous_independent_evidence": "vmb-formal-external.json",
+      "new_independent_pdfua_run": false
+    },
+    {
+      "mode": "collapsible",
+      "input": "/private/tmp/vmb-book-v2-body-public/typaxis-body-4127567097",
+      "run": "/private/tmp/vmb-book-v2-body-public/typaxis-run-3760858958",
+      "pdf_bytes": 86633,
+      "pdf_sha256": "0a3e0fea2f6eb01208eba383bf8a61ca3dbcfc795a6b4f3f87d87e4aaddf354f",
+      "byte_identical_to_previous_independently_validated_pdf": true,
+      "previous_independent_evidence": "vmb-formal-external.json",
+      "new_independent_pdfua_run": false
+    },
+    {
+      "mode": "appendix",
+      "input": "/private/tmp/vmb-book-v2-body-public/typaxis-body-163205428",
+      "run": "/private/tmp/vmb-book-v2-body-public/typaxis-run-788147477",
+      "pdf_bytes": 91672,
+      "pdf_sha256": "e399253e3b2be5b37aab1369611ee86d2292f3a12e62999c58ac749976943ed3",
+      "byte_identical_to_previous_independently_validated_pdf": true,
+      "previous_independent_evidence": "vmb-formal-external.json",
+      "new_independent_pdfua_run": false
+    }
+  ],
+  "files": [
+    {
+      "path": "/private/tmp/typaxis-book-v2-body-regression.log",
+      "bytes": 15308,
+      "sha256": "ea359d296cfdbd055b6acbecb0227d1dd99b5e2fd38c39ac882f4188e60468cc"
+    },
+    {
+      "path": "/private/tmp/typaxis-book-v2-body-cli-container.log",
+      "bytes": 3131,
+      "sha256": "7257888d1b2cf4665e70fe8e51883b1ef68f4d8c1c464b128e93d3f161961b6b"
+    },
+    {
+      "path": "/private/tmp/typaxis-book-v2-body-cli-nested.log",
+      "bytes": 858,
+      "sha256": "170c825f1ddf127d51225bc1a11734df0fa30724cd07bf3a5e6d5de57c5d1f13"
+    },
+    {
+      "path": "/private/tmp/typaxis-book-v2-body-cli-build.log",
+      "bytes": 812,
+      "sha256": "42261f2ddc90c629fa4867e20670e38e7d50247b135950a0c7bf3b9498b68305"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public.log",
+      "bytes": 1220,
+      "sha256": "5f44c4532561dc8e15cb404e87e244b97c34821603447ddbcafdc3bf0fae2155"
+    },
+    {
+      "path": "/private/tmp/typaxis-book-v2-body-capabilities.json",
+      "bytes": 10604,
+      "sha256": "49cc2aca2ff94f6679026c97b972e96cdcd241bc1f4d35a04bc349cf17ddd872"
+    },
+    {
+      "path": "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+      "bytes": 73614952,
+      "sha256": "a545835ac7e2b8f56ef96fa4109bf7537e8191c990a7b2198f932f2048567d07"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-run-2313591989/output.pdf",
+      "bytes": 86633,
+      "sha256": "0a3e0fea2f6eb01208eba383bf8a61ca3dbcfc795a6b4f3f87d87e4aaddf354f"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-run-2313591989/typaxis",
+      "bytes": 73614952,
+      "sha256": "a545835ac7e2b8f56ef96fa4109bf7537e8191c990a7b2198f932f2048567d07"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-body-2828576422/document-package.json",
+      "bytes": 13103,
+      "sha256": "68e68ba16a3e4f75e5c4cb546e3464795b0dd478e82fc73bcb11508c6bcd96b5"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-run-2313591989/build-manifest.json",
+      "bytes": 16974,
+      "sha256": "04b19107b3f00753d37bf7fd7887656a4a15970e1f3b29a15d080fc5026a21a6"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-run-2313591989/book-config.toml",
+      "bytes": 1480,
+      "sha256": "3f708506f7353fbde56046b015c61cb49c74970bb59ff8c417a74a9bea701144"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-run-3760858958/output.pdf",
+      "bytes": 86633,
+      "sha256": "0a3e0fea2f6eb01208eba383bf8a61ca3dbcfc795a6b4f3f87d87e4aaddf354f"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-run-3760858958/typaxis",
+      "bytes": 73614952,
+      "sha256": "a545835ac7e2b8f56ef96fa4109bf7537e8191c990a7b2198f932f2048567d07"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-body-4127567097/document-package.json",
+      "bytes": 13103,
+      "sha256": "68e68ba16a3e4f75e5c4cb546e3464795b0dd478e82fc73bcb11508c6bcd96b5"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-run-3760858958/build-manifest.json",
+      "bytes": 16974,
+      "sha256": "04b19107b3f00753d37bf7fd7887656a4a15970e1f3b29a15d080fc5026a21a6"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-run-3760858958/book-config.toml",
+      "bytes": 1480,
+      "sha256": "3f708506f7353fbde56046b015c61cb49c74970bb59ff8c417a74a9bea701144"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-run-788147477/output.pdf",
+      "bytes": 91672,
+      "sha256": "e399253e3b2be5b37aab1369611ee86d2292f3a12e62999c58ac749976943ed3"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-run-788147477/typaxis",
+      "bytes": 73614952,
+      "sha256": "a545835ac7e2b8f56ef96fa4109bf7537e8191c990a7b2198f932f2048567d07"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-body-163205428/document-package.json",
+      "bytes": 14370,
+      "sha256": "8bc5af00835fb8890c5210e78269c2d311b577f855d85cb40c89ee240c833c27"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-run-788147477/build-manifest.json",
+      "bytes": 16969,
+      "sha256": "14e9724372d877607775377422937d51453756a322df2eab1f518ece0744fce8"
+    },
+    {
+      "path": "/private/tmp/vmb-book-v2-body-public/typaxis-run-788147477/book-config.toml",
+      "bytes": 1480,
+      "sha256": "3f708506f7353fbde56046b015c61cb49c74970bb59ff8c417a74a9bea701144"
+    },
+    {
+      "path": "samples/machine-package/staging/production-book-1/vmb-book/book-v2-body-document-package-rejection.json",
+      "bytes": 252,
+      "sha256": "bae776ba018984b68d3eafeed43d769f5385073d77f40f112e099017ac6cd91e"
+    },
+    {
+      "path": "/private/tmp/typaxis-book-v2-body-public-rejection/document-package.log",
+      "bytes": 44,
+      "sha256": "e89e5b7933eead2f891712b3f82662a53bc9a34fd15034c10309812514892404"
+    },
+    {
+      "path": "/private/tmp/typaxis-book-v2-body-public-rejection/document-package.json",
+      "bytes": 3899,
+      "sha256": "c826e915b70b54645f68ac23cba7a404240d855b5b5c7afd03017368ed97c3c7"
+    },
+    {
+      "path": "samples/machine-package/staging/production-book-1/vmb-book/book-v2-body-unsupported-kind-rejection.json",
+      "bytes": 288,
+      "sha256": "6633ec7758c9b4c44ada2fd619c9687e349999b6a52f9fcb076fb29bca77552f"
+    },
+    {
+      "path": "/private/tmp/typaxis-book-v2-body-public-rejection/unsupported-kind.log",
+      "bytes": 67,
+      "sha256": "ae5162446f49b3560b0e013e5be310d018bd2e2d64fc27eeb7c61ebe6b5acc43"
+    },
+    {
+      "path": "/private/tmp/typaxis-book-v2-body-public-rejection/unsupported-kind.json",
+      "bytes": 3899,
+      "sha256": "001c4ffb25e92868248300e6b0ace8a101bc9ea78a07ac26f090452475fbb073"
+    },
+    {
+      "path": "samples/machine-package/staging/production-book-1/vmb-book/book-v2-legacy-capabilities.json",
+      "bytes": 10604,
+      "sha256": "49cc2aca2ff94f6679026c97b972e96cdcd241bc1f4d35a04bc349cf17ddd872"
+    },
+    {
+      "path": "samples/machine-package/staging/production-book-1/vmb-book/book-v2-frozen-schema-hashes.json",
+      "bytes": 4451,
+      "sha256": "5cca16e740fb62eafd032470f03f0df6c747699101439cb791fb3cc8624b5fb9"
+    },
+    {
+      "path": "workspace/crates/typaxis-document/src/book_v2.rs",
+      "bytes": 2051,
+      "sha256": "2f014c3a99b2272e7220cb51d80cf4b217e387464cffda26e58d585b50797d62"
+    },
+    {
+      "path": "workspace/crates/typaxis-document/src/semantic_container.rs",
+      "bytes": 18613,
+      "sha256": "e33f0ec543553f88694bbcad6856490c59857d0065fd5719046ecfe28f02318c"
+    },
+    {
+      "path": "workspace/crates/typaxis-syntax/src/book_v2.rs",
+      "bytes": 7891,
+      "sha256": "2dc373e596af3c0aa8ebc21da44ec20cd6206209c7517a33136f665f1680423f"
+    },
+    {
+      "path": "workspace/crates/typaxis-syntax/src/book_v2_tests.rs",
+      "bytes": 15504,
+      "sha256": "ea1cb1e7ae2dee9951e43e3bd2d2e73eb39e72db1e1b81797ba5af0b4947fe75"
+    },
+    {
+      "path": "workspace/crates/typaxis-syntax/src/semantic_container.rs",
+      "bytes": 270393,
+      "sha256": "ad5a9d17e33cf50dea1f0e233c96de3a36b495563e4e3e4da2ce14d75586caa2"
+    }
+  ],
+  "vmb_commit": "69d0f5780aac0993159ce744102103ebebc63396",
+  "vmb_working_tree": "clean"
+}

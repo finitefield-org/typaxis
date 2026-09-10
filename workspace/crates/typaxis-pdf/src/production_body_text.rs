@@ -8,6 +8,9 @@ use typaxis_resources::{
     ProductionFootnoteFontPlans,
 };
 
+#[path = "production_native_math.rs"]
+mod native_math;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyTextError {
     ReceiptMismatch,
@@ -20,7 +23,8 @@ pub enum ProductionBodyTextError {
 pub struct ProductionBodyTextPaint {
     draw_index: usize,
     page_index: u32,
-    font_instance_id: FontInstanceId,
+    font_instance_id: Option<FontInstanceId>,
+    is_native_math: bool,
     start: usize,
     commands_start: usize,
     commands_end: usize,
@@ -34,7 +38,10 @@ impl ProductionBodyTextPaint {
         self.page_index
     }
     /// The page font dictionary must bind /PB{id} to this frozen font.
-    pub const fn font_instance_id(self) -> FontInstanceId {
+    pub const fn is_native_math(self) -> bool {
+        self.is_native_math
+    }
+    pub const fn font_instance_id(self) -> Option<FontInstanceId> {
         self.font_instance_id
     }
 }
@@ -96,6 +103,7 @@ pub fn encode_production_body_text<'f, 'v, 'd, 's, 'p, 'a>(
     let projection = encode_text_projection(
         fonts.display().draws(),
         |i| fonts.text_plan(i),
+        |i, p| fonts.native_plan(i, p),
         fonts.record_charge(),
         fonts.spool_charge(),
         limits,
@@ -122,6 +130,13 @@ fn encode_text_projection<'c>(
         &'c FrozenStagingPdfTextFontPlan,
         &'c FrozenStagingPdfTextClusterPlan,
     )>,
+    native_plan: impl Fn(
+        usize,
+        usize,
+    ) -> Option<(
+        &'c FrozenStagingPdfTextFontPlan,
+        &'c FrozenStagingPdfTextClusterPlan,
+    )>,
     prior_records: u64,
     prior_spool: u64,
     limits: &M4EffectiveResourceLimits,
@@ -138,6 +153,21 @@ fn encode_text_projection<'c>(
     let mut bytes = Vec::new();
     let mut paints = Vec::new();
     for (draw_index, draw) in draws.iter().enumerate() {
+        if let ProductionBodyDraw::Math(math) = draw {
+            record_charge = record_charge.checked_add(1).ok_or(E::RecordLimit)?;
+            if record_charge > limits.base().get().max_fragments {
+                return Err(E::RecordLimit);
+            }
+            paints.try_reserve(1).map_err(|_| E::AllocationFailure)?;
+            paints.push(native_math::encode_math(
+                math,
+                draw_index,
+                &native_plan,
+                &mut bytes,
+                maximum,
+            )?);
+            continue;
+        }
         let ProductionBodyDraw::Text(text) = draw else {
             continue;
         };
@@ -161,30 +191,20 @@ fn encode_text_projection<'c>(
         }
         let font_instance_id = font.pdf_font().font_instance_id();
         let commands_start = bytes.len();
-        append(
-            &mut bytes,
-            format!(
-                "0 g\nBT /PB{} {} Tf 0 Tr\n0 Tc 0 Tw 100 Tz 0 TL 0 Ts\n",
-                font_instance_id.get(),
-                number(text.font_size().get().raw())
-            )
-            .as_bytes(),
+        let mut output = TextSink {
+            bytes: &mut bytes,
             maximum,
+        };
+        crate::text_encoding::begin(
+            &mut output,
+            font_instance_id.get(),
+            text.font_size().get().raw(),
+            true,
         )?;
         for (glyph, cid) in text.glyphs().iter().zip(cluster.cids()) {
-            append(
-                &mut bytes,
-                format!(
-                    "1 0 0 -1 {} {} Tm <{:04X}> Tj\n",
-                    number(glyph.x().raw()),
-                    number(glyph.y().raw()),
-                    cid.get()
-                )
-                .as_bytes(),
-                maximum,
-            )?;
+            crate::text_encoding::glyph(&mut output, glyph.x().raw(), glyph.y().raw(), cid.get())?;
         }
-        append(&mut bytes, b"ET\n", maximum)?;
+        crate::text_encoding::end(&mut output)?;
         let commands_end = bytes.len();
         if cluster.requires_actual_text() {
             append(&mut bytes, b"EMC\n", maximum)?;
@@ -193,7 +213,8 @@ fn encode_text_projection<'c>(
         paints.push(ProductionBodyTextPaint {
             draw_index,
             page_index: text.page_index(),
-            font_instance_id,
+            font_instance_id: Some(font_instance_id),
+            is_native_math: false,
             start,
             commands_start,
             commands_end,
@@ -206,8 +227,15 @@ fn encode_text_projection<'c>(
         record_charge,
     })
 }
-fn number(raw: i64) -> String {
-    crate::tagged_pdf_v2::pdf_number_v2(raw)
+struct TextSink<'a> {
+    bytes: &'a mut Vec<u8>,
+    maximum: u64,
+}
+impl crate::font_encoding::Sink for TextSink<'_> {
+    type Error = ProductionBodyTextError;
+    fn extend(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
+        append(self.bytes, bytes, self.maximum)
+    }
 }
 fn append(bytes: &mut Vec<u8>, value: &[u8], maximum: u64) -> Result<(), ProductionBodyTextError> {
     let next = bytes
@@ -287,6 +315,7 @@ pub fn encode_production_footnote_text<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, '
     let projection = encode_text_projection(
         fonts.structure().display().draws(),
         |i| fonts.text_plan(i),
+        |i, p| fonts.native_plan(i, p),
         fonts.record_charge(),
         fonts.spool_charge(),
         limits,

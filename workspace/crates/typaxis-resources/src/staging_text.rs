@@ -13,13 +13,44 @@ use super::{
     VerifiedEncoderReceiptOwner,
 };
 
-/// One source-text cluster and its already-shaped glyph sequence for a
-/// staging PDF text contribution. The resource finalizer never reshapes or
-/// normalizes this input.
+/// Native glyph identity is tied to an issued draw, never to a fabricated text range.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct NativeMathGlyphSource {
+    owner: typaxis_core::NodeId,
+    receipt_sha256: [u8; 32],
+    computation_sha256: [u8; 32],
+    paint_index: u32,
+    logical_ordinal: u32,
+}
+impl NativeMathGlyphSource {
+    pub const fn owner(&self) -> typaxis_core::NodeId {
+        self.owner
+    }
+    pub const fn receipt_sha256(&self) -> [u8; 32] {
+        self.receipt_sha256
+    }
+    pub const fn computation_sha256(&self) -> [u8; 32] {
+        self.computation_sha256
+    }
+    pub const fn paint_index(&self) -> u32 {
+        self.paint_index
+    }
+    pub const fn logical_ordinal(&self) -> u32 {
+        self.logical_ordinal
+    }
+}
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum PdfFontClusterSource {
+    Text(DisplayTextSpan),
+    NativeMathGlyph(NativeMathGlyphSource),
+}
+
+/// One selected text cluster or native math glyph with its nominal source.
+/// The resource finalizer never reshapes or normalizes this input.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct StagingPdfTextClusterUsage {
     font_face_id: FontFaceId,
-    text_span: DisplayTextSpan,
+    source: PdfFontClusterSource,
     exact_text: String,
     glyphs: Vec<OriginalGlyphId>,
 }
@@ -45,7 +76,7 @@ impl StagingPdfTextClusterUsage {
         }
         Ok(Self {
             font_face_id,
-            text_span,
+            source: PdfFontClusterSource::Text(text_span),
             exact_text,
             glyphs,
         })
@@ -55,8 +86,66 @@ impl StagingPdfTextClusterUsage {
         self.font_face_id
     }
 
-    pub const fn text_span(&self) -> DisplayTextSpan {
-        self.text_span
+    pub const fn source(&self) -> &PdfFontClusterSource {
+        &self.source
+    }
+    pub const fn text_span(&self) -> Option<DisplayTextSpan> {
+        match self.source {
+            PdfFontClusterSource::Text(span) => Some(span),
+            _ => None,
+        }
+    }
+    pub fn from_native_math_glyph(
+        draw: &typaxis_display_list::ProductionBodyNativeMathDraw<'_>,
+        paint_index: usize,
+    ) -> Result<Self, ResourceError> {
+        let Some(typaxis_display_list::ProductionNativeMathPaint::Glyph {
+            original_gid,
+            unicode,
+            logical_ordinal,
+            ..
+        }) = draw.paints().get(paint_index)
+        else {
+            return Err(ResourceError::InvalidFontPlan);
+        };
+        Ok(Self {
+            font_face_id: draw.receipt().font_face_id(),
+            source: PdfFontClusterSource::NativeMathGlyph(NativeMathGlyphSource {
+                owner: draw.owner(),
+                receipt_sha256: draw.receipt().key().bytes(),
+                computation_sha256: draw.receipt().computation().fingerprint(),
+                paint_index: u32::try_from(paint_index)
+                    .map_err(|_| ResourceError::ResourceLimit)?,
+                logical_ordinal: *logical_ordinal,
+            }),
+            exact_text: unicode.to_string(),
+            glyphs: vec![*original_gid],
+        })
+    }
+    fn extraction_plan(
+        &self,
+        cids: Vec<Cid>,
+        unicode: Vec<UnicodeScalar>,
+        actual: bool,
+    ) -> ClusterExtractionPlan {
+        match &self.source {
+            PdfFontClusterSource::Text(text_span) if actual => ClusterExtractionPlan::ActualText {
+                text_span: *text_span,
+                cids,
+                unicode,
+            },
+            PdfFontClusterSource::Text(text_span) => ClusterExtractionPlan::PerCid {
+                text_span: *text_span,
+                cids,
+            },
+            PdfFontClusterSource::NativeMathGlyph(source) => {
+                ClusterExtractionPlan::NativeMathGlyph {
+                    source: source.clone(),
+                    cids,
+                    unicode,
+                }
+            }
+        }
     }
 
     pub fn exact_text(&self) -> &str {
@@ -76,8 +165,11 @@ pub struct FrozenStagingPdfTextClusterPlan {
 }
 
 impl FrozenStagingPdfTextClusterPlan {
-    pub const fn text_span(&self) -> DisplayTextSpan {
-        self.usage.text_span
+    pub const fn source(&self) -> &PdfFontClusterSource {
+        self.usage.source()
+    }
+    pub const fn text_span(&self) -> Option<DisplayTextSpan> {
+        self.usage.text_span()
     }
 
     pub fn exact_text(&self) -> &str {
@@ -127,8 +219,8 @@ impl FrozenStagingPdfTextFontPlan {
         self.clusters
             .binary_search_by(|cluster| {
                 cluster
-                    .text_span()
-                    .cmp(&text_span)
+                    .source()
+                    .cmp(&PdfFontClusterSource::Text(text_span))
                     .then_with(|| cluster.exact_text().cmp(exact_text))
                     .then_with(|| cluster.glyphs().cmp(glyphs))
             })
@@ -311,18 +403,7 @@ fn finalize_text_fonts(
                     });
                     cids.push(cid);
                 }
-                extraction_plans.push(if per_cid {
-                    ClusterExtractionPlan::PerCid {
-                        text_span: usage.text_span,
-                        cids: cids.clone(),
-                    }
-                } else {
-                    ClusterExtractionPlan::ActualText {
-                        text_span: usage.text_span,
-                        cids: cids.clone(),
-                        unicode: scalars,
-                    }
-                });
+                extraction_plans.push(usage.extraction_plan(cids.clone(), scalars, !per_cid));
                 frozen_clusters.push(FrozenStagingPdfTextClusterPlan {
                     usage,
                     cids,
@@ -519,18 +600,7 @@ fn build_staging_cff1_plans(
             .flat_map(|cid| bindings[usize::from(cid.get()) - 1].unicode.iter().copied())
             .collect::<Vec<_>>();
         let requires_actual_text = extracted != scalars;
-        extraction_plans.push(if requires_actual_text {
-            ClusterExtractionPlan::ActualText {
-                text_span: usage.text_span,
-                cids: cids.clone(),
-                unicode: scalars,
-            }
-        } else {
-            ClusterExtractionPlan::PerCid {
-                text_span: usage.text_span,
-                cids: cids.clone(),
-            }
-        });
+        extraction_plans.push(usage.extraction_plan(cids.clone(), scalars, requires_actual_text));
         frozen_clusters.push(FrozenStagingPdfTextClusterPlan {
             usage,
             cids,
@@ -538,6 +608,14 @@ fn build_staging_cff1_plans(
         });
     }
     Ok((bindings, extraction_plans, frozen_clusters))
+}
+
+// Pure Unicode-claim merge shared with book-2. Each caller still verifies
+// and owns its original source/glyph occurrence; no receipt is translated.
+pub(crate) fn merge_single_glyph_unicode(
+    current: Option<UnicodeScalar>, observed: UnicodeScalar,
+) -> Option<UnicodeScalar> {
+    current.filter(|value| *value == observed)
 }
 
 /// CID count follows glyph diversity, while extraction remains occurrence-local.
@@ -563,9 +641,7 @@ fn build_production_truetype_plans(
             unicode_by_glyph
                 .entry(cluster.glyphs[0])
                 .and_modify(|current| {
-                    if *current != Some(scalar) {
-                        *current = None;
-                    }
+                    *current = merge_single_glyph_unicode(*current, scalar);
                 })
                 .or_insert(Some(scalar));
         }
@@ -637,18 +713,7 @@ fn build_production_truetype_plans(
             .iter()
             .flat_map(|cid| bindings[usize::from(cid.get()) - 1].unicode.iter().copied());
         let requires_actual_text = !extracted.eq(scalars.iter().copied());
-        extraction.push(if requires_actual_text {
-            ClusterExtractionPlan::ActualText {
-                text_span: usage.text_span,
-                cids: cids.clone(),
-                unicode: scalars,
-            }
-        } else {
-            ClusterExtractionPlan::PerCid {
-                text_span: usage.text_span,
-                cids: cids.clone(),
-            }
-        });
+        extraction.push(usage.extraction_plan(cids.clone(), scalars, requires_actual_text));
         frozen.push(FrozenStagingPdfTextClusterPlan {
             usage,
             cids,
@@ -711,7 +776,7 @@ mod production_tests {
             else {
                 panic!("exact cluster text")
             };
-            assert_eq!(text_span, cluster.text_span());
+            assert_eq!(Some(text_span), cluster.text_span());
             assert_eq!(cids, cluster.cids());
             assert_eq!(
                 unicode,

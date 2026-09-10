@@ -237,7 +237,7 @@ fn production_common_footnote_driver_closes_actual_source_to_pdf() {
                         Err(typaxis_pdf::ProductionBodyAssemblyError::SpoolLimit)
                     );
                     assert!(pdf.bytes().starts_with(b"%PDF-1.7"));
-                    assert_eq!(pdf.page_count() as usize, stable.sequence().pages().len());
+                    assert_eq!(pdf.page_count() as usize, stable.page_count());
                     assert!(observation.line_reshape_passes >= 2);
                     assert_eq!(observation.page_passes, stable.passes());
                     assert!(observation.page_passes >= 2);
@@ -1111,6 +1111,12 @@ fn production_common_final_driver_and_manifests_share_exact_budgets() {
     for value in [
         production_body_navigation_vmb_fixture(),
         production_page_reference_fixture(11).0,
+        production_table_fixture(),
+        production_formula_header_table_fixture(),
+        production_formula_header_table_with_tail_fixture(),
+        production_numbered_formula_header_table_fixture(),
+        production_inline_formula_header_table_fixture(),
+        production_mixed_table_fixture(),
     ] {
         let bytes = serde_json::to_vec(&value).unwrap();
         let mut records = 0;
@@ -1212,4 +1218,503 @@ fn production_common_final_driver_and_manifests_share_exact_budgets() {
             }
         }
     }
+}
+
+#[test]
+fn production_public_book_uses_common_selection_and_manifest_chain() {
+    for (name, value) in [
+        ("navigation", production_body_navigation_vmb_fixture()),
+        ("reference", production_page_reference_fixture(11).0),
+        ("single-page-table", production_table_fixture()),
+        ("table-header", production_formula_header_table_fixture()),
+        ("table-header-tail", production_formula_header_table_with_tail_fixture()),
+        ("table-header-numbered", production_numbered_formula_header_table_fixture()),
+        ("table-header-inline", production_inline_formula_header_table_fixture()),
+        ("table-footnotes", production_mixed_table_fixture()),
+    ] {
+        let bytes = serde_json::to_vec(&value).unwrap();
+        let cfg = EffectiveConfig::new_for_contract(DocumentPackageContractId::V1_4,
+            false, PdfStreamCompression::None, vec![ConfigResourceRoot::ProjectRoot],
+            ["http", "https", "mailto", "tel"].map(str::to_owned).to_vec(),
+            EffectiveDataVersions::new("16.0.0", "typaxis-jlreq-horizontal/1.0.0").unwrap(),
+            ResourceLimits::default()).unwrap();
+        let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &cfg);
+        let semantics =
+            typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+                .unwrap();
+        let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+        let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+            &package,
+            &navigation,
+            &semantics,
+            &limits,
+            &identity,
+        )
+        .unwrap();
+        let built = build_production_book_pdf(
+            &package,
+            &navigation,
+            &semantics,
+            &profile,
+            &admitted,
+            &limits,
+            &cfg,
+        )
+        .unwrap();
+        let (pdf, fields, selected, _, fragments, trace, pass_count) = built.into_parts();
+        assert_eq!(pass_count.get(), if name == "reference" { 6 } else { 2 });
+        if let Some(table) = value["document"]["blocks"][0]["blocks"].as_array().and_then(|blocks| blocks.iter().find(|block| block["kind"] == "table")) {
+            let text = String::from_utf8_lossy(pdf.bytes());
+            assert_eq!(text.matches("/S /Table ").count(), 1);
+            let cells = |section: &str| table[section].as_array().unwrap().iter().map(|row| row["cells"].as_array().unwrap().len()).sum::<usize>();
+            assert_eq!(text.matches("/S /TH ").count(), cells("head"));
+            assert_eq!(text.matches("/S /TD ").count(), cells("body"));
+            if let Some(dir) = std::env::var_os("VMB_SINGLE_PAGE_TABLE_OUT") {
+                let dir = PathBuf::from(dir);
+                fs::create_dir_all(&dir).unwrap();
+                fs::write(dir.join(format!("{name}.pdf")), pdf.bytes()).unwrap();
+                fs::write(dir.join(format!("{name}-package.json")), &bytes).unwrap();
+            }
+        }
+        assert_eq!(pdf.selected_layout_fingerprint().bytes(), selected);
+        assert!(fragments > 0);
+        assert!(pdf.footnote_display_sha256().is_some());
+        assert!(fields.book_navigation_record().is_some());
+        assert!(fields.safe_vector_record().is_some());
+        assert!(fields.math_vector_record().is_some());
+        assert!(fields.tagged_pdf_record().is_some());
+        let trace: serde_json::Value = serde_json::from_str(&trace).unwrap();
+        assert_eq!(trace["fragment_count"], fragments);
+        assert_eq!(trace["pass_count"], pass_count.get());
+        assert_eq!(trace["selected_state"], pass_count.get());
+        assert!(trace["native_math_layout_sha256"].is_null());
+        let has_table = value["document"]["blocks"][0]["blocks"].as_array()
+            .is_some_and(|blocks| blocks.iter().any(|block| block["kind"] == "table"));
+        assert_eq!(trace["table_measurements_sha256"].is_string(), has_table);
+        if !has_table {
+            assert!(trace["table_measurements_sha256"].is_null());
+        }
+        let hex = |bytes: [u8; 32]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        assert_eq!(trace["selected_layout_sha256"], hex(selected));
+        assert_eq!(
+            trace["vector_display_sha256"],
+            hex(pdf.footnote_display_sha256().unwrap())
+        );
+        let tagged: serde_json::Value =
+            serde_json::from_str(fields.tagged_pdf_record().unwrap()).unwrap();
+        assert_eq!(
+            tagged["fingerprints"]["pdf_sha256"],
+            hex(pdf.content_hash())
+        );
+        assert!(pdf
+            .bytes()
+            .windows(b"<pdfuaid:part>1</pdfuaid:part>".len())
+            .any(|w| w == b"<pdfuaid:part>1</pdfuaid:part>"));
+    }
+}
+
+#[test]
+fn production_native_math_public_pdf_keeps_formula_and_embedded_font() {
+    for (name, value) in [("native", production_native_math_fixture()), ("fraction", production_native_math_fraction_fixture())] {
+    let expected_speech = value["document"]["blocks"][0]["children"][0]["speech"].as_str().unwrap();
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let cfg = EffectiveConfig::new_for_contract(DocumentPackageContractId::V1_4,
+        false, PdfStreamCompression::None, vec![ConfigResourceRoot::ProjectRoot],
+        ["http", "https", "mailto", "tel"].map(str::to_owned).to_vec(),
+        EffectiveDataVersions::new("16.0.0", "typaxis-jlreq-horizontal/1.0.0").unwrap(),
+        ResourceLimits::default()).unwrap();
+    let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &cfg);
+    let semantics = typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits).unwrap();
+    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+    let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+        &package, &navigation, &semantics, &limits, &identity,
+    ).unwrap();
+    let built = build_production_book_pdf(&package, &navigation, &semantics, &profile, &admitted, &limits, &cfg).unwrap();
+    let (pdf, fields, selected, _, fragments, trace, _) = built.into_parts();
+    let native = typaxis_layout::prepare_production_native_math_context(
+        &package, profile.base().base().authorization(), &limits, &admitted,
+    ).unwrap().unwrap();
+    let trace: serde_json::Value = serde_json::from_str(&trace).unwrap();
+    assert_eq!(trace["native_math_layout_sha256"], native.computations().fingerprint()
+        .iter().map(|b| format!("{b:02x}")).collect::<String>());
+    assert!(trace["table_measurements_sha256"].is_null());
+    assert_eq!(pdf.selected_layout_fingerprint().bytes(), selected);
+    assert!(fragments > 0);
+    assert!(fields.tagged_pdf_record().is_some());
+    let content = String::from_utf8_lossy(pdf.bytes());
+    assert!(content.contains("/S /Formula"));
+    assert!(content.contains("/FontFile2"));
+    assert!(content.contains("/PB0"));
+    let speech: String = expected_speech.encode_utf16().map(|c| format!("{c:04X}")).collect();
+    assert!(content.contains(&format!("/ActualText <FEFF{speech}>")));
+    if let Ok(directory) = std::env::var("VMB_NATIVE_PDF_OUT") {
+        let directory = PathBuf::from(directory);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join(format!("{name}.pdf")), pdf.bytes()).unwrap();
+        fs::write(directory.join(format!("{name}-package.json")), bytes).unwrap();
+    }
+    }
+}
+#[test]
+fn production_native_math_context_reuses_receipts_across_convergence() {
+    let value = production_native_math_fixture();
+    with_production_inline_tagged_context(
+        &serde_json::to_vec(&value).unwrap(),
+        &config(),
+        |prepared, package, authorization, limits, admitted, bindings, semantics, tagged| {
+            let native = typaxis_layout::prepare_production_native_math_context(
+                package,
+                authorization,
+                limits,
+                admitted,
+            )
+            .unwrap()
+            .unwrap();
+            let copied_ledger = admitted.clone();
+            assert!(native.verify_source(package, authorization, limits, &copied_ledger).is_err());
+            let work = native.computations().layout_work();
+            assert!(work > 0);
+            let flow = prepared.source_flow();
+            let mut previous = None;
+            for _ in 0..2 {
+                typaxis_layout::with_converged_production_body_lines_with_native_context(
+                    package,
+                    flow.navigation(),
+                    authorization,
+                    limits,
+                    admitted,
+                    flow,
+                    bindings,
+                    typaxis_linebreak::JapaneseLineBreakMode::Normal,
+                    authorization.page_geometry().body(),
+                    100_000,
+                    Some(&native),
+                    |stable| {
+                        assert!(!stable.passes().is_empty());
+                        let mut count = 0;
+                        for paragraph in stable.lines().paragraphs() {
+                            for line in paragraph.lines() {
+                                for item in line.items() {
+                                    if let typaxis_layout::ProductionPlacedInline::Math(math) = item
+                                    {
+                                        assert!(std::ptr::eq(
+                                            math.receipt(),
+                                            native.computations().receipt(math.owner()).unwrap()
+                                        ));
+                                        count += 1;
+                                    }
+                                }
+                            }
+                        }
+                        assert_eq!(count, 1);
+                        let hash = stable.lines().fingerprint();
+                        if let Some(previous) = previous {
+                            assert_eq!(hash, previous);
+                        }
+                        previous = Some(hash);
+                    },
+                )
+                .unwrap();
+            }
+            for _ in 0..2 {
+                with_production_common_footnote_pdf_candidates_with_native_context(
+                    package,
+                    flow.navigation(),
+                    semantics,
+                    tagged,
+                    admitted,
+                    limits,
+                    typaxis_linebreak::JapaneseLineBreakMode::Normal,
+                    100_000,
+                    None,
+                    limits.base().get().max_layout_passes,
+                    Some(&native),
+                    |pdf, _, _, _, _| {
+                        assert!(pdf.bytes().starts_with(b"%PDF-1.7"));
+                        Ok(())
+                    },
+                )
+                .unwrap();
+            }
+            assert_eq!(native.computations().layout_work(), work);
+            // A missing context must fail closed before the stable callback.
+            assert!(
+                typaxis_layout::with_converged_production_body_lines_with_native_context(
+                    package,
+                    flow.navigation(),
+                    authorization,
+                    limits,
+                    admitted,
+                    flow,
+                    bindings,
+                    typaxis_linebreak::JapaneseLineBreakMode::Normal,
+                    authorization.page_geometry().body(),
+                    100_000,
+                    None,
+                    |_| panic!("missing computation must not select lines"),
+                )
+                .is_err()
+            );
+            // Same document under a separately issued profile is a foreign session.
+            let identity =
+                typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+            let foreign = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+                package,
+                flow.navigation(),
+                semantics,
+                limits,
+                &identity,
+            )
+            .unwrap();
+            assert!(native
+                .verify_source(
+                    package,
+                    foreign.base().base().authorization(),
+                    limits,
+                    admitted
+                )
+                .is_err());
+        },
+    );
+}
+#[test]
+fn production_native_math_and_page_reference_converge_at_exact_math_work_limit() {
+    let mut value = production_native_math_fixture();
+    let paragraph = &mut value["document"]["blocks"][0];
+    let span = paragraph["span"].clone();
+    let children = paragraph["children"].as_array_mut().unwrap();
+    children.insert(
+        0,
+        serde_json::json!({"kind":"anchor","node_id":0,"span":span,"anchor_id":"native-target"}),
+    );
+    children.push(serde_json::json!({"kind":"reference","node_id":0,"span":span,"target":"native-target","format":"page"}));
+    production_body_renumber(&mut value["document"], &mut 0);
+    let owner = NodeId::new(
+        value["document"]["blocks"][0]["children"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["node_id"]
+            .as_u64()
+            .unwrap() as u32,
+    );
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let (package, _, _, _) = production_text_fixture(&bytes, &config());
+    let work: u64 = package
+        .math_nodes()
+        .iter()
+        .map(|node| typaxis_math::required_math_layout_units(node.parsed()).unwrap())
+        .sum();
+    assert!(work > 1);
+    for maximum in [work, work - 1] {
+        let mut overrides = crate::config::ConfigOverrides::default();
+        overrides
+            .set_limit("max_math_layout_units", maximum)
+            .unwrap();
+        overrides.no_compress = true;
+        let cfg = crate::config::load_for_profile(
+            typaxis_core::MachinePdfProfileId::ProductionBook1,
+            None,
+            Vec::<(&str, &str)>::new(),
+            &overrides,
+        )
+        .unwrap();
+        let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &cfg);
+        let semantics =
+            typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+                .unwrap();
+        let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+        let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+            &package,
+            &navigation,
+            &semantics,
+            &limits,
+            &identity,
+        )
+        .unwrap();
+        let mut inspected = false;
+        let result = with_converged_production_page_reference_pdf(
+            &package,
+            &navigation,
+            &semantics,
+            &profile,
+            &admitted,
+            &limits,
+            typaxis_linebreak::JapaneseLineBreakMode::Normal,
+            100_000,
+            &[(owner, 99)],
+            |pdf, _, _, _, _, total| {
+                inspected = true;
+                assert!(
+                    total.passes >= 3,
+                    "candidate 99 must change to the actual page and stabilize"
+                );
+                assert!(total.line_reshape_passes >= usize::from(total.passes));
+                let pdf = String::from_utf8_lossy(pdf.bytes());
+                assert!(pdf.contains("/S /Formula"));
+                assert!(pdf.contains("/FontFile2"));
+                Ok(())
+            },
+        );
+        if maximum == work {
+            result.unwrap();
+            assert!(inspected);
+            let built = build_production_book_pdf(
+                &package, &navigation, &semantics, &profile, &admitted, &limits, &cfg,
+            ).unwrap();
+            let (pdf, _, _, _, _, _, _) = built.into_parts();
+            if let Ok(directory) = std::env::var("VMB_NATIVE_PDF_OUT") {
+                let directory = PathBuf::from(directory);
+                fs::create_dir_all(&directory).unwrap();
+                fs::write(directory.join("native-page-reference.pdf"), pdf.bytes()).unwrap();
+                fs::write(directory.join("native-page-reference-package.json"), &bytes).unwrap();
+                fs::write(directory.join("native-page-reference-work.txt"), work.to_string()).unwrap();
+            }
+
+        } else {
+            let error = result.unwrap_err();
+            assert_eq!(error.kind, FailureKind::Limit);
+            assert!(error.message.starts_with("L5111:"), "{error:?}");
+            assert!(!inspected);
+        }
+    }
+}
+
+#[test]
+fn production_common_book_numbered_label_clusters_share_one_language_occurrence() {
+    let value = production_numbered_body_text_fixture(5_000_000, "AB");
+    with_production_inline_tagged_context(&serde_json::to_vec(&value).unwrap(), &config(),
+        |prepared, package, _, limits, admitted, _, semantics, profile| {
+            with_production_common_footnote_pdf(package, prepared.source_flow().navigation(), semantics,
+                profile, admitted, limits, typaxis_linebreak::JapaneseLineBreakMode::Normal, 100_000,
+                |pdf, _, book, _, _| {
+                    let structure = pdf.source().structure_objects().annotations().marked().structure();
+                    let draws = structure.display().draws().iter().filter_map(|draw| {
+                        let typaxis_display_list::ProductionBodyDraw::Text(text) = draw else { return None; };
+                        text.equation_number().map(|_| text)
+                    }).collect::<Vec<_>>();
+                    assert_eq!(draws.iter().map(|text| text.exact_text()).collect::<String>(), "AB");
+                    assert!(draws.len() > 1);
+                    assert_eq!(book.child_language_paints().len(), 1);
+                    assert_eq!(book.child_language_paints()[0].owner_node_id(), draws[0].owner());
+                    Ok(())
+                }).unwrap();
+        });
+}
+
+#[test]
+fn production_common_combined_preserves_tall_table_rows_and_authored_page_break() {
+    let bytes = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../samples/machine-package/profiles/production-book-1/combined/job/document-package.json"));
+    let (package, navigation, limits, admitted) = production_text_fixture(bytes, &config());
+    let semantics = typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits).unwrap();
+    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+    let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(&package, &navigation, &semantics, &limits, &identity).unwrap();
+    with_production_common_footnote_pdf(&package, &navigation, &semantics,
+                &profile, &admitted, &limits, typaxis_linebreak::JapaneseLineBreakMode::Normal, 1_000_000,
+                |pdf, _, _, _, _| {
+                    let display = pdf.source().structure_objects().annotations().marked().structure().display();
+                    let source = display.source();
+                    let measured = typaxis_pagination::prepare_production_table_measurements(source.line_layout(), source.block_layout(), source.footnote_lines(), &limits).unwrap();
+                    assert_eq!(measured.tables().len(), 1);
+                    let table = &measured.tables()[0];
+                    assert_eq!(table.owner().get(), 23);
+                    assert_eq!(table.rows().iter().map(|row| (row.owner().get(), row.height().raw())).collect::<Vec<_>>(), [(24, 1_048_576), (31, 8_131_072), (38, 8_131_072), (42, 8_131_072)]);
+                    assert_eq!(table.height().raw(), 25_441_792);
+                    let body = source.block_layout().page_geometry().body();
+                    assert!(table.height() > body.height().get());
+                    let geometry = source.geometry().mixed().unwrap();
+                    assert_eq!(geometry.sequence().measurements_fingerprint(), measured.fingerprint());
+                    assert_eq!(geometry.sequence().pages()[0].forced_break().unwrap().get(), 19);
+                    assert_eq!(pdf.page_count(), 5);
+                    let mut tall = std::collections::BTreeMap::new();
+                    for page in geometry.pages() {
+                        for placed in page.fragments() {
+                            let fragment = placed.fragment();
+                            if [33, 36, 40, 44].contains(&fragment.owner().get()) {
+                                assert_eq!(fragment.bounds().height().get().raw(), 8_000_000);
+                                assert!(fragment.bounds().y() >= body.y());
+                                assert!(fragment.bounds().y().checked_add(fragment.bounds().height().get()).unwrap() <= body.y().checked_add(body.height().get()).unwrap());
+                                assert!(tall.insert(fragment.owner().get(), fragment.page_index()).is_none());
+                            }
+                        }
+                    }
+                    assert_eq!(tall, [(33, 1), (36, 1), (40, 2), (44, 2)].into_iter().collect());
+                    Ok(())
+                }).unwrap();
+}
+
+
+#[test]
+fn production_public_pass_summary_counts_all_page_reference_retries() {
+    for (blank_pages, expected_passes) in [(0, 4), (1, 6), (11, 6)] {
+        let (value, _) = production_page_reference_fixture(blank_pages);
+        let cfg = EffectiveConfig::new_for_contract(
+            DocumentPackageContractId::V1_4, false, PdfStreamCompression::None,
+            vec![ConfigResourceRoot::ProjectRoot],
+            ["http", "https", "mailto", "tel"].map(str::to_owned).to_vec(),
+            EffectiveDataVersions::new("16.0.0", "typaxis-jlreq-horizontal/1.0.0").unwrap(),
+            ResourceLimits::default(),
+        ).unwrap();
+        let (package, navigation, limits, admitted) =
+            production_text_fixture(&serde_json::to_vec(&value).unwrap(), &cfg);
+        let semantics = typaxis_syntax::validate_staging_structure_semantics_v2(
+            &package, &navigation, &limits,
+        ).unwrap();
+        let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+        let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+            &package, &navigation, &semantics, &limits, &identity,
+        ).unwrap();
+        let built = build_production_book_pdf(
+            &package, &navigation, &semantics, &profile, &admitted, &limits, &cfg,
+        ).unwrap();
+        let (pdf, _, selected, _, _, trace, count) = built.into_parts();
+        assert_eq!(pdf.page_count(), blank_pages + 1);
+        assert_eq!(pdf.selected_layout_fingerprint().bytes(), selected);
+        assert_eq!(count.get(), expected_passes);
+        let trace: serde_json::Value = serde_json::from_str(&trace).unwrap();
+        assert_eq!(trace["pass_count"], expected_passes);
+        assert_eq!(trace["selected_state"], expected_passes);
+    }
+}
+
+#[test]
+fn production_common_failure_keeps_typed_shaping_owner_and_canonical_reason() {
+    use typaxis_shaping::{ProductionTextShapeError, ProductionTextShapeErrorKind as S};
+    use typaxis_diagnostics::DiagnosticLocation;
+    let owner = NodeId::new(37);
+    for (kind, expected_code, reason, exit) in [
+        (S::MissingDeclaredFontCoverage, "L5100", "missing_declared_font_coverage", 1),
+        (S::MissingGeneratedGlyph, "L5100", "missing_generated_glyph", 1),
+        (S::OutputLimit, "L5110", "output_limit", 5),
+        (S::ReceiptMismatch, "I9190", "receipt_mismatch", 4),
+    ] {
+        let failure = map_common_reshape_error(typaxis_layout::ProductionBodyReshapeError::Shape(
+            ProductionTextShapeError { owner, kind },
+        ));
+        assert_eq!(failure.kind.exit_code(), exit);
+        let diagnostic = failure.processing_diagnostic().unwrap();
+        assert_eq!(diagnostic.code().as_str(), expected_code);
+        assert_eq!(diagnostic.message(), "production text shaping failed");
+        let Some(DiagnosticLocation::Source(location)) = diagnostic.location() else { panic!("typed source location lost") };
+        assert_eq!(location.node_id(), Some(owner));
+        assert_eq!(location.text_span(), None);
+        assert_eq!(location.source_span(), None);
+        assert_eq!(diagnostic.notes()[0].message(), format!("phase=authored-text-shaping; reason={reason}"));
+    }
+}
+
+#[test]
+fn production_common_failure_preserves_missing_glyph_text_span() {
+    use typaxis_core::{TextBufferId, TextSpan, Utf8ByteOffset};
+    use typaxis_shaping::{ProductionTextShapeError, ProductionTextShapeErrorKind};
+    let span = TextSpan::new(TextBufferId::new(4), Utf8ByteOffset::new(3), Utf8ByteOffset::new(7)).unwrap();
+    let failure = map_common_reshape_error(typaxis_layout::ProductionBodyReshapeError::Shape(
+        ProductionTextShapeError { owner: NodeId::new(9), kind: ProductionTextShapeErrorKind::MissingShapedGlyph { span } },
+    ));
+    let diagnostic = failure.processing_diagnostic().unwrap();
+    let Some(typaxis_diagnostics::DiagnosticLocation::Source(location)) = diagnostic.location() else { panic!("missing source location") };
+    assert_eq!(location.node_id(), Some(NodeId::new(9)));
+    assert_eq!(location.text_span(), Some(span));
+    assert_eq!(location.source_span(), None);
+    assert!(diagnostic.notes()[0].message().ends_with("reason=missing_shaped_glyph"));
 }

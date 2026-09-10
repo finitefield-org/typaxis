@@ -1,0 +1,286 @@
+{
+  "kind": "vmb-book-diagnostic-source-mapping-local-evidence",
+  "scope": "Authored body-only positive and synthetic-font negative from actual StageBookPackage; not original full-book export or publication approval.",
+  "typaxis_cli": {
+    "path": "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+    "bytes": 73517640,
+    "sha256": "08e3b3008e85efcc669f0df68982dab106cfddcc535b90da996a6a52bace526a"
+  },
+  "sources": [
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/workspace/crates/typaxis-cli/src/pipeline.rs",
+      "bytes": 394649,
+      "sha256": "7275429cbf844b6aaf2721cba6fa125707bf99baeebf42bf6402ae245483e4d7"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/workspace/crates/typaxis-cli/src/main.rs",
+      "bytes": 173370,
+      "sha256": "8309453c4b3e30bf5fb75f3771543c8db2cc09605becefb2da83953e72c60abb"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/workspace/crates/typaxis-cli/src/production_common_pipeline.rs",
+      "bytes": 49077,
+      "sha256": "7b6c1d16f26ba3b80dd1be34a5d8034734e8c0b263714eced7e7227da2f166e0"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/workspace/crates/typaxis-cli/src/production_common_pipeline_tests.rs",
+      "bytes": 74163,
+      "sha256": "4cd887a8c470666049863bfc17b26343ad8fccac20376ee2ffe3b46d676a5118"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/diagnostic.go",
+      "bytes": 15544,
+      "sha256": "7fc8fbe48f1a4e970f6cd618a1d198ead19d4a4c74523968de44d5fb357879eb"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/diagnostic_test.go",
+      "bytes": 15127,
+      "sha256": "357e2a86d40c39f9470fc73ac209871a10a86b97e44f7406d63ef7e662e78301"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package.go",
+      "bytes": 10253,
+      "sha256": "c1d3d59ec0383c95ac4ccf9fae864ed3552360003d7d63071667da3c8630421f"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/adapter.go",
+      "bytes": 12534,
+      "sha256": "ff9dc73ce8985385f2de277753b638ca8f70a03d37ae1deff50888ef85712a73"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/adapter_test.go",
+      "bytes": 10834,
+      "sha256": "d52ea99bd0bf74eeff49487cd936603e27aaef1b248e4fc3898429c868a431de"
+    }
+  ],
+  "initial_actual_failure": {
+    "log": {
+      "path": "/private/tmp/vmb-diagnostic-actual-tests.log",
+      "bytes": 6253,
+      "sha256": "8d75a738bcc2edeaa073ecdd232825945747fbfa74bb491f8dbe2c5d7430f276"
+    },
+    "outcome": "exit 1 from Go test: old CLI dropped node owner and emitted only root package location; no input/expected source was weakened"
+  },
+  "negative": {
+    "input": "/private/tmp/vmb-diagnostic-actual-failure/typaxis-body-3472389825",
+    "run": "/private/tmp/vmb-diagnostic-actual-failure/typaxis-run-3376130839",
+    "command_exit_codes": {
+      "capabilities": 0,
+      "check-package": 0,
+      "build-package": 1
+    },
+    "artifacts": [
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-failure/typaxis-run-3376130839/check-diagnostics.json",
+        "bytes": 52,
+        "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-failure/typaxis-run-3376130839/build-diagnostics.json",
+        "bytes": 314,
+        "sha256": "f974d4e9dd0dec531eb6ca36922e8112e421c40872fb839463ce0d9963df867f"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-failure/typaxis-run-3376130839/build-manifest.json",
+        "bytes": 2426,
+        "sha256": "dc6b2a7b095cffbe753bdb09daac956a6d2de06cb5335a02a47fb8b9e72fc034"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-failure/typaxis-run-3376130839/book-config.toml",
+        "bytes": 1480,
+        "sha256": "3f708506f7353fbde56046b015c61cb49c74970bb59ff8c417a74a9bea701144"
+      }
+    ],
+    "inputs": [
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-failure/typaxis-body-3472389825/document-package.json",
+        "bytes": 7133,
+        "sha256": "869f3754735c6aafe4524b6fc1d6def3dfd0713a41318c8ded1ef69d9e5bce38"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-failure/typaxis-body-3472389825/typaxis-source-map.json",
+        "bytes": 8973,
+        "sha256": "e01aa664521dd0ae5af65dccc0137c40a62f3f3d3f9785f00b3325af91f7541e"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-failure/typaxis-body-3472389825/source/book-projection.txt",
+        "bytes": 88,
+        "sha256": "fe9f74e6f7aaa1bdb78945e828cd4866ad6801bb4bcc3780b25de65f5669a6e3"
+      }
+    ],
+    "diagnostics": {
+      "contract": "typaxis.contract/1.4",
+      "diagnostics": [
+        {
+          "code": "L5100",
+          "location": {
+            "kind": "source",
+            "node_id": 3,
+            "source_span": null,
+            "text_span": null
+          },
+          "message": "production text shaping failed",
+          "notes": [
+            {
+              "location": null,
+              "message": "phase=authored-text-shaping; reason=missing_declared_font_coverage"
+            }
+          ],
+          "severity": "error"
+        }
+      ]
+    },
+    "mapped_owner": {
+      "node_id": 3,
+      "original_file": "book/chapter.json",
+      "original_pointer": "/blocks/0",
+      "exact_original_byte_offset_inferred": false
+    },
+    "pdf_exists": false,
+    "manifest_status": "failed",
+    "manifest_output": null,
+    "assertion": "TestTypaxisActualFailureDiagnosticReturnsBookPosition requires actual node 3 / original file and pointer, build exit 1, and no PDF; manifest fields were independently read for this evidence."
+  },
+  "positive": {
+    "input": "/private/tmp/vmb-diagnostic-actual-success/typaxis-body-1310904720",
+    "run": "/private/tmp/vmb-diagnostic-actual-success/typaxis-run-2232995962",
+    "command_exit_codes": {
+      "capabilities": 0,
+      "check-package": 0,
+      "build-package": 0
+    },
+    "artifacts": [
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-success/typaxis-run-2232995962/output.pdf",
+        "bytes": 48251,
+        "sha256": "d2a2819dc06ab3dbc4bd2de5047a41e7a9d003c6d89c780c052a347124e90bb8"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-success/typaxis-run-2232995962/build-manifest.json",
+        "bytes": 16956,
+        "sha256": "c94b0bca4e86b107b182473c065306cc0d3861ffc2e6bc9e8b117fe51c079651"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-success/typaxis-run-2232995962/trace.json",
+        "bytes": 736,
+        "sha256": "3eca7b618cfbdf025b2e89e853c0443b58b2b2d79b4b62c21d516b5b38b85891"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-success/typaxis-run-2232995962/check-diagnostics.json",
+        "bytes": 52,
+        "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-success/typaxis-run-2232995962/build-diagnostics.json",
+        "bytes": 52,
+        "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde"
+      }
+    ],
+    "inputs": [
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-success/typaxis-body-1310904720/document-package.json",
+        "bytes": 7081,
+        "sha256": "fe97596c3c205df5f8ca1c4242b6013f267a8f7bc73a01a64490937c70975a02"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-success/typaxis-body-1310904720/typaxis-source-map.json",
+        "bytes": 8973,
+        "sha256": "e01aa664521dd0ae5af65dccc0137c40a62f3f3d3f9785f00b3325af91f7541e"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-success/typaxis-body-1310904720/source/book-projection.txt",
+        "bytes": 88,
+        "sha256": "fe9f74e6f7aaa1bdb78945e828cd4866ad6801bb4bcc3780b25de65f5669a6e3"
+      }
+    ],
+    "envelope": {
+      "pages": 1,
+      "objects": 41,
+      "passes": 2
+    },
+    "pdf_matches_previous_verified_bytes": true,
+    "pdf_ua_verifier_rerun": false
+  },
+  "verification": {
+    "go_test": {
+      "command": "go test -C /Users/kazuyoshitoshiya/v/vmb-container/vmb-core ./internal/rendertypaxis -count=1 -v",
+      "environment": {
+        "VMB_TYPAXIS_CLI": "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+        "VMB_TYPAXIS_FIXTURE_ROOT": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job",
+        "VMB_TYPAXIS_PACKAGE_FONT": "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "VMB_TYPAXIS_FAILURE_OUTPUT": "/private/tmp/vmb-diagnostic-actual-failure",
+        "VMB_TYPAXIS_COMMAND_OUTPUT": "/private/tmp/vmb-diagnostic-actual-success",
+        "VMB_TYPAXIS_SCHEMA_ROOT": "/Users/kazuyoshitoshiya/t/typaxis/schemas"
+      },
+      "exit_code": 0,
+      "top_level_passed": 89,
+      "skipped": [
+        "TestTypaxisArtifactExternalMathInventory",
+        "TestTypaxisCapabilitiesRealProcess"
+      ],
+      "seconds": 70.64
+    },
+    "rust_common_tests": {
+      "command": "CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli --bin typaxis --locked production_common_ -- --nocapture",
+      "exit_code": 0,
+      "passed": 16,
+      "ignored": 1,
+      "seconds": 11.16
+    },
+    "rust_public_failure_test": {
+      "filter": "machine_production_book_1_layout_failure_is_published_as_a_diagnostic",
+      "exit_code": 0,
+      "passed": 1,
+      "seconds": 0.36
+    },
+    "logs": [
+      {
+        "path": "/private/tmp/vmb-diagnostic-first-tests.log",
+        "bytes": 4114,
+        "sha256": "0a0b070a27cda2a79969bdcca62d80d82f292dbb87e56232c6f68bfee99b5525"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-actual-tests.log",
+        "bytes": 6253,
+        "sha256": "8d75a738bcc2edeaa073ecdd232825945747fbfa74bb491f8dbe2c5d7430f276"
+      },
+      {
+        "path": "/private/tmp/typaxis-diagnostic-first-test.log",
+        "bytes": 491,
+        "sha256": "d6e2cdeffa8efd8281307e134219d553b24ecbb1e5266cc1feb09877baa47533"
+      },
+      {
+        "path": "/private/tmp/typaxis-diagnostic-common-tests.log",
+        "bytes": 2028,
+        "sha256": "3c408587f8fbda54e9712db208b0d38fada9f8f00c06129cd855f92cc88ddf46"
+      },
+      {
+        "path": "/private/tmp/typaxis-diagnostic-cli-build.log",
+        "bytes": 170,
+        "sha256": "22c6c3b16311ac24ca07196b54a9ac37b6961bbb3dfda97296568971c656f623"
+      },
+      {
+        "path": "/private/tmp/vmb-diagnostic-final-regression.log",
+        "bytes": 50226,
+        "sha256": "6cab5e1fb16cdf0e7c2c63f7765bb6b05a3977e42293888b09a6b3b1b270c21a"
+      }
+    ]
+  },
+  "limits": {
+    "diagnostic_json_bytes_each": 2097152,
+    "mapping_visits": 4000000,
+    "mapping_targets": 100000,
+    "estimated_mapped_target_resource_bytes": 33554432
+  },
+  "remaining": [
+    "source diagnostics from other processing errors",
+    "formal renderer and CLI registration",
+    "runtime independent PDF validation and ArtifactSink transaction",
+    "complete body/raster/source inventory",
+    "remaining Typaxis input forms",
+    "original full-book and unchanged Harano gates",
+    "controlled performance and managed-host evidence",
+    "human acceptance"
+  ],
+  "vmb_implementation_commit": "c7697c77"
+}

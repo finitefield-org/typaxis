@@ -1,0 +1,139 @@
+{
+  "scope": "One authored glossary entry with real inline math and a body link; not full-book glossary acceptance",
+  "input": "/private/tmp/vmb-glossary-public/typaxis-body-33692589",
+  "run": "/private/tmp/vmb-glossary-public/typaxis-run-3710370809",
+  "final_regression_input": "/private/tmp/vmb-glossary-public/typaxis-body-3793064772",
+  "final_regression_run": "/private/tmp/vmb-glossary-public/typaxis-run-1724598258",
+  "final_pdf_byte_identical": true,
+  "files": [
+    {
+      "path": "/private/tmp/vmb-glossary-public/typaxis-body-33692589/document-package.json",
+      "bytes": 10363,
+      "sha256": "484431cdd7bec346ca8a46029aae125085b2e5a9035965a933d8b40d2d51f771"
+    },
+    {
+      "path": "/private/tmp/vmb-glossary-public/typaxis-run-3710370809/output.pdf",
+      "bytes": 63295,
+      "sha256": "7c5fc2b9e10f660a8a576c94c4df8e7382aff464cec307607b8cefd33a5acb28"
+    },
+    {
+      "path": "/private/tmp/vmb-glossary-public/typaxis-run-3710370809/build-manifest.json",
+      "bytes": 20154,
+      "sha256": "a58109a570fd26f29e3ea57007d1924a3ab9033b25db496084bfc7dfe97ae0e8"
+    },
+    {
+      "path": "/private/tmp/vmb-glossary-public/typaxis-run-3710370809/trace.json",
+      "bytes": 736,
+      "sha256": "bb3aff71b070a209bc2004f3cbcd60fc4da9bbbdbefedc0af970418df6d336fc"
+    },
+    {
+      "path": "/private/tmp/vmb-glossary-public/typaxis-run-3710370809/book-config.toml",
+      "bytes": 1480,
+      "sha256": "3f708506f7353fbde56046b015c61cb49c74970bb59ff8c417a74a9bea701144"
+    },
+    {
+      "path": "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+      "bytes": 73517640,
+      "sha256": "08e3b3008e85efcc669f0df68982dab106cfddcc535b90da996a6a52bace526a"
+    },
+    {
+      "path": "/private/tmp/vmb-glossary-final-regression.log",
+      "bytes": 66678,
+      "sha256": "17ea87270506f35c5a085a294e0df040bd217ab070d55d47e7d5aa52e5249412"
+    },
+    {
+      "path": "/private/tmp/vmb-glossary-span-owner-tests.log",
+      "bytes": 1596,
+      "sha256": "25a0dbd12e08dbfd1712973b65a228bbb7a30d67e650212e04eb618e90482feb"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-figure-independent-check.py",
+      "bytes": 4298,
+      "sha256": "35483f3ce423dda87dc31469252dd3f7c7c93823ca4238664b9a63a58921eafd"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-glossary-common-content.json",
+      "bytes": 1495,
+      "sha256": "3451308e343376349688bdb0f05841de05968ec80dc02b920a40937170407c71"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-glossary-common-verapdf.xml",
+      "bytes": 1375,
+      "sha256": "3f2dd8a1d6dbeb9f58a869d3f500703b692446061e70f9e0643342525adae8b9"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_glossary.go",
+      "bytes": 7899,
+      "sha256": "54ea9f46357ed5ab574064340255a261d82146a40de708d3660c457f0c493ab9"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_glossary_test.go",
+      "bytes": 6951,
+      "sha256": "a878543048a31e723e7bc712a387ed23dac4d1f94847fadb2f70c9f2359ae3b4"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package.go",
+      "bytes": 11193,
+      "sha256": "4c02b79154aa96f3c72025663bd18817a30aca58e2696b584198c528754e3692"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_body.go",
+      "bytes": 16711,
+      "sha256": "0b9054d0664000d130b5c075ddf5b307e482ef23af149d34f6a7ebbb0beff488"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_sidecar.go",
+      "bytes": 14775,
+      "sha256": "3c5887ade13b67326f60ba8a24ade67343e72d7ad487a220f22fe730fc32fbef"
+    }
+  ],
+  "full_regression_sources_before_original_span_followup": [
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_glossary.go",
+      "sha256": "101a231d36ad1983b3d48eaf9b792777178ff4cff911cac7f8bf216badd1c025"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_glossary_test.go",
+      "sha256": "c9d7a474b3d0590f57b893914f5767651014e499ca3beae6947a6e28d6c84a18"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package.go",
+      "sha256": "4c02b79154aa96f3c72025663bd18817a30aca58e2696b584198c528754e3692"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_body.go",
+      "sha256": "0b9054d0664000d130b5c075ddf5b307e482ef23af149d34f6a7ebbb0beff488"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_sidecar.go",
+      "sha256": "3c5887ade13b67326f60ba8a24ade67343e72d7ad487a220f22fe730fc32fbef"
+    }
+  ],
+  "go_tests": {
+    "passed": 101,
+    "skipped": 2,
+    "seconds": 87.098,
+    "skips": [
+      "external math inventory requires separate environment",
+      "separate capabilities probe requires separate environment"
+    ]
+  },
+  "independent_command": "bundled-python samples/machine-package/staging/production-book-1/vmb-book/vmb-figure-independent-check.py INPUT RUN (shared single-page authored-fixture checker; no raster resources in this package)",
+  "pdf_ua1": {
+    "passed_rules": 106,
+    "passed_checks": 778,
+    "failed_rules": 0,
+    "failed_checks": 0
+  },
+  "limitations": [
+    "Caller explicitly supplies source origins because RenderBook glossary entries have no Location.",
+    "SymbolTeX and alternate terminology stay in the metadata snapshot; displayed content follows the existing preferred-term/definition policy.",
+    "Poppler default spatial extraction differs; raw and MuPDF match source order ignoring whitespace.",
+    "Runtime independent PDF validation, full 418-entry glossary, bibliography/verification, formal renderer and original full-book/Harano/human acceptance remain open."
+  ],
+  "vmb_implementation_commit": "1b79f487",
+  "original_span_followup_tests": {
+    "passed": 3,
+    "seconds": 4.849
+  }
+}

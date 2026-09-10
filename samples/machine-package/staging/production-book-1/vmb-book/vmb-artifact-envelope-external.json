@@ -1,0 +1,92 @@
+{
+  "scope": "Runtime VMB artifact envelope, fixed schemas, input/config/PDF file hashes and all precomposed source-math sidecars. Not independent PDF operator/reading-order/geometry/UA validation, original full book, failure-source diagnostics, ArtifactSink transaction or formal renderer registration.",
+  "result": "passed",
+  "package_directory": "/private/tmp/vmb-artifact-verified-public/typaxis-body-3472106332",
+  "run_directory": "/private/tmp/vmb-artifact-verified-public/typaxis-run-2042753545",
+  "binary_sha256": "b03cd89a18c3138886402c5c201d07a8ef26147be681425f76b5e4b34878814f",
+  "full_regression": {
+    "top_level_passed": 85,
+    "top_level_skipped": 2,
+    "seconds": 69.286,
+    "exit": 0,
+    "log": "/private/tmp/vmb-artifact-final-regression.log",
+    "note": "Includes explicit real CLI integration and schema-copy comparison. External inventory and separate capabilities probe tests were skipped in this invocation; the command integration probes actual capabilities. Final duplicate-resource/usage-range guards were then verified by the complete artifact-focused suite and real 8000-placement inventory."
+  },
+  "large_inventory": {
+    "source_facts": 8000,
+    "physical_placements": 8000,
+    "pdf_forms": 100,
+    "image_declarations": 5000,
+    "log": "/private/tmp/vmb-artifact-inventory-final.log",
+    "scope": "Actual saved package and manifest; no PDF reinspection in this Go test.",
+    "seconds": 5.424
+  },
+  "combined_inventory": {
+    "source_facts": 2,
+    "physical_placements": 7,
+    "seconds": 0.391,
+    "log": "/private/tmp/vmb-artifact-combined-inventory.log",
+    "scope": "Actual combined source/manifest with equation number and generic SVG uses."
+  },
+  "known_development_failure": {
+    "log": "/private/tmp/vmb-artifact-alias-inventory.log",
+    "cause": "PDF paint-content fingerprints recur on distinct pages; the final code joins on independently recomputed canonical placement hashes instead."
+  },
+  "unchanged_pdf_ua_evidence": "vmb-common-public-arial-verapdf.xml",
+  "pdf_rebuilt_but_bytes_unchanged": true,
+  "artifacts": {
+    "output.pdf": {
+      "bytes": 48251,
+      "sha256": "d2a2819dc06ab3dbc4bd2de5047a41e7a9d003c6d89c780c052a347124e90bb8",
+      "path": "/private/tmp/vmb-artifact-verified-public/typaxis-run-2042753545/output.pdf"
+    },
+    "build-manifest.json": {
+      "bytes": 16956,
+      "sha256": "c94b0bca4e86b107b182473c065306cc0d3861ffc2e6bc9e8b117fe51c079651",
+      "path": "/private/tmp/vmb-artifact-verified-public/typaxis-run-2042753545/build-manifest.json"
+    },
+    "trace.json": {
+      "bytes": 736,
+      "sha256": "3eca7b618cfbdf025b2e89e853c0443b58b2b2d79b4b62c21d516b5b38b85891",
+      "path": "/private/tmp/vmb-artifact-verified-public/typaxis-run-2042753545/trace.json"
+    },
+    "check-diagnostics.json": {
+      "bytes": 52,
+      "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+      "path": "/private/tmp/vmb-artifact-verified-public/typaxis-run-2042753545/check-diagnostics.json"
+    },
+    "build-diagnostics.json": {
+      "bytes": 52,
+      "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+      "path": "/private/tmp/vmb-artifact-verified-public/typaxis-run-2042753545/build-diagnostics.json"
+    },
+    "book-config.toml": {
+      "bytes": 1480,
+      "sha256": "3f708506f7353fbde56046b015c61cb49c74970bb59ff8c417a74a9bea701144",
+      "path": "/private/tmp/vmb-artifact-verified-public/typaxis-run-2042753545/book-config.toml"
+    }
+  },
+  "source_files": {
+    "artifact_envelope.go": "ac463eef8a9f8d5ba69015381893157948b79425c4a4a4efc85b0ff02f52bbf1",
+    "artifact_schema.go": "4994af4771afc6893603ba1649a0015f8f7ff7ffe99f4cf9dd6461d130039919",
+    "artifact_math.go": "ae58d06f49aa8fe987bbb3f07bf6f4a57e111c49fbd3045cb6b9f92bebe5db83",
+    "artifact_jcs.go": "077ec8109ce97ecf12266b4e63265f38bd269f57dff71b078da58392579e8b50",
+    "artifact_envelope_test.go": "ebfd328ab32d1e4ad85c559ca9326963b58d7c2db9b0291c437b27f213c14925",
+    "adapter.go": "a6a54cec0f7da241a6dde222e7fe19a828a7df35c52d0767e3802d2ed0a13250",
+    "adapter_test.go": "52cc851ef120c5e589624c429c3ba68ea75973e914477eccb7eefdb84f6495e7",
+    "font.go": "680b0d7b2186fa8916fb4b132c54d3ac6db240be712a6eea8903c280a09c15b5"
+  },
+  "schema_hashes": {
+    "build-manifest.schema.json": "baeaae92cbab9e0583532b375f0399700ad29e6bc0fd6b873feeb2fd3415dc64",
+    "common.schema.json": "0276b0ead786793a14416c7f60fa383092a462651926ac62148a9c6fbedc649a",
+    "diagnostics.schema.json": "507206160d5c3bf865405d7807622b02e9c38187be166fc1d38d55f460b48e48",
+    "layout-trace.schema.json": "5e478acd4637ced23a5a524793bee9acb45f842583fb4484a5cf50a5dd11fbbe",
+    "machine-accessibility-manifest.schema.json": "517a14d543d5c3223ed1c7cbf356f411c7a49f7e856601c4f81e16d51244f252",
+    "machine-advanced-pagination-manifest.schema.json": "5e777d96e76a599894671d10c4288c9dcc640023a26ab4a02e0326f3108fa5b2",
+    "machine-book-navigation-manifest.schema.json": "2fa5f238a65fa968d7d3ab28f431db4d8237b0cdafca75f47f511bd2549a6c57",
+    "machine-footnote-manifest.schema.json": "b3ca749ea91fe8f7773df54abc4224263a74587da626a69ba37e1f0a786f57f0",
+    "machine-math-vector-manifest.schema.json": "5a8762ec03b5d311bc2b58cee1921fce0ec1883694b3e89e7b1159c80795af2a",
+    "machine-safe-vector-manifest.schema.json": "6c1cb11735e2968899a6d8cbe29a2b333e4e544ccf8dcc95a21c39f2cf7394a0",
+    "machine-table-manifest.schema.json": "4b83610b0e7a5c74b342e77b857d5888e93e31fda2842904072ecd7112c517f7"
+  }
+}

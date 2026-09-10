@@ -1,0 +1,177 @@
+{
+  "scope": "Authored chapter companion contribution: actual heading, generated QR/link, source metadata, private XHTML staging and runtime input identities",
+  "input": "/private/tmp/vmb-companion-public/typaxis-body-1582174713",
+  "run": "/private/tmp/vmb-companion-public/typaxis-run-2300765817",
+  "final_regression_input": "/private/tmp/vmb-companion-public/typaxis-body-2596973464",
+  "final_regression_run": "/private/tmp/vmb-companion-public/typaxis-run-749450795",
+  "final_pdf_and_html_byte_identical": true,
+  "files": [
+    {
+      "path": "/private/tmp/vmb-companion-public/typaxis-body-1582174713/document-package.json",
+      "bytes": 8623,
+      "sha256": "9eaed41df5470d55be6a11f71a8d6240bec65785ce77d0462a927fcc68ed298d"
+    },
+    {
+      "path": "/private/tmp/vmb-companion-public/typaxis-body-1582174713/typaxis-source-map.json",
+      "bytes": 13178,
+      "sha256": "36741d1820b07c3c0ed8f2bf0db2d70ab4d0c67763c0a9e2238479f56769d1f6"
+    },
+    {
+      "path": "/private/tmp/vmb-companion-public/typaxis-body-1582174713/verification/section.test.html",
+      "bytes": 767,
+      "sha256": "c3edfe90c23e33249879514f50a0a39873bf92f33d2a4a975cfa3fce63955208"
+    },
+    {
+      "path": "/private/tmp/vmb-companion-public/typaxis-run-2300765817/output.pdf",
+      "bytes": 54740,
+      "sha256": "ac1753e110d0f2910fd8c4d8b54f032ccc0bc0d7b20e68841d5493142f25a1ae"
+    },
+    {
+      "path": "/private/tmp/vmb-companion-public/typaxis-run-2300765817/build-manifest.json",
+      "bytes": 17305,
+      "sha256": "621464dd03b034ceea41b3884756dc1398802980a06cf48ed204f96b2db0f346"
+    },
+    {
+      "path": "/private/tmp/vmb-companion-public/typaxis-run-2300765817/trace.json",
+      "bytes": 736,
+      "sha256": "5a47dbcac63d23f8cfe0050d3b6c3aa759e3e0888a802388802eb1ac45ea329f"
+    },
+    {
+      "path": "/private/tmp/vmb-companion-public/page.png",
+      "bytes": 68846,
+      "sha256": "3d0dc4050f93ad663b90c9263765c7524b40252c99d2fd0bd499692db1fd2171"
+    },
+    {
+      "path": "/private/tmp/vmb-qr-decode",
+      "bytes": 99104,
+      "sha256": "a754d549a7ef24efffe948ce493f92eea395457c2810be30848837a25dcebe20"
+    },
+    {
+      "path": "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+      "bytes": 73517640,
+      "sha256": "08e3b3008e85efcc669f0df68982dab106cfddcc535b90da996a6a52bace526a"
+    },
+    {
+      "path": "/private/tmp/vmb-companion-complete-regression.log",
+      "bytes": 74436,
+      "sha256": "d2a18da088a857b3dd2e0c4d526516022ea3640829323b0fbba3e9fdf3b08ac2"
+    },
+    {
+      "path": "/private/tmp/vmb-companion-root-type.log",
+      "bytes": 184,
+      "sha256": "7167f5aa6a6f694931f36bb72615774422b132f833147b5a82c9a54e85600603"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-companion-independent-check.py",
+      "bytes": 3580,
+      "sha256": "6bf4a0f7a7fa6642a2fd7f4f3c3372dcc8f645de1d6f45fcabf3c23c9b7d011e"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-verification-qr-check.py",
+      "bytes": 3285,
+      "sha256": "9542b151b99dedb7d4d045f10bc9bb8a62eca721bb9f785587c3232fe298a5dc"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-verification-qr-decode.swift",
+      "bytes": 566,
+      "sha256": "e95c3e2dd099ea385e0bb34eaf2cd4a0d5ec10e06a892d450646f119ee3ce424"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-companion-content.json",
+      "bytes": 2915,
+      "sha256": "c87ccaffbc60ad63693de08e9eec4bff1a93d9f17e8a70ce4fa989b45eb15824"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-companion-verapdf.xml",
+      "bytes": 1376,
+      "sha256": "d62aa813b00d51bc95f16ca962ed458a22a45b00a35e0acd9afb3497417e791b"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-companion-source-decoded.json",
+      "bytes": 90,
+      "sha256": "3b7c15fa102e2f4dd27ba530c64850a6d1ae002f958ddebd0c7cfeff72e4083e"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-companion-page-decoded.json",
+      "bytes": 90,
+      "sha256": "3b7c15fa102e2f4dd27ba530c64850a6d1ae002f958ddebd0c7cfeff72e4083e"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-companion.html",
+      "bytes": 767,
+      "sha256": "c3edfe90c23e33249879514f50a0a39873bf92f33d2a4a975cfa3fce63955208"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_companion.go",
+      "bytes": 16146,
+      "sha256": "b1648c8bfa884af6a696c9c53a008c19c67a59df9c3a24282dc9f89f0a39bcfb"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_companion_test.go",
+      "bytes": 15368,
+      "sha256": "3baf68545d6b7a6ae42083d8b5f09087bd967aaa4310bc1726e226e4fa0174b0"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package.go",
+      "bytes": 11585,
+      "sha256": "ea74b200d2c009a5baa82448a54fc5db39fe3165d8c669dd50b624f8d7163b4d"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_body.go",
+      "bytes": 18091,
+      "sha256": "2c529bcc902e24fbd2e3c18932fbc791ef3d355e2c7970c751e548444647b35c"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_figure.go",
+      "bytes": 12958,
+      "sha256": "286e981340121407b90a075ddbe6261cdb07acaf4bfbcd840321b46ffdcc708f"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_sidecar.go",
+      "bytes": 15954,
+      "sha256": "1d62ee958cc4c7c1cefed57c1111b7575338e42bcfdc579c090142c9d5bba3e8"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_math_staging.go",
+      "bytes": 4775,
+      "sha256": "51ad746100ae0533c7543ce47508f7413c70e5b167568ba8fd24cc1884549f5e"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/adapter.go",
+      "bytes": 12642,
+      "sha256": "94c88de2ab9a590038da4bac63a2ca72769ac65a9c61c4db44669fda397382ef"
+    }
+  ],
+  "go_tests": {
+    "passed": 115,
+    "skipped": 2,
+    "seconds": 118.032,
+    "command": "go test ./internal/rendertypaxis -count=1 -v",
+    "environment": "Actual Typaxis CLI, explicit Arial Unicode font, schema root, original raster package and retained output roots"
+  },
+  "followup_test": {
+    "scope": "Typed document blocks guard after full regression",
+    "passed": 1,
+    "seconds": 0.434,
+    "command": "go test ./internal/rendertypaxis -run '^TestBookCompanionWireRejectsUntypedBlocks$' -count=1 -v"
+  },
+  "pdf_ua1": {
+    "passed_rules": 106,
+    "passed_checks": 491,
+    "failed_rules": 0,
+    "failed_checks": 0
+  },
+  "independent_decode": {
+    "implementation": "macOS Vision VNDetectBarcodesRequest CPU mode outside sandbox",
+    "source_png": "one QR with exact source URL",
+    "pdf_page": "one QR with exact source URL from full Poppler 300 dpi page",
+    "url_opened": false
+  },
+  "limitations": [
+    "Prepared statuses are retained, not recomputed or formally validated.",
+    "VerificationDisplay/FormalStatement result block lowering and result QR remain open.",
+    "Formal renderer, runtime independent PDF/UA verification and ArtifactSink publication remain open.",
+    "Original full book, unchanged Harano, managed-host performance/reproducibility and human acceptance remain open."
+  ],
+  "vmb_implementation_commit": "972d1500"
+}

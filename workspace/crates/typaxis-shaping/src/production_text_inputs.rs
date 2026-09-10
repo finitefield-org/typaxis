@@ -5,6 +5,8 @@ pub(super) enum BodyFlow<'a> {
     Legacy(&'a ProductionTextFlow<'a>),
     #[cfg(feature = "book-v2-staging")]
     BookV2(&'a typaxis_syntax::book_v2::PreparedBookV2TextFlow<'a>),
+    #[cfg(feature = "book-v2-staging")]
+    PageRegion(&'a typaxis_syntax::book_v2::BookV2PageRegionTextFlow<'a>),
 }
 macro_rules! flow_call {
     ($flow:expr, $method:ident ( $($arg:expr),* )) => {
@@ -12,6 +14,8 @@ macro_rules! flow_call {
             BodyFlow::Legacy(flow) => flow.$method($($arg),*),
             #[cfg(feature = "book-v2-staging")]
             BodyFlow::BookV2(flow) => flow.$method($($arg),*),
+            #[cfg(feature = "book-v2-staging")]
+            BodyFlow::PageRegion(flow) => flow.text_flow().$method($($arg),*),
         }
     };
 }

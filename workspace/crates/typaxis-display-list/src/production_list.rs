@@ -1,6 +1,5 @@
 //! Generated text keeps its source namespace while sharing the font/PDF path.
 use super::*;
-use typaxis_shaping::ShapeSourceSpan;
 
 pub(super) fn append_marker<'d>(
     selected: &DisplayInput<'_, 'd, '_, '_>,
@@ -126,84 +125,40 @@ fn append_generated_marker<'d>(
             .len(),
     )
     .map_err(|_| error(owner, E::RecordLimit))?;
-    let buffer = parsed_count
-        .checked_add(paint.provenance.text_span().text_id().get())
-        .ok_or_else(|| error(owner, E::RecordLimit))?;
-    let mut pen = paint.bounds.x();
-    let mut pen_y = Length::ZERO;
-    let mut glyph_cursor = 0;
-    for cluster in &paint.run.clusters {
-        let ShapeSourceSpan::Generated(provenance) = cluster.source_span else {
-            return Err(error(owner, E::ReceiptMismatch));
-        };
-        if provenance.buffer_key() != paint.key || cluster.glyph_start != glyph_cursor {
-            return Err(error(owner, E::ReceiptMismatch));
-        }
-        let range = provenance.text_span().range();
-        let text = paint
-            .utf8
-            .get(range.start_byte().get() as usize..range.end_byte().get() as usize)
-            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-        let source = paint
-            .run
-            .glyphs
-            .get(cluster.glyph_start as usize..cluster.glyph_end as usize)
-            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-        take(remaining, source.len() + 1, owner)?;
-        let mut glyphs = Vec::new();
-        glyphs
-            .try_reserve_exact(source.len())
-            .map_err(|_| error(owner, E::AllocationFailure))?;
-        let start = pen;
-        for glyph in source {
-            glyphs.push(ProductionBodyGlyph {
-                original_gid: glyph.original_gid,
-                x: plus(pen, glyph.offset_x, owner)?,
-                y: paint
-                    .baseline
-                    .checked_sub(pen_y)
-                    .and_then(|n| n.checked_sub(glyph.offset_y))
-                    .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
-            });
-            pen = plus(pen, glyph.advance_x, owner)?;
-            pen_y = plus(pen_y, glyph.advance_y, owner)?;
-        }
-        let advance = pen
-            .checked_sub(start)
-            .filter(|n| *n >= Length::ZERO)
-            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-        let logical_bounds = PositiveLength::new(advance)
-            .map(|w| Rect::new(start, paint.bounds.y(), w, paint.bounds.height()));
-        draws
-            .try_reserve(1)
-            .map_err(|_| error(owner, E::AllocationFailure))?;
-        draws.push(ProductionBodyDraw::Text(ProductionBodyTextDraw {
+    marker_geometry::project_marker(
+        marker_geometry::MarkerSource {
             owner,
-            page_index: paint.page_index,
-            fragment_index: paint.fragment_index,
-            font_face_id: font.face_id(),
-            font_sha256: font.content_hash(),
-            face_index: font.face_index(),
-            font_size: font.size(),
-            text_span: DisplayTextSpan::new(
-                DisplayTextBufferId::new(buffer),
-                range.start_byte(),
-                range.end_byte(),
-            )
-            .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
-            exact_text: text,
-            generated_provenance: Some(provenance),
-            equation_number: None,
-            logical_bounds,
-            glyphs,
-        }));
-        glyph_cursor = cluster.glyph_end;
-    }
-    if glyph_cursor as usize != paint.run.glyphs.len()
-        || pen.checked_sub(paint.bounds.x()) != Some(paint.advance.get())
-        || pen_y != Length::ZERO
-    {
-        return Err(error(owner, E::ReceiptMismatch));
-    }
-    Ok(())
+            run: paint.run,
+            key: paint.key,
+            utf8: paint.utf8,
+            provenance: paint.provenance,
+            advance: paint.advance,
+        },
+        paint.bounds,
+        paint.baseline,
+        parsed_count,
+        remaining,
+        |_| Ok(()),
+        |cluster| {
+            draws
+                .try_reserve(1)
+                .map_err(|_| error(owner, E::AllocationFailure))?;
+            draws.push(ProductionBodyDraw::Text(ProductionBodyTextDraw {
+                owner,
+                page_index: paint.page_index,
+                fragment_index: paint.fragment_index,
+                font_face_id: font.face_id(),
+                font_sha256: font.content_hash(),
+                face_index: font.face_index(),
+                font_size: font.size(),
+                text_span: cluster.text_span,
+                exact_text: cluster.exact_text,
+                generated_provenance: Some(cluster.provenance),
+                equation_number: None,
+                logical_bounds: cluster.logical_bounds,
+                glyphs: cluster.glyphs,
+            }));
+            Ok(())
+        },
+    )
 }

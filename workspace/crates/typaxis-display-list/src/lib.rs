@@ -1,6 +1,10 @@
 #![forbid(unsafe_code)]
 
 mod production_body;
+#[cfg(feature = "book-v2-staging")]
+pub mod book_v2 {
+    pub use crate::production_body::book_v2_math::*;
+}
 mod production_navigation;
 pub use production_navigation::{
     build_production_footnote_navigation, ProductionFootnoteNavigation,
@@ -16,7 +20,8 @@ pub use production_structure::{build_production_footnote_structure, ProductionFo
     ProductionBodyStructureError, ProductionBodyStructureGroup, PRODUCTION_BODY_STRUCTURE_ALGORITHM};
 pub use production_body::{build_production_footnote_display, ProductionBodyFootnoteDisplay, ProductionFootnoteSeparatorDraw, build_production_body_display, ProductionBodyDisplay,
     ProductionBodyDisplayError, ProductionBodyDisplayErrorKind, ProductionBodyDraw,
-    ProductionBodyGlyph, ProductionBodyTextDraw, ProductionBodyVectorDraw, ProductionBodyInlineAnchor, ProductionBodyRasterDraw,
+    ProductionBodyNativeMathDraw, ProductionNativeMathPaint,
+    ProductionBodyGlyph, ProductionBodyTextDraw, ProductionBodyVectorDraw, ProductionBodyInlineAnchor, ProductionBodyRasterDraw, ProductionBodySvgFigureDraw, ProductionVectorPaint,
     PRODUCTION_BODY_DISPLAY_ALGORITHM};
 
 mod advanced_columns;

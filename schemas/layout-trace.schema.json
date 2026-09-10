@@ -22,6 +22,9 @@
     "initial_state": {"$ref": "#/$defs/initial_pagination_state_record"},
     "initial_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
     "inline_layout_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+    "native_math_layout_sha256": {"oneOf": [{"$ref": "common.schema.json#/$defs/sha256"}, {"type": "null"}]},
+    "pass_count": {"type": "integer", "minimum": 2, "maximum": 65535},
+    "selected_state": {"type": "integer", "minimum": 2, "maximum": 65535},
     "passes": {"type": "array", "items": {"$ref": "#/$defs/pass"}},
     "precomposed_vector_block_layout": {"$ref": "#/$defs/precomposed_vector_block_layout"},
     "precomposed_vector_layout": {"$ref": "#/$defs/precomposed_vector_layout"},
@@ -29,8 +32,23 @@
     "result": {"$ref": "#/$defs/result"},
     "selected_layout_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
     "table_layouts": {"type": "array", "items": {"$ref": "machine-table-manifest.schema.json"}},
+    "table_measurements_sha256": {"oneOf": [{"$ref": "common.schema.json#/$defs/sha256"}, {"type": "null"}]},
     "vector_display_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
   },
+  "allOf": [{
+    "if": {"anyOf": [{"required": ["pass_count"]}, {"required": ["selected_state"]}]},
+    "then": {
+      "required": ["pass_count", "selected_state", "native_math_layout_sha256", "table_measurements_sha256"],
+      "properties": {"contract": {"const": "typaxis.contract/1.4"}}
+    }
+  }, {
+    "if": {"anyOf": [{"required": ["native_math_layout_sha256"]}, {"required": ["table_measurements_sha256"]}]},
+    "then": {
+      "required": ["native_math_layout_sha256", "table_measurements_sha256", "block_layout_sha256", "selected_layout_sha256", "vector_display_sha256"],
+      "properties": {"contract": {"const": "typaxis.contract/1.4"}},
+      "not": {"anyOf": [{"required": ["max_layout_passes"]}, {"required": ["advanced_pagination"]}, {"required": ["precomposed_vector_layout"]}, {"required": ["precomposed_vector_block_layout"]}]}
+    }
+  }],
   "oneOf": [
     {
       "required": ["max_layout_passes", "initial_state", "initial_fingerprint", "passes", "result"],

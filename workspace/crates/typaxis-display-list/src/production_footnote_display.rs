@@ -26,6 +26,7 @@ pub struct ProductionBodyFootnoteDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
     draws: Vec<ProductionBodyDraw<'d>>,
     anchors: Vec<ProductionBodyInlineAnchor<'d>>,
     separators: Vec<ProductionFootnoteSeparatorDraw>,
+    table_draws: Vec<(usize, typaxis_pagination::ProductionTablePlacedCellRole)>,
     record_charge: u64,
     fingerprint: [u8; 32],
 }
@@ -38,6 +39,20 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> ProductionBodyFootnoteDisplay<'d, 'g, 'q, '
             .line_layout()
             .source_flow()
             .resource_declarations()
+    }
+    pub fn table_draw_role(
+        &self,
+        index: usize,
+    ) -> Option<typaxis_pagination::ProductionTablePlacedCellRole> {
+        self.table_draws
+            .binary_search_by_key(&index, |(i, _)| *i)
+            .ok()
+            .map(|i| self.table_draws[i].1)
+    }
+    pub fn repeated_header_draws(&self) -> impl Iterator<Item = usize> + '_ {
+        self.table_draws
+            .iter()
+            .filter_map(|(index, role)| role.repeated_header().then_some(*index))
     }
     pub fn draws(&self) -> &[ProductionBodyDraw<'d>] {
         &self.draws
@@ -76,7 +91,9 @@ fn fragment_index(draw: &ProductionBodyDraw<'_>) -> u32 {
     match draw {
         ProductionBodyDraw::Text(d) => d.fragment_index,
         ProductionBodyDraw::Vector(d) => d.fragment_index,
+        ProductionBodyDraw::SvgFigure(d) => d.fragment_index,
         ProductionBodyDraw::Raster(d) => d.fragment_index,
+        ProductionBodyDraw::Math(d) => d.fragment_index(),
     }
 }
 // Fixed-size incremental encoding avoids an uncharged document-sized buffer.
@@ -136,15 +153,19 @@ pub fn build_production_footnote_display<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
         feed(
             &mut fingerprint,
             0,
-            &[
-                i64::from(page.selection().page_index()),
-                page.fragments().len() as i64,
-            ],
+            &[i64::from(page.page_index()), page.fragments().len() as i64],
         );
         if let Some(ink) = page.separator_ink() {
             rect(&mut fingerprint, 1, ink);
         }
-        for placed in page.fragments() {
+        for (local, placed) in page.fragments().iter().enumerate() {
+            if let Some(role) = page.cell_role(local) {
+                feed(
+                    &mut fingerprint,
+                    15,
+                    &[role.owner().get().into(), i64::from(role.repeated_header())],
+                );
+            }
             let f = placed.fragment();
             feed(
                 &mut fingerprint,
@@ -169,7 +190,10 @@ pub fn build_production_footnote_display<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
                 ProductionBodyFragmentSource::VectorBlock { block_index } => {
                     feed(&mut fingerprint, 4, &[block_index.into()])
                 }
-                ProductionBodyFragmentSource::RasterFigure { figure_index } => {
+                ProductionBodyFragmentSource::NativeMathBlock { block_index } => {
+                    feed(&mut fingerprint, 14, &[block_index.into()])
+                }
+                ProductionBodyFragmentSource::Figure { figure_index } => {
                     feed(&mut fingerprint, 5, &[figure_index.into()])
                 }
             }
@@ -209,6 +233,7 @@ pub fn build_production_footnote_display<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
     let mut draws = Vec::new();
     let mut anchors = Vec::new();
     let mut separators = Vec::new();
+    let mut table_draws = Vec::new();
     let mut offset = 0u32;
     for page in source.geometry().pages() {
         take(
@@ -256,7 +281,7 @@ pub fn build_production_footnote_display<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
                 .try_reserve(1)
                 .map_err(|_| error(root, E::AllocationFailure))?;
             separators.push(ProductionFootnoteSeparatorDraw {
-                page_index: page.selection().page_index(),
+                page_index: page.page_index(),
                 before_draw: draws
                     .len()
                     .checked_add(before)
@@ -280,8 +305,31 @@ pub fn build_production_footnote_display<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
         anchors
             .try_reserve(projection.inline_anchors.len())
             .map_err(|_| error(root, E::AllocationFailure))?;
+        for (index, draw) in projection.draws.iter().enumerate() {
+            let local = fragment_index(draw)
+                .checked_sub(offset)
+                .ok_or_else(|| error(root, E::ReceiptMismatch))? as usize;
+            if let Some(role) = page.cell_role(local) {
+                take(&mut remaining, 1, role.owner())?;
+                table_draws
+                    .try_reserve(1)
+                    .map_err(|_| error(role.owner(), E::AllocationFailure))?;
+                table_draws.push((
+                    draws
+                        .len()
+                        .checked_add(index)
+                        .ok_or_else(|| error(root, E::RecordLimit))?,
+                    role,
+                ));
+            }
+        }
         draws.extend(projection.draws);
-        anchors.extend(projection.inline_anchors);
+        // Repeated header copies do not create another destination occurrence.
+        anchors.extend(projection.inline_anchors.into_iter().filter(|a| {
+            !page
+                .cell_role((a.fragment_index() - offset) as usize)
+                .is_some_and(|r| r.repeated_header())
+        }));
         offset = offset
             .checked_add(u32::try_from(fragments.len()).map_err(|_| error(root, E::RecordLimit))?)
             .ok_or_else(|| error(root, E::RecordLimit))?;
@@ -292,6 +340,7 @@ pub fn build_production_footnote_display<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
         draws,
         anchors,
         separators,
+        table_draws,
         record_charge: maximum - remaining,
         fingerprint,
     })

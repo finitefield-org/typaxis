@@ -1333,6 +1333,12 @@ fn machine_production_book_1_combined_public_profile() {
         manifest["layout"]["final_fingerprint"],
         trace["selected_layout_sha256"]
     );
+    // The Page reference already resolves to page 1: two complete feedback
+    // rounds, each containing two actual stable page-selection passes.
+    assert_eq!(manifest["layout"]["pass_count"], 4);
+    assert_eq!(manifest["layout"]["selected_state"], 4);
+    assert_eq!(trace["pass_count"], manifest["layout"]["pass_count"]);
+    assert_eq!(trace["selected_state"], manifest["layout"]["selected_state"]);
     for record in manifest["images"].as_array().unwrap() {
         assert_eq!(
             record["media_declaration"]["media_type"],
@@ -1548,11 +1554,12 @@ fn machine_production_book_1_resource_failure_is_published_with_typed_location()
     );
     let package_path = job.join("document-package.json");
     let package = fs::read_to_string(&package_path).unwrap();
-    let declared_hash = "dc3862c12ad95f75d7c21cb3c37487e220182aa5088c537c634c194ee83ee894";
-    assert_eq!(package.matches(declared_hash).count(), 1);
+    let declared_hash = read_json(&package_path)["resources"]["font_faces"][0]["expected_sha256"]
+        .as_str().unwrap().to_owned();
+    assert_eq!(package.matches(declared_hash.as_str()).count(), 1);
     fs::write(
         &package_path,
-        package.replace(declared_hash, &"0".repeat(64)),
+        package.replace(&declared_hash, &"0".repeat(64)),
     )
     .unwrap();
 

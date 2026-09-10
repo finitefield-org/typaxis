@@ -577,7 +577,7 @@ fn run_production_build_after_setup(
     {
         let _phase = lend_machine_phase(&mut diagnostics, MachineDiagnosticPhase::Publication)?;
     }
-    let (pdf, vector_fields, selected, flow, _fragments, trace) = built.into_parts();
+    let (pdf, vector_fields, selected, flow, _fragments, trace, layout_pass_count) = built.into_parts();
     publish_production_machine_success(
         &execution,
         diagnostics,
@@ -589,6 +589,7 @@ fn run_production_build_after_setup(
         vector_fields,
         selected,
         flow,
+        layout_pass_count,
         options.trace.as_ref().map(|_| trace.as_str()),
     )
 }
@@ -2132,6 +2133,10 @@ fn emit_production_processing_diagnostic(
     package: &typaxis_syntax::ValidatedProductionMachinePackage,
     failure: &Failure,
 ) -> Result<(), Failure> {
+    if let Some(diagnostic) = failure.processing_diagnostic() {
+        let _ = phase.emit(diagnostic.clone()).map_err(map_diagnostic_budget_error)?;
+        return Ok(());
+    }
     let code = failure
         .message
         .get(..5)
@@ -2768,6 +2773,7 @@ fn publish_production_machine_success(
     vector_fields: typaxis_manifest::StagingProductionBuildManifestVectorFields,
     selected_layout_sha256: [u8; 32],
     flow_registry_sha256: [u8; 32],
+    layout_pass_count: std::num::NonZeroU16,
     trace_json: Option<&str>,
 ) -> Result<(), Failure> {
     let PreparedProductionCommand {
@@ -2798,6 +2804,7 @@ fn publish_production_machine_success(
                     admitted.token(),
                     selected_layout_sha256,
                     flow_registry_sha256,
+                    layout_pass_count,
                     vector_fields,
                     pdf,
                 )
