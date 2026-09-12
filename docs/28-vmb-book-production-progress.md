@@ -15509,3 +15509,29 @@ ADR-0095に従い、選択済みmasterとHeader／Footer指定、正確なnaviga
 source-preservation.jsonで元全巻package・原Harano／Arialのbyte長とSHA-256を再確認し、VMB job 10件のhashも保持した。9変更sourceのhashをfinal-source-hashes.json、変更前との差分をchanges.patchへ保存した。新規Rustと更新したCFFテストのrustfmt check、変更行の末尾空白、runnerのPython構文を確認した。
 
 柱・footerの物理行配置・高さ／overflow・反復Artifact描画・実resource／PDF closure、driver累積work／失敗試行費用への統合は未完であり、現行driverは内容の未描画を拒否する。残るrowspan・強制改ページvariant、固定native/vector body、名前指定、段組、元全巻、公開CLI／manifest、管理ホスト、性能、著者および人手受入も未完である。今回のsource／shapeと原Harano subset検証を、新規柱入りPDF・全巻・PDF/UAや人手受入へ拡大しない。
+
+<a id="book-2-page-region-lines-design-14232"></a>
+
+## 232. 柱・footerの実領域幅による行選択と高さ検証（設計§14.232、2026-09-12）
+
+ADR-0096に従い、独立したBookV2PageRegionInlines／BookV2PageRegionLinesと収束callbackを追加した。共通inline adapterのPageRegion variantから元の段落carrierを参照し、元glyph・UTF-8／span・language・soft／hard breakを保持する。本文用frameへは渡さない。元master／region／bodyを正確に照合してheader／footer矩形を読み、段落字下げを引いた幅で実際の行を選択する。行揃え、内部段落間余白、実line metricsからpage座標と高さを計算し、外端の段落余白は本文と同様に抑制する。空段落も共通selectorのblank lineとして保持する。
+
+直接layoutは高さoverflowを検査する。収束callbackでは、初期shapeから得た実改行位置でshape／line selectionを反復し、安定した状態の高さを検査してからcallbackへ渡す。物理page indexと矩形をline fingerprintへ含め、同じmasterの別ページも配置receiptでは区別する。初期breakと全reshapeのcandidate費用、呼出元の残りpassとeffective limitを守り、保持shape／inline／width scratch／projection／origin／前回line contextをrecord予算へ計上する。source準備・shape work・失敗候補を含むcommand全体の予算は未接続である。
+
+証跡はworkspace/target/vmb-design/20260912/page-region-lines。Cargo共通引数は--manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910、CARGO_BUILD_JOBS=4。
+
+- 開発中のcargo checkでは、新しい閉じたvariantに対して空段落と本文footnote geometryのmatchを追加する必要があった。PageRegionの空段落を保持し、本文footnote frameへはReceiptMismatchを返すよう明示してcompile成功を確認した。
+- tests-01.logは5 tests成功／1失敗。TTの単語Resultを35pt矩形（字下げ後30pt）へ入れた試験がNoFeasibleLineで正しく拒否された。折り返し正例を空白を含むResult Result／55pt矩形へ修正し、改行不能の負例は別試験として残した。原Harano日本語の幅変更・収束と高さ境界の試験はこの実行でも成功した。
+- tests-02.log: book_v2_page_region_ -- --include-ignored --nocapture、8 tests／2.49秒、ignored 0件成功。元source／shapeの既存3 testsと新しい行組み5 testsを含む。TYPAXIS_HARANO_FONTは無変更の原HaranoAjiMincho-Regular.otfを明示した。
+- 原Haranoの「本文の柱」とTTのResult Resultを元heading footerへ二段落配置し、200ptから35pt／55ptへの幅変更で行数が増えることを確認した。字下げはstart 2pt／end 3pt、段落内部の間隔はafter 5pt＋before 4pt＝9pt。TTはstart／center／end、原Haranoはcenterの実座標と元glyph pointer・source span・language=undを照合した。
+- すべて2 reshape passesで収束した。TTは200pt／55ptでcandidate 114／84、保持records 210／222、原Haranoは200pt／35ptでcandidate 60／54、records 88／98。candidate exact成功と1不足、pass不足、inline／line record exactと1不足、u64::MAX priorを検査した。これらは専用fixtureのstage計数であり、元全巻性能の計測ではない。
+- 元node 7／9の強制改行、空paragraphの16pt blank line、元region下端に対する16pt exact成功と1 raw-unit不足のOverflow（footer owner 10）、字下げ幅の枯渇と改行不能を確認した。別prepared ownerと別pageのreceipt検証は拒否し、同じmasterの別pageで同じ座標でもfingerprintは区別する。
+
+- run-cli-accepted-01.pyは元VMB job 10件と原Harano／Arialを明示し、book_v2_resources -- --include-ignoredの238 tests／305.34秒、ignored 0件で成功した。今回の最終sourceを含む全統合実行である（cli-tests-accepted-01.log）。
+- run-local-checks.pyはlayout 69 tests／0.33秒とdoc-test 1／0.92秒、linebreak 52 tests／0.07秒とUnicode適合1／0.07秒に成功した。workspace --all-features checkと通常checkも成功した。ビルドを含む各commandの実時間・引数・終了コードをlocal-checks.jsonへ保存した。
+- run-independent-01.pyは既存743 source PDFs（352 actual callbacks）／2,836 pages／35,492 structure nodes／983 annotations／13 explicit unsupported inputs／5,663 tamper rejectionsに成功した。58 variant displays／48 TrueType＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174 tamper rejections、および実埋込み58 PDFs／446 pages／118 modified-PDF rejectionsも成功した。今回は新しい柱・footer PDFを生成・受入したとは扱わない。
+- compare-accepted-01.pyで直前のpage-region-flow段階の743 PDF全件がbyte一致し、名前変更0件、driverのpage数・body／footnote領域も一致した。元VMB table_caption 31,046 bytes／table_alignment 31,111 bytesも一致した。完全wireを使った対応表をbyte-correspondence.jsonへ保存した。
+
+source-preservation.jsonは元全巻package・原Harano／Arialの既知hashを照合し、jobs.jsonは元VMB job 10件の既知hashを確認した。変更前のソース・差分と最終hashをbefore／changes.patch／final-source-hashes.jsonに保存した。TypaxisとVMB companionのgit diff --checkも成功した。コミット・pushは行っていない。
+
+反復Artifact描画、実font／PDF resource closure、driverの累積workと失敗試行費用、柱・footer入りPDFへの接続は残る。未描画regionを落とさないためpage-plan／PDF側のUnsupportedPageMaster guardを維持する。残る名前指定・段組・元全巻・公開CLI／manifest・管理ホスト・性能・著者／人手／PDF/UAは未完であり、本節を設計全体の完了とは扱わない。VMB producer／Go testは今回変更・実行していない。

@@ -1,6 +1,9 @@
 //! Source-bound text inline preparation and actual line projection for book-2.
 //! Native math and vector geometry share this path; block placement and pagination remain separate.
 use super::*;
+#[path = "book_v2_page_region_lines.rs"]
+mod page_region_lines;
+pub use page_region_lines::*;
 pub use crate::block_vector::book_v2::{
     prepare_book_v2_vector_blocks, BookV2VectorBlock, BookV2VectorBlockError,
     BookV2VectorBlockLayout, BOOK_V2_VECTOR_BLOCK_ALGORITHM,

@@ -283,3 +283,6 @@ fn book_v2_page_region_flow_uses_selected_master_and_requires_present_region() {
     assert!(region_flow(missing, Kind::Header, &other_nav, 0).is_err());
     assert!(region_flow(missing, Kind::Footer, &nav, 0).is_err());
 }
+
+#[path = "book_v2_page_region_line_tests.rs"]
+mod region_lines;

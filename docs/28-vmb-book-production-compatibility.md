@@ -5036,3 +5036,13 @@ ADR-0095に従い、実選択masterのheader／footer内容からBookV2PageRegio
 shape_book_v2_page_region_textは、共通bidi／grapheme／line-context engineへ専用の閉じた入力を追加し、resource-set /3の実TrueType／CFF /2 font instanceで字形を生成する。結果はregion flow、admitted ledger、limits、epoch、実line-contextへ束縛した別の型とし、本文のshape receiptへ変換しない。改行位置はUTF-8／grapheme境界で検証し、言語・fontや本文structure nodeを補わない。
 
 これは柱・footerの元sourceとシェーピングの接続である。物理領域での行選択・高さ／overflow、ページごとの反復Artifact配置、実font／PDF resource closure、driverの累積work／失敗試行費用とPDF接続は次段に残る。内容を未描画のまま捨てないようpage-plan／PDFのUnsupportedPageMaster guardは維持する。専用の原Harano日本語検証・回帰結果は[進捗記録](28-vmb-book-production-progress.md#book-2-page-region-text-design-14231)を参照する。公開profile・全巻・PDF/UAの完了を意味しない。
+
+### 14.232 柱・footerの実領域幅による行選択と高さ検証
+
+[ADR-0096](../adr/ADR-0096-book-2-page-region-lines.md)に従い、BookV2PageRegionInlines／BookV2PageRegionLinesを追加した。元region・body・shape・ledger・limits・epochと、実選択masterを照合して共通inline selectorへ渡す。本文用inline／footnote frameの型には変換しない。段落のstart／end indentを元header／footer矩形の幅から引き、実字形advanceと改行機会で行を選ぶ。行揃えと段落間余白、実line metricsを反映したpage座標のoriginを保持し、元のglyph・source span・強制改行・空段落のblank lineを維持する。外端の段落余白は本文と同様に抑制し、内部の前後余白は加算する。
+
+with_converged_book_v2_page_region_linesは、実選択したsource改行位置でshapeと行選択を反復し、sealed stateが安定してから領域高さを検査する。直接layout関数も高さを検査する。幅不足・改行不能・縦overflowを縮小やclipで隠さず、owner付きerrorで返す。同じmasterを別ページへ配置する際も、配置receiptのpage indexと矩形をfingerprintへ束縛する。
+
+初期breakと各reshapeのcandidate費用を共通allowanceから引き、呼出元の残りpassとeffective limitを守る。保持shape／inline／width scratch／projection／originと前回line contextをrecord予算へ計上する。これはstageの予算接続であり、source準備やshape work、失敗候補を含むdriver全体の累積費用を完成したとは扱わない。
+
+原Harano日本語・controlled TTで幅変更、行揃え、source／字形、強制改行・空段落、高さexact／1単位不足、予算と別ownerの拒否を検証する。結果は[進捗記録](28-vmb-book-production-progress.md#book-2-page-region-lines-design-14232)へ記録する。ページごとの反復Artifact描画、実font／PDF resource closureとdriver接続は残り、未描画regionを捨てないため既存のUnsupportedPageMaster guardを維持する。柱入りPDF、元全巻、公開CLI／manifest、管理ホスト・性能・著者／人手／PDF/UAの受入は未完である。

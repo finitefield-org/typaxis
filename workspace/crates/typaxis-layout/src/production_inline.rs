@@ -616,6 +616,8 @@ fn prepare_paragraphs<'a>(
             InlineFlow::Legacy(_) => false,
             #[cfg(feature = "book-v2-staging")]
             InlineFlow::BookV2(_) => true,
+            #[cfg(feature = "book-v2-staging")]
+            InlineFlow::PageRegion(_) => true,
         };
         let items = if units.is_empty() && !preserve_empty {
             None

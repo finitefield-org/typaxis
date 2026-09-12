@@ -160,3 +160,5 @@
 - [ADR-0094: Share compatible header replays and retain prepaid catalog ownership](ADR-0094-book-2-shared-header-replay.md)
 
 - [ADR-0095: Prepare and shape source-bound header/footer text independently](ADR-0095-book-2-page-region-text-flow.md)
+
+- [ADR-0096: Select and converge running-region lines in the original page rectangle](ADR-0096-book-2-page-region-lines.md)

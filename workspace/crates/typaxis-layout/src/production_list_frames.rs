@@ -812,6 +812,11 @@ fn declared_footnote_region(
         }
         #[cfg(feature = "book-v2-staging")]
         InlineFlow::BookV2(flow) => geometry!(flow.body().body().wire()),
+        #[cfg(feature = "book-v2-staging")]
+        InlineFlow::PageRegion(flow) => return Err(error(
+            NodeId::new(flow.source().node_id),
+            ProductionInlinePreparationErrorKind::ReceiptMismatch,
+        )),
     };
     let invalid = || error(owner, E::InvalidFootnoteGeometry);
     let page_width = Length::from_raw(width)
