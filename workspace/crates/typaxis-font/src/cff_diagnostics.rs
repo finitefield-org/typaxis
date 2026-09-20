@@ -41,8 +41,12 @@ pub enum FontFailureReason {
     ChecksumMismatch,
     InvalidTableCount,
     InvalidTable,
+    InvalidCharstring,
+    InvalidCharstringWidth,
+    InvalidSelectedGlyph,
     UnsupportedCmapFormat,
     UnsupportedCffOperator,
+    ReservedCffOperator,
     RestrictedEmbedding,
     BudgetExceeded,
     Invariant,
@@ -59,8 +63,12 @@ impl FontFailureReason {
             Self::ChecksumMismatch => "checksum_mismatch",
             Self::InvalidTableCount => "invalid_table_count",
             Self::InvalidTable => "invalid_table",
+            Self::InvalidCharstring => "invalid_charstring",
+            Self::InvalidCharstringWidth => "invalid_charstring_width",
+            Self::InvalidSelectedGlyph => "invalid_selected_glyph",
             Self::UnsupportedCmapFormat => "unsupported_cmap_format",
             Self::UnsupportedCffOperator => "unsupported_cff_operator",
+            Self::ReservedCffOperator => "reserved_cff_operator",
             Self::RestrictedEmbedding => "restricted_embedding",
             Self::BudgetExceeded => "budget_exceeded",
             Self::Invariant => "receipt_invariant",
@@ -75,6 +83,52 @@ impl FontFailureReason {
             Self::BudgetExceeded => "resource-budget",
             Self::Invariant => "internal",
             _ => "malformed-or-invalid-input",
+        }
+    }
+}
+/// Output-generation stage; these are not source font tables or byte positions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FontSubsetStage {
+    Name,
+    GlyphStorage,
+    GlyphLookup,
+    GlyphBounds,
+    CharstringSize,
+    Charstring,
+    GlobalBounds,
+    Cff,
+    Cmap,
+    Head,
+    HorizontalMetrics,
+    Maxp,
+    NameTable,
+    CopiedTables,
+    Receipt,
+    SfntSize,
+    SfntWrite,
+    PdfMetrics,
+}
+impl FontSubsetStage {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Name => "postscript-name",
+            Self::GlyphStorage => "glyph-storage",
+            Self::GlyphLookup => "glyph-lookup",
+            Self::CharstringSize => "charstring-size",
+            Self::GlyphBounds => "glyph-bounds",
+            Self::Charstring => "charstring-encoding",
+            Self::GlobalBounds => "global-bounds",
+            Self::Cff => "cff-encoding",
+            Self::Cmap => "cmap-encoding",
+            Self::Head => "head-encoding",
+            Self::HorizontalMetrics => "horizontal-metrics",
+            Self::Maxp => "maxp-encoding",
+            Self::NameTable => "name-encoding",
+            Self::CopiedTables => "copied-tables",
+            Self::Receipt => "receipt",
+            Self::SfntSize => "sfnt-size",
+            Self::SfntWrite => "sfnt-write",
+            Self::PdfMetrics => "pdf-metrics",
         }
     }
 }
@@ -94,6 +148,8 @@ pub struct FontFailureContext {
     pub table_offset: Option<u64>,
     /// True only when the position names a specific validated field/token.
     pub position_is_exact: bool,
+    /// The cursor is the end of a validated charstring/subroutine span.
+    pub position_is_end: bool,
     pub requested_face_index: u32,
     pub embedding: FontEmbeddingStatus,
     pub operator: Option<u16>,
@@ -102,6 +158,7 @@ pub struct FontFailureContext {
     pub fd: Option<u16>,
     pub limit: Option<u64>,
     pub observed: Option<u64>,
+    pub subset_stage: Option<FontSubsetStage>,
     // Base belongs to the validated table currently being parsed. This is not
     // itself an offending-byte position and is never emitted as one.
     table_base: Option<u64>,
@@ -115,6 +172,7 @@ impl FontFailureContext {
             file_offset: None,
             table_offset: None,
             position_is_exact: false,
+            position_is_end: false,
             requested_face_index: face_index,
             embedding: FontEmbeddingStatus::NotChecked,
             operator: None,
@@ -123,6 +181,7 @@ impl FontFailureContext {
             fd: None,
             limit: None,
             observed: None,
+            subset_stage: None,
             table_base: None,
         }
     }
@@ -144,6 +203,7 @@ impl FontFailureContext {
         self.file_offset = None;
         self.table_offset = None;
         self.position_is_exact = false;
+        self.position_is_end = false;
     }
     pub(super) fn field(&mut self, relative: usize) {
         self.at(relative);
@@ -151,6 +211,7 @@ impl FontFailureContext {
     }
     pub(super) fn at(&mut self, relative: usize) {
         self.position_is_exact = false;
+        self.position_is_end = false;
         self.table_offset = Some(relative as u64);
         self.file_offset = self
             .table_base
@@ -169,6 +230,7 @@ impl FontFailureContext {
         self.table_base = None;
         self.reason = reason;
         self.position_is_exact = offset.is_some();
+        self.position_is_end = false;
     }
     pub(super) fn permission(&mut self, bytes: &[u8]) {
         self.embedding = match parse_os2(bytes) {
@@ -211,7 +273,9 @@ impl Cff1Failure {
             }
         }
         if c.file_offset.is_some() || c.table_offset.is_some() {
-            note.push_str(if c.position_is_exact {
+            note.push_str(if c.position_is_end {
+                "; offset_kind=program-end"
+            } else if c.position_is_exact {
                 "; offset_kind=field"
             } else {
                 "; offset_kind=context-start"
@@ -234,6 +298,9 @@ impl Cff1Failure {
         }
         if let Some(fd) = c.fd {
             let _ = write!(note, "; fd={fd}");
+        }
+        if let Some(stage) = c.subset_stage {
+            let _ = write!(note, "; subset_stage={}", stage.as_str());
         }
         if let Some(limit) = c.limit {
             let _ = write!(note, "; limit={limit}");

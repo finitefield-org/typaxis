@@ -48,6 +48,9 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, '
         }
         work = work.max(prior_work);
         records = records.max(prior_records);
+        if records > limits.base().get().max_fragments {
+            return Err(error(owner, E::RecordLimit).into());
+        }
         step(&mut work, maximum_work, 1)?;
         let mut cursor = 0;
         let mut additional = 0usize;
@@ -104,6 +107,10 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, '
             return Err(error(owner, E::ReceiptMismatch).into());
         }
         if regions.is_empty() {
+            // An unselected master can still carry authored regions. Keep the
+            // caller's charges and the actual master scan even without paints.
+            self.records = records;
+            self.work = work;
             return Ok(self);
         }
         let count = self
@@ -189,7 +196,9 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, '
 }
 
 fn step(work: &mut u64, maximum: u64, count: u64) -> Result<(), BookV2MathDisplayError> {
-    *work = work.checked_add(count).filter(|n| *n <= maximum)
+    *work = work
+        .checked_add(count)
+        .filter(|n| *n <= maximum)
         .ok_or(BookV2MathDisplayError::WorkLimit(NodeId::new(0)))?;
     Ok(())
 }

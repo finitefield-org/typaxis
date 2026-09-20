@@ -59,7 +59,20 @@ impl std::fmt::Display for BookV2PdfPipelineError {
         write!(f, "book-2 PDF pipeline: {self:?}")
     }
 }
-impl std::error::Error for BookV2PdfPipelineError {}
+impl std::error::Error for BookV2PdfPipelineError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Selection(e) => Some(e),
+            Self::Closure(e) => Some(e),
+            Self::Program(e) => Some(e),
+            Self::Cid(e) => Some(e),
+            Self::Raster(e) => Some(e),
+            Self::Pdf(e) => Some(e),
+            Self::Navigation(e) => Some(e),
+            Self::Assembly(e) => Some(e),
+        }
+    }
+}
 pub struct BookV2PdfPipeline<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
     display: &'v BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
     limits: &'v M4EffectiveResourceLimits,

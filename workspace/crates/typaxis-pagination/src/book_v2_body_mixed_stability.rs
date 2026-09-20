@@ -28,7 +28,17 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         &mut self,
         remaining_passes: u16,
     ) -> Result<BookV2BodyMixedStablePages<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-        let projection = page_stability_kernel::converge(self, remaining_passes)?;
+        self.select_stable_mixed_pages_counted(remaining_passes, &mut 0)
+    }
+    /// Return begun passes even when selection or geometry comparison fails.
+    /// Work and records remain observable on this search owner.
+    pub fn select_stable_mixed_pages_counted(
+        &mut self,
+        remaining_passes: u16,
+        begun_passes: &mut u16,
+    ) -> Result<BookV2BodyMixedStablePages<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+        let projection =
+            page_stability_kernel::converge_counted(self, remaining_passes, begun_passes)?;
         Ok(BookV2BodyMixedStablePages {
             sequence: projection.sequence,
             passes: projection.passes,

@@ -3,28 +3,32 @@
 use super::*;
 #[path = "book_v2_page_region_lines.rs"]
 mod page_region_lines;
-pub use page_region_lines::*;
 pub use crate::block_vector::book_v2::{
     prepare_book_v2_vector_blocks, BookV2VectorBlock, BookV2VectorBlockError,
     BookV2VectorBlockLayout, BOOK_V2_VECTOR_BLOCK_ALGORITHM,
 };
+pub use page_region_lines::*;
 #[path = "book_v2_footnotes.rs"]
 mod footnote_lines;
 pub use footnote_lines::{prepare_book_v2_footnote_lines, BookV2FootnoteLines};
 #[path = "book_v2_reshape.rs"]
 mod feedback;
 pub use feedback::{
-    with_converged_book_v2_body_lines, with_converged_book_v2_body_lines_in_page_frames,
+    with_budgeted_book_v2_body_lines_with_source_widths, with_converged_book_v2_body_lines,
+    with_converged_book_v2_body_lines_in_page_frames,
     with_converged_book_v2_body_lines_with_native_context,
     with_converged_book_v2_body_lines_with_remaining_passes,
-    with_converged_book_v2_body_lines_with_source_widths, BookV2ConvergedBodyLines,
+    with_converged_book_v2_body_lines_with_source_widths, BookV2BodyLineBudget,
+    BookV2ConvergedBodyLines,
 };
 #[path = "book_v2_line_variant_seed.rs"]
 mod line_variant_seed;
 pub use line_variant_seed::{
-    prepare_book_v2_body_line_variant_seed, with_rebuilt_book_v2_body_line_variant,
-    BookV2BodyLineVariantSeed, BookV2RebuiltBodyLineVariant,
-    with_rebuilt_book_v2_body_line_variants, BookV2RebuiltBodyLineVariants,
+    prepare_book_v2_body_line_variant_seed, prepare_budgeted_book_v2_body_line_variant_seed,
+    with_budgeted_rebuilt_book_v2_body_line_variant,
+    with_budgeted_rebuilt_book_v2_body_line_variants, with_rebuilt_book_v2_body_line_variant,
+    with_rebuilt_book_v2_body_line_variants, BookV2BodyLineVariantSeed, BookV2LineVariantBudget,
+    BookV2RebuiltBodyLineVariant, BookV2RebuiltBodyLineVariants,
 };
 #[path = "book_v2_source_widths.rs"]
 mod source_widths;
@@ -43,7 +47,7 @@ pub use crate::safe_vector::book_v2::{
 };
 pub use frames::{
     layout_book_v2_body_inline_lines, prepare_book_v2_body_inline_frames, BookV2BodyInlineFrames,
-    BOOK_V2_BODY_FRAMES_ALGORITHM, BookV2TableOccurrenceFrames,
+    BookV2TableOccurrenceFrames, BOOK_V2_BODY_FRAMES_ALGORITHM,
 };
 use typaxis_resource_admission::AdmittedProductionResourceLedgerV3;
 use typaxis_shaping::book_v2::BookV2AuthoredTextShape;
@@ -399,7 +403,24 @@ fn layout_with_source_widths<'p, 'a>(
     record_base: u64,
     source_widths: Option<&[Option<typaxis_linebreak::ProductionInlineSourceWidths<'_>>]>,
 ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
-    let projection = selected::project_lines_with_source_widths(
+    layout_with_source_widths_counted(
+        prepared,
+        inline_sizes,
+        max_candidate_steps,
+        record_base,
+        source_widths,
+        &mut 0,
+    )
+}
+fn layout_with_source_widths_counted<'p, 'a>(
+    prepared: &'p BookV2PreparedInlines<'a>,
+    inline_sizes: &[PositiveLength],
+    max_candidate_steps: u64,
+    record_base: u64,
+    source_widths: Option<&[Option<typaxis_linebreak::ProductionInlineSourceWidths<'_>>]>,
+    consumed: &mut u64,
+) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
+    let projection = selected::project_lines_counted(
         selected::LineInputs {
             max_fragments: prepared.max_fragments,
             flow: InlineFlow::BookV2(prepared.flow),
@@ -415,6 +436,7 @@ fn layout_with_source_widths<'p, 'a>(
         record_base,
         BOOK_V2_TEXT_LINE_ALGORITHM,
         source_widths,
+        consumed,
     )?;
     Ok(BookV2InlineLineLayout {
         prepared,

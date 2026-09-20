@@ -164,3 +164,24 @@
 - [ADR-0096: Select and converge running-region lines in the original page rectangle](ADR-0096-book-2-page-region-lines.md)
 
 - [ADR-0097: Retain running-region glyph draws beyond line convergence](ADR-0097-book-2-page-region-display.md)
+
+- [ADR-0098: Bind running regions to actual page resources and PDF artifacts](ADR-0098-book-2-page-region-pdf.md)
+
+- [ADR-0099: Retain running-region candidate work across failures and retries](ADR-0099-book-2-page-region-line-budget.md)
+
+- [ADR-0100: Select a common page scope for parallel table content](ADR-0100-book-2-uniform-table-page-scopes.md)
+
+- [ADR-0101: Preserve CFF glyph positions through resource and PDF errors](ADR-0101-book-2-cff-glyph-diagnostics.md)
+
+- [ADR-0102: Classify Type2 operator rejection and check hflex negation](ADR-0102-book-2-cff-operator-diagnostics.md)
+
+- [ADR-0103: Retain original positions in legacy CFF glyph finalization](ADR-0103-legacy-cff-glyph-diagnostics.md)
+
+- [ADR-0104: Publish typed CFF finalization diagnostics in contract 1.4](ADR-0104-public-cff-finalization-diagnostics.md)
+- [ADR-0105: Keep CFF subset output stages and measured byte limits](ADR-0105-cff-subset-output-diagnostics.md)
+- [ADR-0106: Preserve CFF /2 subset failures through the book resource owner](ADR-0106-cff-v2-subset-diagnostics.md)
+- [ADR-0107: Retain body line work and begun reshape passes on failure](ADR-0107-book-2-body-line-failure-budget.md)
+- [ADR-0108: Retain failed line-variant convergence and context capture](ADR-0108-book-2-line-variant-failure-budget.md)
+- [ADR-0109: Retain failed single and multiple line-graph replay work](ADR-0109-book-2-line-replay-failure-budget.md)
+- [ADR-0110: Retain failed page-search work and begun selection passes](ADR-0110-book-2-page-search-failure-budget.md)
+- [ADR-0111: Retain display and PDF owner observations after failed construction](ADR-0111-book-2-downstream-failure-budget.md)

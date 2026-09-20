@@ -98,7 +98,11 @@ pub(super) fn attach<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
                 .max_line_reshape_passes
                 .checked_sub(*line_passes)
                 .ok_or(E::Limit("line passes"))?;
-            let result = with_converged_book_v2_page_region_lines(
+            let mut allowance = BookV2PageRegionLineBudget::new(
+                maximum_work.checked_sub(work).ok_or(E::Limit("work"))?,
+                remaining_passes,
+            );
+            let result = with_budgeted_book_v2_page_region_lines(
                 policy,
                 &flow,
                 admitted,
@@ -106,17 +110,9 @@ pub(super) fn attach<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
                 epoch,
                 mode,
                 selected,
-                maximum_work.checked_sub(work).ok_or(E::Limit("work"))?,
-                remaining_passes,
+                &mut allowance,
                 records,
                 |stable| -> Result<_, E> {
-                    *line_passes = line_passes
-                        .checked_add(
-                            u16::try_from(stable.passes().len())
-                                .map_err(|_| E::Limit("line passes"))?,
-                        )
-                        .filter(|n| *n <= limits.base().get().max_line_reshape_passes)
-                        .ok_or(E::Limit("line passes"))?;
                     work = add(work, stable.candidate_steps(), maximum_work, "work")?;
                     records = stable.lines().output_records();
                     builder
@@ -129,9 +125,14 @@ pub(super) fn attach<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
                     work = builder.work_steps();
                     Ok(region)
                 },
-            )
-            .map_err(|e| stage("page-region lines", e))??;
-            regions.push(result);
+            );
+            // A failed reshape still consumed a shared command pass. Preserve
+            // it before propagating either line-layout or consumer errors.
+            *line_passes = line_passes
+                .checked_add(allowance.reshape_passes())
+                .filter(|n| *n <= limits.base().get().max_line_reshape_passes)
+                .ok_or(E::Limit("line passes"))?;
+            regions.push(result.map_err(|e| stage("page-region lines", e))??);
         }
     }
     display

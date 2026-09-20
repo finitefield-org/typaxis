@@ -1126,6 +1126,9 @@ fn map_common_font_error(error: typaxis_resources::ResourceError) -> Failure {
     use typaxis_resources::ResourceError as E;
     match error {
         E::ResourceLimit => Failure::limit(format!("G6100: common footnote fonts: {error:?}")),
+        E::Cff1Detailed { font_face_id, failure } => {
+            crate::pipeline::map_cff_subset_failure(font_face_id, failure)
+        }
         E::Cff1(cause) => {
             let message = format!("{cause}; common footnote fonts");
             match cause {

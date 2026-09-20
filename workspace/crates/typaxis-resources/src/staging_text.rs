@@ -287,14 +287,14 @@ fn finalize_text_fonts(
             let session =
                 cff1_session.get_or_insert_with(|| Cff1SubsetSession::from_admission(admission));
             let subset = session
-                .subset(
+                .subset_detailed(
                     admission,
                     font_face_id,
                     FontInstanceId::new(font_face_id.get()),
                     &requested,
                     limits.get().max_cids_per_font,
                 )
-                .map_err(ResourceError::Cff1)?;
+                .map_err(|failure| ResourceError::Cff1Detailed { font_face_id, failure })?;
             let (cid_bindings, extraction_plans, frozen_clusters) =
                 build_staging_cff1_plans(&clusters, &subset, limits)?;
             let receipt = owner.issue_cff1_font(Cff1FontEncoderOutput {

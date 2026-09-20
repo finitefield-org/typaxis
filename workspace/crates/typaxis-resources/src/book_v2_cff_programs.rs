@@ -23,7 +23,14 @@ impl std::fmt::Display for BookV2CffProgramError {
         write!(f, "book-2 CFF programs: {self:?}")
     }
 }
-impl std::error::Error for BookV2CffProgramError {}
+impl std::error::Error for BookV2CffProgramError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Budget(e) => Some(e),
+            Self::Cff(e) => Some(e),
+        }
+    }
+}
 impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
     BookV2FontSelectionBuilder<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
 {

@@ -190,148 +190,173 @@ pub(super) fn layout_source_width_lines_from_flow<'p, 'a>(
     maximum_work: u64,
     prior_records: u64,
 ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
-    use ProductionInlinePreparationErrorKind as E;
-    let root = NodeId::new(0);
-    if !std::ptr::eq(assignments.flow, prepared.flow)
-        || assignments.widths.len() != prepared.paragraphs.len()
-        || envelopes.len() != prepared.paragraphs.len()
-    {
-        return Err(error(root, E::ReceiptMismatch));
-    }
-    // These binding records and width slots are charged by the shared projection.
-    // Check their capacity before allocating the temporary binding vector.
-    let mut records = prior_records
-        .checked_add(prepared.native_math().map_or(0, |m| m.record_charge()))
-        .filter(|n| *n <= prepared.max_fragments)
-        .ok_or_else(|| error(root, E::UnitLimit))?;
-    records = records
-        .checked_add(assignments.widths.len() as u64)
-        .filter(|n| *n <= prepared.max_fragments)
-        .ok_or_else(|| error(root, E::UnitLimit))?;
+    layout_source_width_lines_counted(
+        prepared,
+        envelopes,
+        assignments,
+        maximum_work,
+        prior_records,
+        &mut 0,
+    )
+}
+pub(super) fn layout_source_width_lines_counted<'p, 'a>(
+    prepared: &'p BookV2PreparedInlines<'a>,
+    envelopes: &[PositiveLength],
+    assignments: &BookV2SourceWidthAssignments<'_, '_>,
+    maximum_work: u64,
+    prior_records: u64,
+    consumed: &mut u64,
+) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
     let mut remaining = maximum_work;
-    let step = |remaining: &mut u64, owner| {
-        *remaining = remaining.checked_sub(1).ok_or_else(|| {
-            error(
-                owner,
-                E::Atomic(typaxis_linebreak::AtomicVectorInlineError::CandidateLimit),
-            )
-        })?;
-        Ok::<_, ProductionInlinePreparationError>(())
-    };
-    for (index, (p, widths)) in prepared
-        .paragraphs
-        .iter()
-        .zip(assignments.widths)
-        .enumerate()
-    {
-        step(&mut remaining, p.owner())?;
-        if let Some(ends) = assignments.retained_ends.and_then(|ends| ends[index]) {
-            if widths.is_none() {
+    let mut projected = 0;
+    let result = (|| {
+        use ProductionInlinePreparationErrorKind as E;
+        let root = NodeId::new(0);
+        if !std::ptr::eq(assignments.flow, prepared.flow)
+            || assignments.widths.len() != prepared.paragraphs.len()
+            || envelopes.len() != prepared.paragraphs.len()
+        {
+            return Err(error(root, E::ReceiptMismatch));
+        }
+        // These binding records and width slots are charged by the shared projection.
+        // Check their capacity before allocating the temporary binding vector.
+        let mut records = prior_records
+            .checked_add(prepared.native_math().map_or(0, |m| m.record_charge()))
+            .filter(|n| *n <= prepared.max_fragments)
+            .ok_or_else(|| error(root, E::UnitLimit))?;
+        records = records
+            .checked_add(assignments.widths.len() as u64)
+            .filter(|n| *n <= prepared.max_fragments)
+            .ok_or_else(|| error(root, E::UnitLimit))?;
+        let step = |remaining: &mut u64, owner| {
+            *remaining = remaining.checked_sub(1).ok_or_else(|| {
+                error(
+                    owner,
+                    E::Atomic(typaxis_linebreak::AtomicVectorInlineError::CandidateLimit),
+                )
+            })?;
+            Ok::<_, ProductionInlinePreparationError>(())
+        };
+        for (index, (p, widths)) in prepared
+            .paragraphs
+            .iter()
+            .zip(assignments.widths)
+            .enumerate()
+        {
+            step(&mut remaining, p.owner())?;
+            if let Some(ends) = assignments.retained_ends.and_then(|ends| ends[index]) {
+                if widths.is_none() {
+                    return Err(error(p.owner(), E::ReceiptMismatch));
+                }
+                records = records
+                    .checked_add(ends.len() as u64)
+                    .filter(|n| *n <= prepared.max_fragments)
+                    .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
+            }
+            if let Some(widths) = widths {
+                let items = p
+                    .items()
+                    .ok_or_else(|| error(p.owner(), E::ReceiptMismatch))?;
+                if widths.len() != items.units().len().max(1) {
+                    return Err(error(p.owner(), E::ReceiptMismatch));
+                }
+                records = records
+                    .checked_add(widths.len() as u64)
+                    .filter(|n| *n <= prepared.max_fragments)
+                    .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
+            }
+        }
+        let mut bindings = Vec::new();
+        bindings
+            .try_reserve_exact(assignments.widths.len())
+            .map_err(|_| error(root, E::AllocationFailure))?;
+        for ((p, source), widths) in prepared
+            .paragraphs
+            .iter()
+            .zip(assignments.flow.paragraphs())
+            .zip(assignments.widths)
+        {
+            if p.owner() != source.owner() {
                 return Err(error(p.owner(), E::ReceiptMismatch));
             }
-            records = records
-                .checked_add(ends.len() as u64)
-                .filter(|n| *n <= prepared.max_fragments)
-                .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
-        }
-        if let Some(widths) = widths {
+            let Some(widths) = widths else {
+                bindings.push(None);
+                continue;
+            };
             let items = p
                 .items()
                 .ok_or_else(|| error(p.owner(), E::ReceiptMismatch))?;
-            if widths.len() != items.units().len().max(1) {
+            let mut units = items.units().iter();
+            for site in source.items() {
+                let owner = site.owner();
+                step(&mut remaining, owner)?;
+                let matches = match site.content() {
+                    ProductionInlineContent::Text { .. }
+                    | ProductionInlineContent::FootnoteReference
+                    | ProductionInlineContent::Reference => {
+                        let (_, text) =
+                            inline_shape_text(InlineFlow::BookV2(assignments.flow), site)?;
+                        for scalar in text.chars() {
+                            step(&mut remaining, owner)?;
+                            if !matches!(units.next(), Some(Unit::Text(t)) if t.scalar() == scalar)
+                            {
+                                return Err(error(owner, E::ReceiptMismatch));
+                            }
+                        }
+                        true
+                    }
+                    ProductionInlineContent::InlineVector | ProductionInlineContent::MathVector => {
+                        matches!(units.next(), Some(Unit::Vector(v)) if v.node_id() == owner && v.source_span() == site.source_span())
+                    }
+                    ProductionInlineContent::NativeMath => {
+                        matches!(units.next(), Some(Unit::Math(m)) if m.owner() == owner && m.source_span() == site.source_span())
+                    }
+                    ProductionInlineContent::SoftBreak | ProductionInlineContent::HardBreak => {
+                        let kind = if matches!(site.content(), ProductionInlineContent::SoftBreak) {
+                            BreakKind::Allowed
+                        } else {
+                            BreakKind::Mandatory
+                        };
+                        matches!(units.next(), Some(Unit::Break(b)) if b.owner() == owner && b.source_span() == site.source_span() && b.kind() == kind)
+                    }
+                    ProductionInlineContent::Anchor
+                    | ProductionInlineContent::BeginEmphasis
+                    | ProductionInlineContent::BeginStrong
+                    | ProductionInlineContent::BeginLink
+                    | ProductionInlineContent::EndContainer => true,
+                };
+                if !matches {
+                    return Err(error(owner, E::ReceiptMismatch));
+                }
+            }
+            if units.next().is_some() {
                 return Err(error(p.owner(), E::ReceiptMismatch));
             }
-            records = records
-                .checked_add(widths.len() as u64)
-                .filter(|n| *n <= prepared.max_fragments)
-                .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
-        }
-    }
-    let mut bindings = Vec::new();
-    bindings
-        .try_reserve_exact(assignments.widths.len())
-        .map_err(|_| error(root, E::AllocationFailure))?;
-    for ((p, source), widths) in prepared
-        .paragraphs
-        .iter()
-        .zip(assignments.flow.paragraphs())
-        .zip(assignments.widths)
-    {
-        if p.owner() != source.owner() {
-            return Err(error(p.owner(), E::ReceiptMismatch));
-        }
-        let Some(widths) = widths else {
-            bindings.push(None);
-            continue;
-        };
-        let items = p
-            .items()
-            .ok_or_else(|| error(p.owner(), E::ReceiptMismatch))?;
-        let mut units = items.units().iter();
-        for site in source.items() {
-            let owner = site.owner();
-            step(&mut remaining, owner)?;
-            let matches = match site.content() {
-                ProductionInlineContent::Text { .. }
-                | ProductionInlineContent::FootnoteReference
-                | ProductionInlineContent::Reference => {
-                    let (_, text) = inline_shape_text(InlineFlow::BookV2(assignments.flow), site)?;
-                    for scalar in text.chars() {
-                        step(&mut remaining, owner)?;
-                        if !matches!(units.next(), Some(Unit::Text(t)) if t.scalar() == scalar) {
-                            return Err(error(owner, E::ReceiptMismatch));
-                        }
-                    }
-                    true
+            let index = bindings.len();
+            bindings.push(Some(
+                if let Some(ends) = assignments.retained_ends.and_then(|ends| ends[index]) {
+                    ProductionInlineSourceWidths::with_retained_line_ends(items, widths, ends)
+                } else {
+                    ProductionInlineSourceWidths::new(items, widths)
                 }
-                ProductionInlineContent::InlineVector | ProductionInlineContent::MathVector => {
-                    matches!(units.next(), Some(Unit::Vector(v)) if v.node_id() == owner && v.source_span() == site.source_span())
-                }
-                ProductionInlineContent::NativeMath => {
-                    matches!(units.next(), Some(Unit::Math(m)) if m.owner() == owner && m.source_span() == site.source_span())
-                }
-                ProductionInlineContent::SoftBreak | ProductionInlineContent::HardBreak => {
-                    let kind = if matches!(site.content(), ProductionInlineContent::SoftBreak) {
-                        BreakKind::Allowed
-                    } else {
-                        BreakKind::Mandatory
-                    };
-                    matches!(units.next(), Some(Unit::Break(b)) if b.owner() == owner && b.source_span() == site.source_span() && b.kind() == kind)
-                }
-                ProductionInlineContent::Anchor
-                | ProductionInlineContent::BeginEmphasis
-                | ProductionInlineContent::BeginStrong
-                | ProductionInlineContent::BeginLink
-                | ProductionInlineContent::EndContainer => true,
-            };
-            if !matches {
-                return Err(error(owner, E::ReceiptMismatch));
-            }
+                .map_err(|e| error(p.owner(), E::Atomic(e)))?,
+            ));
         }
-        if units.next().is_some() {
-            return Err(error(p.owner(), E::ReceiptMismatch));
-        }
-        let index = bindings.len();
-        bindings.push(Some(
-            if let Some(ends) = assignments.retained_ends.and_then(|ends| ends[index]) {
-                ProductionInlineSourceWidths::with_retained_line_ends(items, widths, ends)
-            } else {
-                ProductionInlineSourceWidths::new(items, widths)
-            }
-            .map_err(|e| error(p.owner(), E::Atomic(e)))?,
-        ));
-    }
-    let mut lines = layout_book_v2_source_width_lines_charged(
-        prepared,
-        envelopes,
-        &bindings,
-        remaining,
-        prior_records,
-    )?;
-    lines.projection.candidate_steps = lines
-        .projection
-        .candidate_steps
-        .checked_add(maximum_work - remaining)
-        .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
-    Ok(lines)
+        let mut lines = layout_with_source_widths_counted(
+            prepared,
+            envelopes,
+            remaining,
+            prior_records,
+            Some(&bindings),
+            &mut projected,
+        )?;
+        lines.projection.candidate_steps = lines
+            .projection
+            .candidate_steps
+            .checked_add(maximum_work - remaining)
+            .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
+        Ok(lines)
+    })();
+    *consumed = maximum_work - remaining + projected;
+    result
 }

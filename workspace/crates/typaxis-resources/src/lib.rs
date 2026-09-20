@@ -87,6 +87,7 @@ pub enum ResourceError {
     NonCanonicalFontInstanceKey,
     AdmittedLedgerEpochMismatch,
     Cff1(Cff1Error),
+    Cff1Detailed { font_face_id: typaxis_core::FontFaceId, failure: typaxis_font::Cff1Failure },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1772,8 +1773,8 @@ impl ResourceFinalizer for ReferenceResourceFinalizer {
         if let Some(session) = &mut cff1_session {
             for (font_face_id, (admission, selected)) in &cff1_face_unions {
                 session
-                    .prepare_face(admission, *font_face_id, selected)
-                    .map_err(ResourceError::Cff1)?;
+                    .prepare_face_detailed(admission, *font_face_id, selected)
+                    .map_err(|failure| ResourceError::Cff1Detailed { font_face_id: *font_face_id, failure })?;
             }
         }
         for (font_instance_id, font_usage) in &usage.fonts {
@@ -1825,14 +1826,14 @@ impl ResourceFinalizer for ReferenceResourceFinalizer {
                         .as_mut()
                         .ok_or(ResourceError::InvalidFontPlan)?;
                     let subset = session
-                        .subset(
+                        .subset_detailed(
                             admission,
                             admitted.font_face_id(),
                             *font_instance_id,
                             &font_usage.glyphs,
                             input.limits.get().max_cids_per_font,
                         )
-                        .map_err(ResourceError::Cff1)?;
+                        .map_err(|failure| ResourceError::Cff1Detailed { font_face_id: admitted.font_face_id(), failure })?;
                     let (cids, cluster_plans) =
                         build_cff1_cid_plans(input.display, font_usage, &subset, input.limits)?;
                     receipts.push(

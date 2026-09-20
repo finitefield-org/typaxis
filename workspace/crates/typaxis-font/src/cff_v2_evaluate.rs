@@ -7,6 +7,8 @@ use std::cell::Cell;
 pub enum CffGlyphFailureReasonV2 {
     Execution,
     InvalidWidth,
+    UnsupportedOperator,
+    ReservedOperator,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CffGlyphFailureV2 {
@@ -16,13 +18,26 @@ pub struct CffGlyphFailureV2 {
     pub fd: Option<u8>,
     pub table_offset: Option<usize>,
     pub operator: Option<u16>,
+    /// False for a program-end cursor or a failure before token decoding.
+    pub position_is_exact: bool,
+    /// Present only when evaluated through an admitted SFNT selection session.
+    pub font_context: Option<FontFailureContext>,
 }
 impl std::fmt::Display for CffGlyphFailureV2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(context) = self.font_context {
+            return std::fmt::Display::fmt(
+                &Cff1Failure {
+                    kind: self.kind,
+                    context,
+                },
+                f,
+            );
+        }
         write!(
             f,
-            "CFF /2 {:?}: GID {}, FD {:?}, {:?}",
-            self.reason, self.gid, self.fd, self.kind
+            "CFF /2 {:?}: GID {}, FD {:?}, {:?}; table_byte={:?}; operator={:?}; position_is_exact={}",
+            self.reason, self.gid, self.fd, self.kind, self.table_offset, self.operator, self.position_is_exact
         )
     }
 }
@@ -36,8 +51,9 @@ enum ProgramKindV2 {
 struct SelectedFontDict<'a> {
     program: &'a CffProgramV2,
     fd: u8,
-    current: Cell<Option<(usize, u16)>>,
+    current: Cell<Option<(usize, Option<u16>, bool)>>,
     invalid_width: Cell<bool>,
+    operator_rejection: Cell<Option<Type2OperatorRejection>>,
     source_width: Cell<Option<i32>>,
 }
 impl SelectedFontDict<'_> {
@@ -64,17 +80,29 @@ impl Type2ProgramAccess for SelectedFontDict<'_> {
     fn accepts_subroutine_endchar(&self) -> bool {
         true
     }
-    fn observe(&self, kind: ProgramKind, position: usize, operator: u16) {
+    fn observe(&self, kind: ProgramKind, position: usize, operator: Option<u16>) {
         self.current.set(
             self.span(kind)
                 .and_then(|s| s.start.checked_add(position))
-                .map(|p| (p, operator)),
+                .map(|p| (p, operator, true)),
+        );
+    }
+    fn observe_end(&self, kind: ProgramKind, position: usize) {
+        // The cursor is the validated end of this program, possibly inside a
+        // subroutine. It must not retain the previous operator's location.
+        self.current.set(
+            self.span(kind)
+                .filter(|s| position == s.end - s.start)
+                .map(|s| (s.end, None, false)),
         );
     }
     fn program_bytes(&self, kind: ProgramKind) -> Result<&[u8], Cff1Error> {
         self.span(kind)
             .map(|s| s.bytes(&self.program.source))
             .ok_or(Cff1Error::InvalidCharstring)
+    }
+    fn reject_operator(&self, reason: Type2OperatorRejection) {
+        self.operator_rejection.set(Some(reason));
     }
     fn local_subroutine_count(&self) -> usize {
         self.program.font_dicts[usize::from(self.fd)]
@@ -200,12 +228,15 @@ impl CffProgramEvaluationSessionV2 {
                 fd: None,
                 table_offset: None,
                 operator: None,
+                position_is_exact: false,
+                font_context: None,
             })?;
         let selected = SelectedFontDict {
             program,
             fd,
             current: Cell::new(None),
             invalid_width: Cell::new(false),
+            operator_rejection: Cell::new(None),
             source_width: Cell::new(None),
         };
         let mut budget = ChargedEvaluation {
@@ -217,13 +248,24 @@ impl CffProgramEvaluationSessionV2 {
                 kind,
                 reason: if selected.invalid_width.get() {
                     CffGlyphFailureReasonV2::InvalidWidth
+                } else if let Some(rejection) = selected.operator_rejection.get() {
+                    match rejection {
+                        Type2OperatorRejection::Unsupported => {
+                            CffGlyphFailureReasonV2::UnsupportedOperator
+                        }
+                        Type2OperatorRejection::Reserved => {
+                            CffGlyphFailureReasonV2::ReservedOperator
+                        }
+                    }
                 } else {
                     CffGlyphFailureReasonV2::Execution
                 },
                 gid,
                 fd: Some(fd),
                 table_offset: selected.current.get().map(|v| v.0),
-                operator: selected.current.get().map(|v| v.1),
+                operator: selected.current.get().and_then(|v| v.1),
+                position_is_exact: selected.current.get().is_some_and(|v| v.2),
+                font_context: None,
             })?;
         let source_width_fixed = selected.source_width.get().ok_or(CffGlyphFailureV2 {
             kind: Cff1Error::InvalidCharstring,
@@ -231,7 +273,9 @@ impl CffProgramEvaluationSessionV2 {
             gid,
             fd: Some(fd),
             table_offset: selected.current.get().map(|v| v.0),
-            operator: selected.current.get().map(|v| v.1),
+            operator: selected.current.get().and_then(|v| v.1),
+            position_is_exact: selected.current.get().is_some_and(|v| v.2),
+            font_context: None,
         })?;
         Ok(CffEvaluatedGlyphV2 {
             source_width_fixed,

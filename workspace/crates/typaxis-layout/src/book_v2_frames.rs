@@ -157,6 +157,24 @@ pub(super) fn layout_body_lines_with_source_widths<'p, 'a>(
     page_plan: Option<&'p BookV2PageFramePlan<'a>>,
     source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
 ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
+    layout_body_lines_counted(
+        prepared,
+        body,
+        max_candidate_steps,
+        page_plan,
+        source_widths,
+        &mut 0,
+    )
+}
+pub(super) fn layout_body_lines_counted<'p, 'a>(
+    prepared: &'p BookV2PreparedInlines<'a>,
+    body: Rect,
+    max_candidate_steps: u64,
+    page_plan: Option<&'p BookV2PageFramePlan<'a>>,
+    source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
+    consumed: &mut u64,
+) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
+    *consumed = 0;
     let mut frames = if let Some(plan) = page_plan {
         if !std::ptr::eq(plan.source(), prepared.flow.body()) || body != plan.measurement_body() {
             return Err(error(
@@ -186,22 +204,34 @@ pub(super) fn layout_body_lines_with_source_widths<'p, 'a>(
     } else {
         prepare_book_v2_body_inline_frames(prepared, body)?
     };
-    let frame_work = if let Some(assignments) = source_widths {
-        let table_work = frames.apply_table_widths(assignments, max_candidate_steps)?;
-        let block_work =
-            frames.apply_block_widths(assignments, max_candidate_steps - table_work)?;
-        let block_start_work = frames
-            .apply_block_starts(assignments, max_candidate_steps - table_work - block_work)?;
-        table_work
-            + block_work
-            + block_start_work
-            + frames.apply_source_unit_starts(
-                assignments,
-                max_candidate_steps - table_work - block_work - block_start_work,
-            )?
-    } else {
-        0
-    };
+    if let Some(assignments) = source_widths {
+        for pass in [
+            FrameWidthPass::Tables,
+            FrameWidthPass::Blocks,
+            FrameWidthPass::BlockStarts,
+            FrameWidthPass::UnitStarts,
+        ] {
+            let mut spent = 0;
+            let remaining = max_candidate_steps - *consumed;
+            let result = match pass {
+                FrameWidthPass::Tables => {
+                    frames.apply_table_widths(assignments, remaining, &mut spent)
+                }
+                FrameWidthPass::Blocks => {
+                    frames.apply_block_widths(assignments, remaining, &mut spent)
+                }
+                FrameWidthPass::BlockStarts => {
+                    frames.apply_block_starts(assignments, remaining, &mut spent)
+                }
+                FrameWidthPass::UnitStarts => {
+                    frames.apply_source_unit_starts(assignments, remaining, &mut spent)
+                }
+            };
+            *consumed += spent;
+            result?;
+        }
+    }
+    let frame_work = *consumed;
     let remaining_work = max_candidate_steps.checked_sub(frame_work).ok_or_else(|| {
         error(
             NodeId::new(0),
@@ -218,17 +248,28 @@ pub(super) fn layout_body_lines_with_source_widths<'p, 'a>(
             )
         })?;
     widths.extend(frames.paragraphs().iter().map(|f| f.width()));
-    let mut lines = if let Some(assignments) = source_widths {
-        super::source_widths::layout_source_width_lines_from_flow(
+    let mut projected = 0;
+    let result = if let Some(assignments) = source_widths {
+        super::source_widths::layout_source_width_lines_counted(
             prepared,
             &widths,
             assignments,
             remaining_work,
             frames.record_charge(),
-        )?
+            &mut projected,
+        )
     } else {
-        layout_with_record_base(prepared, &widths, remaining_work, frames.record_charge())?
+        layout_with_source_widths_counted(
+            prepared,
+            &widths,
+            remaining_work,
+            frames.record_charge(),
+            None,
+            &mut projected,
+        )
     };
+    *consumed += projected;
+    let mut lines = result?;
     lines.projection.candidate_steps = lines
         .projection
         .candidate_steps
@@ -252,33 +293,115 @@ impl BookV2BodyInlineFrames<'_, '_> {
         &mut self,
         assignments: &BookV2SourceWidthAssignments<'_, '_>,
         maximum_work: u64,
+        consumed: &mut u64,
     ) -> Result<u64, ProductionInlinePreparationError> {
-        use typaxis_syntax::{ProductionFlowEvent as Event, ProductionFlowRegionKind as Region};
-        use ProductionInlinePreparationErrorKind as E;
-        let root = NodeId::new(0);
-        if !assignments.matches_flow(self.prepared.flow) {
-            return Err(error(root, E::ReceiptMismatch));
-        }
-        let widths = assignments.block_widths();
-        if widths.is_empty() {
-            return Ok(0);
-        }
-        self.projection.record_charge = self
-            .projection
-            .record_charge
-            .checked_add(widths.len() as u64)
-            .filter(|n| *n <= self.prepared.max_fragments)
-            .ok_or_else(|| error(root, E::UnitLimit))?;
-        self.block_measurements
-            .try_reserve_exact(widths.len())
-            .map_err(|_| error(root, E::AllocationFailure))?;
         let mut work = 0u64;
-        let mut index = 0;
-        let mut depth = 0usize;
-        let mut table_depth = None;
-        for event in self.prepared.flow.events() {
+        let result = (|| {
+            use typaxis_syntax::{
+                ProductionFlowEvent as Event, ProductionFlowRegionKind as Region,
+            };
+            use ProductionInlinePreparationErrorKind as E;
+            let root = NodeId::new(0);
+            if !assignments.matches_flow(self.prepared.flow) {
+                return Err(error(root, E::ReceiptMismatch));
+            }
+            let widths = assignments.block_widths();
+            if widths.is_empty() {
+                return Ok(0);
+            }
+            self.projection.record_charge = self
+                .projection
+                .record_charge
+                .checked_add(widths.len() as u64)
+                .filter(|n| *n <= self.prepared.max_fragments)
+                .ok_or_else(|| error(root, E::UnitLimit))?;
+            self.block_measurements
+                .try_reserve_exact(widths.len())
+                .map_err(|_| error(root, E::AllocationFailure))?;
+            let mut index = 0;
+            let mut depth = 0usize;
+            let mut table_depth = None;
+            for event in self.prepared.flow.events() {
+                work = work
+                    .checked_add(1)
+                    .filter(|n| *n <= maximum_work)
+                    .ok_or_else(|| {
+                        error(
+                            root,
+                            E::Atomic(typaxis_linebreak::AtomicVectorInlineError::CandidateLimit),
+                        )
+                    })?;
+                if assignments.inherits_table_blocks() {
+                    match *event {
+                        Event::Begin { kind, .. } => {
+                            depth = depth
+                                .checked_add(1)
+                                .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
+                            if kind == Region::Table && table_depth.is_none() {
+                                table_depth = Some(depth);
+                            }
+                        }
+                        Event::End { .. } => {
+                            if table_depth == Some(depth) {
+                                table_depth = None;
+                            }
+                            depth = depth
+                                .checked_sub(1)
+                                .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+                        }
+                        _ => {}
+                    }
+                }
+                let Event::Begin {
+                    owner,
+                    kind:
+                        Region::Figure
+                        | Region::VectorFigure
+                        | Region::DisplayMath
+                        | Region::MathVectorBlock,
+                } = *event
+                else {
+                    continue;
+                };
+                let Some(&(expected, width)) = widths.get(index) else {
+                    return Err(error(owner, E::ReceiptMismatch));
+                };
+                if owner != expected {
+                    return Err(error(owner, E::ReceiptMismatch));
+                }
+                let current = self
+                    .projection
+                    .regions
+                    .get_mut(&owner)
+                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                let width = if assignments.inherits_table_blocks() && table_depth.is_some() {
+                    current.width()
+                } else {
+                    width
+                };
+                if width.get() > current.width().get() {
+                    return Err(error(owner, E::InvalidHorizontalMetrics));
+                }
+                self.block_measurements.push((owner, *current));
+                *current = current.with_width(width);
+                let mut digest = [0u8; 76];
+                digest[..32].copy_from_slice(&self.projection.fingerprint);
+                digest[32..64].copy_from_slice(&typaxis_core::sha256(
+                    b"typaxis.book-2-block-width-frames/1",
+                ));
+                digest[64..68].copy_from_slice(&owner.get().to_be_bytes());
+                digest[68..].copy_from_slice(&width.get().raw().to_be_bytes());
+                self.projection.fingerprint = sha256(&digest);
+                index += 1;
+            }
+            if index != widths.len() {
+                return Err(error(root, E::ReceiptMismatch));
+            }
+            let sort_work = (widths.len() as u64)
+                .checked_mul(self.measurement_region_lookup_work())
+                .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
             work = work
-                .checked_add(1)
+                .checked_add(sort_work)
                 .filter(|n| *n <= maximum_work)
                 .ok_or_else(|| {
                     error(
@@ -286,87 +409,12 @@ impl BookV2BodyInlineFrames<'_, '_> {
                         E::Atomic(typaxis_linebreak::AtomicVectorInlineError::CandidateLimit),
                     )
                 })?;
-            if assignments.inherits_table_blocks() {
-                match *event {
-                    Event::Begin { kind, .. } => {
-                        depth = depth
-                            .checked_add(1)
-                            .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
-                        if kind == Region::Table && table_depth.is_none() {
-                            table_depth = Some(depth);
-                        }
-                    }
-                    Event::End { .. } => {
-                        if table_depth == Some(depth) {
-                            table_depth = None;
-                        }
-                        depth = depth
-                            .checked_sub(1)
-                            .ok_or_else(|| error(root, E::ReceiptMismatch))?;
-                    }
-                    _ => {}
-                }
-            }
-            let Event::Begin {
-                owner,
-                kind:
-                    Region::Figure
-                    | Region::VectorFigure
-                    | Region::DisplayMath
-                    | Region::MathVectorBlock,
-            } = *event
-            else {
-                continue;
-            };
-            let Some(&(expected, width)) = widths.get(index) else {
-                return Err(error(owner, E::ReceiptMismatch));
-            };
-            if owner != expected {
-                return Err(error(owner, E::ReceiptMismatch));
-            }
-            let current = self
-                .projection
-                .regions
-                .get_mut(&owner)
-                .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-            let width = if assignments.inherits_table_blocks() && table_depth.is_some() {
-                current.width()
-            } else {
-                width
-            };
-            if width.get() > current.width().get() {
-                return Err(error(owner, E::InvalidHorizontalMetrics));
-            }
-            self.block_measurements.push((owner, *current));
-            *current = current.with_width(width);
-            let mut digest = [0u8; 76];
-            digest[..32].copy_from_slice(&self.projection.fingerprint);
-            digest[32..64].copy_from_slice(&typaxis_core::sha256(
-                b"typaxis.book-2-block-width-frames/1",
-            ));
-            digest[64..68].copy_from_slice(&owner.get().to_be_bytes());
-            digest[68..].copy_from_slice(&width.get().raw().to_be_bytes());
-            self.projection.fingerprint = sha256(&digest);
-            index += 1;
-        }
-        if index != widths.len() {
-            return Err(error(root, E::ReceiptMismatch));
-        }
-        let sort_work = (widths.len() as u64)
-            .checked_mul(self.measurement_region_lookup_work())
-            .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
-        work = work
-            .checked_add(sort_work)
-            .filter(|n| *n <= maximum_work)
-            .ok_or_else(|| {
-                error(
-                    root,
-                    E::Atomic(typaxis_linebreak::AtomicVectorInlineError::CandidateLimit),
-                )
-            })?;
-        self.block_measurements
-            .sort_unstable_by_key(|(owner, _)| *owner);
-        Ok(work)
+            self.block_measurements
+                .sort_unstable_by_key(|(owner, _)| *owner);
+            Ok(work)
+        })();
+        *consumed = work;
+        result
     }
 }
 
@@ -382,3 +430,10 @@ mod source_unit_starts;
 
 #[path = "book_v2_block_source_starts.rs"]
 mod block_source_starts;
+
+enum FrameWidthPass {
+    Tables,
+    Blocks,
+    BlockStarts,
+    UnitStarts,
+}

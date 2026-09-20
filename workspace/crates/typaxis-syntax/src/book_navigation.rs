@@ -806,6 +806,8 @@ impl LanguageRegistryGeneration {
 
 #[derive(Clone, Debug)]
 struct LanguageSite<L = StagingLanguageNodeKind> {
+    // The legacy consumer shares collection but has no region-aware PDF owner.
+    #[cfg_attr(not(feature = "book-v2-staging"), allow(dead_code))]
     page_region: Option<u32>,
     node_id: u32,
     kind: L,

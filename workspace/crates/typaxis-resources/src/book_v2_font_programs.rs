@@ -18,7 +18,16 @@ impl std::fmt::Display for BookV2FontProgramsError {
         write!(f, "book-2 font programs: {self:?}")
     }
 }
-impl std::error::Error for BookV2FontProgramsError {}
+impl std::error::Error for BookV2FontProgramsError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Budget(e) => Some(e),
+            Self::Evaluation(e) => Some(e),
+            Self::TrueType(e) => Some(e),
+            Self::Cff(e) => Some(e),
+        }
+    }
+}
 enum Program<'x, 'c, 'a> {
     TrueType(BookV2TrueTypeSubset<'x, 'c, 'a>),
     Cff(BookV2CffSubset<'x, 'c, 'a>),

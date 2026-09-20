@@ -267,6 +267,22 @@ fn measure_region<'p, 'a>(
     max_candidate_steps: u64,
     prior_records: u64,
 ) -> Result<BookV2PageRegionLines<'p, 'a>, BookV2PageRegionLayoutError> {
+    measure_region_counted(
+        prepared,
+        selected,
+        max_candidate_steps,
+        prior_records,
+        &mut 0,
+    )
+}
+fn measure_region_counted<'p, 'a>(
+    prepared: &'p BookV2PageRegionInlines<'a>,
+    selected: BookV2SelectedPageMaster<'a>,
+    max_candidate_steps: u64,
+    prior_records: u64,
+    consumed_steps: &mut u64,
+) -> Result<BookV2PageRegionLines<'p, 'a>, BookV2PageRegionLayoutError> {
+    *consumed_steps = 0;
     use ProductionInlinePreparationErrorKind as E;
     let flow = prepared.flow;
     let owner = NodeId::new(flow.source().node_id);
@@ -324,7 +340,7 @@ fn measure_region<'p, 'a>(
                 .ok_or(BookV2PageRegionLayoutError::Geometry { owner: p.owner() })?,
         );
     }
-    let projection = selected::project_lines(
+    let projection = selected::project_lines_counted(
         selected::LineInputs {
             max_fragments: maximum,
             flow: InlineFlow::PageRegion(flow),
@@ -339,6 +355,8 @@ fn measure_region<'p, 'a>(
         max_candidate_steps,
         records,
         BOOK_V2_PAGE_REGION_LINE_ALGORITHM,
+        None,
+        consumed_steps,
     )?;
     records = projection.output_records;
     let mut origins = Vec::new();

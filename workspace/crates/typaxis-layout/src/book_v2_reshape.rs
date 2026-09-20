@@ -171,12 +171,48 @@ pub fn with_converged_book_v2_body_lines_with_source_widths<'a, R>(
     source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
     use_stable: impl FnOnce(BookV2ConvergedBodyLines<'_, '_, '_>) -> R,
 ) -> Result<R, ProductionBodyReshapeError> {
-    let remaining_passes = remaining_passes.min(limits.base().get().max_line_reshape_passes);
+    let mut allowance = BookV2BodyLineBudget::new(max_candidate_steps, remaining_passes);
+    with_budgeted_book_v2_body_lines_with_source_widths(
+        policy,
+        flow,
+        admitted,
+        bindings,
+        limits,
+        japanese_mode,
+        body,
+        native,
+        &mut allowance,
+        page_plan,
+        source_widths,
+        use_stable,
+    )
+}
+
+/// Reuse this owner across attempts to retain begun reshape passes and all
+/// charged frame/source/line-candidate work, including work preceding failure.
+#[allow(clippy::too_many_arguments)]
+pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
+    policy: &BookV2ResourcePolicy<'_>,
+    flow: &PreparedBookV2TextFlow<'a>,
+    admitted: &AdmittedProductionResourceLedgerV3,
+    bindings: &BookV2VectorBindings<'_>,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: JapaneseLineBreakMode,
+    body: Rect,
+    native: Option<&BookV2NativeMath<'_>>,
+    allowance: &mut BookV2BodyLineBudget,
+    page_plan: Option<&typaxis_syntax::book_v2::BookV2PageFramePlan<'a>>,
+    source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
+    use_stable: impl FnOnce(BookV2ConvergedBodyLines<'_, '_, '_>) -> R,
+) -> Result<R, ProductionBodyReshapeError> {
+    let remaining_passes = allowance
+        .remaining_passes
+        .min(limits.base().get().max_line_reshape_passes);
     if remaining_passes == 0 {
         return Err(BreakError::IterationLimit.into());
     }
     let epoch = bindings.epoch();
-    let mut remaining_steps = max_candidate_steps;
+    let initial_steps = allowance.remaining_steps;
     let (mut contexts, initial_state) = {
         let shape = shape_book_v2_authored_text(policy, flow, admitted, limits, epoch, None)?;
         let prepared = prepare_book_v2_inline_items_with_native_context(
@@ -188,14 +224,7 @@ pub fn with_converged_book_v2_body_lines_with_source_widths<'a, R>(
             japanese_mode,
             native,
         )?;
-        let selected = super::frames::layout_body_lines_with_source_widths(
-            &prepared,
-            body,
-            remaining_steps,
-            page_plan,
-            source_widths,
-        )?;
-        remaining_steps -= selected.candidate_steps();
+        let selected = allowance.measure(&prepared, body, page_plan, source_widths)?;
         (
             selected.selected_line_contexts()?,
             super::super::reshape::selected_fingerprint_state(selected.fingerprint())?,
@@ -222,6 +251,7 @@ pub fn with_converged_book_v2_body_lines_with_source_widths<'a, R>(
                 }),
         );
         let permit = feedback.begin_pass(&mut budget)?;
+        allowance.remaining_passes -= 1;
         let shape =
             shape_book_v2_authored_text(policy, flow, admitted, limits, epoch, Some(&inputs))?;
         let prepared = prepare_book_v2_inline_items_with_native_context(
@@ -233,14 +263,7 @@ pub fn with_converged_book_v2_body_lines_with_source_widths<'a, R>(
             japanese_mode,
             native,
         )?;
-        let selected = super::frames::layout_body_lines_with_source_widths(
-            &prepared,
-            body,
-            remaining_steps,
-            page_plan,
-            source_widths,
-        )?;
-        remaining_steps -= selected.candidate_steps();
+        let selected = allowance.measure(&prepared, body, page_plan, source_widths)?;
         match permit.complete(super::super::reshape::selected_fingerprint_state(
             selected.fingerprint(),
         )?)? {
@@ -249,12 +272,63 @@ pub fn with_converged_book_v2_body_lines_with_source_widths<'a, R>(
                     lines: &selected,
                     footnotes: prepare_book_v2_footnote_lines(&selected, limits)?,
                     passes: feedback.records(),
-                    candidate_steps: max_candidate_steps - remaining_steps,
+                    candidate_steps: initial_steps - allowance.remaining_steps,
                 }))
             }
             LineReshapeObservation::RebreakRequired => {
                 contexts = selected.selected_line_contexts()?
             }
         }
+    }
+}
+
+/// Candidate/frame/source-width work and begun reshape passes. Shaper internal
+/// operations and allocation byte totals are outside this allowance.
+#[derive(Debug)]
+pub struct BookV2BodyLineBudget {
+    maximum_steps: u64,
+    remaining_steps: u64,
+    maximum_passes: u16,
+    remaining_passes: u16,
+}
+impl BookV2BodyLineBudget {
+    pub fn new(maximum_steps: u64, maximum_passes: u16) -> Self {
+        Self {
+            maximum_steps,
+            remaining_steps: maximum_steps,
+            maximum_passes,
+            remaining_passes: maximum_passes,
+        }
+    }
+    pub fn candidate_steps(&self) -> u64 {
+        self.maximum_steps - self.remaining_steps
+    }
+    pub fn reshape_passes(&self) -> u16 {
+        self.maximum_passes - self.remaining_passes
+    }
+    pub fn remaining_steps(&self) -> u64 {
+        self.remaining_steps
+    }
+    pub fn remaining_passes(&self) -> u16 {
+        self.remaining_passes
+    }
+    fn measure<'p, 'a>(
+        &mut self,
+        prepared: &'p BookV2PreparedInlines<'a>,
+        body: Rect,
+        page_plan: Option<&'p typaxis_syntax::book_v2::BookV2PageFramePlan<'a>>,
+        source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
+    ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
+        let mut consumed = 0;
+        let result = super::frames::layout_body_lines_counted(
+            prepared,
+            body,
+            self.remaining_steps,
+            page_plan,
+            source_widths,
+            &mut consumed,
+        );
+        self.remaining_steps -= consumed;
+        result
     }
 }

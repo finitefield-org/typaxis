@@ -71,6 +71,8 @@ def verify(directory,self_test,require_harano,require_explicit=False):
     seen=set();count=pages=rejected=0
     for path in directory.glob('*.json'):
         value=json.loads(path.read_text());wire=value['wire']
+        # Uniform table-content overrides have their own source/geometry checker.
+        if any(c.startswith('uniform-') for c in wire['document']['blocks'][0].get('classes',[])):continue
         if any(r['style_id'].startswith('horizontal-') for r in wire['style_sheet']['rules']):continue
         if not any(r['style_id']=='named-scope' for r in wire['style_sheet']['rules']):continue
         mode,names,wanted,boxes,annots=expected(wire)

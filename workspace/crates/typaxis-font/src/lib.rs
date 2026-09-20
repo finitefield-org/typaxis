@@ -13,7 +13,7 @@ pub use cff::{
     CffProgramErrorKindV2, CffProgramErrorV2, CffProgramEvaluationSessionV2,
     CffProgramInspectionV2, CffSelectionFailureV2, CffTableFailureKindV2, CffTableFailureV2,
     CffVariationSequencesV2, CffVerticalMetricsV2, FontEmbeddingStatus, FontFailureContext,
-    FontFailurePhase, FontFailureReason, VariationCoverage, CFF1_ADMISSION_ID,
+    FontFailurePhase, FontFailureReason, FontSubsetStage, VariationCoverage, CFF1_ADMISSION_ID,
     CFF1_CHARSTRING_EVALUATOR_ID, CFF1_EMBEDDING_PERMISSION_ID, CFF1_GLYPH_CLOSURE_ID,
     CFF1_PDF_PLAN_ID, CFF1_RESOURCE_PROFILE_ID, CFF1_SUBSET_ID,
 };

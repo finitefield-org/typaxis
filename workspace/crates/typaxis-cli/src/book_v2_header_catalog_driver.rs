@@ -88,11 +88,14 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
     let roots = if requests.is_empty() {
         Vec::new()
     } else {
-        with_rebuilt_book_v2_body_line_variant(
+        let mut replay = BookV2LineVariantBudget::new(maximum_work - budget.work, 0);
+        let mut entered = false;
+        let result = with_budgeted_rebuilt_book_v2_body_line_variant(
             base,
-            maximum_work - budget.work,
+            &mut replay,
             budget.records,
             |v| -> Result<_, E> {
+                entered = true;
                 budget.work(v.work_steps(), maximum_work)?;
                 budget.records = v.record_charge();
                 let frames = v.lines().frames().ok_or(E::Identity)?;
@@ -129,8 +132,11 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
                 }
                 Ok(roots)
             },
-        )
-        .map_err(|e| stage("header base replay", e))??
+        );
+        if !entered {
+            budget.work(replay.work_steps(), maximum_work)?;
+        }
+        result.map_err(|e| stage("header base replay", e))??
     };
     let mut scopes = Vec::new();
     budget.storage(requests.len() as u64, limits)?;
@@ -249,21 +255,18 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
             .max_line_reshape_passes
             .checked_sub(budget.line_passes)
             .ok_or(E::Limit("header line passes"))?;
-        let seed = base
-            .prepare_with_source_widths(
-                assignment,
-                maximum_work - budget.work,
-                budget.records,
-                remaining_passes,
-            )
-            .map_err(|e| stage("header line convergence", e))?;
-        budget.work(seed.work_steps(), maximum_work)?;
-        budget.records = seed.record_charge();
+        let mut allowance =
+            BookV2LineVariantBudget::new(maximum_work - budget.work, remaining_passes);
+        let result =
+            base.prepare_budgeted_with_source_widths(assignment, &mut allowance, budget.records);
+        budget.work(allowance.work_steps(), maximum_work)?;
         budget.line_passes = budget
             .line_passes
-            .checked_add(seed.reshape_passes())
+            .checked_add(allowance.reshape_passes())
             .filter(|n| *n <= limits.base().get().max_line_reshape_passes)
             .ok_or(E::Limit("header line passes"))?;
+        let seed = result.map_err(|e| stage("header line convergence", e))?;
+        budget.records = seed.record_charge();
         siblings.push(seed);
     }
     let mut seeds = Vec::new();
@@ -271,11 +274,14 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
     budget.work(siblings.len() as u64 + 1, maximum_work)?;
     seeds.push(base);
     seeds.extend(siblings.iter());
-    with_rebuilt_book_v2_body_line_variants(
+    let mut replay = BookV2LineVariantBudget::new(maximum_work - budget.work, 0);
+    let mut entered = false;
+    let result = with_budgeted_rebuilt_book_v2_body_line_variants(
         &seeds,
-        maximum_work - budget.work,
+        &mut replay,
         budget.records,
         |set| -> Result<R, E> {
+            entered = true;
             budget.work(set.work_steps(), maximum_work)?;
             budget.records = set.record_charge();
             let mut numbers = Vec::new();
@@ -369,8 +375,11 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
             budget.records = catalog.record_charge();
             use_catalog(&catalog, budget)
         },
-    )
-    .map_err(|e| stage("header replay set", e))?
+    );
+    if !entered {
+        budget.work(replay.work_steps(), maximum_work)?;
+    }
+    result.map_err(|e| stage("header replay set", e))?
 }
 
 enum Discovery<R> {

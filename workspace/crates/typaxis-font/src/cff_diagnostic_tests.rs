@@ -1,5 +1,37 @@
 use super::*;
 
+#[test]
+fn charstring_end_notes_distinguish_a_cursor_from_an_offending_token() {
+    let mut context = FontFailureContext::new(0);
+    context.table(*b"CFF ", &[], FontFailurePhase::Charstring);
+    context.reason = FontFailureReason::InvalidCharstring;
+    context.at(17);
+    context.position_is_end = true;
+    let note = Cff1Failure {
+        kind: Cff1Error::InvalidCharstring,
+        context,
+    }
+    .context_note();
+    assert!(note.contains("offset_kind=program-end; table_byte=17"));
+    assert!(!note.contains("font_byte="));
+    assert!(!note.contains("cff_operator="));
+    context.field(9);
+    let note = Cff1Failure {
+        kind: Cff1Error::InvalidCharstring,
+        context,
+    }
+    .context_note();
+    assert!(note.contains("offset_kind=field; table_byte=9"));
+    assert!(!note.contains("program-end"));
+    context.clear_position();
+    let note = Cff1Failure {
+        kind: Cff1Error::InvalidCharstring,
+        context,
+    }
+    .context_note();
+    assert!(!note.contains("offset_kind="));
+}
+
 fn failure(bytes: &[u8]) -> Cff1Failure {
     let detailed = admit_sfnt_cff1_detailed(bytes, 0, &limits()).unwrap_err();
     assert_eq!(admit_sfnt_cff1(bytes, 0, &limits()), Err(detailed.kind));

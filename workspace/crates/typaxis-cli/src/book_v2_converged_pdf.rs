@@ -155,6 +155,54 @@ pub fn with_converged_book_v2_pdf<R>(
         BookV2PdfConvergenceObservation,
     ) -> R,
 ) -> Result<R, E> {
+    let mut budget = BookV2PdfConvergenceBudget::new(limits, maximum_work);
+    with_budgeted_book_v2_pdf(input, limits, japanese_mode, &mut budget, inspect)
+}
+
+/// Preserve accounted driver work across failed calls and retries. This remains
+/// private staging: source admission, shaping internals and some failed downstream
+/// stages still have their own ceilings rather than a complete command ledger.
+pub fn with_budgeted_book_v2_pdf<R>(
+    input: &PreparedBookV2Resources,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: typaxis_linebreak::JapaneseLineBreakMode,
+    budget: &mut BookV2PdfConvergenceBudget,
+    inspect: impl FnOnce(
+        &BookV2PdfAssembly<
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+        >,
+        BookV2PdfConvergenceObservation,
+    ) -> R,
+) -> Result<R, E> {
+    if budget.limits_fingerprint != limits.fingerprint() {
+        return Err(E::Identity);
+    }
+    let maximum_work = budget.maximum_work;
+    let mut total = &mut budget.observation;
     let caps = limits.base().get();
     let body = input.body();
     let navigation =
@@ -165,17 +213,24 @@ pub fn with_converged_book_v2_pdf<R>(
         bind_book_v2_vectors(&policy, admitted, limits).map_err(|e| stage("vectors", e))?;
     let native = compute_book_v2_native_math(&bindings, admitted, limits, 0, 0)
         .map_err(|e| stage("native math", e))?;
-    let mut total = BookV2PdfConvergenceObservation {
-        work: add(
-            native.as_ref().map_or(0, |n| n.layout_work()),
-            0,
-            maximum_work,
-            "work",
-        )?,
-        records: native.as_ref().map_or(0, |n| n.record_charge()),
-        spool: native.as_ref().map_or(0, |n| n.spool_charge()),
-        ..Default::default()
-    };
+    total.work = add(
+        total.work,
+        native.as_ref().map_or(0, |n| n.layout_work()),
+        maximum_work,
+        "work",
+    )?;
+    total.records = add(
+        total.records,
+        native.as_ref().map_or(0, |n| n.record_charge()),
+        caps.max_fragments,
+        "records",
+    )?;
+    total.spool = add(
+        total.spool,
+        native.as_ref().map_or(0, |n| n.spool_charge()),
+        caps.max_spool_bytes,
+        "spool",
+    )?;
     let mut values = Vec::new();
     let page_plan;
     {
@@ -379,145 +434,188 @@ pub fn with_converged_book_v2_pdf<R>(
                           total: &mut BookV2PdfConvergenceObservation,
                           remaining: u64|
          -> Result<Option<R>, E> {
-            let stable = search
-                .select_stable_mixed_pages(caps.max_layout_passes - total.page_passes)
-                .map_err(|e| stage("page stability", e))?;
-            total.page_passes = total
-                .page_passes
-                .checked_add(stable.passes())
-                .filter(|n| *n <= caps.max_layout_passes)
-                .ok_or(E::Limit("page passes"))?;
-            let placed = search
-                .place_mixed_pages(stable.sequence())
-                .map_err(|e| stage("placement", e))?;
-            let closure = search
-                .close_mixed_page_sources(&stable, &placed)
-                .map_err(|e| stage("source closure", e))?;
-            if page_plan.requires_width_reflow() {
-                total.width_passes = total
-                    .width_passes
-                    .checked_add(1)
-                    .ok_or(E::Limit("width passes"))?;
-                let feedback_result = if closure.has_header_variants()
-                    || width_feedback
-                        .as_ref()
-                        .is_some_and(|f| f.uses_table_occurrence_frames())
-                {
-                    search.paragraph_frame_feedback(&closure)
-                } else {
-                    match search.paragraph_width_feedback(&closure) {
+            let mut accounted = false;
+            // Downstream owners carry cumulative search/display prefixes. Keep
+            // their latest observation even when no successful PDF is returned.
+            let mut downstream = BookV2PdfConvergenceObservation::default();
+            let result = (|| {
+                let mut begun_passes = 0;
+                let stable = search.select_stable_mixed_pages_counted(
+                    caps.max_layout_passes - total.page_passes,
+                    &mut begun_passes,
+                );
+                total.page_passes = total
+                    .page_passes
+                    .checked_add(begun_passes)
+                    .filter(|n| *n <= caps.max_layout_passes)
+                    .ok_or(E::Limit("page passes"))?;
+                let stable = stable.map_err(|e| stage("page stability", e))?;
+                let placed = search
+                    .place_mixed_pages(stable.sequence())
+                    .map_err(|e| stage("placement", e))?;
+                let closure = search
+                    .close_mixed_page_sources(&stable, &placed)
+                    .map_err(|e| stage("source closure", e))?;
+                if page_plan.requires_width_reflow() {
+                    total.width_passes = total
+                        .width_passes
+                        .checked_add(1)
+                        .ok_or(E::Limit("width passes"))?;
+                    let feedback_result = if closure.has_header_variants()
+                        || width_feedback
+                            .as_ref()
+                            .is_some_and(|f| f.uses_table_occurrence_frames())
+                    {
+                        search.paragraph_frame_feedback(&closure)
+                    } else {
+                        match search.paragraph_width_feedback(&closure) {
                             Err(e) if e.kind == typaxis_pagination::ProductionBodyPaginationErrorKind::PendingRegion("table_continuation_width_reflow") => search.paragraph_frame_feedback(&closure),
                             result => result,
                         }
-                };
-                let mut feedback = match feedback_result {
+                    };
+                    let mut feedback = match feedback_result {
                         Err(e) if !headers_enabled && e.kind == typaxis_pagination::ProductionBodyPaginationErrorKind::PendingRegion("table_repeated_frame_reflow") => {
                             total.records = search.record_charge();
                             total.work = add(total.work, search.work_steps(), maximum_work, "work")?;
+                            accounted = true;
                             header_mode = true;
                             retry_headers = true;
                             return Ok(None);
                         }
                         result => result.map_err(|e|stage("page widths",e))?,
                     };
-                let same_assignments = width_feedback.as_ref().is_none_or(|old| {
-                    old.uses_table_occurrence_frames() == feedback.uses_table_occurrence_frames()
-                        && old.root_table_widths() == feedback.root_table_widths()
-                        && old.block_widths() == feedback.block_widths()
-                        && old.block_starts() == feedback.block_starts()
-                        && old.paragraphs().len() == feedback.paragraphs().len()
-                        && old
-                            .paragraphs()
-                            .iter()
-                            .zip(feedback.paragraphs())
-                            .all(|(a, b)| {
-                                a.owner() == b.owner()
-                                    && a.widths() == b.widths()
-                                    && a.source_unit_starts() == b.source_unit_starts()
-                                    && a.uses_table_frame() == b.uses_table_frame()
-                            })
-                });
-                if !feedback.matches_selected_line_widths()
-                    || !feedback.matches_selected_block_widths()
-                    || !feedback.matches_selected_table_widths()
-                    || !same_assignments
-                {
-                    refining_widths |= width_cycle.observe(feedback.assignment_fingerprint());
-                    if refining_widths {
-                        search
-                            .retain_paragraph_line_boundaries(&closure, &mut feedback)
-                            .map_err(|e| stage("width refinement", e))?;
-                        total.width_refinements = total
-                            .width_refinements
-                            .checked_add(1)
-                            .ok_or(E::Limit("width refinements"))?;
+                    let same_assignments =
+                        width_feedback.as_ref().is_none_or(|old| {
+                            old.uses_table_occurrence_frames()
+                                == feedback.uses_table_occurrence_frames()
+                                && old.root_table_widths() == feedback.root_table_widths()
+                                && old.block_widths() == feedback.block_widths()
+                                && old.block_starts() == feedback.block_starts()
+                                && old.paragraphs().len() == feedback.paragraphs().len()
+                                && old.paragraphs().iter().zip(feedback.paragraphs()).all(
+                                    |(a, b)| {
+                                        a.owner() == b.owner()
+                                            && a.widths() == b.widths()
+                                            && a.source_unit_starts() == b.source_unit_starts()
+                                            && a.uses_table_frame() == b.uses_table_frame()
+                                    },
+                                )
+                        });
+                    if !feedback.matches_selected_line_widths()
+                        || !feedback.matches_selected_block_widths()
+                        || !feedback.matches_selected_table_widths()
+                        || !same_assignments
+                    {
+                        refining_widths |= width_cycle.observe(feedback.assignment_fingerprint());
+                        if refining_widths {
+                            search
+                                .retain_paragraph_line_boundaries(&closure, &mut feedback)
+                                .map_err(|e| stage("width refinement", e))?;
+                            total.width_refinements = total
+                                .width_refinements
+                                .checked_add(1)
+                                .ok_or(E::Limit("width refinements"))?;
+                        }
+                        total.records = feedback.record_charge();
+                        total.work = add(total.work, feedback.work_steps(), maximum_work, "work")?;
+                        accounted = true;
+                        retry_widths = Some(feedback);
+                        return Ok(None);
                     }
-                    total.records = feedback.record_charge();
-                    total.work = add(total.work, feedback.work_steps(), maximum_work, "work")?;
-                    retry_widths = Some(feedback);
-                    return Ok(None);
                 }
-            }
-            let terminals = search
-                .finalize_mixed_page_math(closure, limits, total.spool)
-                .map_err(|e| stage("math terminals", e))?;
-            let mut display = typaxis_display_list::book_v2::BookV2MathDisplayBuilder::new(
-                &terminals,
-                admitted,
-                limits,
-                remaining,
-                terminals.record_charge(),
-                terminals.work_steps(),
-            )
-            .map_err(|e| stage("display", e))?;
-            let display = display.build_body().map_err(|e| stage("body display", e))?;
-            let display = page_region_driver::attach(
-                display, &policy, &navigation, limits, japanese_mode, remaining, &mut total.line_passes,
-            )?;
-            let mut pipeline = BookV2PdfPipeline::new(
-                &display,
-                1,
-                limits,
-                remaining,
-                display.record_charge(),
-                terminals.spool_charge(),
-                total.output,
-                display.work_steps(),
-            )
-            .map_err(|e| stage("PDF pipeline", e))?;
-            pipeline
-                .with_pdf(|pdf| -> Result<Option<R>, E> {
-                    total.records = pdf.record_charge();
-                    total.spool = pdf.spool_charge();
-                    total.output = pdf.output_charge();
-                    total.work = add(total.work, pdf.work_steps(), maximum_work, "work")?;
-                    total.candidates = total
-                        .candidates
-                        .checked_add(1)
-                        .ok_or(E::Limit("candidates"))?;
-                    if pdf.page_references().len() != values.len() {
-                        return Err(E::Identity);
-                    }
-                    for (old, observed) in values.iter().zip(pdf.page_references()) {
-                        total.work = add(total.work, 1, maximum_work, "work")?;
-                        if observed.owner() != old.0 || observed.candidate_page() != old.1 {
+                let terminals = search
+                    .finalize_mixed_page_math(closure, limits, total.spool)
+                    .map_err(|e| stage("math terminals", e))?;
+                let mut display = typaxis_display_list::book_v2::BookV2MathDisplayBuilder::new(
+                    &terminals,
+                    admitted,
+                    limits,
+                    remaining,
+                    terminals.record_charge(),
+                    terminals.work_steps(),
+                )
+                .map_err(|e| stage("display", e))?;
+                let body_result = display.build_body();
+                downstream.work = display.work_steps();
+                downstream.records = display.record_charge();
+                let display = body_result.map_err(|e| stage("body display", e))?;
+                let display = page_region_driver::attach(
+                    display,
+                    &policy,
+                    &navigation,
+                    limits,
+                    japanese_mode,
+                    remaining,
+                    &mut total.line_passes,
+                )?;
+                downstream.work = display.work_steps();
+                downstream.records = display.record_charge();
+                let mut pipeline = BookV2PdfPipeline::new(
+                    &display,
+                    1,
+                    limits,
+                    remaining,
+                    display.record_charge(),
+                    terminals.spool_charge(),
+                    total.output,
+                    display.work_steps(),
+                )
+                .map_err(|e| stage("PDF pipeline", e))?;
+                let pdf_result = pipeline
+                    .with_pdf(|pdf| -> Result<Option<R>, E> {
+                        total.records = pdf.record_charge();
+                        total.spool = pdf.spool_charge();
+                        total.output = pdf.output_charge();
+                        total.work = add(total.work, pdf.work_steps(), maximum_work, "work")?;
+                        accounted = true;
+                        total.candidates = total
+                            .candidates
+                            .checked_add(1)
+                            .ok_or(E::Limit("candidates"))?;
+                        if pdf.page_references().len() != values.len() {
                             return Err(E::Identity);
                         }
-                        next.push((old.0, observed.target_page().unwrap_or(old.1)));
-                    }
-                    let state = (display.fingerprint(), pdf.fingerprint());
-                    let matching = pdf.page_reference_labels_match();
-                    if matching && (values.is_empty() || previous == Some(state)) {
-                        return Ok(Some(inspect.take().ok_or(E::Identity)?(pdf, *total)));
-                    }
-                    previous = matching.then_some(state);
-                    Ok(None)
-                })
-                .map_err(|e| stage("PDF", e))?
+                        for (old, observed) in values.iter().zip(pdf.page_references()) {
+                            total.work = add(total.work, 1, maximum_work, "work")?;
+                            if observed.owner() != old.0 || observed.candidate_page() != old.1 {
+                                return Err(E::Identity);
+                            }
+                            next.push((old.0, observed.target_page().unwrap_or(old.1)));
+                        }
+                        let state = (display.fingerprint(), pdf.fingerprint());
+                        let matching = pdf.page_reference_labels_match();
+                        if matching && (values.is_empty() || previous == Some(state)) {
+                            return Ok(Some(inspect.take().ok_or(E::Identity)?(pdf, *total)));
+                        }
+                        previous = matching.then_some(state);
+                        Ok(None)
+                    })
+                    .map_err(|e| stage("PDF", e));
+                downstream.work = pipeline.work_steps();
+                downstream.records = pipeline.record_charge();
+                downstream.spool = pipeline.spool_charge();
+                downstream.output = pipeline.output_charge();
+                pdf_result?
+            })();
+            // Successful views already account for these cumulative prefixes.
+            // Commit only the highest observed prefix on an earlier failure.
+            if !accounted {
+                total.work = add(
+                    total.work,
+                    downstream.work.max(search.work_steps()),
+                    maximum_work,
+                    "work",
+                )?;
+                total.records = total.records.max(search.record_charge()).max(downstream.records);
+                total.spool = total.spool.max(search.terminal_spool_charge()).max(downstream.spool);
+                total.output = total.output.max(downstream.output);
+            }
+            result
         };
         let result = if headers_enabled {
             use header_catalog_driver::{with_discovered_header_catalog, HeaderCatalogBudget};
-            let seed = prepare_book_v2_body_line_variant_seed(
+            let mut allowance = BookV2LineVariantBudget::new(remaining_work, reshape_left);
+            let result = prepare_budgeted_book_v2_body_line_variant_seed(
                 &policy,
                 &flow,
                 admitted,
@@ -525,21 +623,20 @@ pub fn with_converged_book_v2_pdf<R>(
                 limits,
                 japanese_mode,
                 frame,
-                remaining_work,
+                &mut allowance,
                 total.records,
                 native.as_ref(),
-                reshape_left,
                 Some(&page_plan),
                 assignments.as_ref(),
-            )
-            .map_err(|e| stage("header base convergence", e))?;
-            total.work = add(total.work, seed.work_steps(), maximum_work, "work")?;
-            total.records = seed.record_charge();
+            );
+            total.work = add(total.work, allowance.work_steps(), maximum_work, "work")?;
             total.line_passes = total
                 .line_passes
-                .checked_add(seed.reshape_passes())
+                .checked_add(allowance.reshape_passes())
                 .filter(|n| *n <= caps.max_line_reshape_passes)
                 .ok_or(E::Limit("line passes"))?;
+            let seed = result.map_err(|e| stage("header base convergence", e))?;
+            total.records = seed.record_charge();
             let mut budget = HeaderCatalogBudget {
                 work: total.work,
                 records: total.records,
@@ -578,7 +675,9 @@ pub fn with_converged_book_v2_pdf<R>(
             total.page_passes = budget.page_passes;
             result?
         } else {
-            with_converged_book_v2_body_lines_with_source_widths(
+            let mut allowance = BookV2BodyLineBudget::new(remaining_work, reshape_left);
+            let mut entered = false;
+            let result = with_budgeted_book_v2_body_lines_with_source_widths(
                 &policy,
                 &flow,
                 admitted,
@@ -586,12 +685,12 @@ pub fn with_converged_book_v2_pdf<R>(
                 limits,
                 japanese_mode,
                 frame,
-                remaining_work,
                 native.as_ref(),
-                reshape_left,
+                &mut allowance,
                 Some(&page_plan),
                 assignments.as_ref(),
                 |lines| -> Result<Option<R>, E> {
+                    entered = true;
                     let line_passes =
                         u16::try_from(lines.passes().len()).map_err(|_| E::Limit("line passes"))?;
                     total.line_passes = total
@@ -639,8 +738,21 @@ pub fn with_converged_book_v2_pdf<R>(
                     .map_err(|e| stage("page search", e))?;
                     finish(search, &mut total, remaining)
                 },
-            )
-            .map_err(|e| stage("line feedback", e))??
+            );
+            if !entered {
+                total.work = add(
+                    total.work,
+                    allowance.candidate_steps(),
+                    maximum_work,
+                    "work",
+                )?;
+                total.line_passes = total
+                    .line_passes
+                    .checked_add(allowance.reshape_passes())
+                    .filter(|n| *n <= caps.max_line_reshape_passes)
+                    .ok_or(E::Limit("line passes"))?;
+            }
+            result.map_err(|e| stage("line feedback", e))??
         };
         if retry_headers {
             previous = None;
@@ -674,5 +786,27 @@ mod cycle_tests {
         for value in 0..=255 {
             assert!(!cycle.observe([value; 32]));
         }
+    }
+}
+
+/// A caller-owned continuation of the counters already accounted by the private
+/// driver. Retrying cannot reset them. This is not a complete shaping/admission
+/// or failed-stage work receipt and grants no public Book /2 authority.
+#[derive(Debug)]
+pub struct BookV2PdfConvergenceBudget {
+    limits_fingerprint: [u8; 32],
+    maximum_work: u64,
+    observation: BookV2PdfConvergenceObservation,
+}
+impl BookV2PdfConvergenceBudget {
+    pub fn new(limits: &M4EffectiveResourceLimits, maximum_work: u64) -> Self {
+        Self {
+            limits_fingerprint: limits.fingerprint(),
+            maximum_work,
+            observation: Default::default(),
+        }
+    }
+    pub fn observation(&self) -> BookV2PdfConvergenceObservation {
+        self.observation
     }
 }

@@ -385,3 +385,175 @@ fn book_v2_page_region_lines_reject_exhausted_indents_and_unbreakable_text() {
         }
     }
 }
+
+#[test]
+fn book_v2_page_region_lines_budget_retains_successes_and_exhaustion() {
+    check_shared_budget(None, "Result");
+}
+#[test]
+#[ignore = "requires original TYPAXIS_HARANO_FONT"]
+fn book_v2_page_region_lines_budget_retains_original_harano_work() {
+    let font = fs::read(std::env::var("TYPAXIS_HARANO_FONT").unwrap()).unwrap();
+    check_shared_budget(Some(&font), "本文の柱");
+}
+fn check_shared_budget(font: Option<&[u8]>, text: &str) {
+    use typaxis_layout::book_v2::{
+        with_budgeted_book_v2_page_region_lines as run, BookV2PageRegionLineBudget as Budget,
+    };
+    let root = Root::new();
+    let limits = limits();
+    let data = layout_data(text, 200 * 65536, 95 * 65536, "start", false);
+    let input = if let Some(font) = font {
+        vector_tests::vector_input_with_font(&root, data, &limits, font, text.as_bytes())
+    } else {
+        prepared(&root, data, text.as_bytes(), &limits)
+    };
+    let body = input.body().styled();
+    let nav = prepare_book_v2_navigation(body).unwrap();
+    let selected = select_book_v2_page_master(body, 0, None, &mut 0, 1_000_000).unwrap();
+    let flow = region_flow(selected, Kind::Footer, &nav, 0).unwrap();
+    let policy = prepare_book_v2_resource_policy(input.body(), &limits).unwrap();
+    let call = |budget: &mut Budget| {
+        run(
+            &policy,
+            &flow,
+            input.resources(),
+            &limits,
+            EPOCH,
+            MODE,
+            selected,
+            budget,
+            0,
+            |stable| {
+                (
+                    stable.candidate_steps(),
+                    stable.passes().len() as u16,
+                    stable.lines().fingerprint(),
+                )
+            },
+        )
+    };
+    let mut generous = Budget::new(u64::MAX, u16::MAX);
+    let (steps, passes, fingerprint) = call(&mut generous).unwrap();
+    assert!(steps > 0 && passes > 0);
+    assert_eq!(
+        (generous.candidate_steps(), generous.reshape_passes()),
+        (steps, passes)
+    );
+    assert_eq!(call(&mut generous).unwrap(), (steps, passes, fingerprint));
+    assert_eq!(
+        (generous.candidate_steps(), generous.reshape_passes()),
+        (steps * 2, passes * 2)
+    );
+    let mut exact = Budget::new(steps, passes);
+    assert_eq!(call(&mut exact).unwrap(), (steps, passes, fingerprint));
+    assert_eq!((exact.remaining_steps(), exact.remaining_passes()), (0, 0));
+    assert!(call(&mut exact).is_err());
+    assert_eq!(
+        (exact.candidate_steps(), exact.reshape_passes()),
+        (steps, passes)
+    );
+    let mut short = Budget::new(steps - 1, passes + 1);
+    assert!(call(&mut short).is_err());
+    assert_eq!(short.candidate_steps(), steps - 1);
+    assert_eq!(short.remaining_steps(), 0);
+    let spent = short.candidate_steps();
+    assert!(call(&mut short).is_err());
+    assert_eq!(short.candidate_steps(), spent);
+    let mut short_pass = Budget::new(1_000_000, passes - 1);
+    assert!(call(&mut short_pass).is_err());
+    assert_eq!(short_pass.reshape_passes(), passes - 1);
+    assert!(short_pass.candidate_steps() > 0);
+    let spent = short_pass.candidate_steps();
+    assert!(call(&mut short_pass).is_err());
+    assert_eq!(short_pass.candidate_steps(), spent);
+    let mut consumer = Budget::new(steps, passes);
+    let result = run(
+        &policy,
+        &flow,
+        input.resources(),
+        &limits,
+        EPOCH,
+        MODE,
+        selected,
+        &mut consumer,
+        0,
+        |_| Err::<(), _>("consumer failure"),
+    )
+    .unwrap();
+    assert_eq!(result, Err("consumer failure"));
+    assert_eq!(
+        (consumer.candidate_steps(), consumer.reshape_passes()),
+        (steps, passes)
+    );
+}
+
+#[test]
+fn book_v2_page_region_lines_budget_retains_failed_projection_and_overflow() {
+    use typaxis_layout::book_v2::{
+        with_budgeted_book_v2_page_region_lines as run, BookV2PageRegionLineBudget as Budget,
+    };
+    for (width, height, overflow) in [
+        (6 * 65536, 95 * 65536, false),
+        (200 * 65536, 16 * 65536 - 1, true),
+    ] {
+        let root = Root::new();
+        let limits = limits();
+        let input = prepared(
+            &root,
+            layout_data("Result", width, height, "start", false),
+            b"Result",
+            &limits,
+        );
+        let body = input.body().styled();
+        let nav = prepare_book_v2_navigation(body).unwrap();
+        let selected = select_book_v2_page_master(body, 0, None, &mut 0, 1_000_000).unwrap();
+        let flow = region_flow(selected, Kind::Footer, &nav, 0).unwrap();
+        let policy = prepare_book_v2_resource_policy(input.body(), &limits).unwrap();
+        let call = |budget: &mut Budget| {
+            run(
+                &policy,
+                &flow,
+                input.resources(),
+                &limits,
+                EPOCH,
+                MODE,
+                selected,
+                budget,
+                0,
+                |_| panic!("failed region must not issue stable lines"),
+            )
+        };
+        let mut budget = Budget::new(1_000_000, 16);
+        let failure = call(&mut budget);
+        if overflow {
+            assert!(matches!(failure, Err(Error::Overflow { .. })));
+        } else {
+            assert!(matches!(failure, Err(Error::Inline(_))));
+        }
+        let (steps, passes) = (budget.candidate_steps(), budget.reshape_passes());
+        assert!(steps > 0);
+        assert_eq!(passes > 0, overflow);
+        assert!(call(&mut budget).is_err());
+        assert_eq!(
+            (budget.candidate_steps(), budget.reshape_passes()),
+            (steps * 2, passes * 2)
+        );
+        // A source/epoch failure precedes candidate visits and reshape attempts.
+        let before = (budget.candidate_steps(), budget.reshape_passes());
+        assert!(run(
+            &policy,
+            &flow,
+            input.resources(),
+            &limits,
+            [0; 32],
+            MODE,
+            selected,
+            &mut budget,
+            0,
+            |_| ()
+        )
+        .is_err());
+        assert_eq!((budget.candidate_steps(), budget.reshape_passes()), before);
+    }
+}

@@ -24,6 +24,8 @@ impl<'f, 's, 'p, 'a> BookV2PreparedBodyFlow<'f, 's, 'p, 'a> {
     pub fn body_page_name_index(&self, item: usize) -> Option<usize> {
         self.body_page_names.get(item).copied().flatten()
     }
+    /// Common physical name of table content, or its own name when empty.
+    /// The source plan retains the table owner's original enclosing name.
     pub fn table_page_name_index(&self, table: usize) -> Option<usize> {
         self.table_page_names.get(table).copied().flatten()
     }
@@ -161,12 +163,17 @@ pub fn prepare_book_v2_body_flow<'f, 's, 'p, 'a>(
         table_page_names.try_reserve_exact(collected.tables.tables.len()).map_err(|_|error(root,E::AllocationFailure))?;
         body_page_names.extend(collected.items[..collected.body_end].iter().map(|i|plan.source_name_index(i.owner)));
         for table in &collected.tables.tables {
-            let name=plan.source_name_index(table.owner);
+            let mut name=plan.source_name_index(table.owner);
             if table.definition.is_none() {
+                let names=body_page_names.get(table.items.clone()).ok_or_else(||error(table.owner,E::ReceiptMismatch))?;
+                // A nonempty parallel table uses the common name of its actual
+                // content, including captions and nested leaves. Empty tables
+                // retain their own scope. Only roots scan the whole range:
+                // nested ranges are subsets already checked by their root.
+                if let Some(first)=names.first() { name=*first; }
                 if let Some(parent)=table.parent {
                     if table_page_names.get(parent).copied()!=Some(name) { return Err(error(table.owner,E::PendingNamedPage)); }
                 } else {
-                    let names=body_page_names.get(table.items.clone()).ok_or_else(||error(table.owner,E::ReceiptMismatch))?;
                     if let Some(i)=names.iter().position(|n|*n!=name) {
                         return Err(error(collected.items[table.items.start+i].owner,E::PendingNamedPage));
                     }

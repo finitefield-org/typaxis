@@ -321,10 +321,10 @@ fn cff_v2_execution_endchar_in_nested_subroutine_finishes_the_glyph() {
 #[test]
 fn cff_v2_execution_rejects_bad_calls_masks_stacks_and_locates_escape_operator() {
     for (bytes, position, operator) in [
-        (vec![251, 0, 10, 14], 2, 10),  // local index -1 after bias
-        (vec![139, 140, 1, 19], 3, 19), // truncated hintmask
-        (vec![12, 255], 0, 0x0cff),
-        (vec![139; 49], 48, 139),
+        (vec![251, 0, 10, 14], 2, Some(10)),  // local index -1 after bias
+        (vec![139, 140, 1, 19], 3, Some(19)), // truncated hintmask
+        (vec![12, 255], 0, Some(0x0cff)),
+        (vec![139; 49], 48, None),
     ] {
         let mut p = program();
         let span = replace_root(&mut p, &bytes);
@@ -336,10 +336,57 @@ fn cff_v2_execution_rejects_bad_calls_masks_stacks_and_locates_escape_operator()
                 Cff1Error::InvalidCharstring,
                 Some(0),
                 Some(span.start + position),
-                Some(operator)
+                operator
             )
         );
     }
+}
+#[test]
+fn cff_v2_execution_diagnostics_distinguish_operands_escapes_and_program_ends() {
+    for (bytes, offset, exact) in [
+        (vec![], 0, false),
+        (vec![139], 1, false),
+        (vec![28], 0, true),
+        (vec![255, 0, 0], 0, true),
+        (vec![12], 0, true),
+        (vec![139; 49], 48, true),
+    ] {
+        let mut p = program();
+        let span = replace_root(&mut p, &bytes);
+        let mut session = CffProgramEvaluationSessionV2::new(&limits(M4ResourceLimits::default()));
+        let e = session.evaluate(&p, 0, 500).unwrap_err();
+        assert_eq!(e.kind, Cff1Error::InvalidCharstring);
+        assert_eq!(
+            (e.table_offset, e.operator, e.position_is_exact),
+            (Some(span.start + offset), None, exact)
+        );
+        assert_eq!((e.gid, e.fd), (0, Some(0)));
+        assert!(e.font_context.is_none(), "inspection has no SFNT authority");
+    }
+    let mut p = program();
+    let mut source = p.program.source.to_vec();
+    let local = append(&mut source, &[149, 139, 5]); // valid line, missing return
+    p.program.source = source.into();
+    p.program.font_dicts[0].local_subrs[0] = local;
+    let mut session = CffProgramEvaluationSessionV2::new(&limits(M4ResourceLimits::default()));
+    let e = session.evaluate(&p, 0, 500).unwrap_err();
+    assert_eq!(
+        (e.table_offset, e.operator, e.position_is_exact),
+        (Some(local.end), None, false)
+    );
+    assert_eq!((e.gid, e.fd), (0, Some(0)));
+    assert!(session.operations_used() > 0);
+    // The failed local cursor is not reused by a different FD or by preflight.
+    session.evaluate(&p, 1, 600).unwrap();
+    let e = session.evaluate(&p, 2, 600).unwrap_err();
+    assert_eq!((e.fd, e.table_offset, e.operator), (None, None, None));
+    let e = session
+        .evaluate_with_charge(&p, 1, 600, &mut |_, _, _| Err(Cff1Error::SubsetByteLimit))
+        .unwrap_err();
+    assert_eq!(
+        (e.table_offset, e.operator, e.position_is_exact),
+        (None, None, false)
+    );
 }
 #[test]
 fn cff_v2_execution_recursive_global_subroutine_hits_call_depth_limit() {
@@ -350,4 +397,152 @@ fn cff_v2_execution_recursive_global_subroutine_hits_call_depth_limit() {
     let e = session.evaluate(&p, 0, 500).unwrap_err();
     assert_eq!(e.kind, Cff1Error::InvalidCharstring);
     assert!(session.operations_used() < 100);
+}
+
+#[test]
+fn cff_v2_execution_classifies_all_operator_encodings() {
+    // Independent lists from Adobe #5177 Appendix A/C. Flex operators remain
+    // implemented: their empty-stack failure is not an unsupported opcode.
+    let known = [
+        0, 3, 4, 5, 9, 10, 11, 12, 14, 15, 18, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30,
+    ];
+    for escaped in 0..=255u8 {
+        let mut p = program();
+        let mut source = p.program.source.to_vec();
+        let span = append(&mut source, &[12, escaped, 14]);
+        p.program.source = source.into();
+        p.program.charstrings[1] = span;
+        let mut session = CffProgramEvaluationSessionV2::new(&limits(M4ResourceLimits::default()));
+        let failure = session.evaluate(&p, 1, 500).unwrap_err();
+        let expected = if known.contains(&escaped) {
+            CffGlyphFailureReasonV2::UnsupportedOperator
+        } else if [34, 35, 36, 37].contains(&escaped) {
+            CffGlyphFailureReasonV2::Execution
+        } else {
+            CffGlyphFailureReasonV2::ReservedOperator
+        };
+        assert_eq!(failure.reason, expected, "escape {escaped}");
+        assert_eq!(failure.kind, Cff1Error::InvalidCharstring);
+        assert_eq!(
+            (
+                failure.gid,
+                failure.fd,
+                failure.table_offset,
+                failure.operator
+            ),
+            (
+                1,
+                Some(1),
+                Some(span.start),
+                Some(0x0c00 | u16::from(escaped))
+            )
+        );
+        assert!(failure.position_is_exact);
+        assert!(failure.font_context.is_none());
+        assert_eq!(
+            (session.operations_used(), session.outline_segments_used()),
+            (1, 0)
+        );
+    }
+    for byte in [0, 2, 9, 13, 15, 16, 17] {
+        let mut p = program();
+        let mut source = p.program.source.to_vec();
+        let span = append(&mut source, &[byte]);
+        p.program.source = source.into();
+        p.program.charstrings[0] = span;
+        let mut session = CffProgramEvaluationSessionV2::new(&limits(M4ResourceLimits::default()));
+        let failure = session.evaluate(&p, 0, 500).unwrap_err();
+        assert_eq!(failure.reason, CffGlyphFailureReasonV2::ReservedOperator);
+        assert_eq!(
+            (failure.operator, failure.table_offset),
+            (Some(u16::from(byte)), Some(span.start))
+        );
+    }
+}
+
+#[test]
+fn cff_v2_execution_operator_rejection_preserves_fd_and_prior_errors() {
+    let mut p = program();
+    let mut source = p.program.source.to_vec();
+    let span = append(&mut source, &[12, 10]); // unsupported add in FD 1's local subroutine
+    p.program.source = source.into();
+    p.program.font_dicts[1].local_subrs[0] = span;
+    let defaults = limits(M4ResourceLimits::default());
+    let mut session = CffProgramEvaluationSessionV2::new(&defaults);
+    let error = session.evaluate(&p, 1, 500).unwrap_err();
+    assert_eq!(error.reason, CffGlyphFailureReasonV2::UnsupportedOperator);
+    assert_eq!(
+        (error.fd, error.table_offset, error.operator),
+        (Some(1), Some(span.start), Some(0x0c0a))
+    );
+    assert!(session.evaluate(&p, 0, 500).is_ok());
+
+    let mut p = program();
+    let mut source = p.program.source.to_vec();
+    let span = append(&mut source, &[139, 12, 10]);
+    p.program.source = source.into();
+    p.program.charstrings[0] = span;
+    let bounded = limits(M4ResourceLimits {
+        max_cff_charstring_operations: 1,
+        ..M4ResourceLimits::default()
+    });
+    let mut session = CffProgramEvaluationSessionV2::new(&bounded);
+    let error = session.evaluate(&p, 0, 500).unwrap_err();
+    assert_eq!(error.kind, Cff1Error::CharstringOperationLimit);
+    assert_eq!(error.reason, CffGlyphFailureReasonV2::Execution);
+    // The escape's second byte has not been decoded when charging fails.
+    assert_eq!(error.operator, Some(12));
+    assert_eq!(error.table_offset, Some(span.start + 1));
+    let mut session = CffProgramEvaluationSessionV2::new(&defaults);
+    let mut operations = 0;
+    let error = session
+        .evaluate_with_charge(&p, 0, 500, &mut |_, _, work| {
+            if work == 64 {
+                operations += 1;
+            }
+            if operations == 2 {
+                Err(Cff1Error::InvalidCharstring)
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+    assert_eq!(error.reason, CffGlyphFailureReasonV2::Execution);
+    assert_eq!(error.operator, Some(12));
+    assert_eq!(session.operations_used(), 2);
+}
+
+#[test]
+fn cff_v2_execution_hflex_rejects_unrepresentable_return_delta_without_panicking() {
+    for dy in [i32::MIN, i32::MIN + 1, -65536, 0, 65536, i32::MAX] {
+        let mut p = program();
+        let mut source = p.program.source.to_vec();
+        let mut bytes = vec![139, 139, 21, 139, 139, 255]; // move, dx1, dx2, dy2
+        bytes.extend(dy.to_be_bytes());
+        bytes.extend([139, 139, 139, 139, 12, 34, 14]);
+        let span = append(&mut source, &bytes);
+        p.program.source = source.into();
+        p.program.charstrings[0] = span;
+        let mut session = CffProgramEvaluationSessionV2::new(&limits(M4ResourceLimits::default()));
+        let result = session.evaluate(&p, 0, 500);
+        if dy == i32::MIN {
+            let error = result.unwrap_err();
+            assert_eq!(error.kind, Cff1Error::InvalidCharstring);
+            assert_eq!(error.reason, CffGlyphFailureReasonV2::Execution);
+            assert_eq!(
+                (error.table_offset, error.operator),
+                (Some(span.end - 3), Some(0x0c22))
+            );
+            assert_eq!(session.outline_segments_used(), 1); // the preceding move only
+        } else {
+            let glyph = result.unwrap();
+            assert_eq!(glyph.commands().last(), Some(CffOutlineCommandV2::Close));
+            let commands = glyph.commands().collect::<Vec<_>>();
+            assert_eq!(commands.len(), 4);
+            assert!(matches!(
+                commands[2],
+                CffOutlineCommandV2::Cubic(_, _, _, _, 0, 0)
+            ));
+        }
+    }
 }

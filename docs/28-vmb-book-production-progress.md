@@ -15567,7 +15567,7 @@ source-preservation.jsonで元全巻package・原Harano／Arialの既知hashを�
 
 <a id="book-2-page-region-pdf-pending-design-14234"></a>
 
-## 234. 柱・footerの実font選択とPDF Artifact接続（全回帰待ち、2026-09-20）
+## 234. 柱・footerの実font選択とPDF Artifact接続（2026-09-20）
 
 §233の描画データを本文displayへ結合するwith_page_regions、PageRegionText paint、共通font-use／subset／CID／text command経路、Header／FooterのPagination Artifact scopeを追加した。実選択masterのregion owner・role・page・矩形を照合し、欠落・重複・別source／epochを拒否する。結合時はpage順に本文paintの後へregion paintを挿入し、元本文paint間の順序を保つ。regionはMCIDを持たず、本文navigation boundsへも混ぜない。
 
@@ -15587,3 +15587,485 @@ private driverは新しい明示的なpage-region対応frame-planを使用し、
 - 出力はTT 3 pages／15,185 bytes、原Harano 4 pages／15,519 bytes、空region 3 pages／8,414 bytes。pypdfで各非空ページにHeader／FooterのPagination ArtifactがありMCIDを持たないこと、空regionのArtifactなし、font programの埋込みを確認した。独立した全字形・座標比較やPDF/UA受入の代用ではない。
 - ユーザーの失敗ログをuser-tests-before-identity-fix.log、成功結果の要約・PDF hashesをidentity-fix-results.json、PDF／元wireをidentity-fix-pdfsへ保存した。一時診断用のpipeline出力は除去した。
 - 未実行の長時間用runnerはrun-cli-accepted-01.pyとrun-independent-01.py。前者は原VMB job 10件・原Harano／Arialを指定し、新しいregion PDFも保存する。後者は既存743 PDF／58 resource probesの独立検証と直前§233とのbyte比較を行う。これらの結果はまだ成功根拠に含めない。
+
+
+ユーザー実行の全回帰を確認した。cli-tests-accepted-01.logは245 tests／275.90秒、失敗0／ignored 0。independent-accepted-01.logは743 PDFs（352 actual callbacks）／2,836 pages／35,492 structure nodes／983 annotations／13 explicit unsupported inputs／5,663改変拒否。resource-independent-accepted-01.logは58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否。embedded-accepted-01.logは58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否で成功した。比較は既存743 PDF全件byte一致／名前変更0、元VMB table_caption 31,046 bytesとtable_alignment 31,111 bytesも一致した。ユーザーの出力をuser-full-regression-results.logへ保存した。この独立検証の743件には、新しいregion専用PDFを含めていない。
+
+<a id="book-2-page-region-verification-design-14235"></a>
+
+## 235. 柱PDFの独立検証と未選択regionの予算保持（2026-09-20）
+
+[ADR-0098](../adr/ADR-0098-book-2-page-region-pdf.md)に実font／Artifact接続の判断を記録した。専用probeを拡張し、PDF生成で実際に使用したCID plansから元font・subset・mapping・selected GID・CID／Unicode・source text・座標を保存する。再選択した別resourceの一致を仮定しない。tools/verify_book_v2_page_region_pdfs.pyは既存FontTools／embedded-font検証を再利用し、実ページのCID・位置・font size、Header／Footer ArtifactとMCIDなし、元region owner／文字列、空regionと本文だけの構造node数／MCID対応を独立に照合する。入力は今回のplain-text fixtureに限定し、一般文書や独立した行組み再計算、PDF/UA受入へ拡大しない。
+
+probe拡張のみの専用4 testsはbuild 12.20秒／test 1.67秒で成功した。独立検証は3 PDFs／10 pages／126 actual glyph paints、2 TT＋1 CFF subsets／14 mapped glyphs／126 CID usesで成功し、resource改変9件とPDF／source改変22件を拒否した。初回self-testではpypdf writerのroot取得を修正し、再実行で成功した。
+
+追加確認で、全regionが未選択masterに属する場合のwith_page_regionsが、空集合の早期returnで呼出元records／workとmaster走査費用を捨てていた。空集合でもrecord上限を確認し、計数を保持して返すよう修正した。本文fingerprintは維持する。未選択regionの言語ownerには本文structure nodeを作らず、選択された空regionは描画0件でも省略を拒否する。新規テストはこのsource分離とrecord保持、work exact／1不足、max_fragments超過／u64::MAXの拒否を検証する。
+
+証跡と長時間用runnerはworkspace/target/vmb-design/20260920/page-region-verification。直前の245件／743 PDFの成功を、今回の予算修正後の全回帰成功へ流用しない。公開経路・全巻・残る組版機能・command全体のwork計数・管理ホスト／性能／著者／人手受入は引き続き未完である。
+
+
+予算修正後のbook_v2_page_region_pdf_ -- --include-ignored --nocaptureは5 tests成功／失敗0／ignored 0（build 21.49秒、test 2.15秒）。focused-probesに保存した実PDFで独立検証も再成功した（3 PDFs／10 pages／126 glyph paints、元font/subset改変拒否9件、PDF／source改変拒否22件）。3 PDFはユーザーの§234全回帰出力とすべてbyte一致した。focused-independent.logとfocused-results.jsonに結果を保存した。workspace --all-featuresのcargo checkは11.72秒で成功した。最新の全回帰は未実行であり、用意したrunnerをユーザーへ引き継ぐ。
+通常workspace checkも9.77秒で成功した。Book-2 feature無効時だけ使わない共通LanguageSiteのregion所有者フィールドに限定してdead_code属性を付けた。既存のpagination has_spans警告は今回の変更対象に含めていない。
+
+
+ユーザー実行の最新全回帰は246 tests／259.30秒、失敗0／ignored 0で成功した。実行前に保存した7ファイルのSHA-256と現在のソースが一致することも確認した（user-run-source-correspondence.json）。ユーザーの出力はuser-full-regression-results.logに保存した。
+
+- 既存743 source PDFs（352 actual callbacks）／2,836 pages／35,492 structure nodes／983 annotations／13 explicit unsupported inputs／5,663改変拒否が成功した。
+- 58 variant displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否、および58実埋込みPDF／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 既存743 PDFは直前§234の出力と全件byte一致／名前変更0。元VMB table_caption 31,046 bytesとtable_alignment 31,111 bytesも一致した。
+- 新しいrunning-region専用3 PDFs／10 pages／126 glyph paintsについて、元字形・配置・Artifact・本文構造の独立検証が成功した。元resourceは2 TT＋1 CFF subsets／14 mapped glyphs／126 CID uses、resource改変拒否9件、PDF／source改変拒否22件。FontToolsのcreated／modified timestamp警告は出ているが、検証は成功終了した。
+
+この結果で§235の全回帰待ちを解消した。設計全体の完了ではなく、command全体のshape／失敗候補work、残る組版機能、元全巻・公開経路・管理ホスト・性能・著者／人手受入は未完である。今回は検証結果と状態の記録のみを更新し、実装変更や長時間テストの再実行は行っていない。
+
+
+<a id="book-2-page-region-line-budget-design-14236"></a>
+
+## 236. 柱の行候補・reshape予算を失敗と再試行の間で保持（2026-09-20）
+
+[ADR-0099](../adr/ADR-0099-book-2-page-region-line-budget.md)に従い、呼出元が所有するBookV2PageRegionLineBudgetと計数付き収束APIを追加した。これまで関数内で失われていた失敗時の実candidate消費と開始済みreshape passを保持する。共通inline projectionではbudgetを監視する所有者が正常returnとerror returnの両方で訪問数を報告し、region測定はerror伝播前に残量を減らす。予算を共有した再試行は消費量を返却しない。従来APIは一回分のwrapperとし、成功時のfingerprint・候補数を変えない。
+
+private PDF driverを新APIへ接続し、layout／consumer errorを伝播する前に開始済みpassを共有計数へ反映する。shape backend内部のwork・全allocation・command全体の失敗予算は引き続き未完であり、今回の候補数・pass保持をそれらの完了根拠にしない。
+
+証跡はworkspace/target/vmb-design/20260920/page-region-line-budget。CLIのtestを含むcargo checkは15.90秒で成功した。focused-01.logのbook_v2_page_region_ -- --include-ignored --nocaptureは19 tests／9.73秒（build 34.06秒）、失敗0／ignored 0で成功した。新規3 testsはTT／原Haranoの反復成功と同じfingerprint、work／pass exactと1不足、u64::MAX allowance、枯渇後の再試行、consumer失敗、改行不能・高さoverflowの消費保持、epoch不一致が追加候補を消費しないことを確認する。
+
+focused-independent.logは3 running-region PDFs／10 pages／126 glyph paints、2 TT＋1 CFF subsets／14 mapped glyphs／126 CID uses、resource改変拒否9件とPDF／source改変拒否22件で成功した。3 PDFはユーザーが§235で生成したものと全件byte一致した（focused-correspondence.json）。新しい全回帰runnerはrun-cli-accepted-01.pyとrun-independent-01.pyで、比較対象は直前page-region-verification段階。1分以上の全回帰はユーザー実行とし、前節の246件／743 PDF成功を今回の実装の全回帰成功として流用しない。
+
+共有行配置の変更に対し、typaxis-layout --features book-v2-stagingの既存69 tests／0.33秒とdoc-test 1／0.71秒が成功した（build 8.78秒、layout-tests.log）。
+workspace --all-features checkは16.46秒、通常workspace checkは14.47秒で成功した。コマンド・時間・終了コードはlocal-checks.jsonに保存した。実装ソースとADR／設計／進捗のhashをfinal-source-hashes.jsonへ保存し、ユーザーの全回帰結果と対応させる。
+
+
+ユーザー実行の全回帰は249 tests／240.78秒、失敗0／ignored 0で成功した。保存済み8ファイルのSHA-256と現在のソースの一致を確認した（user-run-source-correspondence.json）。ユーザーの出力はuser-full-regression-results.logに保存した。
+
+- 既存743 source PDFs（352 actual callbacks）／2,836 pages／35,492 structure nodes／983 annotations／13 explicit unsupported inputs／5,663改変拒否が成功した。
+- 58 variant displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否、および58実埋込みPDF／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 比較対象の直前§235に対し、既存743 PDF全件がbyte一致／名前変更0だった。
+- running-region専用3 PDFs／10 pages／126 glyph paintsも独立検証が成功した。2 TT＋1 CFF subsets／14 mapped glyphs／126 CID uses、resource改変拒否9件、PDF／source改変拒否22件。FontToolsのtimestamp警告は出ているが、検証は成功終了した。
+
+この結果で§236の全回帰待ちを解消した。今回は検証記録とADRの状態のみを更新し、実装やテスト対象は変更していない。shape backend内部work・全allocation・command全体の失敗予算、残る組版機能、元全巻・公開経路・管理ホスト・性能・著者／人手受入は引き続き未完であり、設計全体の完了とは扱わない。
+
+<a id="book-2-uniform-table-pages-design-14237"></a>
+
+## 237. 並列表の実内容で一致する名前付きページ指定（2026-09-20）
+
+[ADR-0100](../adr/ADR-0100-book-2-uniform-table-page-scopes.md)に従い、BookV2PreparedBodyFlowの表名を、非空表では全実leafに共通する使用名から求めるようにした。外側tableの元名前registryは変更しない。caption・元header・入れ子leafの全件一致をrootで確認し、入れ子表は親の結果と照合する。空表は自身の名前を維持し、内容と名前が異なる空入れ子表もowner付きで拒否する。表内で異なる名前を切り替える配置や名前付き定義を受理したとは扱わない。
+
+証跡はworkspace/target/vmb-design/20260920/uniform-table-pages。最初の試験は入れ子fixtureの列幅不足とcaptionのnode番号順で失敗した。前者は入れ子用の短い元文字列を明示したfixtureへ変更し、後者はcaption順を扱う既存renumber helperを使用して修正した。製品側のoverflow／source順検証は緩めていない。誤って相対pathへ保存した初回のprobeだけを削除し、以後は絶対pathで保存した。
+
+- focused-tests-02.log: 新規controlled-font正例・衝突負例の2 tests成功／1 ignored、build 4.76秒／test 1.92秒。
+- harano-tests-01.log: 元Harano hashを照合し、平坦表・入れ子・caption・幅変更の4 casesとwork exact／1不足を1 testで検証。1成功／ignored 0、test 9.73秒。
+- named-pages-tests-01.log: 元table owner名のregistry保持を追加確認した後の、既存名前付きページも含む8 tests成功／ignored 0、build 5.66秒／test 9.65秒。以前のkeep・cell・改ページ・脚注定義衝突診断も成功した。
+- pagination-tests-01.log: typaxis-pagination --features book-v2-stagingの103 tests成功／0失敗、test 0.14秒。
+- focused-probes-02の新規8 casesは16 PDFs（8 actual callbacks）／60 pages。focused-assembly-01.logの共通独立検証で524 structure nodes／0 annotations／132 tamper rejectionsが成功した。
+- tools/verify_book_v2_uniform_table_pages.pyによる専用独立検証は16 PDFs／60 pages／112 alterations rejectedで成功した（focused-independent-01.log）。元wireの全cell／caption文字列と宣言、実master、元font metrics、2列／入れ子4列の座標、狭いmasterの2行折り返し、最後の通常本文復帰を照合する。専用fixtureの期待配置であり、一般paginatorやPDF/UA検証とは区別する。
+
+長時間用run-cli-accepted-01.pyとrun-independent-01.pyを準備した。元VMB job 10件のhash・原Harano／Arialを指定し、実行時の変更対象source hashも照合する。新しい全回帰の想定は252 tests、独立759 PDFs（既存743＋新規16）。比較runnerは従来743 PDFと元VMB table 2 PDFのbyte一致を要求し、追加16件が今回の8 source fixtureのcomponent／actual-driver出力であることを別に照合する。既存58 resource／embedded-font検証と柱専用3 PDF検証も継続する。これらの長時間検証は未実行であり、§236の249件成功を新しい変更の全回帰成功へ流用しない。
+
+ユーザーの指示に従い、1分以上のテストのコマンドを提示した時点で停止する。表内の異名切替、名前付き脚注定義、段組、command全体のwork／allocation、元全巻・公開経路・管理ホスト・性能・著者／人手受入は未完である。コミット・pushは行っていない。
+
+
+ユーザー実行の全回帰結果を保存ログで確認した。cli-tests-accepted-01.logは252 tests／354.67秒、失敗0／ignored 0。実行開始時と現在の23ファイルのSHA-256がすべて一致し、記録更新前の照合結果と7ログのhashをuser-run-source-correspondence.jsonへ保存した。
+
+- 共通独立検証: 759 source PDFs（360 actual callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795 tamper rejectionsで成功。
+- resource検証: 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否。実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否も成功。
+- 直前§236の743 PDFは全件byte一致／名前変更0。元VMB table_caption 31,046 bytesとtable_alignment 31,111 bytesもbyte一致。追加16 PDF（8 actual callbacks）は別の一覧で照合した。
+- 柱専用3 PDFs／10 pages／126 glyph paintsの独立検証も成功。resource改変9件、PDF／source改変22件を拒否した。
+- 新規の表ページ指定専用16 PDFs／60 pages／112 alterations rejectedが成功し、元内容の名前指定・caption／入れ子の列位置・実masterと幅変更時の再組版を確認した。
+
+これにより§237の全回帰待ちを解消した。今回の変更は検証記録とADRの状態更新のみであり、実装・テスト対象は変更していない。表内の異名切替、名前付き脚注定義、段組、command全体のwork／allocation、元全巻・公開経路・管理ホスト・性能・著者／人手受入は引き続き未完で、設計全体の完了とは扱わない。
+
+
+<a id="book-2-cff-glyph-diagnostics-design-14238"></a>
+
+## 238. CFF字形の元位置と予算診断をPDF driverまで保持（2026-09-20）
+
+[ADR-0101](../adr/ADR-0101-book-2-cff-glyph-diagnostics.md)に従い、CFF /2のoperand／escape／program-endの位置情報を修正し、admitted selectionから元SFNT contextを付与した。数値をcff_operatorとして表示せず、local subroutineの末尾で以前の命令位置を報告しない。FontFailureContextはfield／program-endを区別し、実table base・face index・OS/2権限・GID／FD・typed reason・内部予算の実limit／observedを保持する。callback由来の失敗は内部予算と区別し、限界値を推測しない。
+
+標準Error::sourceをCFF選択、resourceのprogram／subset、PDF pipelineへ接続した。private driverで実際に発生させたエラーが5段のsource chainで元字形失敗へ到達する。成功receiptやfont／PDF出力を変更する処理は追加していないが、全回帰のbyte一致確認は下記のユーザー実行待ちである。
+
+証跡はworkspace/target/vmb-design/20260920/cff-glyph-diagnostics。最初のCLI試験はテストmoduleのimport範囲でcompile error、その次はfixture本文幅が小さくfont処理より前でNoFeasibleLineとなった。テストをshaping側へ配置し、本文矩形を明示した。次の試験でPDF pipelineのsource chain未接続が見つかり、同じ型を保持するsource()を追加した。診断のためにsource検査や行overflowを緩めていない。
+
+- font-execution-tests-01.log: Type2専用9 tests成功／原Harano全字形1 ignored、build 4.20秒／test 0.01秒。数値・不完全escape・空program・local return欠落・FD切替・事前確保拒否・既存実行予算を検証した。
+- font-tests-01.log: 通常のtypaxis-font 56 tests成功／原Harano専用8 ignored、build 2.51秒／test 0.19秒。旧CFF /1のadmission／subset回帰とprogram-end noteも含む。この後、callback由来のエラーを区別する専用試験を1件追加した。
+- cli-diagnostic-tests-04.log: 原Haranoのoperation／segment超過を発生させる1 test成功、build 10.33秒／test 2.08秒。元font hashは66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717。GID 0／FD 5、operationのfont byte 346,075／table byte 88,103／operator 29、segmentのfont byte 274,987／table byte 17,015／operator 6を保持し、両方limit 1／observed 2だった。
+- focused-independent-01.log: FontToolsの元FDSelect・SFNT table base・OS/2と元bytesを用い、実driverの2診断／16改変拒否が成功した。
+- caller-budget-tests-01.log: 元Haranoを使用したcallback由来エラーの1 test成功、build 1.29秒／test 0.91秒。CharstringOperationLimit／OutlineSegmentLimit／SubsetByteLimitをcallbackから返しても内部limit／observedを補わず、既消費operationを保持する。
+- workspace-check-01.log: workspace --all-features check成功、13.36秒。callback由来を区別する最終追補の前に実行した結果であり、最終追補は専用font／CLI試験で検証する。
+
+長時間用run-cli-accepted-01.pyは全CLIの後、原Harano全23,060 glyphの評価を含むtypaxis-font全試験を実行する。想定はCLI 253 tests、font 65 tests、いずれもinclude-ignored。run-independent-01.pyは既存759 PDFと58 resource／embedded-fontの検証、直前§237との759 PDF byte一致、柱・表ページ指定専用検証と今回のfont診断検証を行う。これらの長時間回帰はまだ実行していない。元source／runnerのhashを照合し、ユーザーの指示に従ってコマンド提示時に停止する。
+
+旧CFF /1字形詳細、subset encoding各段階の位置、全unsupported operator分類、公開CLI note、command全体の予算、元全巻・公開経路・管理ホスト・性能・著者／人手受入は引き続き未完である。コミット・pushは行っていない。
+
+最終追補後のcli-diagnostic-tests-05.logは1 test成功／ignored 0、build 20.03秒／test 2.44秒。focused-probes-02の実診断を別検証し、focused-independent-02.logで2診断／16改変拒否が再成功した。実装ソース、関連検証器とrunnerの最終hashを保存し、長時間回帰は未実行のままユーザーへ引き継ぐ。
+
+
+ユーザー実行の全回帰を保存ログで確認した。CLIは253 tests／256.43秒、fontは65 tests／4.11秒で、どちらも失敗0／ignored 0だった。原Haranoの全23,060 glyphを8,376,159 operations／1,572,638 outline segmentsで評価し、既存の全輪郭・幅hash照合も成功した。全18 FD、cmap／UVS、vertical metrics、admission、選択cache／dense mappingとsubsetの原フォント試験も成功した。
+
+実行開始時・保存済み最終hash・確認時の38ファイルがすべて一致した。文書更新前の照合結果と9ログのhashをuser-run-source-correspondence.jsonに保存した。
+
+- 共通独立検証は759 source PDFs（360 actual callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795 tamper rejectionsで成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 直前§237の759 PDFはすべてbyte一致／名前変更0。元VMB table_caption 31,046 bytesとtable_alignment 31,111 bytesもbyte一致した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件の拒否が成功した。表ページ指定専用16 PDFs／60 pages／112 alterations rejectedも成功した。
+- 今回の原Harano診断2件の独立検証が成功し、元font hash・table/file offsets・operator・GID／FD・権限・予算noteを照合し、16改変を拒否した。
+
+これにより§238の全回帰待ちを解消した。今回の変更は検証記録とADRの状態更新のみで、実装・テスト対象は変更していない。旧CFF /1字形詳細、subset encoding各段階の位置、全unsupported operator分類、公開CLI note、command全体の予算、元全巻・公開経路・管理ホスト・性能・著者／人手受入は引き続き未完であり、設計全体の完了とは扱わない。
+
+<a id="book-2-cff-operator-diagnostics-design-14239"></a>
+
+## 239. Type2の未対応opcode分類とhflex整数overflow拒否（2026-09-20）
+
+[ADR-0102](../adr/ADR-0102-book-2-cff-operator-diagnostics.md)に従い、共有Type2 dispatchから拒否原因を通知し、/2字形診断のUnsupportedOperator／ReservedOperatorへ接続した。定義済みだが未実装のopcodeと予約済みencodingを区別する。callback／operation予算やtruncated escapeの先行エラーに対して、未実行の命令の分類を補わない。実装済みflexのoperand不正は一般の字形不正を保持する。定義済み命令の未対応という分類は、そのoperandや未評価の後続programの妥当性を保証しない。
+
+元Haranoのnegative専用3コピーは.notdef先頭をadd／reserved escape／reserved one-byteへ変更し、SFNT checksumを修復して通常admissionとselected-glyph経路を通した。GID 0／実FD、元file/table位置、OS/2権限、予算値なしのtyped noteを照合し、失敗字形をcacheしないことを確認した。無変更の原フォント成功試験とは区別している。
+
+hflexのdy2反転にはi32::MINでdebug panic／release wrapとなる演算があった。checked_negでInvalidCharstringへ返し、既存の32-bit fixed-point domainを維持した。/2の6整数境界に加え、/1 subset経路のoverflow回帰を追加した。
+
+証跡はworkspace/target/vmb-design/20260920/cff-operator-diagnostics/に保存した。
+
+- font-tests-01.log: 69 tests成功、失敗／ignored 0。build 2.83秒／test 4.04秒。全256 escapeと予約済み1-byte 7種、FD別local呼び出し、先行内部／caller error、hflex境界、admissionからの3拒否を含む。
+- font-tests-02.log: /1 subset回帰の最終追加後、70 tests成功、失敗／ignored 0。build 1.59秒／test 4.09秒。無変更Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsと輪郭・幅hashを再確認した。
+- cli-diagnostic-tests-01.log: 原Haranoの実driver診断1 test成功、失敗／ignored 0。build 44.78秒／test 2.07秒。実装変更後に実行し、/1専用テストの最終追加はこのCLI buildに含めていない。
+- focused-independent-01.log: 実driverの原Harano診断2件／16改変拒否が成功。元hash、file/table offsets、original operator、GID／FD、権限、予算noteをFontToolsで照合した。この独立検証は前節の内部予算診断を対象とし、今回のnegativeコピー3件の検証ではない。
+- workspace-check-01.log: 最終ソースのworkspace --all-features check成功、23.39秒。
+
+長時間の全CLI／PDF回帰は未実行である。run-cli-accepted-01.pyはCLI 253 testsとfont 70 testsをinclude-ignoredで実行する。run-independent-01.pyは759 PDFs／58 resource subsets、柱・表ページ指定・予算診断を検証し、直前§238との全759 PDF byte一致も照合する。関連ソースとrunnerのhashを保存してユーザーへ引き継ぎ、コマンド提示時に停止する。
+
+今回の命令encoding分類を、旧/1字形詳細・subset encoding各段階の位置・公開CLI note・command全体の予算・元全巻・公開経路・管理ホスト・性能・著者／人手受入の完了とは扱わない。コミット・pushは行っていない。
+
+
+ユーザー実行の全回帰を保存ログで確認した。CLIは253 tests／298.53秒、fontは70 tests／4.17秒、いずれも失敗0／ignored 0だった。今回追加した全opcode分類、FDと先行エラー、hflexの境界／旧subset拒否、admission経由の3 negative入力がすべて成功した。無変更Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsと既存の輪郭・幅hash照合も成功した。
+
+実行開始時・保存済み最終hash・確認時の39ファイルはすべて一致した。文書更新前の照合結果、9ログのhash／結果行、759 PDF対応表のhashをuser-run-source-correspondence.jsonに保存した。対応表の全759組について実ファイルのbyte一致と記録hashを再確認し、名前変更は0だった。
+
+- 共通独立検証は759 source PDFs（360 actual callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795 tamper rejectionsで成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 元VMB table_caption 31,046 bytes（SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879）とtable_alignment 31,111 bytes（30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02）も直前段階とbyte一致した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件の拒否、表ページ指定16 PDFs／60 pages／112改変拒否が成功した。
+- 原Haranoの内部予算診断2件／16改変拒否の独立検証も成功した。この検証器の対象は予算診断であり、今回のopcode negative 3件はfont試験のadmission／selection経路で検証した。
+
+これにより§239の全回帰待ちを解消した。今回の更新は検証記録と文書のみで、実装・試験ソースは変更していない。旧/1字形詳細、subset encoding位置、公開CLI note、command予算、元全巻・公開・管理ホスト・性能・著者／人手受入は引き続き未完であり、設計全体の完了とは扱わない。
+
+<a id="legacy-cff-glyph-diagnostics-design-14240"></a>
+
+## 240. 旧CFF /1字形の元位置をresource／CLI finalizationまで保持（2026-09-20）
+
+[ADR-0103](../adr/ADR-0103-legacy-cff-glyph-diagnostics.md)に従い、旧CFFのINDEXから元CharStrings／global／local Subrsの開始位置を保持した。コピー済みprogramの受理条件は維持し、既存の有限glyph／subroutine数に対して一回だけ位置列を作る。評価時の位置取得は定数時間であり、元font bytesやresource URIを診断contextへ複製しない。
+
+Cff1SubsetSessionへprepare_face_detailed／subset_detailedを追加し、従来APIは元のCff1Errorへ投影する。字形・subroutineの実位置、program-end、width／未対応／予約opcode、内部予算のlimit／observedを保持する。name-keyed /1にFD番号は付けない。失敗字形はcacheしない一方、成功glyphと消費workは失敗や再試行で消さない。選択／出力encodingにはsubset phaseを付け、未特定の元byte位置を推測しない。
+
+ReferenceResourceFinalizerとstaging textはFontFaceId付きCff1Detailedを返す。CLI finalizationおよび本文／脚注共通mapperはcodeとcontext noteをmessageに保持してInput／Limit／Internalを区別する。従来の一般的な内部エラーへ落ちていたselected-glyph予算超過はR7133／R7134、exit code 5へ到達する。公開structured diagnosticのsubject／URI note全体は未完であり、このmessage経路と区別する。
+
+新しいsynthetic subroutine fixtureは既存Typaxis fixture（元binary SHA-256 16da5a41c10414b308aa62db39066e0540e460f3e2d0f9c2811f0b32907d94f0）からtools/generate_cff_subr_diagnostic_fixture.pyで生成した。FontTools 4.51.0で再生成byte一致、1,088 bytes／SHA-256 41680ba255150ba71882a9488093032fab4f7918a2bedb7561ee49f1b2fe016f。Aからglobal→localを呼び、正常なsubsetと4種類のsubroutine拒否を検証する。production fontは変更していない。
+
+証跡はworkspace/target/vmb-design/20260920/legacy-cff-glyph-diagnostics/に保存した。
+
+- font-tests-01.log: 詳細経路導入後の既存70 tests成功。新しいsubroutine fixtureの最初の生成物はFontToolsがdefaultのCharstringTypeを省略し、font-tests-02.logでInvalidCffとなった。旧profile必須の明示CharstringType=2を生成側へ追加して修正した。
+- font-focused-03.log: 新しい3 tests成功、build 1.05秒／test 0.00秒。元SFNTの6拒否ケース、内部budget／invalid selection、4 local/global拒否、失敗cache／継続workを検証した。
+- font-tests-03.log: 最終font全73 tests成功、失敗／ignored 0、build 0.04秒／test 4.06秒。無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsと既存輪郭・幅hashも成功した。
+- cli-diagnostic-tests-01.log: 実admission→layout→display→resource finalization→CLI mapperの1 test／2予算拒否が成功、build 41.99秒／test 0.04秒。PDF出力へ進まず、実GID 0・FDなし・元file/table位置・limit 1／observed 2・R7133／R7134・exit code 5を保持した。
+- focused-independent-01.log: FontToolsで元synthetic fontの.notdefを取得し、unique source bytesとtable baseから診断位置を別計算した。2診断／22改変拒否、元位置・GID／FD不在・予算・CLI message／exit codeの照合が成功した。
+- cli-cff-positive-01.log: 既存machine_otf_cff_closes_admission_subset_pdf_text_and_manifestの1 test成功、test 0.62秒。別checkoutのplans／PDF／manifest一致と描画・抽出を検証した。mutool 1.28.2／Poppler 26.08.0の各-v成功をrenderer-tools.jsonで確認し、この試験の外部tool分岐が有効だったことを照合した。
+- resource-cff-tests-01.log: 既存dense CFF subsetの独立parse・決定性1 test成功、build 20.43秒／test 0.00秒。
+- workspace-check-01.log: resource／CLIの実装変更後のworkspace --all-features check成功、15.28秒。後から追加したCLI試験harnessはcli-diagnostic-tests-01.logでコンパイル／実行した。
+
+長時間のCLI 253 tests／font 73 tests／legacy CLI診断1 testと、独立759 PDF／58 resource subsets／柱／表ページ指定／原Haranoおよびlegacy診断／直前§239との759 PDF byte一致は未実行である。runnerと関連ソースのhashを保存してユーザーへ引き継ぎ、コマンド提示時に停止する。
+
+詳細なsubset encoding各段階の位置、公開structured診断、command全体の予算、元全巻・公開経路・管理ホスト・性能・著者／人手受入は引き続き未完である。コミット・pushは行っていない。
+
+
+ユーザー実行の全回帰を保存ログで確認した。CLIは253 tests／262.30秒、fontは73 tests／4.19秒、旧CFF CLI診断は1 test／0.03秒、すべて失敗0／ignored 0だった。今回の元SFNT位置・内部budget・invalid selection・local/global subroutine診断を含むfont試験が成功し、無変更Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsと既存の輪郭・幅hash照合も成功した。
+
+実行開始時・保存済み最終hash・確認時の50ファイルはすべて一致した。文書更新前の照合結果、11ログのhash／結果行、759 PDF対応表のhashをuser-run-source-correspondence.jsonに保存した。全759組の実ファイルのbyte一致・記録hash・名前変更0を再確認した。
+
+- 共通独立検証は759 source PDFs（360 actual callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795 tamper rejectionsで成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 元VMB table_caption 31,046 bytesとtable_alignment 31,111 bytesも直前段階とbyte一致し、SHA-256はそれぞれ40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02だった。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、今回の旧CFF finalization診断2件／22改変拒否の独立検証が成功した。旧CFFでは元位置・GID・FD不在・予算・CLI message・exit codeを確認した。
+
+これにより§240の全回帰待ちを解消した。今回の更新は検証記録と文書のみで、実装・試験ソースは変更していない。subset encoding各段階の詳細、公開structured診断、command予算、元全巻・公開経路・管理ホスト・性能・著者／人手受入は引き続き未完であり、設計全体の完了とは扱わない。
+
+<a id="public-cff-finalization-diagnostics-design-14241"></a>
+
+## 241. CFF finalization原因を公開1.4診断のresource位置・notesへ保持（2026-09-20）
+
+[ADR-0104](../adr/ADR-0104-public-cff-finalization-diagnostics.md)に従い、CLI FailureにFontFaceId／Cff1Failureを保持し、公開buildの診断境界でvalidated packageの実宣言へ結んだ。Diagnostic内部のFontFace subject、/resources/font_faces/{index}、宣言URI、bounded context、既存対応範囲案内を付け、共通診断予算を通して発行する。公開JSONのfieldは従来のままで、内部subjectを新fieldとしてserializeしない。
+
+Cff1Errorの既存code対応は専用getterにまとめ、Displayと診断構築で共有する。stderrのmessageとInput／Limit／Internal、failed output／manifest／read ledgerの所有関係は変更しない。元font byteはnoteにだけ置き、package JSONのbyte_offsetや本文source spanには使わない。宣言が存在しない矛盾は内部エラーとして拒否する。
+
+公開fixtureの第3fontを対象として、operation／segment／subset byte超過、reserved／unsupported opcode、missing endcharの6ケースを通した。checkではadmission成功、buildでは選択字形／subset失敗という既存の評価範囲を明示する。R7133／R7134／R7135はexit 5、R7100の入力不正はexit 1で、各診断はresource pointerと3 notes、各failed manifestはadmitted fontの実hashを保持した。force指定で既存PDFを用意したケースも、失敗後に元bytesを保持した。
+
+証跡はworkspace/target/vmb-design/20260920/public-cff-glyph-diagnostics/に保存した。
+
+- workspace-check-01.log: 実装変更後のworkspace --all-features check成功、25.01秒。その後追加した公開試験harnessは下記CLI試験でコンパイル／実行した。
+- cli-public-tests-01.log／02.log: 新試験の設定で未登録のmax-diagnostics、続いてTYPAXIS_PUBLIC_CFF_DIAGNOSTIC_PROBEが厳密な設定検査に拒否された。設定parserを緩めず、存在しないoverrideを除去し、試験用変数をVMB_PUBLIC_CFF_DIAGNOSTIC_PROBEへ修正した。
+- cli-public-tests-03.log: 公開check/buildの1 test／6ケース成功、失敗／ignored 0、build 3.67秒／test 4.28秒。最終probeはfocused-probes-03へ保存した。
+- focused-independent-01.log: tools/verify_public_cff_diagnostics.pyがFontToolsで元.notdefとCFF table baseを取得し、元fixture hash、negative変更と修復checksum、check/buildの診断、resource pointer／notes、failed manifestのfont bytes/hash、exit codeを別検証した。6ケース／60改変拒否が成功した。既存PDF保持そのものはRustの公開build試験で元ファイルと比較した証拠であり、独立検証器は保存済みoutcomeとの対応を確認する。
+- cli-admission-tests-01.log: 既存のVORG／permission／checksum／TTC index／CFF2 admission診断1 test／5ケース成功、test 2.23秒。check/buildの位置・原因notesを保持した。
+- cli-public-positive-01.log: 既存production-book-1 combined公開成功試験1件成功、test 1.24秒。manifest／trace／実PDFの正常経路を確認した。
+- font-tests-01.log: 全73 tests成功、失敗／ignored 0、build 3.41秒／test 4.75秒。無変更Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsと既存輪郭・幅hashも成功した。
+
+長時間のCLI 253 tests／font 73 tests／旧CFF CLI診断1 test／今回の公開診断1 testと、独立759 PDF／58 resource subsets／柱／表ページ指定／各font診断／直前§240との759 PDF byte一致は未実行である。公開試験を実行する別プロセスにはprivate probeのTYPAXIS_*変数を渡さず、未知configuration keyの拒否規則を維持する。runnerと関連ソースのhashを保存してユーザーへ引き継ぎ、コマンド提示時に停止する。
+
+これで旧/1 finalization原因の公開診断への投影を実装したが、subset encoding各段階の詳細位置／予算値、公開/2、command全体の予算、元全巻・公開経路・管理ホスト・性能・著者／人手受入は引き続き未完である。コミット・pushは行っていない。
+
+ユーザー実行の全回帰を保存ログで確認した。CLIは253 tests／290.89秒、fontは73 tests／4.92秒、旧CFF CLI診断は1 test／0.02秒、公開CFF診断は1 test（6ケース）／4.34秒で、すべて失敗0／ignored 0だった。無変更Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsと既存の輪郭・幅hash照合も成功した。
+
+実行開始時・保存済み最終hash・確認時の54ファイルはすべて一致した。文書更新前の照合結果、13ログのhash／結果行、759 PDF対応表のhashをuser-run-source-correspondence.jsonに保存した。全759組の実ファイルのbyte一致・記録hash・名前変更0を再確認した。
+
+- 共通独立検証は759 source PDFs（360 actual callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795 tamper rejectionsで成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 元VMB table_caption 31,046 bytesとtable_alignment 31,111 bytesも直前段階とbyte一致し、SHA-256はそれぞれ40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02だった。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否が成功した。
+- 今回の公開CFF診断は6ケース／60改変拒否の独立検証が成功した。check/buildの評価範囲、実resource pointer、元font bytes、原因notes、failed manifest、exit codeを照合した。既存PDF保持は公開buildのRust試験で実ファイルを比較した結果であり、独立検証器の保存済みoutcome照合と区別する。
+
+これにより§241の全回帰待ちを解消した。今回の更新は検証記録と文書のみで、実装・試験ソースは変更していない。subset encoding各段階の詳細位置／予算値、公開/2、command全体の予算、元全巻・公開経路・管理ホスト・性能・著者／人手受入は引き続き未完であり、設計全体の完了とは扱わない。
+
+<a id="cff-subset-output-diagnostics-design-14242"></a>
+
+## 242. CFF /1 subset生成段階と必要byte数を公開診断へ保持（2026-09-20）
+
+[ADR-0105](../adr/ADR-0105-cff-subset-output-diagnostics.md)に従い、旧CFF writerでFontSubsetStageを保持した。PostScript name、glyph storage／bounds、charstring encoding、global bounds、CFF／cmap／head／horizontal metrics／maxp／name、SFNT size／write、PDF metricsを区別する。元fontのtable／offsetは補わず、glyph単位の処理中だけoriginal GIDを保持する。公開1.4の既存context noteへsubset_stageを追加し、JSON fieldやcodeは変更しない。
+
+既存の最終SFNTサイズ検査で、configured limitとdirectory・table padding込みの実測必要byte数を保持する。整数表現不能やallocation失敗が同じSubsetByteLimitを返しても実測値を推測しない。成功bytes・receipt・受理境界を維持し、この変更を旧writer全体のallocation preflight導入とは扱わない。
+
+新font試験は実生成subsetの長さを基準として、limit 1、必要量の直前／一致／直後を検証する。再試行で評価済みglyphと消費workを維持する。別試験では不可能なPostScript name、選択cmapなし、通常admissionと字形評価を通った輪郭のi16 outward bounds overflowを区別し、誤った元byte位置やbudget値がないことを確認した。
+
+公開check/build試験は既存6ケースにboundsの1ケースを加えた。subset bytesのケースでは同じpackageを既定上限で成功buildして実PDF／埋込みfontを保存し、失敗診断のobservedと比較する。独立検証器はそのSFNT checksumとdirectory／padding込みの長さ、実PDF内のbytesとの対応を確認する。boundsではFontToolsで元輪郭のx範囲32766.5〜32767.5を求める。独立検証の予定範囲は7ケース／84改変拒否であり、まだ実行結果ではない。
+
+証跡はworkspace/target/vmb-design/20260920/cff-subset-output-diagnostics/に保存した。
+
+- font-focused-01.log: 新しい2 tests成功、失敗／ignored 0、build 2.98秒／test 0.00秒。
+- cli-public-tests-01.log: 再コンパイルが55秒に達したためtimeoutで停止した。公開テスト本体は未実行であり、成功証拠には含めない。停止後にcargo／当該rustcプロセスが残っていないことを確認した。この公開検証はユーザー実行へ引き継ぐ。
+- workspace-check-01.log: workspace --all-features --testsのcheck成功、48.76秒。公開試験を含む最終Rustソースの型検査を完了した。
+- font-tests-01.log: 最終font全75 tests成功、失敗／ignored 0、build 2.99秒／test 5.29秒。無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsと既存輪郭・幅hashも成功した。
+- Python独立検証器と3 runnerはAST構文検査を通した。今回の公開artifactを使った独立検証は未実行である。
+
+run-cli-accepted-01.pyは今回の公開試験1 test（7ケース）を先に実行し、成功後に既存CLI 253 tests、font 75 tests、旧CFF CLI診断1 testを実行する。公開プロセスからprivate用TYPAXIS_*変数を除き、configurationの厳密な拒否規則を維持する。run-independent-01.pyは759 PDF／58 resource subsets、柱・表ページ指定・各font診断と直前§241との全759 PDF byte一致を検証する。関連ソースとrunnerのhashを保存し、コマンド提示時に停止する。
+
+/2 subset出力の詳細、生成fieldの厳密な位置、command全体の予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は引き続き未完である。設計全体の完了とは扱わず、コミット・pushは行っていない。
+
+ユーザー実行の全回帰を保存ログで確認した。CLIは253 tests／333.37秒、fontは75 tests／4.06秒、旧CFF CLI診断は1 test／0.02秒、公開CFF診断は1 test（7ケース）／6.15秒で、すべて失敗0／ignored 0だった。公開CLIの再コンパイルは5.47秒で完了した。無変更Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsと既存の輪郭・幅hash照合も成功した。
+
+実行開始時・保存済み最終hash・確認時の56ファイルはすべて一致した。文書更新前の照合結果、13ログのhash／結果行、759 PDF対応表のhash、公開subset比較対象をuser-run-source-correspondence.jsonに保存した。全759組の実ファイルのbyte一致・記録hash・名前変更0を再確認した。
+
+- 共通独立検証は759 source PDFs（360 actual callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795 tamper rejectionsで成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 元VMB table_caption 31,046 bytesとtable_alignment 31,111 bytesも直前段階とbyte一致し、SHA-256はそれぞれ40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02だった。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否が成功した。
+- 公開CFF診断7ケース／84改変拒否の独立検証が成功した。成功buildの実埋込みsubsetは764 bytes／SHA-256 ea3f1869fb57b6d11b83a1f1a32bb9854f6a2656118f3fcf94bfa11384cb1594で、失敗時のsubset_stage=sfnt-size／limit=1／observed=764と一致した。独立検証器はSFNT checksum・padding込みの長さ・PDF内bytes・元bounds輪郭を照合した。
+
+これにより§242の公開実行・全回帰待ちを解消した。今回の更新は検証記録と文書のみで、実装・試験ソースは変更していない。/2 subset出力の詳細、生成fieldの厳密な位置、command全体の予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は引き続き未完であり、設計全体の完了とは扱わない。
+
+<a id="cff-v2-subset-diagnostics-design-14243"></a>
+
+## 243. 原Harano CFF /2 subsetの詳細原因をresource／PDF driverへ保持（2026-09-20）
+
+[ADR-0106](../adr/ADR-0106-cff-v2-subset-diagnostics.md)に従い、write_prepared_subset_detailed_with_chargeを追加した。既存のbroad APIは同じ処理からCff1Errorを返す。生成段階のFontSubsetStageを記録し、canonical charstring累積byte上限と最終SFNT byte上限を区別して、それぞれ実limit／observedを保持する。glyph単位のoriginal GIDを保持し、FDとOS/2権限の診断用参照は失敗時だけ行う。元table tag／byte offset／operatorは生成データへ付けない。
+
+resourceのwrite_cff_fontはFontFaceId付きFontDetailedを返し、既存のError::source連鎖を通してPDF driverへ元Cff1Failureを渡す。closure ownerのrecord／spool／work拒否は従来のBookV2FontSelectionErrorを保持し、per-font上限へ読み替えない。成功・失敗ともsessionをownerへ戻し、評価済み字形をwriter内で再評価しない。
+
+新しい原Harano専用font試験は、broad／detailedの出力bytes・receipt・全callback列を比較する。early charstring limit、最終必要量の直前／一致／直後、6段階×3種類のcaller拒否18ケース、未評価字形と異なるlimit receiptを検証する。内部数値を持つのは実byte検査だけであり、caller由来の同じSubsetByteLimitにも設定値を補わない。書込みによる評価work／cache変化がないことを確認した。
+
+新CLI試験は同じ「本文」の原Harano入力を通常のadmission・shaping・layout・finalizationへ通し、成功PDFと埋込みfontを保存する。limit 1と実SFNTサイズ−1の拒否でsource chain、FontFaceId、original GID／FD、stage／実測値を確認し、実サイズちょうどでのPDF生成も確認する予定である。tools/verify_book_v2_cff_subset_diagnostics.pyはFontToolsで元・subsetの3字形のbounds／advance、FDSelect、実.notdef bytes、SFNTのdirectory／padding／checksum、PDF内bytesとnoteを検証し、24改変を拒否する。これらのCLI／独立検証は未実行であり、型検査結果で代替しない。
+
+証跡はworkspace/target/vmb-design/20260920/cff-v2-subset-diagnostics/に保存した。
+
+- font-focused-01.log: 原Haranoの新しい1 test成功、失敗／ignored 0、build 2.24秒／test 3.33秒。
+- workspace-check-01.log: resourceの新variantでFontFaceIdのimport不足を検出した。型をtypaxis_core::FontFaceIdで明示し、workspace-check-02.logのworkspace --all-features --testsが10.01秒で成功した。
+- font-tests-01.log: 最終font全76 tests成功、失敗／ignored 0、build 1.90秒／test 5.59秒。無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsと既存輪郭・幅hash照合も成功した。
+- workspace-check-03.log: 診断用FD／permission参照を失敗時だけに限定した最終実装とCLI試験を含め、workspace --all-features --testsが21.46秒で成功した。
+- 独立検証器と3 runnerはPython AST構文検査を通した。
+
+長時間用run-cli-accepted-01.pyは新CLI診断を先行実行し、その後に公開/1診断7ケース、全CLI 254 tests、font 76 tests、旧CFF CLI診断を実行する。run-independent-01.pyは既存759 PDF／58 resource subsets、柱・表ページ指定・各font診断、新しいsubset診断と直前§242との全759 PDF byte一致を検証する。新しいreference PDFは専用probeへ置くため既存759 PDFの集合を変えない。関連ソースとrunnerをhash固定し、コマンド提示時に停止する。
+
+生成fieldの厳密な位置、command全体の予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は引き続き未完である。設計全体の完了とは扱わず、コミット・pushは行っていない。
+
+ユーザー実行の全回帰を保存ログで確認した。CLIは254 tests／291.96秒、fontは76 tests／4.72秒、新subset診断は1 test／3.81秒、公開/1診断は1 test（7ケース）／6.11秒、旧CFF診断は1 test／0.02秒で、すべて失敗0／ignored 0だった。無変更Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsと既存輪郭・幅hash照合も成功した。
+
+実行開始時・保存済み最終hash・確認時の62ファイルはすべて一致した。文書更新前の照合結果、15ログのhash／結果行、759 PDF対応表のhash、subset referenceと実診断をuser-run-source-correspondence.jsonに保存した。全759組の実ファイルのbyte一致・記録hash・名前変更0を再確認した。
+
+- 共通独立検証は759 source PDFs（360 actual callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795 tamper rejectionsで成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 元VMB table_caption／table_alignmentも直前段階とbyte一致した。柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否が成功した。
+- 今回の原Harano subset診断は2件／24改変拒否の独立検証が成功した。charstring-sizeはoriginal GID 0／FD 5、limit 1／observed 77。sfnt-sizeはGID／FDなし、limit 1,179／observed 1,180だった。双方FontFaceId 0を保持し、4段のsource chainで元Cff1Failureへ到達した。
+- FontToolsで元・subsetの3字形のbounds／advance、元FDSelect、実.notdef bytes、SFNT directory／padding／checksum、成功PDF内bytesとの一致を確認した。実SFNTサイズちょうどでのPDF生成と埋込みfont一致もCLI試験で成功した。
+
+これにより§243の実driver・独立検証・全回帰待ちを解消した。今回の更新は検証記録と文書のみで、実装・試験ソースは変更していない。生成fieldの厳密な位置、command全体の予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は引き続き未完であり、設計全体の完了とは扱わない。
+
+<a id="body-line-failure-budget-design-14244"></a>
+
+## 244. 本文の行選択・幅の割り当てで失敗前の予算を保持（2026-09-20）
+
+[ADR-0107](../adr/ADR-0107-book-2-body-line-failure-budget.md)に従い、BookV2BodyLineBudgetとwith_budgeted_book_v2_body_lines_with_source_widthsを追加した。callerがownerを継続使用し、失敗前に受理した候補探索workと開始済みreshape passを再試行へ持ち越す。既存APIの引数・戻り値は維持し、新しいownerで同じ実装に委譲する。初回breakはreshape passに数えず、実際のpermitを取得してからshaping前にpassを消費する。callbackは当該呼出しの消費量を返し、ownerは累積量を保持する。
+
+初回breakと再組版中の選択を既存のcounted selectorへ接続した。source幅のbinding、block幅、root-table幅、block開始位置、source-unit開始位置でも、成功／失敗とも既存の受理済みworkを呼出し元へ返す。tableの保守的な再投影前払いはその後の失敗で維持する。前払い自体の拒否、走査前の異なるsource identityは消費0を保つ。成功時のfingerprint・課金方式は変えない。
+
+private PDF driverへBookV2PdfConvergenceBudgetとwith_budgeted_book_v2_pdfを追加した。effective limitsのfingerprintでownerを検証し、既存のwork／record／spool／output／pass countersを失敗後も保持する。通常本文経路のcallback前の失敗では本文ownerからworkと開始済みpassを回収する。callbackへ入った場合は既存処理で一度だけ加算し、後段の失敗で重複加算しない。Stageと元Error::sourceは保持する。
+
+新しい3 testsはcontrolled TrueTypeと無変更原Haranoを実admission／shapingへ通す。成功API間のfingerprint／候補work／pass数、上限一致、1手不足でreshape開始後の失敗、初回の候補枯渇、同じownerでの再試行、pass残量0、callback失敗を検証する。source幅の不正な要素数、foreign flow、source開始位置、block owner、table owner、table前払い拒否とblock開始位置走査も検証する。private driverでは成功PDF bytes／観測値の一致、異なるlimits拒否、狭い本文で実候補選択に到達した失敗を検証する。事前走査と本文候補workを別々に求め、driverの実消費総量に本文分が含まれることを確認した。
+
+証跡はworkspace/target/vmb-design/20260920/body-line-failure-budget/に保存した。
+
+- layout-check-01.log: layoutのstaging check成功、6.94秒。
+- cli-check-01.log: CLIのstaging check成功、13.88秒。
+- cli-check-02.log: 新テストを含むCLIのstaging --tests check成功、24.53秒。
+- body-line-tests-01.log: 新テストfixtureのsource幅に親frame幅を使った不整合と、完了PDF候補数を開始試行数と扱った誤りを検出した。実paragraph幅を使用し、完了候補数は0のまま検証するよう修正した。
+- body-line-tests-02.log: 3 tests成功、build 9.81秒／test 1.41秒。
+- body-line-tests-03.log: driver境界で本文の消費を独立加算するassertionを追加し、狭いframe fixtureが候補選択前に拒否されていたことを検出した。semantic containerの実indent 4＋5 raw unitsを確保し、候補選択へ到達するfixtureに修正した。
+- body-line-tests-04.log: 最終3 tests成功、失敗／ignored 0、build 3.95秒／test 1.21秒。本文workがdriver総量へ保持されることを確認した。
+- workspace-check-01.log: 最終ソースのworkspace --all-features --tests check成功、19.53秒。
+- 3 runnerはPython AST構文検査を通過し、git diff --checkも成功した。
+
+run-cli-accepted-01.pyは新3 testsを先行し、既存subset診断、公開/1診断、全CLI回帰、font全76 tests、旧CFF診断を実行する。新3 testsを含む全CLIは257 testsを予定する。run-independent-01.pyは既存759 PDF／58 resource subsets、柱・表ページ指定・各font診断と直前§243との759 PDF byte一致を検証する。関連ソースとrunnerをhash固定して提示し、長時間の回帰・独立検証はユーザーへ引き継いで停止する。
+
+この修正はshape engine内部、source admission、初期frame構築の全処理、allocation bytes、失敗したheader variant seedや後段の全失敗を包含するcommand ledgerではない。これらの累積予算、生成fieldの厳密な位置、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は未完である。設計全体の完了とは扱わず、コミット・pushは行っていない。
+
+
+ユーザー実行の全回帰と独立検証を保存ログで確認した。CLIは257 tests／257.48秒、fontは76 tests／4.51秒、今回の本文予算試験は3 tests／1.22秒、subset診断は1 test／3.75秒、公開/1診断は1 test（7ケース）／6.12秒、旧CFF診断は1 test／0.02秒で、すべて失敗0／ignored 0だった。無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsの検証も成功した。
+
+実行開始時・保存済み最終hash・文書更新前の72ファイルはすべて一致した。16ログのhash／結果行、ソースhash、759 PDF対応表のhashをuser-run-source-correspondence.jsonに保存した。対応表の全759組について実ファイルのbyte一致・記録hash・名前変更0を再確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 元VMB table_caption 31,046 bytes／table_alignment 31,111 bytesも直前段階とbyte一致した。柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。subset診断の実charstring 77 bytes／SFNT 1,180 bytesも検証された。
+
+これにより§244の全回帰・独立検証待ちを解消した。今回の更新は検証記録と文書のみで、実装・試験ソースは変更していない。完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入など設計全体の残件は継続し、全実装の完了とは扱わない。
+
+
+<a id="line-variant-failure-budget-design-14245"></a>
+
+## 245. 表見出し用の行準備と収束後の保存で失敗前の予算を保持（2026-09-20）
+
+[ADR-0108](../adr/ADR-0108-book-2-line-variant-failure-budget.md)に従い、BookV2LineVariantBudgetを追加した。§244の本文ownerを内部で使用し、本文の候補work／開始済みpassと、収束した行情報の保存に対する既存の受理済みworkを合算して保持する。結果を返す前にownerへ消費を戻し、候補選択・再組版・capture work・context容量検査の失敗で上限を使い直せないようにした。成功seedのwork／passは当該呼出し分だけを返す。
+
+旧prepare_book_v2_body_line_variant_seedは新しいownerで同じ実装へ委譲する。新prepare_budgeted_book_v2_body_line_variant_seedとseed.prepare_budgeted_with_source_widthsはcallerのownerを使用する。foreign sourceと事前record拒否の消費0を維持し、成功時のfingerprint／record数／課金方式は変えない。capture workは既存の保守的な前払いであり、実際のallocation bytesとは扱わない。
+
+private PDF driverのheader baseとheader catalogのsibling準備で、このownerを使って成功／失敗の双方からworkと開始済みpassを回収する。元のStageとError::sourceを維持し、seedが生成されたときだけ保持record数を更新する。header base／sibling以外のreplayや複数graph再構築の失敗は今回の対応範囲に含めていない。
+
+新2 testsはcontrolled TrueTypeと無変更原Haranoの実source admission／shapingを使用する。旧APIとの成功fingerprint／record／work／passの一致、予算一致、capture最後の1手不足、初回候補枯渇、同じownerでの成功・失敗の繰り返しを検査する。context容量不足を実収束後に発生させてcaptureを含む全消費が残ること、事前record拒否は0であること、siblingの成功・foreign source・不正幅bindingを確認した。
+
+証跡はworkspace/target/vmb-design/20260920/line-variant-failure-budget/に保存した。
+
+- workspace-check-01.log: 最終Rustソースと新テストを含むworkspace --all-features --tests check成功、22.77秒。
+- seed-tests-01.log: 新2 tests成功、失敗／ignored 0、build 40.26秒／test 1.98秒。
+- header-driver-tests-01.log: 既存自動表見出し2 testsを開始し、controlled TT側は成功した。原Harano側が未完の55秒時点でprocess groupを停止したため、全体の成功証拠には含めない。ユーザー実行の全CLI回帰へ引き継ぐ。
+- 3 runnerのPython AST構文検査とgit diff --checkは成功した。
+
+run-cli-accepted-01.pyは新2 tests、前段階の本文予算3 tests、subset／公開/1診断、全CLI回帰、font全76 tests、旧CFF診断を実行する。全CLIは新2 testsを含む259 testsを予定する。run-independent-01.pyは既存759 PDF／58 resource subsets、柱・表ページ指定・各font診断と直前§244との759 PDF byte一致を検証する。ソースとrunnerをhash固定して提示し、1分以上かかる回帰・独立検証をユーザーへ引き継いで停止する。
+
+完全なcommand予算には、replay／複数graph再構築・初期frame構築・shape engine内部・source admission・後段の全失敗などが残る。生成fieldの厳密な位置、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入も継続する。設計全体の完了とは扱わず、コミット・pushは行っていない。
+
+
+ユーザー実行の全回帰を保存ログで確認した。CLIは259 tests／268.12秒、fontは76 tests／5.47秒、新variant予算試験は2 tests／1.24秒、本文予算は3 tests／1.31秒、subset診断は1 test／4.43秒、公開/1診断は1 test（7ケース）／6.15秒、旧CFF診断は1 test／0.02秒で、すべて失敗0／ignored 0だった。原Haranoを使用する自動表見出し回帰も全CLI内で成功し、ローカルで中断した当該検証の待ちを解消した。無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsの検証も成功した。
+
+共通PDF検証のindependent-accepted-01.logはKeyboardInterruptで中断していた。他の成功結果と混同せず、中断ログを保全してrerun-pdf-independent-02.pyで当該検証だけをユーザーへ再依頼した。independent-accepted-02.logの成功を確認し、これを共通PDF検証の受入証拠とした。
+
+実行開始時・固定時・文書更新前の75ファイルはすべて一致した。再実行runnerの保存hash、17成功ログのhash／結果行、中断ログのhash、759 PDF対応表のhashをuser-run-source-correspondence.jsonへ保存した。全759組の実ファイルのbyte一致・記録hash・名前変更0も再確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+これにより§245の全回帰・独立検証待ちを解消した。今回の変更は検証記録と文書のみで、実装・試験ソースは変更していない。完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入などの残件は継続し、設計全体の完了とは扱わない。
+
+
+<a id="line-replay-failure-budget-design-14246"></a>
+
+## 246. 単独・複数の行再構築で途中までの消費予算を保持（2026-09-20）
+
+[ADR-0109](../adr/ADR-0109-book-2-line-replay-failure-budget.md)に従い、with_budgeted_rebuilt_book_v2_body_line_variant／with_budgeted_rebuilt_book_v2_body_line_variantsを追加した。既存APIは新しいBookV2LineVariantBudgetで同じ実装へ委譲する。再構築はreshape feedback passを開始せず、既存の受理済み走査・準備workとcounted layoutから得たframe／source幅／候補workをownerへ保持する。成功viewは当該呼出しのworkだけを返し、ownerは累積量を保つ。
+
+複数graphでは、先に完了したgraphと失敗中のgraphの消費を保持する。setのidentity走査やrecord容量検査前に受理したworkも戻さない。空setや単独graphの事前record拒否は走査前であり、従来どおり消費0を維持する。戻り値のborrowは実際に再構築した所有層のcallback内へ限定し、成功fingerprint／record／work規約を変更しない。
+
+header catalogのbase replayと全variant setを新APIへ接続した。callbackへ入る前の失敗ではownerの消費をcatalog予算へ回収する。callbackへ入った場合は後段より先に従来の加算を一度だけ行い、後段エラーで返る際に同じreplay量を再加算しない。元StageとError::sourceを保持する。
+
+新2 testsはcontrolled TrueTypeと無変更原Haranoを実admission／shapingへ通し、単独／複数graphの旧APIとの成功比較、上限一致／1手不足、実候補探索中の拒否、完了した最初のgraphと途中の2番目のgraphの課金、再試行、consumer失敗、空・foreign seed、record拒否を検証する。収束・context保存・再構築でownerを共用し、replayが追加のreshape passを消費しないことも確認する。
+
+証跡はworkspace/target/vmb-design/20260920/line-replay-failure-budget/に保存した。
+
+- workspace-check-01.log: 実装と新テストを含むworkspace --all-features --tests check成功、20.05秒。
+- replay-tests-01.log: 7 tests中6成功。原Haranoの2文字入力では候補探索量が少なく、指定した予算が「2番目のgraph途中」の条件を満たしていないことをassertionで検出した。
+- replay-tests-02.log: 原Harano入力を「本文の再構築を繰り返す」へ変更した最終7 tests成功、失敗／ignored 0、build 4.79秒／test 3.26秒。新replay2 testsと本文／variant予算5 testsを含む。
+- 3 runnerのPython AST構文検査とgit diff --checkは成功した。
+
+run-cli-accepted-01.pyは新replay予算2 testsを先行し、前段階のvariant予算2 tests／本文予算3 tests、subset／公開/1診断、全CLI回帰、font全76 tests、旧CFF診断を実行する。全CLIは新2 testsを含む261 testsを予定する。run-independent-01.pyは既存759 PDF／58 resource subsets、柱・表ページ指定・各font診断と直前§245との759 PDF byte一致を検証する。1分以上かかる自動表見出し試験を含む全回帰はユーザー実行へ引き継ぐ。
+
+完全なcommand予算には、shape engine内部・初期frame構築の全処理・source admission・後段の全失敗などが残る。生成fieldの厳密な位置、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入も継続する。設計全体の完了とは扱わず、コミット・pushは行っていない。
+
+
+ユーザー実行の全回帰と独立検証を保存ログで確認した。CLIは261 tests／273.52秒、fontは76 tests／4.08秒、新replay予算試験は2 tests／1.38秒、variant予算は2 tests／1.43秒、本文予算は3 tests／1.37秒、subset診断は1 test／4.18秒、公開/1診断は1 test（7ケース）／6.10秒、旧CFF診断は1 test／0.02秒で、すべて失敗0／ignored 0だった。原Haranoを含む自動表見出し回帰と、無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsの検証も成功した。
+
+実行開始時・固定時・文書更新前の77ファイルはすべて一致した。18成功ログのhash／結果行、ソースhash、759 PDF対応表のhashをuser-run-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を再確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+これにより§246の全回帰・独立検証待ちを解消した。今回の変更は検証記録と文書のみで、実装・試験ソースは変更していない。完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入などの残件は継続し、設計全体の完了とは扱わない。
+
+
+<a id="page-search-failure-budget-design-14247"></a>
+
+## 247. ページ探索失敗時のworkと開始済みpassを保持（2026-09-20）
+
+[ADR-0110](../adr/ADR-0110-book-2-page-search-failure-budget.md)に従い、共有page stability kernelにconverge_countedを追加した。passのrecord課金が成功した直後に開始回数を増やし、選択や比較の失敗でも受理済みpassを返す。旧convergeは同じ処理へ委譲し、成功結果・元エラー・残量2未満の事前拒否を維持する。Book /2へselect_stable_mixed_pages_countedを接続した。
+
+private PDF driverは安定ページが返らない場合も開始済みpassを累積予算へ戻す。searchの候補探索・配置・source closure・幅feedback・math terminalsで保持される実work／record最高値を、後段へまだ引き継がれていない失敗時に回収する。幅や見出しの再試行と最終PDF callbackでは既存の課金を保ち、後段エラーでの二重計上を避ける。元StageとError::sourceを保持する。
+
+共有kernelの試験は1回目／2回目のpass課金拒否、選択拒否、比較拒否を注入し、開始回数と元ownerを確認する。新CLI試験は実本文の高さ不足でページ探索を失敗させ、事前処理・本文・searchを別々に測定した総量とdriverの実消費を比較する。同じownerでの再試行、実work上限一致、開始済みページ／行passとrecord最高値の保持を検証した。
+
+証跡はworkspace/target/vmb-design/20260920/page-search-failure-budget/に保存した。
+
+- workspace-check-01.log: workspace --all-features --tests check成功、13.04秒。
+- page-tests-01.log: 新ページ探索試験を含む関連8 tests成功、失敗／ignored 0、build 21.14秒／test 1.35秒。
+- pagination-tests-01.log: 新共有kernel試験と旧経路を含むpagination全104 tests成功、失敗／ignored 0、test 0.16秒。
+
+ユーザーが「これから、テストの実行はお任せします」と指示を変更したため、この段階以降は1分以上のテストもagentが実行する。run-cli-accepted-01.pyは新ページ探索1 test、既存の本文／variant／replay予算7 tests、各CFF診断、全CLI 262 tests予定とfont全76 testsを実行する。run-independent-01.pyは既存759 PDF／58 resource subsetsと前段階§246との全PDF byte一致を検証する。途中でソースを変更せず、固定hashと実行結果を照合する。
+
+search構築失敗や後段固有のdisplay／PDF work、shape engine内部・初期frame構築の全処理・source admission・完全なcommand allocation予算は未完である。公開Book /2、元全巻・管理ホスト・性能・著者／人手受入も継続する。設計全体の完了とは扱わない。
+
+
+agent実行の全回帰と独立検証を完了した。CLIは262 tests／275.45秒、fontは76 tests／4.32秒、新ページ探索試験は1 test／0.02秒、replayは2 tests／1.30秒、variantは2 tests／1.33秒、本文は3 tests／1.20秒、subset診断は1 test／3.69秒、公開/1診断は1 test（7ケース）／6.18秒、旧CFF診断は1 test／0.02秒で、すべて失敗0／ignored 0だった。無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsの検証も成功した。
+
+実行開始時・固定時・文書更新前の80ファイルが一致した。19成功ログのhash／結果行、ソースhash、759 PDF対応表のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を再確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+§247の検証待ちを解消した。完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続し、設計全体の完了とは扱わない。
+
+
+<a id="downstream-failure-budget-design-14248"></a>
+
+## 248. 描画・PDF生成失敗時のowner消費量を保持（2026-09-20）
+
+[ADR-0111](../adr/ADR-0111-book-2-downstream-failure-budget.md)に従い、private PDF driverが本文display builderのbuild_bodyとPDF pipelineのwith_pdfから戻る直後に消費量を保存する。エラー時はsearchと後段ownerの累積prefixの最高値を一度だけ計上し、record／spool／outputも保持する。math terminal生成で失敗したsearchのspoolも回収する。成功した柱の合成結果のwork／recordは、その後のpipeline失敗で失わない。成功PDF callbackと幅／見出し再試行には二重計上せず、元Stage／Error::sourceを維持する。
+
+新しい2 testsはcontrolled TrueType／無変更原Haranoを使う。driverとは別にページ・math terminals・display・PDF ownersを構築し、display初期／終盤とPDF初期／中盤／終盤の失敗時の実counterを求める。同じ上限で失敗させたdriverのwork／record／spool／outputが一致し、再試行でも返金されないこと、完了candidate数が0であることを確認する。上限ちょうどで成功したPDF bytesと全counterが一致し、callerが失敗値を返しても消費量が二重にならないことも検証する。
+
+証跡はworkspace/target/vmb-design/20260920/downstream-failure-budget/に保存した。downstream-tests-01.logは起動時のbook-v2-staging指定不足で対象0件だったため合格証跡に数えない。正しい機能フラグによるdownstream-tests-02.logは新2 tests成功、失敗／ignored 0、build 15.46秒／test 1.30秒だった。全CLI回帰とPDF独立検証はagentが続けて実行する。
+
+この修正は観測対象ownerが既に保持しているcounterを回収するもの。constructorの失敗、柱の合成途中、ownerが保持しない内部処理の全消費は未完であり、完全なcommand予算を証明しない。公開Book /2、元全巻・管理ホスト・性能・著者／人手受入も継続する。設計全体の完了とは扱わない。
+
+workspace-check-01.logはworkspace --all-features --tests check成功、2.46秒。git diff --checkと3 runnerのPython AST検査も成功した。run-cli-accepted-01.pyは新downstream 2 testsと従来の専用試験、全CLI 264 tests予定とfont全76 testsを実行する。run-independent-01.pyは759 PDF／58 resource subsetsと直前§247との全PDF byte一致を検証する。固定ソースと実行ログの対応を保存する。
+
+
+agent実行の全回帰と独立検証を完了した。CLIは264 tests／313.75秒、fontは76 tests／4.20秒、新downstream試験は2 tests／1.80秒、ページ探索は1 test／0.02秒、replayは2 tests／1.95秒、variantは2 tests／1.73秒、本文は3 tests／1.45秒、subset診断は1 test／3.77秒、公開/1診断は1 test（7ケース）／10.32秒、旧CFF診断は1 test／0.02秒で、すべて失敗0／ignored 0だった。無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsの検証も成功した。
+
+実行開始時・固定時・文書更新前の82ファイルが一致した。20成功ログのhash／結果行、ソースhash、759 PDF対応表のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を再確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+§248の検証待ちを解消した。完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続し、設計全体の完了とは扱わない。コミット・pushは行っていない。

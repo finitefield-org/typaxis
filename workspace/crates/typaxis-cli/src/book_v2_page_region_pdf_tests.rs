@@ -96,6 +96,23 @@ fn check(font: Option<&[u8]>, empty: bool, overflow: bool) {
             let pages = marked.pages().len();
             assert!(pages >= 2);
             assert_eq!(display.page_regions().len(), 2 * pages);
+            let mut unjoined = typaxis_display_list::book_v2::BookV2MathDisplayBuilder::new(
+                display.source(),
+                input.resources(),
+                &limits,
+                100_000_000,
+                0,
+                0,
+            )
+            .unwrap();
+            assert!(
+                unjoined
+                    .build_body()
+                    .unwrap()
+                    .with_page_regions(Vec::new(), &limits, 100_000_000, 0, 0)
+                    .is_err(),
+                "even empty authored regions must be attached"
+            );
             let navigation = display
                 .source()
                 .source()
@@ -224,7 +241,52 @@ fn check(font: Option<&[u8]>, empty: bool, overflow: bool) {
                     .unwrap()
                     .write_all(pdf.bytes())
                     .unwrap();
-                let proof = json!({"pdf":path,"pages":pages,"regions":proof_regions,"wire":data,"font_hash":typaxis_core::sha256(font.unwrap_or(FONT))});
+                // Export the actual PDF pipeline's resources, not a second
+                // selection whose correspondence to emitted bytes is assumed.
+                let cids = marked.text().source().source().source();
+                let programs = cids.source();
+                let closures = programs.source();
+                let selection = closures.selection();
+                let resource_dir = folder.join("resources");
+                fs::create_dir_all(&resource_dir).unwrap();
+                let hex =
+                    |bytes: [u8; 32]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+                let mut fonts = Vec::new();
+                for (index, program) in programs.fonts().iter().enumerate() {
+                    let original = selection.fonts()[index].instance().font();
+                    let source_name = format!("{name}-{index}-source.sfnt");
+                    let subset_name = format!("{name}-{index}-subset.sfnt");
+                    fs::write(resource_dir.join(&source_name), original.bytes()).unwrap();
+                    fs::write(resource_dir.join(&subset_name), program.bytes()).unwrap();
+                    fonts.push(json!({"source":source_name,"subset":subset_name,
+                        "source_sha256":hex(original.content_hash()),"subset_sha256":hex(program.sha256()),
+                        "mapping":closures.fonts()[index].glyphs().map(|g|[g.get(),program.subset_gid(g).unwrap().get()]).collect::<Vec<_>>(),
+                        "selected":selection.glyphs(index).unwrap().map(|g|g.get()).collect::<Vec<_>>(),
+                        "bindings":cids.bindings(index).unwrap().iter().map(|b|json!({"gid":b.original_gid().get(),"cid":b.cid().get(),"subset":b.subset_gid().get(),"width":b.width_1000(),"unicode":b.unicode().map(|c|c.to_string())})).collect::<Vec<_>>() }));
+                }
+                let uses = cids.uses().iter().enumerate().map(|(i,u)| {
+                    use typaxis_display_list::book_v2::{BookV2FontUseGlyphs,BookV2FontUseText};
+                    let usage=u.source().usage();
+                    let text = |t| match t { BookV2FontUseText::Text(s) => s.to_owned(), BookV2FontUseText::Scalar(c) => c.to_string() };
+                    let (page,role) = match usage.paint() {
+                        Paint::PageRegionText{region,..} => (display.page_regions()[region].page_index(),Some(display.page_regions()[region].kind().as_str())),
+                        Paint::Text(index) => (display.text().draws()[index].page_index(),None),
+                        _ => panic!("plain source fixture"),
+                    };
+                    let BookV2FontUseGlyphs::Cluster(glyphs)=usage.glyphs() else { panic!("plain source fixture") };
+                    json!({"font":u.font_index(),"page":page,"role":role,"size":usage.size().get().raw(),
+                        "positions":glyphs.iter().map(|g|[g.x().raw(),g.y().raw()]).collect::<Vec<_>>(),
+                        "gids":glyphs.iter().map(|g|g.original_gid().get()).collect::<Vec<_>>(),
+                        "cids":cids.cids(i).unwrap().iter().map(|c|c.get()).collect::<Vec<_>>(),
+                        "text":text(usage.text()),"actual_text":u.actual_text().map(text)})
+                }).collect::<Vec<_>>();
+                let resources = json!({"fonts":fonts,"uses":uses,"repeated_only_gid":null});
+                fs::write(
+                    resource_dir.join(format!("{name}.json")),
+                    serde_json::to_vec_pretty(&resources).unwrap(),
+                )
+                .unwrap();
+                let proof = json!({"pdf":path,"pages":pages,"regions":proof_regions,"wire":data,"font_hash":typaxis_core::sha256(font.unwrap_or(FONT)),"source_text":text});
                 fs::write(
                     folder.join(format!("{name}.json")),
                     serde_json::to_vec_pretty(&proof).unwrap(),
@@ -244,4 +306,100 @@ fn check(font: Option<&[u8]>, empty: bool, overflow: bool) {
     } else {
         result.unwrap();
     }
+}
+
+#[test]
+fn book_v2_page_region_pdf_unselected_regions_preserve_join_budgets() {
+    let root = Root::new();
+    let limits = limits();
+    let mut data = pdf_data("Result", false, false);
+    let mut unused = data["page_masters"]["masters"][0].clone();
+    unused["master_id"] = "unused".into();
+    data["page_masters"]["masters"][0]["header_content"] = Value::Null;
+    data["page_masters"]["masters"][0]["footer_content"] = Value::Null;
+    data["page_masters"]["masters"]
+        .as_array_mut()
+        .unwrap()
+        .push(unused);
+    let input = prepared(&root, data, b"Result", &limits);
+    with_converged_book_v2_pdf(
+        &input,
+        &limits,
+        typaxis_linebreak::JapaneseLineBreakMode::Normal,
+        100_000_000,
+        |pdf, _| {
+            let registry = pdf.navigation().source().source();
+            let display = registry.source().source().display();
+            assert!(display.page_regions().is_empty());
+            assert!(registry
+                .source()
+                .source()
+                .groups()
+                .iter()
+                .all(|g| g.artifact().is_none()));
+            let navigation = display
+                .source()
+                .source()
+                .flow()
+                .lines()
+                .prepared()
+                .source_flow()
+                .navigation();
+            assert!(navigation
+                .languages()
+                .iter()
+                .any(|l| l.page_region().is_some()));
+            for language in navigation.languages() {
+                assert_eq!(
+                    registry
+                        .nodes()
+                        .iter()
+                        .any(|n| n.source().key().owner() == language.node_id()),
+                    language.page_region().is_none()
+                );
+            }
+            let fresh = || {
+                let mut builder = typaxis_display_list::book_v2::BookV2MathDisplayBuilder::new(
+                    display.source(),
+                    input.resources(),
+                    &limits,
+                    100_000_000,
+                    0,
+                    0,
+                )
+                .unwrap();
+                builder.build_body().unwrap()
+            };
+            let before = fresh();
+            let fingerprint = before.fingerprint();
+            let records = before.record_charge() + 7;
+            let work = before.work_steps() + 11;
+            let joined = before
+                .with_page_regions(Vec::new(), &limits, 100_000_000, records, work)
+                .unwrap();
+            assert_eq!(joined.record_charge(), records);
+            assert!(joined.work_steps() > work);
+            assert_eq!(joined.fingerprint(), fingerprint);
+            let exact = joined.work_steps();
+            assert!(fresh()
+                .with_page_regions(Vec::new(), &limits, exact, records, work)
+                .is_ok());
+            assert!(fresh()
+                .with_page_regions(Vec::new(), &limits, exact - 1, records, work)
+                .is_err());
+            assert!(fresh()
+                .with_page_regions(
+                    Vec::new(),
+                    &limits,
+                    100_000_000,
+                    limits.base().get().max_fragments + 1,
+                    work
+                )
+                .is_err());
+            assert!(fresh()
+                .with_page_regions(Vec::new(), &limits, 100_000_000, u64::MAX, work)
+                .is_err());
+        },
+    )
+    .unwrap();
 }

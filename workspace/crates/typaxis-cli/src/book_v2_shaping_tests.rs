@@ -1,4 +1,8 @@
 use super::*;
+#[path = "book_v2_body_line_budget_tests.rs"]
+mod body_line_budget;
+#[path = "book_v2_cff_diagnostic_tests.rs"]
+mod cff_diagnostics;
 #[path = "book_v2_cid_shaping_tests.rs"]
 mod cid_shaping;
 #[path = "book_v2_font_closure_limit_tests.rs"]

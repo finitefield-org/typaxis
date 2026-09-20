@@ -377,6 +377,22 @@ pub(super) fn project_lines_with_source_widths<'p, 'a>(
     algorithm: &str,
     source_widths: Option<&[Option<typaxis_linebreak::ProductionInlineSourceWidths<'_>>]>,
 ) -> Result<LineProjection<'p, 'a>, ProductionInlinePreparationError> {
+    project_lines_counted(
+        prepared, inline_sizes, max_candidate_steps, record_base,
+        algorithm, source_widths, &mut 0,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub(super) fn project_lines_counted<'p, 'a>(
+    prepared: LineInputs<'p, 'a>,
+    inline_sizes: &[PositiveLength],
+    max_candidate_steps: u64,
+    record_base: u64,
+    algorithm: &str,
+    source_widths: Option<&[Option<typaxis_linebreak::ProductionInlineSourceWidths<'_>>]>,
+    consumed_steps: &mut u64,
+) -> Result<LineProjection<'p, 'a>, ProductionInlinePreparationError> {
+    *consumed_steps = 0;
     use ProductionInlinePreparationErrorKind as E;
     let root = NodeId::new(0);
     if inline_sizes.len() != prepared.paragraphs.len() {
@@ -418,7 +434,11 @@ pub(super) fn project_lines_with_source_widths<'p, 'a>(
     paragraphs
         .try_reserve_exact(prepared.paragraphs.len())
         .map_err(|_| error(root, E::AllocationFailure))?;
-    let mut budget = ProductionLineBreakBudget::new(max_candidate_steps, remaining);
+    let mut budget = ObservedCandidateBudget {
+        inner: ProductionLineBreakBudget::new(max_candidate_steps, remaining),
+        initial: max_candidate_steps,
+        consumed: consumed_steps,
+    };
     let mut digests = Vec::new();
     digests
         .try_reserve_exact(
@@ -696,6 +716,30 @@ pub(super) fn project_lines_with_source_widths<'p, 'a>(
         candidate_steps: max_candidate_steps - budget.remaining_steps(),
         fingerprint: sha256(&digests),
     })
+}
+
+// Report completed candidate visits on every return path, including errors in
+// line selection and later geometry projection. The result borrows no budget.
+struct ObservedCandidateBudget<'a> {
+    inner: ProductionLineBreakBudget,
+    initial: u64,
+    consumed: &'a mut u64,
+}
+impl std::ops::Deref for ObservedCandidateBudget<'_> {
+    type Target = ProductionLineBreakBudget;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+impl std::ops::DerefMut for ObservedCandidateBudget<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+impl Drop for ObservedCandidateBudget<'_> {
+    fn drop(&mut self) {
+        *self.consumed = self.initial - self.inner.remaining_steps();
+    }
 }
 
 fn shifted_pen(

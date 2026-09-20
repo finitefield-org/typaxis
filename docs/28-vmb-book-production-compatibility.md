@@ -5057,8 +5057,281 @@ persistent builderは呼出元のrecord／workを引き継ぎ、draw／glyph slo
 
 原Harano日本語とcontrolled TTで、二つの物理ページのheader／footer、元文字列pointer・font hash・GID・座標、別epoch／source／ledger、空regionと予算境界を検証する。結果は[進捗記録](28-vmb-book-production-progress.md#book-2-page-region-display-design-14233)へ記録する。glyph subset／CID closure、実ページとの結合、PDFのArtifact serializationは未接続であり、UnsupportedPageMaster guardを維持する。柱入りPDF、公開経路、元全巻と管理ホスト・性能・著者／人手／PDF/UAの受入を完了したとは扱わない。
 
-### 14.234 柱・footerを本文displayとPDF Artifactへ結合（全回帰待ち）
+### 14.234 柱・footerを本文displayとPDF Artifactへ結合
 
 §14.233の描画を実master・page・region owner・role・矩形と照合して、本文と同じpage順のpaint一覧へ結合する処理を追加した。専用PageRegionText paintを共通font-use／subset／CID／text commandへ渡し、Header／FooterのPagination Artifact scopeを生成する。本文のMCIDや意味構造nodeは付与しない。空regionも検証対象に含め、欠落・重複・別sourceを拒否する。
 
-private driverはregion対応frame-planから実ページごとのsource・line convergence・描画を作り、残りline passとrecord／workを引き継ぐ。従来のframe-plan APIはguardを維持し、PDF assemblyは描画が欠けたregionと未対応columnを拒否する。元source走査で言語情報にregion ownerを保持し、意味構造では本文言語nodeの存在とregion言語nodeの不在を検証する。専用15 testsとnavigation 21 testsは成功した。実PDFの基本的なArtifact・埋込みfont検査も成功したが、完全な独立検証・全回帰は未完である。前節の検証結果を今回の変更の成功根拠とは扱わない。進捗§234とworkspace/target/vmb-design/20260920/page-region-resourcesを参照する。
+private driverはregion対応frame-planから実ページごとのsource・line convergence・描画を作り、残りline passとrecord／workを引き継ぐ。従来のframe-plan APIはguardを維持し、PDF assemblyは描画が欠けたregionと未対応columnを拒否する。元source走査で言語情報にregion ownerを保持し、意味構造では本文言語nodeの存在とregion言語nodeの不在を検証する。専用15 testsとnavigation 21 testsは成功した。ユーザー実行の全245 testsと既存743 PDF／58 resource probesの独立検証が成功し、743 PDFは直前段階とbyte一致した。新しいregion専用PDFの詳細検証は次節に記録する。進捗§234とworkspace/target/vmb-design/20260920/page-region-resourcesを参照する。
+
+
+### 14.235 柱PDFの独立検証と未選択regionの予算保持
+
+[ADR-0098](../adr/ADR-0098-book-2-page-region-pdf.md)に従い、PDFの実CID plansから元font・subset・mapping・実使用CID・座標をprobeへ保存する。独立したFontTools／PDF parserで元字形・metrics・埋込みprogram・CID mapping／ToUnicodeと実ページの位置・font size・Artifact種別を検査する。元wireのregion owner／文字列、本文だけの意味構造とMCID対応も照合し、改変PDF・resource・source bindingを拒否する。対象は専用fixtureであり、一般文書やPDF/UAの受入とは区別する。
+
+全regionが未選択masterにある場合も、結合処理のcaller record／workとmaster走査費用を保持し、空集合の早期returnで上限検査を省略しない。paintを追加しない場合の本文fingerprintは維持する。選択された空regionの欠落は引き続き拒否する。最新のユーザー実行では246 tests、既存743 PDFのbyte一致、新しい3 PDFの独立検証が成功した。検証の範囲と証跡は[進捗§235](28-vmb-book-production-progress.md#book-2-page-region-verification-design-14235)を参照する。command全体のshape／失敗候補work、元全巻・公開経路・管理ホスト・性能・著者／人手の受入は未完である。
+
+
+### 14.236 柱の行候補・reshape予算を失敗と再試行の間で保持
+
+[ADR-0099](../adr/ADR-0099-book-2-page-region-line-budget.md)に従い、BookV2PageRegionLineBudgetとwith_budgeted_book_v2_page_region_linesを追加する。呼出元が同じ予算を複数region・再試行へ渡し、成功時だけでなく改行不能・候補上限・高さ超過・consumer失敗でも、実際に訪問した候補数と開始済みreshape回数を保持する。passはshape前に確保し、pass枯渇時には初期shapeも再実行しない。従来APIは一回分の予算を作るwrapperとして成功時のreceiptと計数を維持する。
+
+共通inline projectionに内部の計数付き入口を追加し、selectorやその後のgeometry投影が失敗してもcandidate budgetの消費量を返す。候補走査前の事前検証失敗には候補費用を付けない。private driverは新APIを使い、layout／consumer errorを返す前に開始済みpassを共有計数へ反映する。shape backend内部work、全allocation、command全体の失敗計数はまだ完成していない。
+
+TT・原Haranoの反復成功、work／pass exactと1不足、上限枯渇後の再呼出し、改行不能・高さ超過・consumer失敗・元source不一致を検証する。ユーザー実行の全249 tests、既存743 PDFのbyte一致、柱入り3 PDFの独立検証が成功した。結果と検証範囲は[進捗§236](28-vmb-book-production-progress.md#book-2-page-region-line-budget-design-14236)へ記録する。
+
+### 14.237 並列表の実内容で一致する名前付きページ指定
+
+[ADR-0100](../adr/ADR-0100-book-2-uniform-table-page-scopes.md)に従い、本文表の実leaf全件で使用ページ名が一致する場合、その名前を表の物理ページ選択と継続へ渡す。外側のtable ownerの使用名とは分けて扱い、元sourceの名前registryは変更しない。たとえば外側tableがappendixでも、caption・全cell・入れ子内容のすべてがshortならshort masterで配置する。表の後は後続本文の元指定へ戻る。
+
+caption・元header・入れ子内容も同じ照合範囲に含め、先頭cellの名前だけで他の内容を上書きしない。leafのない表はそのtable自身の名前を維持するため、名前の異なる空の入れ子表もowner付きで診断する。全leafの走査はroot表だけで行い、入れ子表は既に照合した範囲の先頭名と親の結果を比較する。新しい名前配列や入れ子深さに比例した重複走査は追加しない。
+
+実masterの幅・横位置が変わる場合も、既存のtable幅feedbackと再組版を経てPDFへ接続する。TT・原Haranoで平坦表、入れ子並列表、caption、狭いnamed masterと折り返し、後続本文への復帰を検証した。元owner名の保持、driver work exact／1不足、caption・空入れ子表・既存のcell／break／keep／definitionの衝突診断も確認する。16 PDFs／60 pagesの独立検証に加え、ユーザー実行の全252 tests、独立759 PDFs、従来743 PDFのbyte一致が成功した。結果と範囲は[進捗§237](28-vmb-book-production-progress.md#book-2-uniform-table-pages-design-14237)に記録する。表内で異なる名前を切り替える配置、名前付き脚注定義、段組、全巻・公開経路・管理ホスト・性能・著者／人手受入は未完である。
+
+
+### 14.238 CFF字形の元位置と予算診断をPDF driverまで保持
+
+[ADR-0101](../adr/ADR-0101-book-2-cff-glyph-diagnostics.md)に従い、共通Type2評価器の観測を修正した。数値operandを命令番号として記録せず、不完全なescapeは先頭位置だけを保持する。プログラム末尾での失敗は、subroutine内も含め、直前の命令ではなく元spanの末尾cursorを保持する。exact fieldとprogram-endを区別し、初期確保やGID検査の失敗には未観測のbyte位置を付けない。実行・予算消費・受理条件は維持する。
+
+CFF /2のadmitted selectionは、字形評価のGID・FD・table-relative位置へ元SFNTのCFF table base・face index・OS/2権限を結び、file-relative位置を求める。FontFailureContextへcharstring／width／budgetのtyped reasonを保持し、内部operation／segment上限の場合には実limitと次の試行値を記録する。呼出元のcharge callbackが同じエラー種別を返しても、内部上限を原因として推測しない。standalone program inspectionにはSFNT contextを付けない。
+
+選択・CFF program／subset・font program・PDF pipelineの既存エラーを標準Error::sourceで連結し、private PDF driverから元CffGlyphFailureV2へ到達できるようにした。文字列のDebug解析で原因を取り出す必要はない。原Haranoのoperation／segment予算超過では、5段のerror chain、元GID 0／FD 5、元ファイルとtable内の位置、権限とlimit／observedを確認した。別のFontTools検査でも2診断／16改変拒否が成功した。ユーザー実行の全CLI 253 tests・font 65 tests（原Harano全23,060 glyphを含む）と独立759 PDF検証が成功し、759 PDFは直前段階とすべてbyte一致した。結果と検証範囲は[進捗§238](28-vmb-book-production-progress.md#book-2-cff-glyph-diagnostics-design-14238)へ記録する。旧CFF /1の字形詳細、subset encoding全段階の位置、全unsupported operator分類、公開CLI note、全巻・公開経路など設計全体の受入は未完である。
+
+### 14.239 Type2 operatorの未対応／予約済み診断とhflex整数境界（実装追補）
+
+§7.2のtyped reasonについて、実dispatchに到達したType2 opcodeを区別する。
+Adobe Type2 #5177（2000-03-16）Appendix A/Cの定義済み算術・storage・conditional
+演算子とdeprecated dotsectionは、現評価器で未対応のためunsupported_cff_operatorとする。
+予約済みencodingはreserved_cff_operator／malformed-or-invalid-input、実装済みflexの
+operand不正は従来のinvalid_charstringとする。未対応命令の後続programやoperandの
+妥当性を証明する分類ではない。CFF2や旧Multiple Master命令として解釈しない。
+
+拒否hookは既存operation課金とescape decodeの成功後、実際に拒否するdispatchで
+呼ぶ。先行budget／caller errorやtruncated escapeを観測済みopcodeだけで未対応へ
+変更しない。/2のGID／FD／元file/table位置／OS/2権限付きcontextへ接続する。
+/1の公開error enum、成功時のwork／receipt／subset identityは維持する。
+
+hflexのdy2反転はchecked_negで検査し、i32::MINの反転不能をInvalidCharstringへ
+返す。debug panic／release wrapを防ぎ、2曲線を出力する前に停止する。既存の
+32-bit fixed-point座標domainは拡張しない。
+
+全256 escape、予約済み1-byte 7種、global→localのFD維持、先行予算／callback、
+hflexの6境界、/1 subset拒否、元Haranoのchecksumを修復したnegative 3入力で検証する。
+原Haranoの無変更positive gateは別に維持する。ユーザー実行のCLI 253 tests・
+font 70 tests（原Harano全23,060 glyphを含む）が失敗／ignored 0で成功した。
+独立759 PDF検証と直前§238との全759 PDF byte一致も成功し、実行ソース39ファイルを
+照合した。ADR-0102と[実装台帳§239](28-vmb-book-production-progress.md#book-2-cff-operator-diagnostics-design-14239)を参照。
+旧/1字形詳細、subset encoding位置、公開CLI note、command予算、元全巻・公開・
+性能・著者／人手受入は引き続き未完である。
+
+### 14.240 旧CFF /1字形の元位置とCLI finalization診断（実装追補）
+
+旧CffProgramのコピー済みCharStrings／global／local Subrsと並行して、検証済み
+INDEXの元table-relative開始位置を保持する。構築は既存glyph／subroutine上限内で
+一回行い、checked allocation／加算を使う。評価中は定数時間で元位置を取得する。
+元SFNTのCFF table baseとOS/2権限contextを保持し、resource URIや元font全文は複製しない。
+
+Cff1SubsetSessionのprepare_face_detailed／subset_detailedを追加し、従来APIは
+同じ処理から元Cff1Errorを返す。shared Type2 observerで元GID、root／local／global内の
+実token位置とprogram-endを区別する。name-keyed /1へFD番号を捏造しない。
+width overflow、未対応／予約opcode、operation／segment予算の原因を保持し、内部予算は
+実limit／observedを添える。失敗字形はcacheへ入れず、既消費workと成功字形を維持する。
+
+resource finalizationとstaging textはFontFaceId付きCff1Detailedを運び、CLI finalizationと
+本文／脚注の共通mapperへ元code・位置・権限・予算のmessageを渡す。予算超過を一般的な
+内部エラーへ変えない。選択／subset出力段階にはsubset phaseを付け、未特定の元位置を
+補わない。旧成功時のreceipt identity／subset bytes／workの規則は変更しない。
+
+FontTools由来のsynthetic subroutine fixture、実SFNT negative、実resource-finalizationの
+CLI診断を検証した。ユーザー実行のCLI 253 tests・font 73 tests・旧CFF CLI診断1 testは
+失敗／ignored 0で成功した。独立759 PDF検証と直前§239との全759 PDF byte一致、
+原Harano・旧CFFの診断検証も成功し、実行ソース50ファイルの一致を確認した。
+範囲と結果はADR-0103および[実装台帳§240](28-vmb-book-production-progress.md#legacy-cff-glyph-diagnostics-design-14240)を参照する。
+公開structured diagnosticのsubject／resource URI note、subset encoding各段階の詳細、
+command予算、元全巻・公開・管理ホスト・性能・著者／人手受入は引き続き未完である。
+
+### 14.241 旧CFF finalization詳細を公開1.4診断へ投影（実装追補）
+
+CLI FailureはFontFaceIdとCff1Failureを型付きで保持し、validated packageを持つ
+公開buildの診断境界で宣言へ結ぶ。error messageからのID／位置抽出は行わない。
+Cff1Errorの既存code対応を専用getterへまとめ、Displayと公開診断で共有する。
+
+実宣言のarray indexを/resources/font_faces/{index}へ投影し、内部Diagnosticには
+FontFace subjectを付ける。公開JSONは従来のlocation／message／notesのみを用い、
+contract 1.4のschemaへfieldを追加しない。元font内のbyte位置はcontext noteに保持し、
+package JSONのbyte_offsetや本文spanへ代入しない。宣言が存在しない内部矛盾は拒否する。
+
+messageはcff1 {typed reason}、notesは宣言URI・詳細context・既存font対応範囲案内の
+3件とし、既存MachineDiagnosticBudgetを通して一度だけ発行する。元stderrのcodeと
+Input／Limit／Internal、read ledger、failed manifest／既存PDF保持の規則は維持する。
+
+公開check/buildでoperation／segment／subset bytes予算、reserved／unsupported opcode、
+program-endの6ケースを検証する。checkはadmission成功、buildは選択glyph／subsetで
+失敗するという実際の評価範囲を区別する。第3font宣言への位置、URI、元byte位置・
+権限、failed manifestのadmitted hashを確認する。ユーザー実行のCLI 253 tests、
+font 73 tests、旧CFF診断1 test、公開診断1 test（6ケース）は失敗／ignored 0で成功した。
+公開診断の独立検証6ケース／60改変拒否、独立759 PDFと58 resource subsetsの検証、
+直前§240との全759 PDF byte一致も成功し、実行ソース54ファイルを照合した。
+結果はADR-0104と[実装台帳§241](28-vmb-book-production-progress.md#public-cff-finalization-diagnostics-design-14241)参照。
+詳細なsubset encoding位置／予算値、公開/2、command全体の予算、元全巻・管理ホスト・
+性能・著者／人手受入は引き続き未完である。
+
+### 14.242 CFF /1 subsetの生成段階と実測byte予算（実装追補）
+
+CFF /1 writerはFontSubsetStageを保持し、name／glyph storage／glyph bounds／
+charstring／global bounds／各table encoding／SFNT size・write／PDF metricsを区別する。
+生成段階は公開context noteのsubset_stageに表示する。元fontのtableやbyte位置には
+置き換えず、実glyphごとの処理中だけoriginal GIDを保持する。公開1.4 JSONは変更しない。
+
+既存の最終SFNTサイズ検査で、設定値limitとdirectory・padding込みの必要byte数observedを
+保持する。同じSubsetByteLimitでもallocation失敗や整数表現不能に予算値を推測しない。
+受理境界・成功bytes・receipt・評価済みglyph cacheとworkは維持する。
+
+新しいfont試験で実出力サイズと上限直前／一致／直後、再試行、name／cmap／glyph boundsの
+失敗を確認した。公開試験は既存6ケースにi16境界のcontourを加え、同一packageの成功buildで
+埋め込まれたfontをbyte予算の独立比較対象とする。ユーザー実行の公開7ケース、
+CLI 253 tests、font 75 tests、旧CFF診断1 testは失敗／ignored 0で成功した。
+独立7ケース／84改変拒否と実埋込み764 bytesの診断一致、759 PDFの独立検証・
+直前段階との全件byte一致が成功し、実行ソース56ファイルを照合した。
+[ADR-0105](../adr/ADR-0105-cff-subset-output-diagnostics.md)と
+[実装台帳§242](28-vmb-book-production-progress.md#cff-subset-output-diagnostics-design-14242)を参照。
+/2 subset詳細、生成fieldの厳密な位置、command予算、公開Book /2、元全巻・管理ホスト・
+性能・著者／人手受入は引き続き未完である。
+
+### 14.243 CFF /2 subsetの予算・生成段階をPDF driverまで保持（実装追補）
+
+sealed /2 sessionへwrite_prepared_subset_detailed_with_chargeを追加し、既存の
+write_prepared_subset_with_chargeは同じ実装から従来Cff1Errorを返す。closure検証、
+評価済み字形、callback課金順序、出力bytes・receiptは維持する。
+
+canonical charstringの累積byte数と最終SFNTのdirectory／padding込みbyte数を別の
+subset_stageで報告し、実際の内部検査でだけlimit／observedを設定する。caller予算、
+allocation失敗、整数表現不能へ設定上限値を推測しない。glyph単位の失敗にはoriginal
+GID／FDを保持し、aggregate table処理では除く。元fontのbyte位置やtable tagは生成
+データの位置として流用しない。FD／OS/2権限の診断用参照は失敗時だけ行う。
+
+BookV2のresource writerはFontFaceId付きFontDetailedを保持し、既存Error::source
+経路でPDF driverへ到達させる。外部record／spool／work予算は元のownerエラーを維持し、
+per-font byte上限へ変えない。新しい原Harano試験とfont全76 testsは成功した。
+ユーザー実行のCLI 254 tests、font 76 testsと各専用診断試験が失敗／ignored 0で成功した。
+実driverの2予算拒否・24改変拒否も独立検証に成功し、charstring 77 bytesとSFNT
+1,180 bytesが成功PDF内のfontと一致した。独立759 PDFの検証と直前段階との全件byte一致、
+実行ソース62ファイルの一致を確認した。
+[ADR-0106](../adr/ADR-0106-cff-v2-subset-diagnostics.md)と
+[実装台帳§243](28-vmb-book-production-progress.md#cff-v2-subset-diagnostics-design-14243)を参照。
+生成fieldの厳密な位置、command予算、公開Book /2、元全巻・管理ホスト・性能・
+著者／人手受入は引き続き未完である。
+
+### 14.244 本文の行選択・幅の割り当てで失敗前の予算を保持（実装追補）
+
+BookV2BodyLineBudgetをcallerが保持し、初回の行選択と再組版、元source幅のbinding、
+block／table幅と開始位置の処理で受理済みworkを失敗時にも残す。再試行は同じownerの
+残量を使い、実際に開始したreshape passも戻さない。table再投影の既存の前払い量は
+受理後の失敗で維持し、前払い自体の拒否や走査前のidentity拒否には消費を捏造しない。
+既存APIは新しいownerで同じ処理へ委譲し、成功時のfingerprint／課金／出力規約を維持する。
+
+private PDF driverにBookV2PdfConvergenceBudgetを追加し、既存の累積counterを呼出し間で
+保持する。通常の本文経路はcallback前の失敗で本文workと開始済みpassを回収する。
+callbackへ到達した場合は既存経路で一度だけ加算し、後段失敗でも本文課金を戻さない。
+effective limitsが異なるownerは処理前に拒否する。
+
+新しい3 testsはcontrolled TT／無変更原Harano、上限一致／1手不足、再試行、元幅・
+開始位置・owner不整合、table前払い、callback失敗を検証して成功した。driverでは
+事前走査と失敗した本文の実消費を別々に求めて総量と照合し、成功PDF bytesも比較した。
+ユーザー実行のCLI 257 tests／font 76 testsと全専用試験が失敗／ignored 0で成功した。
+759 PDF／2,896 pagesと58 resource subsetsの独立検証が成功し、前段階との全759組の
+実ファイルbyte一致を確認した。実行開始時・固定時・文書更新前の72ソースhashも一致した。
+[ADR-0107](../adr/ADR-0107-book-2-body-line-failure-budget.md)と
+[実装台帳§244](28-vmb-book-production-progress.md#body-line-failure-budget-design-14244)を参照。
+shape engine内部・source admission・初期frame構築の全処理・allocation bytes・
+header variant seedの失敗・後段の全失敗を包含するcommand予算ではない。
+公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は引き続き未完である。
+
+
+### 14.245 表見出し用の行準備と収束後の保存で失敗前の予算を保持（実装追補）
+
+BookV2LineVariantBudgetとprepare_budgeted_book_v2_body_line_variant_seedを追加した。
+本文の収束work／開始済みreshape passと、収束した行情報をseedへ保存する前の受理済み
+workを、失敗時にもownerへ残す。成功seedが返す値は当該呼出しの分だけとし、同じownerでの
+再試行・成功の繰り返しでも二重加算しない。旧APIは新しいownerで同じ実装へ委譲する。
+
+幅の異なる見出しを準備するprepare_budgeted_with_source_widthsも追加した。private PDF
+driverのheader base経路とheader catalogのsibling準備は、結果を伝播する前にworkと開始済み
+passを累積予算へ戻す。元source identity・事前record検査・元Stageエラーを保持し、seedが
+返った場合だけ保持record数を更新する。replay／再構築での失敗は別の未完経路である。
+
+controlled TT／無変更原Haranoの新2 testsで、成功時の既存APIとの一致、上限一致／1手不足、
+候補枯渇、再試行、収束後のcontext容量不足、事前record拒否、siblingとforeign幅を検証して
+成功した。workspace --all-features --testsの型検査も成功した。ユーザー実行のCLI
+259 tests／font 76 testsと全専用試験が失敗／ignored 0で成功した。共通PDF検証の一度の
+中断はログを保全して再実行し、759 PDF／2,896 pagesの独立検証を完了した。前段階との
+全759組の実ファイルbyte一致と、文書更新前の75ソースhashの一致を確認した。
+[ADR-0108](../adr/ADR-0108-book-2-line-variant-failure-budget.md)と
+[実装台帳§245](28-vmb-book-production-progress.md#line-variant-failure-budget-design-14245)を参照。
+完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続中である。
+
+
+### 14.246 単独・複数の行再構築で途中までの消費予算を保持（実装追補）
+
+BookV2LineVariantBudgetを単独・複数の行graph再構築でも使用する。新しいbudgeted APIは
+既存の走査・準備の課金を維持し、counted layoutから失敗前のframe／source幅／候補探索量を
+回収する。複数幅を再構築する途中で失敗した場合は、完了したgraphと失敗中のgraphの消費を
+共に残す。再構築ではreshape feedback passを開始せず、同じownerを収束・保存・再構築で
+使用できる。成功viewのworkは当該呼出しの分だけを返す。
+
+header catalogのbase replayとvariant setを新APIへ接続した。callback前の失敗ではownerから
+消費を回収し、callbackへ到達した場合は後段処理より先に一度だけ計上する。旧APIの戻り値、
+元のStage／Error::source、成功fingerprint／record数／work規約を維持する。
+
+controlled TT／無変更原Haranoで単独・複数graphの成功比較、上限一致／1手不足、2番目の
+graph内での候補枯渇、再試行、callback失敗、record拒否、空・foreign seed、収束からの共通
+ownerを検証した。新2件を含む関連7 testsが成功し、workspace --all-features --testsの
+型検査も成功した。ユーザー実行のCLI 261 tests／font 76 testsと全専用試験が
+失敗／ignored 0で成功した。759 PDF／2,896 pagesと58 resource subsetsの独立検証、
+前段階との全759組の実ファイルbyte一致、文書更新前の77ソースhashの一致を確認した。
+[ADR-0109](../adr/ADR-0109-book-2-line-replay-failure-budget.md)と
+[実装台帳§246](28-vmb-book-production-progress.md#line-replay-failure-budget-design-14246)を参照。
+shape engine内部、初期frame構築の全処理、source admission、後段の全失敗を包含する
+command予算ではない。公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続中である。
+
+
+### 14.247 ページ探索失敗時のworkと開始済みpassを保持（実装追補）
+
+共有page stability kernelにcounted経路を追加した。passのrecord課金が成功した直後、
+ページ選択前に開始回数を増やし、選択・配置比較の失敗でもその値を返す。旧APIは同じ
+処理へ委譲し、残量2未満の事前拒否と成功時の結果を維持する。
+
+Book /2 searchはselect_stable_mixed_pages_countedを公開し、private driverはエラー伝播前に
+開始済みpassを累積値へ戻す。後段の成功結果へまだ引き継がれていない失敗では、searchが
+保持する実workとrecordの最高値を回収する。幅再試行・見出し再試行・成功PDFの既存課金を
+二重計上せず、元Stage／Error::sourceを保持する。
+
+共有kernelの失敗注入と、実本文の高さ不足でページ探索を失敗させるdriver試験を追加した。
+後者は事前処理・本文・searchの実消費を別々に求め、総量・開始回数・再試行・上限一致を
+検証する。関連8 CLI tests、pagination全104 testsとworkspace型検査が成功した。
+agent実行のCLI全262 tests／font全76 testsと全専用試験が失敗／ignored 0で成功した。
+759 PDF／2,896 pagesと58 resource subsetsの独立検証、前段階との全759組の実ファイル
+byte一致、文書更新前の80ソースhashの一致を確認した。
+[ADR-0110](../adr/ADR-0110-book-2-page-search-failure-budget.md)と
+[実装台帳§247](28-vmb-book-production-progress.md#page-search-failure-budget-design-14247)を参照。
+search構築失敗や後段固有のdisplay／PDF work、完全なcommand予算、公開Book /2、
+元全巻・管理ホスト・性能・著者／人手受入は引き続き未完である。
+
+
+### 14.248 描画・PDF生成失敗時のowner消費量を保持（実装追補）
+
+private PDF driverは本文display builderとPDF pipelineの結果を伝播する前に、ownerの
+work／record／spool／outputを回収する。これらが含むsearch・displayの累積prefixは
+最高値を一度だけ計上し、成功PDF callbackや幅・見出し再試行の既存課金を重ねない。
+math terminal生成の失敗でもsearchのspool最高値を保持する。成功した柱の合成結果も、
+後段のPDF pipeline失敗時に回収できるようにした。
+
+controlled TT／無変更原Haranoの新2 testsはdriverを介さずにページ・display・PDFを
+構築した実消費と照合する。displayの初期／終盤、PDFの初期／中盤／終盤の失敗、再試行、
+上限一致での成功bytesと全counter、callerの失敗値を検証し、2件とも成功した。
+agent実行のCLI全264 tests／font全76 testsと全専用試験が失敗／ignored 0で成功した。
+759 PDF／2,896 pagesと58 resource subsetsの独立検証、前段階との全759組の実ファイル
+byte一致、文書更新前の82ソースhashの一致を確認した。
+[ADR-0111](../adr/ADR-0111-book-2-downstream-failure-budget.md)と
+[実装台帳§248](28-vmb-book-production-progress.md#downstream-failure-budget-design-14248)を参照。
+constructorの失敗、柱の合成途中、ownerが保持しない内部処理は未完経路として残る。
+完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。

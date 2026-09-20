@@ -49,7 +49,14 @@ impl std::fmt::Display for CffSelectionFailureV2 {
         write!(f, "CFF /2 selection {self:?}")
     }
 }
-impl std::error::Error for CffSelectionFailureV2 {}
+impl std::error::Error for CffSelectionFailureV2 {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Selection(e) => Some(e),
+            Self::Glyph(e) => Some(e),
+        }
+    }
+}
 impl From<Cff1Error> for CffSelectionFailureV2 {
     fn from(e: Cff1Error) -> Self {
         Self::Selection(e)
@@ -224,10 +231,49 @@ impl Cff1SubsetSessionV2 {
             .horizontal_metric(gid)
             .ok_or(Cff1Error::InvalidSelectedGlyph)?
             .0;
+        let mut caller_failed = false;
         let result = self
             .evaluator
-            .evaluate_with_charge(admission.program(), gid, advance, charge)
-            .map_err(CffSelectionFailureV2::Glyph)?;
+            .evaluate_with_charge(
+                admission.program(),
+                gid,
+                advance,
+                &mut |records, bytes, work| {
+                    charge(records, bytes, work).inspect_err(|_| caller_failed = true)
+                },
+            )
+            .map_err(|mut failure| {
+                let mut context = admission.glyph_failure_context(&failure);
+                let (limit, used) = match (caller_failed, failure.kind) {
+                    (false, Cff1Error::CharstringOperationLimit) => (
+                        Some(
+                            admission
+                                .effective_limits()
+                                .extension()
+                                .get()
+                                .max_cff_charstring_operations,
+                        ),
+                        self.evaluator.operations_used(),
+                    ),
+                    (false, Cff1Error::OutlineSegmentLimit) => (
+                        Some(
+                            admission
+                                .effective_limits()
+                                .extension()
+                                .get()
+                                .max_cff_outline_segments,
+                        ),
+                        self.evaluator.outline_segments_used(),
+                    ),
+                    // Caller errors can reuse any CFF error kind for their own
+                    // allowances. Only the evaluator knows its internal limits.
+                    _ => (None, 0),
+                };
+                context.limit = limit;
+                context.observed = limit.and_then(|_| used.checked_add(1));
+                failure.font_context = Some(context);
+                CffSelectionFailureV2::Glyph(failure)
+            })?;
         self.evaluated.insert(key, result);
         Ok(())
     }
@@ -236,6 +282,55 @@ impl Cff1SubsetSessionV2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires explicit TYPAXIS_HARANO_FONT pointing to the unchanged original font"]
+    fn cff_v2_selection_caller_errors_do_not_invent_internal_budget_values() {
+        let source = std::fs::read(std::env::var("TYPAXIS_HARANO_FONT").unwrap()).unwrap();
+        assert_eq!(
+            sha256(&source)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>(),
+            "66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717"
+        );
+        let limits = limits(M4ResourceLimits::default());
+        let admission = admit_sfnt_cff1_v2(source.into(), 0, &limits).unwrap();
+        let closure = Cff1SubsetSessionV2::close_instance_selection(
+            &admission,
+            FontFaceId::new(0),
+            FontInstanceId::new(0),
+            &BTreeSet::new(),
+            100,
+        )
+        .unwrap();
+        for kind in [
+            Cff1Error::CharstringOperationLimit,
+            Cff1Error::OutlineSegmentLimit,
+            Cff1Error::SubsetByteLimit,
+        ] {
+            let mut session = Cff1SubsetSessionV2::new(&limits);
+            let result = session.prepare_closure_with_charge(
+                &admission,
+                &closure,
+                &mut |records, bytes, work| {
+                    if records == 0 && bytes == 0 && work == 64 {
+                        Err(kind)
+                    } else {
+                        Ok(())
+                    }
+                },
+            );
+            let CffSelectionFailureV2::Glyph(failure) = result.unwrap_err() else {
+                panic!("expected glyph error");
+            };
+            assert_eq!(failure.kind, kind);
+            let context = failure.font_context.unwrap();
+            assert_eq!(context.reason, FontFailureReason::BudgetExceeded);
+            assert_eq!((context.limit, context.observed), (None, None));
+            assert!(context.file_offset.is_some());
+            assert_eq!(session.operations_used(), 1);
+        }
+    }
     fn limits(extension: M4ResourceLimits) -> M4EffectiveResourceLimits {
         M4EffectiveResourceLimits::new(
             typaxis_core::ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default())

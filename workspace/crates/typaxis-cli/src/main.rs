@@ -2137,6 +2137,30 @@ fn emit_production_processing_diagnostic(
         let _ = phase.emit(diagnostic.clone()).map_err(map_diagnostic_budget_error)?;
         return Ok(());
     }
+    if let Some((font_face_id, cause)) = failure.font_subset_failure() {
+        let (index, declaration) = package.package().resources().font_faces.iter()
+            .enumerate().find(|(_, declaration)| declaration.font_face_id == font_face_id)
+            .ok_or_else(|| Failure::internal("I9190: font failure has no resource declaration"))?;
+        let uri = package.provenance().progress().package()
+            .map(|facts| facts.uri().clone())
+            .unwrap_or_else(|| fallback_package_uri(package_path));
+        let diagnostic = DiagnosticBuilder::located(
+            DiagnosticCode::new(cause.kind.diagnostic_code())
+                .expect("closed CFF diagnostic code"),
+            Severity::Error,
+            format!("cff1 {}", cause.context.reason.as_str()),
+            DiagnosticLocation::package_json(uri,
+                JsonPointer::from_segments(["resources".to_owned(), "font_faces".to_owned(), index.to_string()]), None),
+        ).map_err(|_| Failure::internal("CFF diagnostic message is not canonical"))?
+            .subject(DiagnosticSubject::Resource(ResourceErrorSubject::FontFace(font_face_id)))
+            .note(format!("resource={}", declaration.uri.as_str()))
+            .and_then(|builder| builder.note(cause.context_note()))
+            .and_then(|builder| builder.note(typaxis_resources::SUPPORTED_FONT_OUTLINES_NOTE))
+            .map_err(|_| Failure::internal("CFF diagnostic note is not canonical"))?
+            .build();
+        let _ = phase.emit(diagnostic).map_err(map_diagnostic_budget_error)?;
+        return Ok(());
+    }
     let code = failure
         .message
         .get(..5)

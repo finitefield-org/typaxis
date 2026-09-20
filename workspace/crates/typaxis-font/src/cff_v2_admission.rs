@@ -22,6 +22,41 @@ pub struct Cff1AdmissionV2 {
     program: CffProgramInspectionV2,
 }
 impl Cff1AdmissionV2 {
+    pub(super) fn glyph_failure_context(&self, failure: &CffGlyphFailureV2) -> FontFailureContext {
+        let mut context = FontFailureContext::new(0);
+        context.table(*b"CFF ", &self.table_records, FontFailurePhase::Charstring);
+        if let Ok(os2) = self.table_bytes(b"OS/2") {
+            context.permission(os2);
+        }
+        context.gid = Some(u32::from(failure.gid));
+        context.fd = failure.fd.map(u16::from);
+        context.operator = failure.operator;
+        if let Some(offset) = failure.table_offset {
+            context.at(offset);
+            context.position_is_exact = failure.position_is_exact;
+            context.position_is_end = !failure.position_is_exact;
+        }
+        context.reason = match failure.kind {
+            Cff1Error::CharstringOperationLimit
+            | Cff1Error::OutlineSegmentLimit
+            | Cff1Error::SubsetByteLimit => FontFailureReason::BudgetExceeded,
+            Cff1Error::InvalidSelectedGlyph => FontFailureReason::InvalidSelectedGlyph,
+            Cff1Error::ReceiptMismatch | Cff1Error::InvalidGlyphClosure => {
+                FontFailureReason::Invariant
+            }
+            _ if failure.reason == CffGlyphFailureReasonV2::InvalidWidth => {
+                FontFailureReason::InvalidCharstringWidth
+            }
+            _ if failure.reason == CffGlyphFailureReasonV2::UnsupportedOperator => {
+                FontFailureReason::UnsupportedCffOperator
+            }
+            _ if failure.reason == CffGlyphFailureReasonV2::ReservedOperator => {
+                FontFailureReason::ReservedCffOperator
+            }
+            _ => FontFailureReason::InvalidCharstring,
+        };
+        context
+    }
     pub(super) fn table_bytes(&self, tag: &[u8; 4]) -> Result<&[u8], Cff1Error> {
         let r = self
             .table_records
@@ -306,6 +341,103 @@ mod tests {
             (e.kind, e.context.limit, e.context.observed),
             (Cff1FailureKindV2::SourceByteLimit, Some(1), Some(2))
         );
+    }
+
+    #[test]
+    #[ignore = "requires explicit TYPAXIS_HARANO_FONT pointing to the unchanged original font"]
+    fn cff_v2_admission_operator_failures_retain_source_positions_and_typed_class() {
+        let original = std::fs::read(std::env::var("TYPAXIS_HARANO_FONT").unwrap()).unwrap();
+        assert_eq!(
+            sha256(&original)
+                .iter()
+                .map(|v| format!("{v:02x}"))
+                .collect::<String>(),
+            "66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717"
+        );
+        let defaults = limits();
+        let base = admit_sfnt_cff1_v2(original.clone().into(), 0, &defaults).unwrap();
+        let records = &base.table_records;
+        let cff_base = records.iter().find(|r| r.tag == *b"CFF ").unwrap().offset;
+        let head = records.iter().find(|r| r.tag == *b"head").unwrap().offset;
+        let span = base.program.program.charstrings[0];
+        let fd = base.program.program.fd_by_gid[0];
+        for (token, reason, class) in [
+            (
+                [12, 10],
+                FontFailureReason::UnsupportedCffOperator,
+                "unsupported",
+            ),
+            (
+                [12, 1],
+                FontFailureReason::ReservedCffOperator,
+                "malformed-or-invalid-input",
+            ),
+            (
+                [0, 14],
+                FontFailureReason::ReservedCffOperator,
+                "malformed-or-invalid-input",
+            ),
+        ] {
+            // Negative-only copies preserve real SFNT structure and directory
+            // checksums. They are never evidence of original-font acceptance.
+            let mut source = original.clone();
+            let offset = cff_base + span.start;
+            source[offset..offset + 2].copy_from_slice(&token);
+            source[head + 8..head + 12].fill(0);
+            for (i, record) in records.iter().enumerate() {
+                let checksum = sfnt_checksum(&source[record.offset..record.offset + record.length]);
+                source[16 + i * 16..20 + i * 16].copy_from_slice(&checksum.to_be_bytes());
+            }
+            let adjustment = SFNT_CHECKSUM_MAGIC.wrapping_sub(sfnt_checksum(&source));
+            source[head + 8..head + 12].copy_from_slice(&adjustment.to_be_bytes());
+            let admitted = admit_sfnt_cff1_v2(source.into(), 0, &defaults).unwrap();
+            assert_ne!(admitted.source_sha256(), base.source_sha256());
+            let closure = Cff1SubsetSessionV2::close_instance_selection(
+                &admitted,
+                FontFaceId::new(1),
+                FontInstanceId::new(1),
+                &BTreeSet::new(),
+                10,
+            )
+            .unwrap();
+            let mut session = Cff1SubsetSessionV2::from_admission(&admitted);
+            let CffSelectionFailureV2::Glyph(error) =
+                session.prepare_closure(&admitted, &closure).unwrap_err()
+            else {
+                panic!("operator error lost its glyph context");
+            };
+            let context = error.font_context.unwrap();
+            assert_eq!(error.kind, Cff1Error::InvalidCharstring);
+            assert_eq!(context.phase, FontFailurePhase::Charstring);
+            assert_eq!(context.reason, reason);
+            assert_eq!(context.reason.class(), class);
+            assert_eq!(
+                (context.file_offset, context.table_offset),
+                (Some(offset as u64), Some(span.start as u64))
+            );
+            assert_eq!((context.gid, context.fd), (Some(0), Some(u16::from(fd))));
+            assert_eq!(context.table_tag, Some(*b"CFF "));
+            assert_eq!(context.embedding, FontEmbeddingStatus::Allowed(0));
+            assert_eq!((context.limit, context.observed), (None, None));
+            assert!(context.position_is_exact && !context.position_is_end);
+            let operator = if token[0] == 12 {
+                0x0c00 | u16::from(token[1])
+            } else {
+                u16::from(token[0])
+            };
+            assert_eq!(context.operator, Some(operator));
+            let note = Cff1Failure {
+                kind: error.kind,
+                context,
+            }
+            .context_note();
+            assert!(note.contains(&format!("reason={}; class={class}", reason.as_str())));
+            assert_eq!(session.cached_glyph_count(), 0);
+            assert_eq!(
+                (session.operations_used(), session.outline_segments_used()),
+                (1, 0)
+            );
+        }
     }
     #[test]
     #[ignore = "requires explicit TYPAXIS_HARANO_FONT pointing to the unchanged original font"]

@@ -8,6 +8,10 @@ pub enum BookV2CffSubsetError {
     InvalidFontIndex,
     Evaluation(BookV2CffProgramError),
     Font(typaxis_font::Cff1Error),
+    FontDetailed {
+        font_face_id: typaxis_core::FontFaceId,
+        failure: typaxis_font::Cff1Failure,
+    },
 }
 impl From<E> for BookV2CffSubsetError {
     fn from(e: E) -> Self {
@@ -19,7 +23,17 @@ impl std::fmt::Display for BookV2CffSubsetError {
         write!(f, "book-2 CFF subset: {self:?}")
     }
 }
-impl std::error::Error for BookV2CffSubsetError {}
+impl std::error::Error for BookV2CffSubsetError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Budget(e) => Some(e),
+            Self::Evaluation(e) => Some(e),
+            Self::Font(e) => Some(e),
+            Self::FontDetailed { failure, .. } => Some(failure),
+            Self::WrongFontKind | Self::InvalidFontIndex => None,
+        }
+    }
+}
 pub struct BookV2CffSubset<'x, 'c, 'a> {
     source: &'x BookV2ClosedFont<'c, 'a>,
     program: typaxis_font::Cff1SubsetV2,
@@ -87,10 +101,11 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
                 .and_then(|n| n.checked_add(1))
                 .ok_or(E::Work)?,
         )?;
+        let font_face_id = closed.font_face_id();
         let closed = closed.clone();
         let session = self.cff_session.take().ok_or(E::Identity)?;
         let mut failure = None;
-        let result = session.write_prepared_subset_with_charge(
+        let result = session.write_prepared_subset_detailed_with_charge(
             font.admission(),
             closed,
             &mut |records, bytes, work| {
@@ -103,7 +118,7 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         self.cff_session = Some(session);
         let program = result.map_err(|e| match failure {
             Some(e) => BookV2CffSubsetError::Budget(e),
-            None => BookV2CffSubsetError::Font(e),
+            None => BookV2CffSubsetError::FontDetailed { font_face_id, failure: e },
         })?;
         self.closure_charge(0, 0, 1)?;
         let mut fingerprint = sha256(BOOK_V2_CFF_SUBSET_ALGORITHM.as_bytes());

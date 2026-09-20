@@ -6,6 +6,9 @@ use budget::{add, mul, Charge};
 #[cfg(test)]
 #[path = "cff_v2_subset_budget_tests.rs"]
 mod budget_tests;
+#[cfg(test)]
+#[path = "cff_v2_subset_diagnostic_tests.rs"]
+mod diagnostic_tests;
 
 #[derive(Debug)]
 pub struct Cff1SubsetV2 {
@@ -74,8 +77,39 @@ impl Cff1SubsetSessionV2 {
         closure: Cff1GlyphClosureV2,
         charge: Charge<'_>,
     ) -> Result<Cff1SubsetV2, Cff1Error> {
-        self.require_closure(admission, &closure)?;
-        write_subset_charged(self, admission, closure, charge)
+        self.write_prepared_subset_detailed_with_charge(admission, closure, charge)
+            .map_err(|failure| failure.kind)
+    }
+    /// Preserve output-generation context while retaining the caller's charge
+    /// order and errors. Source-byte positions are never inferred from output.
+    pub fn write_prepared_subset_detailed_with_charge(
+        &self,
+        admission: &Cff1AdmissionV2,
+        closure: Cff1GlyphClosureV2,
+        charge: Charge<'_>,
+    ) -> Result<Cff1SubsetV2, Cff1Failure> {
+        let mut context = FontFailureContext::new(0);
+        context.phase = FontFailurePhase::Subset;
+        let result = self.require_closure(admission, &closure)
+            .and_then(|()| write_subset_charged(self, admission, closure, charge, &mut context));
+        result.map_err(|kind| {
+            // Decode diagnostic-only permission and FD facts once on failure.
+            // Successful encoding performs no additional source-table walk.
+            if let Ok(os2) = admission.table_bytes(b"OS/2") {
+                context.permission(os2);
+            }
+            context.fd = context.gid.and_then(|gid| {
+                admission.program().fd_for_gid(gid as usize).map(u16::from)
+            });
+            context.reason = match kind {
+                Cff1Error::SubsetByteLimit | Cff1Error::SelectedGlyphLimit
+                | Cff1Error::CharstringOperationLimit | Cff1Error::OutlineSegmentLimit => FontFailureReason::BudgetExceeded,
+                Cff1Error::ReceiptMismatch | Cff1Error::InvalidGlyphClosure => FontFailureReason::Invariant,
+                Cff1Error::InvalidSelectedGlyph => FontFailureReason::InvalidSelectedGlyph,
+                _ => FontFailureReason::InvalidTable,
+            };
+            Cff1Failure { kind, context }
+        })
     }
 }
 fn write_subset_charged(
@@ -83,12 +117,14 @@ fn write_subset_charged(
     admission: &Cff1AdmissionV2,
     closure: Cff1GlyphClosureV2,
     charge: Charge<'_>,
+    context: &mut FontFailureContext,
 ) -> Result<Cff1SubsetV2, Cff1Error> {
     let max_bytes = admission
         .effective_limits()
         .extension()
         .get()
         .max_font_subset_bytes;
+    context.subset_stage = Some(FontSubsetStage::GlyphStorage);
     let n = closure.source_gids().len();
     let headers = mul(
         n,
@@ -99,7 +135,9 @@ fn write_subset_charged(
         add(add(headers, mul(n, 256)?)?, 1038)?,
         mul(n, 256)?,
     )?;
+    context.subset_stage = Some(FontSubsetStage::Name);
     let name = subset_postscript_name(closure.font_instance_id())?;
+    context.subset_stage = Some(FontSubsetStage::GlyphStorage);
     let mut mapping = BTreeMap::new();
     let mut widths = BTreeMap::new();
     let mut charstrings = Vec::new();
@@ -113,6 +151,8 @@ fn write_subset_charged(
     let mut global: Option<[i16; 4]> = None;
     let mut charstring_bytes = 0u64;
     for (dense, gid) in closure.source_gids().iter().enumerate() {
+        context.subset_stage = Some(FontSubsetStage::GlyphLookup);
+        context.gid = Some(u32::from(gid.get()));
         let depth = (usize::BITS
             - session
                 .cached_glyph_count()
@@ -122,6 +162,7 @@ fn write_subset_charged(
         let glyph = session
             .evaluated_glyph(admission, *gid)?
             .ok_or(Cff1Error::InvalidGlyphClosure)?;
+        context.subset_stage = Some(FontSubsetStage::GlyphBounds);
         let bbox = glyph
             .control_bounds()
             .map(outward_i16_bbox)
@@ -138,12 +179,18 @@ fn write_subset_charged(
                 None => bbox,
             });
         }
+        context.subset_stage = Some(FontSubsetStage::CharstringSize);
         charge(0, 0, mul(glyph.commands().len(), 128)?)?;
         let length = glyph.canonical_charstring_len()?;
-        charstring_bytes = charstring_bytes
-            .checked_add(length as u64)
-            .filter(|n| *n <= max_bytes)
+        let next = charstring_bytes.checked_add(length as u64)
             .ok_or(Cff1Error::SubsetByteLimit)?;
+        if next > max_bytes {
+            context.limit = Some(max_bytes);
+            context.observed = Some(next);
+            return Err(Cff1Error::SubsetByteLimit);
+        }
+        charstring_bytes = next;
+        context.subset_stage = Some(FontSubsetStage::Charstring);
         charge(0, length, add(mul(glyph.commands().len(), 256)?, length)?)?;
         let encoded = glyph.canonical_charstring()?;
         if encoded.len() != length {
@@ -157,19 +204,27 @@ fn write_subset_charged(
         );
         widths.insert(*gid, glyph.advance());
     }
+    context.gid = None;
+    context.fd = None;
+    context.subset_stage = Some(FontSubsetStage::GlobalBounds);
     let bbox = global.ok_or(Cff1Error::InvalidSubset)?;
     if bbox[0] >= bbox[2] || bbox[1] >= bbox[3] {
         return Err(Cff1Error::InvalidSubset);
     }
+    context.subset_stage = Some(FontSubsetStage::Cff);
     budget::cid_tables(
         n,
         usize::try_from(charstring_bytes).map_err(|_| Cff1Error::SubsetByteLimit)?,
         charge,
     )?;
     let cff = build_cid_cff(&name, bbox, &charstrings)?;
+    context.subset_stage = Some(FontSubsetStage::Cmap);
     let cmap = build_cmap_with_charge(admission.cmap(), &mapping, charge)?;
+    context.subset_stage = Some(FontSubsetStage::CopiedTables);
     budget::copied_tables(admission, n, charge)?;
+    context.subset_stage = Some(FontSubsetStage::Head);
     let head = build_subset_head(admission.table_bytes(b"head")?, bbox)?;
+    context.subset_stage = Some(FontSubsetStage::HorizontalMetrics);
     let (advances, bearings) = admission.horizontal_metrics();
     let (hhea, hmtx) = build_subset_horizontal_metrics_from(
         admission.table_bytes(b"hhea")?,
@@ -178,7 +233,9 @@ fn write_subset_charged(
         closure.source_gids(),
         &bboxes,
     )?;
+    context.subset_stage = Some(FontSubsetStage::Maxp);
     let maxp = build_subset_maxp(closure.source_gids().len())?;
+    context.subset_stage = Some(FontSubsetStage::NameTable);
     let (family, subfamily) = admission.family_names();
     let names = build_subset_name_table(family, subfamily, &name)?;
     let tables = vec![
@@ -219,10 +276,14 @@ fn write_subset_charged(
             bytes: admission.table_bytes(b"post")?.to_vec(),
         },
     ];
+    context.subset_stage = Some(FontSubsetStage::SfntSize);
     let size = sfnt_output_size(&tables)?;
     if size > max_bytes {
+        context.limit = Some(max_bytes);
+        context.observed = Some(size);
         return Err(Cff1Error::SubsetByteLimit);
     }
+    context.subset_stage = Some(FontSubsetStage::SfntWrite);
     let output_size = usize::try_from(size).map_err(|_| Cff1Error::SubsetByteLimit)?;
     charge(1, output_size, add(mul(output_size, 4)?, 1024)?)?;
     let bytes = rebuild_sfnt(tables)?;
@@ -230,12 +291,14 @@ fn write_subset_charged(
         return Err(Cff1Error::InvalidSubset);
     }
     let hash = sha256(&bytes);
+    context.subset_stage = Some(FontSubsetStage::PdfMetrics);
     let metrics = subset_pdf_metrics_from(
         admission.table_bytes(b"hhea")?,
         admission.table_bytes(b"OS/2")?,
         admission.table_bytes(b"post")?,
         bbox,
     )?;
+    context.subset_stage = Some(FontSubsetStage::Receipt);
     charge(1, 532, 1024)?;
     let mut identity = String::with_capacity(512);
     identity.push_str("{\"algorithm\":\"typaxis.cff1-subset/2\",\"byte_length\":");

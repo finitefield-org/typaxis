@@ -131,6 +131,7 @@ pub struct Failure {
     pub message: String,
     failed_manifest_policy: FailedManifestPolicy,
     processing_diagnostic: Option<typaxis_diagnostics::Diagnostic>,
+    font_subset_failure: Option<(typaxis_core::FontFaceId, typaxis_font::Cff1Failure)>,
 }
 
 #[allow(dead_code)] // focused MI2 slice-test fact type; no public execution entrance
@@ -853,6 +854,10 @@ enum FailedManifestPolicy {
 }
 
 impl Failure {
+    pub(crate) fn font_subset_failure(&self) -> Option<(typaxis_core::FontFaceId, typaxis_font::Cff1Failure)> {
+        self.font_subset_failure
+    }
+
     pub(crate) fn processing_diagnostic(&self) -> Option<&typaxis_diagnostics::Diagnostic> {
         self.processing_diagnostic.as_ref()
     }
@@ -863,6 +868,7 @@ impl Failure {
             message: with_default_diagnostic_code(message.into(), "P1000"),
             failed_manifest_policy: FailedManifestPolicy::Publish,
             processing_diagnostic: None,
+            font_subset_failure: None,
         }
     }
     pub fn usage(message: impl Into<String>) -> Self {
@@ -871,6 +877,7 @@ impl Failure {
             message: message.into(),
             failed_manifest_policy: FailedManifestPolicy::Publish,
             processing_diagnostic: None,
+            font_subset_failure: None,
         }
     }
     pub fn io(message: impl Into<String>) -> Self {
@@ -879,6 +886,7 @@ impl Failure {
             message: message.into(),
             failed_manifest_policy: FailedManifestPolicy::Publish,
             processing_diagnostic: None,
+            font_subset_failure: None,
         }
     }
     pub fn internal(message: impl Into<String>) -> Self {
@@ -887,6 +895,7 @@ impl Failure {
             message: with_default_diagnostic_code(message.into(), "I9001"),
             failed_manifest_policy: FailedManifestPolicy::Publish,
             processing_diagnostic: None,
+            font_subset_failure: None,
         }
     }
     pub fn limit(message: impl Into<String>) -> Self {
@@ -895,6 +904,7 @@ impl Failure {
             message: with_default_diagnostic_code(message.into(), "I9000"),
             failed_manifest_policy: FailedManifestPolicy::Publish,
             processing_diagnostic: None,
+            font_subset_failure: None,
         }
     }
 
@@ -904,6 +914,7 @@ impl Failure {
             message: with_default_diagnostic_code(message.into(), "I9190"),
             failed_manifest_policy: FailedManifestPolicy::Publish,
             processing_diagnostic: None,
+            font_subset_failure: None,
         }
     }
 
@@ -913,6 +924,7 @@ impl Failure {
             message: "resource admission I/O failed: UnsupportedContainedOpen".to_owned(),
             failed_manifest_policy: FailedManifestPolicy::LeaveTargetsUntouched,
             processing_diagnostic: None,
+            font_subset_failure: None,
         }
     }
 
@@ -4490,10 +4502,29 @@ pub(crate) fn map_public_resource_admission_error(
     }
 }
 
+pub(crate) fn map_cff_subset_failure(
+    font_face_id: typaxis_core::FontFaceId,
+    failure: typaxis_font::Cff1Failure,
+) -> Failure {
+    use typaxis_font::Cff1Error as C;
+    let message = format!("{}; font_face_id={}; {}", failure.kind, font_face_id.get(), failure.context_note());
+    let mut mapped = match failure.kind {
+        C::TableLimit | C::GlyphLimit | C::SubroutineLimit | C::CharstringOperationLimit
+        | C::OutlineSegmentLimit | C::SelectedGlyphLimit | C::SubsetByteLimit => Failure::limit(message),
+        C::InvalidGlyphClosure | C::ReceiptMismatch => Failure::internal(message),
+        _ => Failure::input(message),
+    };
+    mapped.font_subset_failure = Some((font_face_id, failure));
+    mapped
+}
+
 fn map_resource_error(error: ResourceError) -> Failure {
     match error {
         ResourceError::ResourceLimit => {
             Failure::limit(format!("resource finalization limit exceeded: {error:?}"))
+        }
+        ResourceError::Cff1Detailed { font_face_id, failure } => {
+            map_cff_subset_failure(font_face_id, failure)
         }
         _ => Failure::internal(format!("resource finalization failed: {error:?}")),
     }
@@ -7822,7 +7853,14 @@ pub(crate) mod tests {
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     fn run_staging_machine_cff(label: &str) -> StagingMachineCffRun {
-        use typaxis_core::{M4EffectiveResourceLimits, M4ResourceLimits};
+        run_staging_machine_cff_with_limits(label, typaxis_core::M4ResourceLimits::default()).unwrap()
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn run_staging_machine_cff_with_limits(
+        label: &str, extension: typaxis_core::M4ResourceLimits,
+    ) -> Result<StagingMachineCffRun, ResourceError> {
+        use typaxis_core::M4EffectiveResourceLimits;
         use typaxis_machine_profile::preflight_staging_cff_profile;
         use typaxis_resources::{close_staging_declared_media, staging_declared_base_catalog};
 
@@ -7841,7 +7879,7 @@ pub(crate) mod tests {
         )
         .unwrap();
         let limits =
-            M4EffectiveResourceLimits::new(config.limits().clone(), M4ResourceLimits::default())
+            M4EffectiveResourceLimits::new(config.limits().clone(), extension)
                 .unwrap();
         let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
             .decode(
@@ -7948,8 +7986,7 @@ pub(crate) mod tests {
                 display: &display,
                 admitted: &admitted,
                 limits: config.limits(),
-            })
-            .unwrap();
+            })?;
         let graph = PdfBackend::build(display, plans.clone(), config.limits()).unwrap();
         let observation = typaxis_pdf::observe_staging_cff1_pdf(&graph).unwrap();
         let pdf = PdfBackend::serialize(graph, &config).unwrap();
@@ -7964,7 +8001,7 @@ pub(crate) mod tests {
             &pdf,
         )
         .unwrap();
-        StagingMachineCffRun {
+        Ok(StagingMachineCffRun {
             _root: root,
             limits,
             package,
@@ -7975,6 +8012,51 @@ pub(crate) mod tests {
             observation,
             pdf,
             manifest,
+        })
+    }
+
+    #[test]
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn legacy_cff_finalization_diagnostic_reaches_cli_with_original_position() {
+        use typaxis_font::{Cff1Error, FontFailurePhase, FontFailureReason};
+        let original = decode_fixture_hex(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/production-book-1/cff-media/typaxis-cff-fixture.otf.hex")));
+        for operation in [true, false] {
+            let mut extension = typaxis_core::M4ResourceLimits::default();
+            if operation { extension.max_cff_charstring_operations = 1; }
+            else { extension.max_cff_outline_segments = 1; }
+            let error = match run_staging_machine_cff_with_limits("legacy-cff-diagnostic", extension) {
+                Err(error) => error,
+                Ok(_) => panic!("exhausted font budget produced PDF"),
+            };
+            let ResourceError::Cff1Detailed { font_face_id, failure } = error else {
+                panic!("lost detailed CFF error: {error:?}");
+            };
+            assert_eq!(font_face_id.get(), 0);
+            assert_eq!(failure.kind, if operation { Cff1Error::CharstringOperationLimit } else { Cff1Error::OutlineSegmentLimit });
+            let c = failure.context;
+            assert_eq!((c.phase, c.reason), (FontFailurePhase::Charstring, FontFailureReason::BudgetExceeded));
+            assert_eq!((c.gid, c.fd), (Some(0), None));
+            assert_eq!((c.limit, c.observed), (Some(1), Some(2)));
+            assert!(c.position_is_exact && !c.position_is_end);
+            let position = c.file_offset.unwrap() as usize;
+            assert_eq!(original[position], if operation { 189 } else { 6 });
+            assert_eq!(c.operator, if operation { None } else { Some(6) });
+            let mapped = map_resource_error(error);
+            assert_eq!(mapped.kind.exit_code(), FailureKind::Limit.exit_code());
+            assert!(mapped.message.starts_with(if operation { "R7133:" } else { "R7134:" }));
+            assert!(mapped.message.contains("font_face_id=0"));
+            assert!(mapped.message.contains(&failure.context_note()));
+            if let Ok(folder) = std::env::var("TYPAXIS_LEGACY_CFF_DIAGNOSTIC_PROBE") {
+                let folder = PathBuf::from(folder);
+                fs::create_dir_all(&folder).unwrap();
+                let axis = if operation { "operations" } else { "segments" };
+                fs::write(folder.join(format!("{axis}.json")), serde_json::to_vec_pretty(&serde_json::json!({
+                    "axis":axis,"file_offset":c.file_offset,"table_offset":c.table_offset,
+                    "gid":c.gid,"fd":c.fd,"operator":c.operator,"limit":c.limit,"observed":c.observed,
+                    "note":failure.context_note(),"message":mapped.message,"exit_code":mapped.kind.exit_code(),
+                })).unwrap()).unwrap();
+            }
         }
     }
 
