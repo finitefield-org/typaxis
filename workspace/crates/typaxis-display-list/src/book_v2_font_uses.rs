@@ -105,7 +105,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, '
     pub fn font_slot_count(&self, paint_index: usize) -> Option<usize> {
         use BookV2BodyPaintIndex as P;
         Some(match *self.paints().get(paint_index)? {
-            P::Text(_) => 1,
+            P::Text(_) | P::PageRegionText { .. } => 1,
             P::Marker(index) => self.markers().draws()[index].clusters().len(),
             P::EquationNumber(index) => self.numbers().draws()[index].clusters().len(),
             P::Math(index) => match self.math().draws()[index].paint() {
@@ -127,6 +127,22 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, '
         if slot >= self.font_slot_count(paint_index).unwrap_or(0) {
             return Ok(None);
         }
+        if let P::PageRegionText { region, draw } = paint {
+            let d = &self.page_regions()[region].draws()[draw];
+            let span = d.source_span();
+            return Ok(Some(BookV2FontUse {
+                paint, slot, instance: self.source().source().flow().lines().prepared().shaped().font_instances()
+                    .resolve(d.font_instance().font_instance_id())
+                    .filter(|i| i.table_fingerprint() == d.font_instance().table_fingerprint()
+                        && std::ptr::eq(i.ledger(), d.font_instance().ledger()))
+                    .ok_or_else(|| error(d.owner(), E::ReceiptMismatch))?,
+                source: BookV2FontUseSource::Text(DisplayTextSpan::new(
+                    DisplayTextBufferId::new(span.text_id().get()), span.start_byte(), span.end_byte(),
+                ).ok_or_else(|| error(d.owner(), E::ReceiptMismatch))?),
+                text: BookV2FontUseText::Text(d.exact_text()),
+                glyphs: BookV2FontUseGlyphs::Cluster(d.glyphs()), size: d.font().size(),
+            }));
+        }
         let fragment = match paint {
             P::Text(i) => self.text().draws()[i].fragment_index(),
             P::Marker(i) => self.markers().draws()[i].fragment_index(),
@@ -135,7 +151,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, '
                 .geometry()
                 .fragment_index() as usize,
             P::Math(i) => self.math().draws()[i].terminal().fragment_index(),
-            P::Image(_) | P::FootnoteSeparator(_) => return Ok(None),
+            P::Image(_) | P::FootnoteSeparator(_) | P::PageRegionText { .. } => return Ok(None),
         };
         let prepared = self
             .source()

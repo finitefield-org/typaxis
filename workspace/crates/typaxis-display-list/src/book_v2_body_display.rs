@@ -1,5 +1,7 @@
 //! One source-owned display in physical fragment and authored inline order.
 use super::*;
+#[path = "book_v2_page_region_join.rs"]
+mod page_region_join;
 
 pub const BOOK_V2_BODY_DISPLAY_ALGORITHM: &str = "typaxis.book-2-body-display/1";
 
@@ -13,6 +15,7 @@ pub enum BookV2BodyPaintIndex {
     Math(usize),
     Image(usize),
     EquationNumber(usize),
+    PageRegionText { region: usize, draw: usize },
 }
 pub struct BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
     math: BookV2MathDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
@@ -22,6 +25,7 @@ pub struct BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
     images: BookV2ImageDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
     anchors: BookV2AnchorDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
     paints: Vec<BookV2BodyPaintIndex>,
+    regions: Vec<BookV2PageRegionDisplay<'d>>,
     fingerprint: [u8; 32],
     records: u64,
     work: u64,
@@ -53,6 +57,9 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, '
     }
     pub fn paints(&self) -> &[BookV2BodyPaintIndex] {
         &self.paints
+    }
+    pub fn page_regions(&self) -> &[BookV2PageRegionDisplay<'d>] {
+        &self.regions
     }
     pub fn fingerprint(&self) -> [u8; 32] {
         self.fingerprint
@@ -144,6 +151,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
             images: self.build_images()?,
             anchors: self.build_anchors()?,
             paints: Vec::new(),
+            regions: Vec::new(),
             fingerprint: [0; 32],
             records: 0,
             work: 0,

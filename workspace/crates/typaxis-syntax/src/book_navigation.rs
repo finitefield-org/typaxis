@@ -806,6 +806,7 @@ impl LanguageRegistryGeneration {
 
 #[derive(Clone, Debug)]
 struct LanguageSite<L = StagingLanguageNodeKind> {
+    page_region: Option<u32>,
     node_id: u32,
     kind: L,
     parent: Option<u32>,
@@ -1312,6 +1313,7 @@ fn collect_document<K: NavigationSemanticKind>(
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
     sites.push(LanguageSite {
+        page_region: None,
         node_id: document.node_id,
         kind: StagingLanguageNodeKind::Document.into(),
         parent: None,
@@ -1402,6 +1404,7 @@ fn collect_page_region<L: NavigationLanguageKind>(
             } => (*node_id, *span, StagingLanguageNodeKind::Heading, children),
         };
         sites.push(LanguageSite {
+            page_region: Some(region.node_id),
             node_id,
             kind: kind.into(),
             parent: Some(document_node_id),
@@ -1417,6 +1420,7 @@ fn collect_page_region<L: NavigationLanguageKind>(
             } = inline
             {
                 sites.push(LanguageSite {
+                    page_region: Some(region.node_id),
                     node_id: *child,
                     kind: StagingLanguageNodeKind::Text.into(),
                     parent: Some(node_id),
@@ -1448,6 +1452,7 @@ fn collect_footnote<K: NavigationSemanticKind>(
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
     sites.push(LanguageSite {
+        page_region: None,
         node_id: footnote.node_id,
         kind: StagingLanguageNodeKind::FootnoteDefinition.into(),
         parent: Some(parent),
@@ -1486,15 +1491,15 @@ fn collect_blocks<K: NavigationSemanticKind>(
             let [list_kind, item_kind, term_kind] = K::LanguageKind::description_kinds()
                 .ok_or_else(|| BookNavigationSyntaxError::producer(
                     BookNavigationSyntaxErrorKind::DescriptionListStaging, &base))?;
-            sites.push(LanguageSite { node_id, kind: list_kind, parent: Some(parent),
+            sites.push(LanguageSite { page_region: None, node_id, kind: list_kind, parent: Some(parent),
                 span: Some(span), raw: language.clone(), pointer: format!("{base}/language") });
             for (index, item) in items.iter().enumerate() {
                 let at = format!("{base}/items/{index}");
-                sites.push(LanguageSite { node_id: item.node_id, kind: item_kind,
+                sites.push(LanguageSite { page_region: None, node_id: item.node_id, kind: item_kind,
                     parent: Some(node_id), span: Some(item.span), raw: item.language.clone(),
                     pointer: format!("{at}/language") });
                 let term = &item.term;
-                sites.push(LanguageSite { node_id: term.node_id, kind: term_kind,
+                sites.push(LanguageSite { page_region: None, node_id: term.node_id, kind: term_kind,
                     parent: Some(item.node_id), span: Some(term.span), raw: term.language.clone(),
                     pointer: format!("{at}/term/language") });
                 collect_inlines(&term.children, term.node_id, &format!("{at}/term/children"),
@@ -1594,6 +1599,7 @@ fn collect_blocks<K: NavigationSemanticKind>(
         };
         if let Some(kind) = kind {
             sites.push(LanguageSite {
+                page_region: None,
                 node_id,
                 kind: kind.into(),
                 parent: Some(parent),
@@ -1620,6 +1626,7 @@ fn collect_blocks<K: NavigationSemanticKind>(
                 for (item_index, item) in items.iter().enumerate() {
                     let item_pointer = format!("{base}/items/{item_index}");
                     sites.push(LanguageSite {
+                        page_region: None,
                         node_id: item.node_id,
                         kind: StagingLanguageNodeKind::ListItem.into(),
                         parent: Some(node_id),
@@ -1716,6 +1723,7 @@ fn collect_rows<K: NavigationSemanticKind>(
     for (row_index, row) in rows.iter().enumerate() {
         let row_pointer = format!("{pointer}/{row_index}");
         sites.push(LanguageSite {
+            page_region: None,
             node_id: row.node_id,
             kind: StagingLanguageNodeKind::TableRow.into(),
             parent: Some(parent),
@@ -1726,6 +1734,7 @@ fn collect_rows<K: NavigationSemanticKind>(
         for (cell_index, cell) in row.cells.iter().enumerate() {
             let cell_pointer = format!("{row_pointer}/cells/{cell_index}");
             sites.push(LanguageSite {
+                page_region: None,
                 node_id: cell.node_id,
                 kind: StagingLanguageNodeKind::TableCell.into(),
                 parent: Some(row.node_id),
@@ -1795,6 +1804,7 @@ fn collect_inlines<L: NavigationLanguageKind>(
         };
         if let Some(kind) = kind {
             sites.push(LanguageSite {
+                page_region: None,
                 node_id,
                 kind: kind.into(),
                 parent: Some(parent),

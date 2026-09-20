@@ -62,6 +62,7 @@ pub(super) fn check(
         Paint::Image(i)=>Some(display.images().draws()[i].paint().viewport()),
         Paint::EquationNumber(i)=>Some(display.numbers().draws()[i].placement().geometry().bounds()),
         Paint::FootnoteSeparator(_)=>None,
+        Paint::PageRegionText{region,draw}=>display.page_regions()[region].draws()[draw].logical_bounds(),
             };bounds.map(rectangle)
         }).collect::<Vec<_>>();
         serde_json::json!({"page":g.page_index(),"fragment":g.fragment_index(),"artifact":g.artifact().is_some(),"paints":paints})

@@ -493,16 +493,20 @@ impl<'h, 'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f,
                 return Err(E::Identity);
             }
         }
-        // Every prepared language owner and source number appears exactly once.
-        // Break/anchor records carry no semantics and are deliberately excluded.
+        // Every body language owner and source number appears exactly once.
+        // Original page-region owners carry language but are pagination artifacts;
+        // require their absence from logical structure, including empty regions
+        // and masters not selected by any page. Break/anchor records are excluded.
         for language in flow.navigation().languages() {
             self.budget.step(1)?;
-            find(
+            let node = find(
                 &lookup,
                 Key::new(language.node_id(), Slot::Source),
                 &mut self.budget,
-            )?
-            .ok_or(E::Identity)?;
+            )?;
+            if node.is_some() != language.page_region().is_none() {
+                return Err(E::Identity);
+            }
         }
         for number in flow.navigation().language_children() {
             self.budget.step(1)?;

@@ -1,6 +1,9 @@
 //! Actual successor formula paints. Tagged structure and publication are later
 //! consumers; header copies retain their source terminal's explicit role.
 use super::*;
+#[path = "book_v2_page_region_display.rs"]
+mod page_region_display;
+pub use page_region_display::*;
 use typaxis_pagination::book_v2::{
     BookV2BodyMathSource, BookV2BodyMathTerminal, BookV2BodyMathTerminals,
 };

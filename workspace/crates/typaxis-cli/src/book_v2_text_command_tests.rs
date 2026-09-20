@@ -61,6 +61,7 @@ pub(super) fn check(
         assert_eq!(&tokens[..2], ["0", "g"]);
         let paint = display.paints()[command.paint_index()];
         let page = match paint {
+            Paint::PageRegionText { region, .. } => display.page_regions()[region].page_index(),
             Paint::Text(i) => display.text().draws()[i].page_index(),
             Paint::Marker(i) => display.markers().draws()[i]
                 .fragment()

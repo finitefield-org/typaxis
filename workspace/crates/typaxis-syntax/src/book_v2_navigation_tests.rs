@@ -301,6 +301,18 @@ fn metadata_heading_outline_and_page_region_languages_keep_source_ownership() {
         nav.outline()[0].source.semantic_kind.as_deref(),
         Some("note")
     );
+    // The region wrapper is not a language/structure node; its children retain
+    // its original identity separately from their logical language parent.
+    assert_eq!(nav.language(NodeId::new(0)).unwrap().page_region(), None);
+    assert_eq!(nav.language(NodeId::new(1)).unwrap().page_region(), None);
+    assert_eq!(
+        nav.language(NodeId::new(11)).unwrap().page_region(),
+        Some(NodeId::new(10))
+    );
+    assert_eq!(
+        nav.language(NodeId::new(12)).unwrap().page_region(),
+        Some(NodeId::new(10))
+    );
     assert!(nav.language(NodeId::new(10)).is_none());
     assert_eq!(
         nav.language(NodeId::new(11)).unwrap().parent(),

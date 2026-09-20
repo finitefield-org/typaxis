@@ -33,6 +33,8 @@ impl std::error::Error for BookV2ConvergenceError {
 use BookV2ConvergenceError as E;
 #[path = "book_v2_header_catalog_driver.rs"]
 pub(super) mod header_catalog_driver;
+#[path = "book_v2_page_region_driver.rs"]
+mod page_region_driver;
 fn stage<T: std::error::Error + 'static>(stage: &'static str, source: T) -> E {
     E::Stage {
         stage,
@@ -180,7 +182,7 @@ pub fn with_converged_book_v2_pdf<R>(
         // Collect every authored Page reference, including unplaced definitions.
         let source = prepare_book_v2_text_flow(body.styled(), &navigation)
             .map_err(|e| stage("source", e))?;
-        page_plan = prepare_book_v2_page_frame_plan_for_reflow(
+        page_plan = prepare_book_v2_page_frame_plan_with_regions(
             &source,
             &mut total.work,
             maximum_work,
@@ -469,6 +471,9 @@ pub fn with_converged_book_v2_pdf<R>(
             )
             .map_err(|e| stage("display", e))?;
             let display = display.build_body().map_err(|e| stage("body display", e))?;
+            let display = page_region_driver::attach(
+                display, &policy, &navigation, limits, japanese_mode, remaining, &mut total.line_passes,
+            )?;
             let mut pipeline = BookV2PdfPipeline::new(
                 &display,
                 1,

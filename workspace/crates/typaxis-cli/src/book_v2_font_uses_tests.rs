@@ -16,6 +16,14 @@ pub(super) fn check(display: &BookV2BodyDisplay<'_, '_, '_, '_, '_, '_, '_, '_>)
     for (paint_index, paint) in display.paints().iter().enumerate() {
         let mut expected = Vec::new();
         match *paint {
+            P::PageRegionText { region, draw } => {
+                let d = &display.page_regions()[region].draws()[draw];
+                let span = d.source_span();
+                expected.push(Some((
+                    S::Text(typaxis_core::DisplayTextSpan::new(typaxis_core::DisplayTextBufferId::new(span.text_id().get()),span.start_byte(),span.end_byte()).unwrap()),
+                    T::Text(d.exact_text()), G::Cluster(d.glyphs()), d.font().face_id(), d.font().size(), d.font_instance().table_fingerprint(),
+                )));
+            }
             P::Text(i) => {
                 let d = &display.text().draws()[i];
                 expected.push(Some((

@@ -286,3 +286,9 @@ fn book_v2_page_region_flow_uses_selected_master_and_requires_present_region() {
 
 #[path = "book_v2_page_region_line_tests.rs"]
 mod region_lines;
+
+#[path = "book_v2_page_region_display_tests.rs"]
+mod region_display;
+
+#[path = "book_v2_page_region_pdf_tests.rs"]
+mod region_pdf;

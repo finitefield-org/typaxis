@@ -44,6 +44,10 @@ pub(super) fn check(
         .paints()
         .iter()
         .map(|paint| match *paint {
+            Paint::PageRegionText { region, draw } => {
+                let r=&display.page_regions()[region]; let d=&r.draws()[draw];
+                (Some(d.owner()),r.page_index(),region,R::Text,false,None,None)
+            }
             Paint::Text(i) => {
                 let d = &display.text().draws()[i];
                 (
@@ -164,7 +168,12 @@ pub(super) fn check(
                 (g.owner(), g.page_index(), g.fragment_index(), g.role()),
                 (actual.0, actual.1, actual.2, actual.3)
             );
-            let artifact = if actual.4 {
+            let artifact = if let Paint::PageRegionText { region, .. } = display.paints()[next] {
+                Some(match display.page_regions()[region].kind() {
+                    typaxis_syntax::book_v2::BookV2PageRegionKind::Header => A::RunningHeader,
+                    typaxis_syntax::book_v2::BookV2PageRegionKind::Footer => A::RunningFooter,
+                })
+            } else if actual.4 {
                 Some(A::RepeatedHeader)
             } else if actual.3 == R::Separator {
                 Some(A::FootnoteSeparator)
@@ -194,10 +203,13 @@ pub(super) fn check(
                 R::Separator => "Artifact",
             };
             let (wanted, kind, subtype) = match artifact {
-                Some(A::RepeatedHeader) => (
+                Some(A::RepeatedHeader | A::RunningHeader) => (
                     String::from("/Artifact << /Type /Pagination /Subtype /Header >> BDC\n"),
                     Some("Pagination"),
                     Some("Header"),
+                ),
+                Some(A::RunningFooter) => (
+                    String::from("/Artifact << /Type /Pagination /Subtype /Footer >> BDC\n"), Some("Pagination"), Some("Footer"),
                 ),
                 Some(A::FootnoteSeparator) => (
                     String::from("/Artifact << /Type /Layout >> BDC\n"),

@@ -1088,6 +1088,7 @@ fn group_bounds(
                 Some(display.numbers().draws()[i].placement().geometry().bounds())
             }
             Paint::FootnoteSeparator(_) => return Err(E::Identity),
+            Paint::PageRegionText { .. } => return Err(E::Identity),
         };
         if let Some(next) = next {
             bounds = Some(match bounds {

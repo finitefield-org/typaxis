@@ -241,7 +241,7 @@ pub fn prepare_book_v2_page_frame_plan<'a>(
     work: &mut u64,
     maximum: u64,
 ) -> Result<BookV2PageFramePlan<'a>, BookV2PageMasterError> {
-    prepare_frames_for_name(source, None, work, maximum, false)
+    prepare_frames_for_name(source, None, work, maximum, false, false)
 }
 fn prepare_frames_for_name<'a>(
     source: &'a StyledBookV2Body,
@@ -249,6 +249,7 @@ fn prepare_frames_for_name<'a>(
     work: &mut u64,
     maximum: u64,
     allow_widths: bool,
+    allow_regions: bool,
 ) -> Result<BookV2PageFramePlan<'a>, BookV2PageMasterError> {
     use typaxis_core::{Length, PositiveLength, Rect};
     use BookV2PageMasterError as E;
@@ -257,8 +258,7 @@ fn prepare_frames_for_name<'a>(
     for page in 0..source.body().limits().get().max_pages.min(3) {
         let selected = select_book_v2_page_master(source, page, name, work, maximum)?;
         let advanced = selected.advanced();
-        if advanced.header_content.is_some()
-            || advanced.footer_content.is_some()
+        if (!allow_regions && (advanced.header_content.is_some() || advanced.footer_content.is_some()))
             || advanced.column_layout.is_some()
         {
             return Err(E::UnsupportedAdvanced);
@@ -358,7 +358,7 @@ pub fn prepare_book_v2_page_frame_plan_for_flow_with_prior<'a>(
     prior_records: u64,
     prior_spool: u64,
 ) -> Result<BookV2PageFramePlan<'a>, BookV2PageMasterError> {
-    prepare_flow_frames(flow, work, maximum, prior_records, prior_spool, false)
+    prepare_flow_frames(flow, work, maximum, prior_records, prior_spool, false, false)
 }
 /// Retain maximum-width measurement envelopes for source-aware page feedback.
 /// Tables must remeasure columns/cells and verify actual continuation widths.
@@ -369,7 +369,15 @@ pub fn prepare_book_v2_page_frame_plan_for_reflow<'a>(
     prior_records: u64,
     prior_spool: u64,
 ) -> Result<BookV2PageFramePlan<'a>, BookV2PageMasterError> {
-    prepare_flow_frames(flow, work, maximum, prior_records, prior_spool, true)
+    prepare_flow_frames(flow, work, maximum, prior_records, prior_spool, true, false)
+}
+/// Plan body geometry for a consumer that will retain every authored page
+/// region. The PDF consumer still rejects missing region displays.
+pub fn prepare_book_v2_page_frame_plan_with_regions<'a>(
+    flow: &super::PreparedBookV2TextFlow<'a>, work: &mut u64, maximum: u64,
+    prior_records: u64, prior_spool: u64,
+) -> Result<BookV2PageFramePlan<'a>, BookV2PageMasterError> {
+    prepare_flow_frames(flow, work, maximum, prior_records, prior_spool, true, true)
 }
 fn prepare_flow_frames<'a>(
     flow: &super::PreparedBookV2TextFlow<'a>,
@@ -378,12 +386,13 @@ fn prepare_flow_frames<'a>(
     prior_records: u64,
     prior_spool: u64,
     allow_widths: bool,
+    allow_regions: bool,
 ) -> Result<BookV2PageFramePlan<'a>, BookV2PageMasterError> {
     use crate::{ProductionFlowEvent as Event, ProductionFlowRegionKind as Region};
     use typaxis_core::{NodeId, Rect};
     use BookV2PageMasterError as E;
     let source = flow.body();
-    let mut plan = prepare_frames_for_name(source, None, work, maximum, allow_widths)?;
+    let mut plan = prepare_frames_for_name(source, None, work, maximum, allow_widths, allow_regions)?;
     let caps = source.body().limits().get();
     if prior_records > caps.max_fragments {
         return Err(E::RecordLimit);
@@ -520,6 +529,7 @@ fn prepare_flow_frames<'a>(
                             work,
                             maximum,
                             allow_widths,
+                            allow_regions,
                         )?;
                         let mut owned = String::new();
                         owned

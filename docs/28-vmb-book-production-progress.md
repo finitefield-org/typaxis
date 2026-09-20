@@ -15535,3 +15535,55 @@ ADR-0096に従い、独立したBookV2PageRegionInlines／BookV2PageRegionLines�
 source-preservation.jsonは元全巻package・原Harano／Arialの既知hashを照合し、jobs.jsonは元VMB job 10件の既知hashを確認した。変更前のソース・差分と最終hashをbefore／changes.patch／final-source-hashes.jsonに保存した。TypaxisとVMB companionのgit diff --checkも成功した。コミット・pushは行っていない。
 
 反復Artifact描画、実font／PDF resource closure、driverの累積workと失敗試行費用、柱・footer入りPDFへの接続は残る。未描画regionを落とさないためpage-plan／PDF側のUnsupportedPageMaster guardを維持する。残る名前指定・段組・元全巻・公開CLI／manifest・管理ホスト・性能・著者／人手／PDF/UAは未完であり、本節を設計全体の完了とは扱わない。VMB producer／Go testは今回変更・実行していない。
+
+<a id="book-2-page-region-display-design-14233"></a>
+
+## 233. 収束した柱・footerの字形を保持する描画データ（設計§14.233、2026-09-20）
+
+現在のworktreeを再確認して§232の実装と検証記録が存在し、開始時git状態がcleanであることを確認した。前回は行組みと高さ検証を追加したprogressであり、今回はADR-0097に従って描画データへの接続を進めた。
+
+BookV2PageRegionDisplayBuilder／BookV2PageRegionDisplayを追加し、収束済みline viewと元body／admitted ledger／limits／epochを照合して、元clusterの字形をpage座標へ投影する。元source bufferのparsed spanから文字列を借用し、実clusterと比較する。builderに一度だけ用意した同一font-instance tableを使い、ledgerを借用するadmitted instanceを保持する。結果はnavigation／flow／shape／line graphとbuilderを破棄してから消費できる。先頭ページも含め全drawをHeader／Footer page Artifactとして扱う別型とし、本文fragment／structure node／MCIDを作らない。
+
+本文の共通project_clusterから、x／y／baselineを直接受けるproject_cluster_atを抽出した。本文は同じ値を渡す薄いwrapperを使い、柱で仮の本文fragmentを生成しない。実glyph offset／advanceとfont metricsから座標・論理boundsを保持する。persistent builderは全draw／glyph slotを確保前に予約し、失敗時にも消費workと予約recordを返さない。元text比較、字形投影・hashを課金する。source準備・line選択・shape workと失敗候補まで含むdriver全体の課金は未完である。
+
+証跡はworkspace/target/vmb-design/20260920/page-region-display。Cargo共通引数は--manifest-path workspace/Cargo.toml --locked --target-dir workspace/target/vmb-book-build-20260910、CARGO_BUILD_JOBS=4。GitHub Actionsは使わずローカルで実行した。
+
+- check-01.log: typaxis-display-list --features book-v2-stagingのcargo check成功。
+- tests-01.log: book_v2_page_region_ -- --include-ignored --nocapture、10 tests／9.71秒、ignored 0件成功。既存source／shape／lineの8 testsに、controlled TTと原Haranoの描画保持2 testsを追加した。TYPAXIS_HARANO_FONTには無変更の原HaranoAjiMincho-Regular.otfを明示した。
+- 二つの物理ページにheader／footerを準備し、収束callbackとflow／navigationを破棄した後に元文字列pointer・font hash・ledger identity・GID・page座標・logical boundsを検査した。TTのResultは計36 cluster draws／81 records／293 work、原Haranoの「本文の柱」は24 draws／57 records／257 work。同じroleの別pageでは元glyph・座標が一致し、fingerprintは区別される。
+- output recordsとworkのexact成功／1不足、u64::MAX入力、別epoch、失敗したbuildのwork／予約recordが次の試行へ残ることを確認した。後続の全統合実行へ、空regionのowner／fingerprint保持と別source／ledger拒否も追加した。
+
+- run-cli-accepted-01.py: 元VMB job 10件と原Harano／Arialを明示した全統合book_v2_resources -- --include-ignoredの241 tests／310.41秒、ignored 0件成功。空regionの保持と別source／ledger拒否を含む最終ソースを検証した。
+- run-local-checks.py: display-list 57 tests／0.51秒とdoc-test 1／1.01秒、workspace --all-features／通常checkに成功した。ビルドを含む実時間は11.42／5.33／4.30秒、コマンドと終了コードをlocal-checks.jsonへ保存した。
+
+ユーザーの追加指示により、今後1分以上かかるテストはユーザーが実行し、エージェントは実行コマンドを渡す。上記の全統合は指示到着前に完了していた。長時間検証を自動で再実行しない。
+
+- 指示到着時点で実行中だったrun-independent-01.pyも完了した。743 source PDFs（352 actual callbacks）／2,836 pages／35,492 structure nodes／983 annotations／13 explicit unsupported inputs／5,663改変拒否に成功した。58 variant displays／48 TrueType＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否、実埋込み58 PDFs／446 pages／118改変PDF拒否も成功した。
+- compare-accepted-01.pyでは直前のpage-region-lines段階の743 PDF全件がbyte一致、名前変更0件で、driverのpage数・body／footnote領域も一致した。元VMB table_caption 31,046 bytes／table_alignment 31,111 bytesも一致した。共有cluster座標helperの抽出は既存PDFを変更していない。新しい柱・footer PDFを生成・受入したという主張ではない。
+
+source-preservation.jsonで元全巻package・原Harano／Arialの既知hashを照合し、jobs.jsonで元VMB job 10件のhashを確認した。before／changes.patch／final-source-hashes.jsonに変更前ソース・差分・最終hashを保存した。実装ソースは検証後も不変で、git diff --checkも成功した。コミット・pushは行っていない。
+
+本文displayへの結合、実subset／CID選択、ページごとのArtifact serializationとdriver全体の累積予算は未完である。柱・footerの未描画内容を落とさないため既存guardを維持する。元全巻・公開CLI／manifest・管理ホスト・性能・著者／人手／PDF/UAを含む設計全体は未完であり、goalを完了扱いにしない。
+
+<a id="book-2-page-region-pdf-pending-design-14234"></a>
+
+## 234. 柱・footerの実font選択とPDF Artifact接続（全回帰待ち、2026-09-20）
+
+§233の描画データを本文displayへ結合するwith_page_regions、PageRegionText paint、共通font-use／subset／CID／text command経路、Header／FooterのPagination Artifact scopeを追加した。実選択masterのregion owner・role・page・矩形を照合し、欠落・重複・別source／epochを拒否する。結合時はpage順に本文paintの後へregion paintを挿入し、元本文paint間の順序を保つ。regionはMCIDを持たず、本文navigation boundsへも混ぜない。
+
+private driverは新しい明示的なpage-region対応frame-planを使用し、実ページごとにsource準備・行収束・描画・結合を行う。従来frame-planの未対応拒否は維持した。PDF assemblyは選択されたheader／footerに対応する描画がなければ引き続きUnsupportedPageMasterを返し、column_layoutは未対応のままである。本文とregionで共有するrecord／work・残りline passを引き継ぐ処理を追加したが、shape engine内部workや失敗候補を含む予算全体の受入は未完である。
+
+証跡はworkspace/target/vmb-design/20260920/page-region-resources。check-01.logは通常CLI check成功（8.49秒）、check-02.logはdriverまで接続したCLI check成功（10.91秒）。check-tests-01.logでは新paint／Artifact variantに対する既存test oracleの網羅不足5件を修正した。check-tests-02.logでは新規構造node検査のgetterを修正し、check-tests-03.logのcargo check -p typaxis-cli --features book-v2-staging --testsが9.15秒で成功した。
+
+新規book_v2_page_region_pdf_*の4 testsは、複数ページのTT／原Harano、柱だけの字形、実PDFのHeader／Footer ArtifactとMCIDなし、空region、overflowでPDF callbackへ到達しないことを検証する。TYPAXIS_BOOK_V2_PAGE_REGION_PROBEを指定すると成功したPDFと対応JSONを保存する。初回実装時点ではこれらのテストと長時間回帰は未実行だった。下記の専用検証後も、柱入りPDF全体の受入完了とは扱わない。前節の743 PDF byte一致は前節のソースに対する結果であり、今回の未実行差分へ流用しない。
+
+ユーザーの指示に従い、1分以上かかるテストのコマンドを提示した時点で停止する。長時間の全回帰と既存PDFの独立検証はユーザー実行とする。コミット・pushは行っていない。
+
+
+2026-09-20のユーザー実行は15 tests中12成功／3失敗（build 31.41秒、test 9.84秒）だった。TT・原Harano・空regionの正例がPDF source-structure生成時のIdentityで失敗した。source navigationには柱・footerの言語ownerも含まれるが、本文structure検証がその全件に意味構造nodeを要求していたことが原因だった。元region走査時にLanguageSiteへregion ownerを付与し、PreparedBookV2Languageへ保持するよう修正した。PDFでは本文ownerの存在を維持しつつ、region ownerのnodeが存在しないことも検証する。node欠落を一般的に許容する変更ではない。
+
+- 修正後のbook_v2_page_region_ -- --include-ignored --nocaptureは15成功／0失敗／ignored 0（build 41.57秒、test 10.16秒）。本文言語ownerのnode存在と、空段落を含むregion言語ownerのnode不在をPDF callbackで検査した。
+- navigationのsource ownership専用1 test成功（build 3.85秒、test 0.02秒）。その後book_navigationの21 testsも0.06秒で成功し、既存世代の言語継承を含めて確認した。
+- 出力はTT 3 pages／15,185 bytes、原Harano 4 pages／15,519 bytes、空region 3 pages／8,414 bytes。pypdfで各非空ページにHeader／FooterのPagination ArtifactがありMCIDを持たないこと、空regionのArtifactなし、font programの埋込みを確認した。独立した全字形・座標比較やPDF/UA受入の代用ではない。
+- ユーザーの失敗ログをuser-tests-before-identity-fix.log、成功結果の要約・PDF hashesをidentity-fix-results.json、PDF／元wireをidentity-fix-pdfsへ保存した。一時診断用のpipeline出力は除去した。
+- 未実行の長時間用runnerはrun-cli-accepted-01.pyとrun-independent-01.py。前者は原VMB job 10件・原Harano／Arialを指定し、新しいregion PDFも保存する。後者は既存743 PDF／58 resource probesの独立検証と直前§233とのbyte比較を行う。これらの結果はまだ成功根拠に含めない。

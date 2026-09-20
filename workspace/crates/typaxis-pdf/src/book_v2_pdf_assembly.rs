@@ -537,6 +537,7 @@ impl<
         }
         let pc = marked.pages().len();
         let mut page_masters = reserved::<BookV2SelectedPageMaster<'_>>(pc, &mut self.budget)?;
+        let mut region_cursor = 0usize;
         for page in 0..pc {
             let placement = geometry.pages()[page].selection();
             let selected = select_book_v2_page_master(
@@ -549,11 +550,21 @@ impl<
             .map_err(AE::PageMaster)?;
             let master = selected.master();
             let advanced = selected.advanced();
-            if advanced.header_content.is_some()
-                || advanced.footer_content.is_some()
-                || advanced.column_layout.is_some()
-            {
+            if advanced.column_layout.is_some() {
                 return Err(AE::UnsupportedPageMaster);
+            }
+            for (kind, content) in [
+                (typaxis_syntax::book_v2::BookV2PageRegionKind::Header, advanced.header_content.as_ref()),
+                (typaxis_syntax::book_v2::BookV2PageRegionKind::Footer, advanced.footer_content.as_ref()),
+            ] {
+                if let Some(content) = content {
+                    self.budget.step(1)?;
+                    let region = display.page_regions().get(region_cursor).ok_or(AE::UnsupportedPageMaster)?;
+                    if region.page_index() != page as u32 || region.kind() != kind || region.owner().get() != content.node_id {
+                        return Err(AE::PageFrameMismatch);
+                    }
+                    region_cursor += 1;
+                }
             }
             let b = placement.body_bounds();
             if let Some(plan) = frames.page_plan() {
@@ -587,6 +598,7 @@ impl<
             }
             page_masters.push(selected);
         }
+        if region_cursor != display.page_regions().len() { return Err(AE::PageFrameMismatch); }
         let n = registry.nodes().len();
         let ac = source.rectangles().len();
         let oc = source.outline().len();

@@ -9,6 +9,7 @@ use typaxis_style::book_v2::BookV2SemanticContainerStyleKind;
 
 #[derive(Debug)]
 pub struct PreparedBookV2Language<'a> {
+    page_region: Option<NodeId>,
     node: NodeId,
     kind: BookV2LanguageNodeKind,
     parent: Option<NodeId>,
@@ -18,6 +19,11 @@ pub struct PreparedBookV2Language<'a> {
     vector: Option<&'a PreparedBookVector>,
 }
 impl<'a> PreparedBookV2Language<'a> {
+    /// Original header/footer region owner. These language records are artifacts,
+    /// not logical body structure, even when their master is not selected.
+    pub const fn page_region(&self) -> Option<NodeId> {
+        self.page_region
+    }
     pub const fn node_id(&self) -> NodeId {
         self.node
     }
@@ -301,6 +307,7 @@ pub fn prepare_book_v2_navigation(
             None
         };
         records.push(PreparedBookV2Language {
+            page_region: site.page_region.map(NodeId::new),
             node: NodeId::new(site.node_id),
             kind: site.kind,
             parent: site.parent.map(NodeId::new),

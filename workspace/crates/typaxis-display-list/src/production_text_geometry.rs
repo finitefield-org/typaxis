@@ -7,6 +7,18 @@ pub(super) fn project_cluster(
     fragment: typaxis_pagination::ProductionBodyFragment,
     remaining: &mut u64,
 ) -> Result<(Vec<ProductionBodyGlyph>, Option<Rect>), ProductionBodyDisplayError> {
+    project_cluster_at(cluster, font, fragment.bounds().x(), fragment.bounds().y(), fragment.baseline(), remaining)
+}
+
+/// Translate real selected glyphs without constructing a synthetic body fragment.
+pub(super) fn project_cluster_at(
+    cluster: &typaxis_layout::ProductionPlacedTextCluster<'_, '_>,
+    font: &typaxis_shaping::ProductionBodyFont,
+    x: Length,
+    y: Length,
+    baseline: Option<Length>,
+    remaining: &mut u64,
+) -> Result<(Vec<ProductionBodyGlyph>, Option<Rect>), ProductionBodyDisplayError> {
     let owner = cluster.run().owner();
     take(
         remaining,
@@ -26,8 +38,8 @@ pub(super) fn project_cluster(
         advance = plus(advance, glyph.glyph().advance_x, owner)?;
         glyphs.push(ProductionBodyGlyph {
             original_gid: glyph.glyph().original_gid,
-            x: plus(fragment.bounds().x(), glyph.x(), owner)?,
-            y: plus(fragment.bounds().y(), glyph.y(), owner)?,
+            x: plus(x, glyph.x(), owner)?,
+            y: plus(y, glyph.y(), owner)?,
         });
     }
     let height = font
@@ -40,11 +52,10 @@ pub(super) fn project_cluster(
     let logical_bounds = if let (Some(width), Some(height)) =
         (PositiveLength::new(advance), PositiveLength::new(height))
     {
-        let baseline = fragment
-            .baseline()
+        let baseline = baseline
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
         Some(Rect::new(
-            plus(fragment.bounds().x(), cluster.pen_x(), owner)?,
+            plus(x, cluster.pen_x(), owner)?,
             baseline
                 .checked_sub(font.ascender())
                 .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,

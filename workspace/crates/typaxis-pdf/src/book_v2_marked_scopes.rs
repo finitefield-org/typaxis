@@ -20,6 +20,8 @@ pub enum BookV2MarkedRole {
 pub enum BookV2MarkedArtifact {
     RepeatedHeader,
     FootnoteSeparator,
+    RunningHeader,
+    RunningFooter,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Key {
@@ -52,6 +54,20 @@ fn properties<'a>(
                     None,
                     None,
                 )
+            }
+            Paint::PageRegionText { region, draw } => {
+                let r = &display.page_regions()[region];
+                let d = &r.draws()[draw];
+                return Ok(Properties {
+                    key: Key {
+                        owner: Some(d.owner()), page: r.page_index(), fragment: region,
+                        role: R::Text,
+                        artifact: Some(match r.kind() {
+                            typaxis_syntax::book_v2::BookV2PageRegionKind::Header => BookV2MarkedArtifact::RunningHeader,
+                            typaxis_syntax::book_v2::BookV2PageRegionKind::Footer => BookV2MarkedArtifact::RunningFooter,
+                        }),
+                    }, alternative: None, actual: None,
+                });
             }
             Paint::Marker(i) => {
                 let d = &display.markers().draws()[i];
@@ -220,10 +236,11 @@ fn visit(
 fn begin(p: &Properties<'_>, mcid: Option<u32>, out: &mut Encoder<'_>) -> Result<(), E> {
     if let Some(artifact) = p.key.artifact {
         return out.extend(match artifact {
-            BookV2MarkedArtifact::RepeatedHeader => {
+            BookV2MarkedArtifact::RepeatedHeader | BookV2MarkedArtifact::RunningHeader => {
                 b"/Artifact << /Type /Pagination /Subtype /Header >> BDC\n"
             }
             BookV2MarkedArtifact::FootnoteSeparator => b"/Artifact << /Type /Layout >> BDC\n",
+            BookV2MarkedArtifact::RunningFooter => b"/Artifact << /Type /Pagination /Subtype /Footer >> BDC\n",
         });
     }
     out.extend(match p.key.role {

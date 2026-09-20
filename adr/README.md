@@ -162,3 +162,5 @@
 - [ADR-0095: Prepare and shape source-bound header/footer text independently](ADR-0095-book-2-page-region-text-flow.md)
 
 - [ADR-0096: Select and converge running-region lines in the original page rectangle](ADR-0096-book-2-page-region-lines.md)
+
+- [ADR-0097: Retain running-region glyph draws beyond line convergence](ADR-0097-book-2-page-region-display.md)

@@ -5046,3 +5046,19 @@ with_converged_book_v2_page_region_linesは、実選択したsource改行位置�
 初期breakと各reshapeのcandidate費用を共通allowanceから引き、呼出元の残りpassとeffective limitを守る。保持shape／inline／width scratch／projection／originと前回line contextをrecord予算へ計上する。これはstageの予算接続であり、source準備やshape work、失敗候補を含むdriver全体の累積費用を完成したとは扱わない。
 
 原Harano日本語・controlled TTで幅変更、行揃え、source／字形、強制改行・空段落、高さexact／1単位不足、予算と別ownerの拒否を検証する。結果は[進捗記録](28-vmb-book-production-progress.md#book-2-page-region-lines-design-14232)へ記録する。ページごとの反復Artifact描画、実font／PDF resource closureとdriver接続は残り、未描画regionを捨てないため既存のUnsupportedPageMaster guardを維持する。柱入りPDF、元全巻、公開CLI／manifest、管理ホスト・性能・著者／人手／PDF/UAの受入は未完である。
+
+### 14.233 収束した柱・footerの字形を保持する描画データ
+
+[ADR-0097](../adr/ADR-0097-book-2-page-region-display.md)に従い、BookV2PageRegionDisplayBuilder／BookV2PageRegionDisplayを追加した。封印された収束結果だけを入力し、元body、shape、admitted ledger、limits、epochとfont-instance tableを照合する。元text buffer／parsed spanからUTF-8を借用し、実選択clusterとの一致を確認して、page座標付きの元GIDを保持する。font metricsとadmitted instanceも保持するため、一時的なnavigation／flow／shape／line graphを破棄した後に描画データを消費できる。
+
+先頭ページも含め、描画データのroleはHeader／Footerのpage Artifactに限定する。本文fragmentや意味構造node、MCIDは作らない。空regionもownerとfingerprintを保持する。共通cluster投影の座標計算を本文fragmentから独立したhelperへ分け、柱・footerでも同じ字形offset・advance・baseline計算を使用する。論理boundsを字形inkのclipへ流用しない。
+
+persistent builderは呼出元のrecord／workを引き継ぎ、draw／glyph slotを確保前に計上する。後段失敗時も予約済みrecordと消費workを返さず、UTF-8比較・字形走査・hash費用を計上する。元source、収束layout、resource ledger、limits、epochと実座標をfingerprintへ束縛する。source準備・shape workや失敗した行候補を含むdriver全体の予算接続は残る。
+
+原Harano日本語とcontrolled TTで、二つの物理ページのheader／footer、元文字列pointer・font hash・GID・座標、別epoch／source／ledger、空regionと予算境界を検証する。結果は[進捗記録](28-vmb-book-production-progress.md#book-2-page-region-display-design-14233)へ記録する。glyph subset／CID closure、実ページとの結合、PDFのArtifact serializationは未接続であり、UnsupportedPageMaster guardを維持する。柱入りPDF、公開経路、元全巻と管理ホスト・性能・著者／人手／PDF/UAの受入を完了したとは扱わない。
+
+### 14.234 柱・footerを本文displayとPDF Artifactへ結合（全回帰待ち）
+
+§14.233の描画を実master・page・region owner・role・矩形と照合して、本文と同じpage順のpaint一覧へ結合する処理を追加した。専用PageRegionText paintを共通font-use／subset／CID／text commandへ渡し、Header／FooterのPagination Artifact scopeを生成する。本文のMCIDや意味構造nodeは付与しない。空regionも検証対象に含め、欠落・重複・別sourceを拒否する。
+
+private driverはregion対応frame-planから実ページごとのsource・line convergence・描画を作り、残りline passとrecord／workを引き継ぐ。従来のframe-plan APIはguardを維持し、PDF assemblyは描画が欠けたregionと未対応columnを拒否する。元source走査で言語情報にregion ownerを保持し、意味構造では本文言語nodeの存在とregion言語nodeの不在を検証する。専用15 testsとnavigation 21 testsは成功した。実PDFの基本的なArtifact・埋込みfont検査も成功したが、完全な独立検証・全回帰は未完である。前節の検証結果を今回の変更の成功根拠とは扱わない。進捗§234とworkspace/target/vmb-design/20260920/page-region-resourcesを参照する。

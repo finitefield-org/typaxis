@@ -99,7 +99,7 @@ fn count_commands(
     for paint in display.paints() {
         budget.step(1)?;
         let n = match *paint {
-            Paint::Text(_) | Paint::FootnoteSeparator(_) => 1,
+            Paint::Text(_) | Paint::FootnoteSeparator(_) | Paint::PageRegionText { .. } => 1,
             Paint::Marker(i) => display.markers().draws()[i].clusters().len(),
             Paint::EquationNumber(i) => display.numbers().draws()[i].clusters().len(),
             Paint::Math(i) => match display.math().draws()[i].paint() {
@@ -127,6 +127,7 @@ fn encode(
         let before = command_cursor;
         let (page, slots) = match *paint {
             Paint::Text(i) => (display.text().draws()[i].page_index(), 1),
+            Paint::PageRegionText { region, .. } => (display.page_regions()[region].page_index(), 1),
             Paint::Marker(i) => {
                 let d = &display.markers().draws()[i];
                 (d.fragment().fragment().page_index(), d.clusters().len())
