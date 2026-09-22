@@ -169,6 +169,32 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
         prior_records: u64,
         prior_work: u64,
     ) -> Result<Self, BookV2MathDisplayError> {
+        Self::new_counted(
+            source,
+            admitted,
+            limits,
+            maximum_work,
+            prior_records,
+            prior_work,
+            &mut 0,
+            &mut 0,
+        )
+    }
+    /// Preserve accepted constructor reservations and header verification work
+    /// when no builder can be returned. Counters include the supplied prefix.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_counted(
+        source: &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        admitted: &'d AdmittedProductionResourceLedgerV3,
+        limits: &M4EffectiveResourceLimits,
+        maximum_work: u64,
+        prior_records: u64,
+        prior_work: u64,
+        observed_records: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<Self, BookV2MathDisplayError> {
+        *observed_records = prior_records.max(source.record_charge());
+        *observed_work = prior_work.max(source.work_steps());
         let root = NodeId::new(0);
         let flow = source.source().flow();
         flow.verify(flow.lines(), flow.blocks(), flow.footnotes(), limits)
@@ -207,32 +233,38 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
             maximum_work,
             work,
         };
-        if source.source().has_header_variants() {
-            for page in source.source().geometry().pages() {
-                result.step(root)?;
-                for variant in page.header_variants() {
+        let validation = (|| {
+            if source.source().has_header_variants() {
+                for page in source.source().geometry().pages() {
                     result.step(root)?;
-                    let flow = variant.measurements().flow();
-                    flow.verify(flow.lines(), flow.blocks(), flow.footnotes(), limits)
-                        .map_err(|_| error(root, E::ReceiptMismatch))?;
-                    let prepared = flow.lines().prepared();
-                    let shaped = prepared.shaped();
-                    shaped
-                        .verify(
-                            prepared.source_flow(),
-                            admitted,
-                            limits,
-                            shaped.binding_epoch(),
-                        )
-                        .map_err(|_| error(root, E::ReceiptMismatch))?;
-                    if let Some(bindings) = prepared.vector_bindings() {
-                        bindings
-                            .verify(bindings.body(), admitted, limits)
+                    for variant in page.header_variants() {
+                        result.step(root)?;
+                        let flow = variant.measurements().flow();
+                        flow.verify(flow.lines(), flow.blocks(), flow.footnotes(), limits)
                             .map_err(|_| error(root, E::ReceiptMismatch))?;
+                        let prepared = flow.lines().prepared();
+                        let shaped = prepared.shaped();
+                        shaped
+                            .verify(
+                                prepared.source_flow(),
+                                admitted,
+                                limits,
+                                shaped.binding_epoch(),
+                            )
+                            .map_err(|_| error(root, E::ReceiptMismatch))?;
+                        if let Some(bindings) = prepared.vector_bindings() {
+                            bindings
+                                .verify(bindings.body(), admitted, limits)
+                                .map_err(|_| error(root, E::ReceiptMismatch))?;
+                        }
                     }
                 }
             }
-        }
+            Ok::<(), BookV2MathDisplayError>(())
+        })();
+        *observed_records = result.record_charge();
+        *observed_work = result.work_steps();
+        validation?;
         Ok(result)
     }
     pub fn record_charge(&self) -> u64 {

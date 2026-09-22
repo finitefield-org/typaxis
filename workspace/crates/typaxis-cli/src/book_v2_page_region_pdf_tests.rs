@@ -387,6 +387,23 @@ fn book_v2_page_region_pdf_unselected_regions_preserve_join_budgets() {
             assert!(fresh()
                 .with_page_regions(Vec::new(), &limits, exact - 1, records, work)
                 .is_err());
+            let mut observed_records = 0;
+            let mut observed_work = 0;
+            assert!(fresh()
+                .with_page_regions_counted(
+                    Vec::new(), &limits, exact - 1, records, work,
+                    &mut observed_records, &mut observed_work,
+                )
+                .is_err());
+            assert_eq!(observed_records, records);
+            assert_eq!(observed_work, exact - 1);
+            let counted = fresh().with_page_regions_counted(
+                Vec::new(), &limits, exact, records, work,
+                &mut observed_records, &mut observed_work,
+            ).unwrap();
+            assert_eq!(observed_records, counted.record_charge());
+            assert_eq!(observed_work, counted.work_steps());
+            assert_eq!(counted.fingerprint(), fingerprint);
             assert!(fresh()
                 .with_page_regions(
                     Vec::new(),
@@ -403,3 +420,6 @@ fn book_v2_page_region_pdf_unselected_regions_preserve_join_budgets() {
     )
     .unwrap();
 }
+
+#[path = "book_v2_region_failure_budget_tests.rs"]
+mod failure_budget;

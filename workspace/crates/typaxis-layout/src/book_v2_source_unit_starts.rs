@@ -21,6 +21,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
         assignments: &BookV2SourceWidthAssignments<'_, '_>,
         maximum_work: u64,
         consumed: &mut u64,
+        observed_records: &mut u64,
     ) -> Result<u64, ProductionInlinePreparationError> {
         let mut work = 0u64;
         let result = (|| {
@@ -56,6 +57,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
                 .and_then(|n| n.checked_add(1))
                 .filter(|n| *n <= self.prepared.max_fragments)
                 .ok_or_else(|| error(root, E::UnitLimit))?;
+            *observed_records = records;
             for (index, (p, values)) in self.prepared.paragraphs.iter().zip(starts).enumerate() {
                 step(&mut work, p.owner())?;
                 if let Some(values) = values {
@@ -75,6 +77,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
                         .checked_add(count as u64)
                         .filter(|n| *n <= self.prepared.max_fragments)
                         .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
+                    *observed_records = records;
                 }
             }
             let mut retained = Vec::new();

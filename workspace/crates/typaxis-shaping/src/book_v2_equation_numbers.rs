@@ -132,6 +132,16 @@ pub fn shape_book_v2_equation_numbers<'a>(
     limits: &M4EffectiveResourceLimits,
     prior_records: u64,
 ) -> Result<Option<BookV2EquationNumberShapes<'a>>, BookV2EquationNumberError> {
+    shape_book_v2_equation_numbers_counted(shaped, limits, prior_records, &mut 0)
+}
+/// Report accepted record reservations even if a later label fails.
+pub fn shape_book_v2_equation_numbers_counted<'a>(
+    shaped: &'a BookV2AuthoredTextShape<'a>,
+    limits: &M4EffectiveResourceLimits,
+    prior_records: u64,
+    observed_records: &mut u64,
+) -> Result<Option<BookV2EquationNumberShapes<'a>>, BookV2EquationNumberError> {
+    *observed_records = prior_records;
     use BookV2EquationNumberErrorKind as E;
     let failure = |owner, kind| BookV2EquationNumberError { owner, kind };
     shaped
@@ -151,6 +161,7 @@ pub fn shape_book_v2_equation_numbers<'a>(
         .and_then(|n| n.checked_add(count as u64))
         .filter(|n| *n <= limits.base().get().max_fragments)
         .ok_or_else(|| failure(NodeId::new(0), E::OutputLimit))?;
+    *observed_records = charge;
     let mut shapes = Vec::new();
     shapes
         .try_reserve_exact(count)
@@ -254,6 +265,7 @@ pub fn shape_book_v2_equation_numbers<'a>(
             .checked_add(records)
             .filter(|n| *n <= limits.base().get().max_fragments)
             .ok_or_else(|| failure(owner, E::OutputLimit))?;
+        *observed_records = charge;
         // The shared glyph encoder's scalar fields are bounded; preflight its
         // temporary canonical storage before constructing the string.
         if records

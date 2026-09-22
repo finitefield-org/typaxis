@@ -17,6 +17,7 @@ pub(super) fn verify(
     limits: &M4EffectiveResourceLimits,
     repeated_only_gid: Option<u16>,
 ) {
+    verify_constructor(source, admitted, limits);
     let run = |work, prior| -> Result<_, BookV2MathDisplayError> {
         let mut builder = BookV2MathDisplayBuilder::new(source, admitted, limits, work, prior, 0)?;
         let body = builder.build_body()?;
@@ -257,4 +258,51 @@ pub(super) fn verify(
         "header display: work={},records={},text={},markers={},images={},anchors={},glyphs={}",
         full.0, full.1, full.3, full.4, full.5, full.6, full.7
     );
+}
+
+fn verify_constructor(
+    source: &BookV2BodyMathTerminals<'_, '_, '_, '_, '_, '_, '_>,
+    admitted: &AdmittedProductionResourceLedgerV3,
+    limits: &M4EffectiveResourceLimits,
+) {
+    let baseline = BookV2MathDisplayBuilder::new(source, admitted, limits, 100_000_000, 0, 0).unwrap();
+    let initial = source.work_steps();
+    let final_work = baseline.work_steps();
+    assert!(source.source().has_header_variants());
+    assert!(final_work > initial + 1);
+    let mut records = u64::MAX;
+    let mut work = u64::MAX;
+    let mut exact = BookV2MathDisplayBuilder::new_counted(
+        source, admitted, limits, final_work, 0, 0, &mut records, &mut work,
+    ).unwrap();
+    assert_eq!(work, final_work);
+    assert_eq!(records, baseline.record_charge());
+    assert_eq!(records, source.record_charge() + 1);
+    // Both constructors reserve the same builder and validate actual repeated
+    // header receipts; stopping in the traversal must keep the started work.
+    for cap in [initial, initial + (final_work - initial) / 2, final_work - 1] {
+        let result = BookV2MathDisplayBuilder::new_counted(
+            source, admitted, limits, cap, 0, 0, &mut records, &mut work,
+        );
+        assert!(matches!(result, Err(BookV2MathDisplayError::WorkLimit(_))));
+        assert_eq!(work, cap);
+        assert_eq!(records, source.record_charge() + 1);
+        let retained = records;
+        // Reusing returned prefixes cannot refund the first failed constructor's
+        // reservation, even when the next attempt cannot start another step.
+        assert!(BookV2MathDisplayBuilder::new_counted(
+            source, admitted, limits, cap, records, work, &mut records, &mut work,
+        ).is_err());
+        assert_eq!(work, cap);
+        assert_eq!(records, retained + 1);
+    }
+    let maximum_records = limits.base().get().max_fragments;
+    assert!(BookV2MathDisplayBuilder::new_counted(
+        source, admitted, limits, 100_000_000, maximum_records, initial,
+        &mut records, &mut work,
+    ).is_err());
+    assert_eq!((records, work), (maximum_records, initial));
+    // A returned exact-ceiling constructor has no work left to project a body.
+    assert!(exact.build_body().is_err());
+    assert_eq!(exact.work_steps(), final_work);
 }

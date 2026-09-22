@@ -107,8 +107,12 @@ impl<'a> BookV2PageRegionDisplay<'a> {
     pub fn work_steps(&self) -> u64 {
         self.work
     }
-    pub(crate) fn owned_records(&self) -> u64 { self.owned_records }
-    pub(crate) fn projection_work(&self) -> u64 { self.projection_work }
+    pub(crate) fn owned_records(&self) -> u64 {
+        self.owned_records
+    }
+    pub(crate) fn projection_work(&self) -> u64 {
+        self.projection_work
+    }
     pub fn verify_resources(
         &self,
         source: &StyledBookV2Body,
@@ -151,6 +155,34 @@ impl<'a> BookV2PageRegionDisplayBuilder<'a> {
         prior_work: u64,
         maximum_work: u64,
     ) -> Result<Self, BookV2MathDisplayError> {
+        Self::new_counted(
+            source,
+            admitted,
+            limits,
+            epoch,
+            prior_records,
+            prior_work,
+            maximum_work,
+            &mut 0,
+            &mut 0,
+        )
+    }
+    /// Preserve accepted reservations even if work admission or instance
+    /// preparation fails before the persistent builder is returned.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_counted(
+        source: &'a StyledBookV2Body,
+        admitted: &'a AdmittedProductionResourceLedgerV3,
+        limits: &'a M4EffectiveResourceLimits,
+        epoch: [u8; 32],
+        prior_records: u64,
+        prior_work: u64,
+        maximum_work: u64,
+        observed_records: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<Self, BookV2MathDisplayError> {
+        *observed_records = prior_records;
+        *observed_work = prior_work;
         let owner = NodeId::new(0);
         if epoch == [0; 32]
             || admitted.effective_limits().fingerprint() != limits.fingerprint()
@@ -173,10 +205,12 @@ impl<'a> BookV2PageRegionDisplayBuilder<'a> {
             .and_then(|n| n.checked_add(1))
             .ok_or_else(|| error(owner, E::RecordLimit))?;
         take(&mut remaining, slots, owner)?;
+        *observed_records = maximum_records - remaining;
         let work = prior_work
             .checked_add(slots as u64)
             .filter(|n| *n <= maximum_work)
             .ok_or(BookV2MathDisplayError::WorkLimit(owner))?;
+        *observed_work = work;
         let instances = AdmittedProductionFontInstancesV3::from_used_faces(
             admitted,
             admitted.fonts().iter().map(|f| f.font_face_id()),
@@ -198,12 +232,20 @@ impl<'a> BookV2PageRegionDisplayBuilder<'a> {
         self.maximum_records - self.remaining
     }
     /// Carry intervening source/layout work into this persistent paint builder.
-    pub fn continue_with_prior(&mut self, records: u64, work: u64) -> Result<(), BookV2MathDisplayError> {
+    pub fn continue_with_prior(
+        &mut self,
+        records: u64,
+        work: u64,
+    ) -> Result<(), BookV2MathDisplayError> {
         let owner = NodeId::new(0);
-        self.remaining = self.maximum_records.checked_sub(records.max(self.record_charge()))
+        self.remaining = self
+            .maximum_records
+            .checked_sub(records.max(self.record_charge()))
             .ok_or_else(|| error(owner, E::RecordLimit))?;
         self.work = self.work.max(work);
-        if self.work > self.maximum_work { return Err(BookV2MathDisplayError::WorkLimit(owner)); }
+        if self.work > self.maximum_work {
+            return Err(BookV2MathDisplayError::WorkLimit(owner));
+        }
         Ok(())
     }
     pub fn work_steps(&self) -> u64 {

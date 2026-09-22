@@ -5,7 +5,9 @@ use typaxis_linebreak::{
     BreakError, LineLayoutContext, LineReshapeFeedback, LineReshapeObservation,
     LineReshapePassRecord,
 };
-use typaxis_shaping::{book_v2::shape_book_v2_authored_text, ProductionParagraphLineContext};
+use typaxis_shaping::{
+    book_v2::shape_book_v2_authored_text_counted, ProductionParagraphLineContext,
+};
 use typaxis_syntax::book_v2::BookV2ResourcePolicy;
 
 /// Only an observed stable comparison can construct this callback-scoped view.
@@ -214,8 +216,19 @@ pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
     let epoch = bindings.epoch();
     let initial_steps = allowance.remaining_steps;
     let (mut contexts, initial_state) = {
-        let shape = shape_book_v2_authored_text(policy, flow, admitted, limits, epoch, None)?;
-        let prepared = prepare_book_v2_inline_items_with_native_context(
+        let mut records = 0;
+        let shape = shape_book_v2_authored_text_counted(
+            policy,
+            flow,
+            admitted,
+            limits,
+            epoch,
+            None,
+            &mut records,
+        );
+        allowance.records = allowance.records.max(records);
+        let shape = shape?;
+        let prepared = prepare_book_v2_inline_items_with_native_context_counted(
             flow,
             &shape,
             admitted,
@@ -223,10 +236,13 @@ pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
             limits,
             japanese_mode,
             native,
-        )?;
+            &mut records,
+        );
+        allowance.records = allowance.records.max(records);
+        let prepared = prepared?;
         let selected = allowance.measure(&prepared, body, page_plan, source_widths)?;
         (
-            selected.selected_line_contexts()?,
+            allowance.capture_contexts(&selected)?,
             super::super::reshape::selected_fingerprint_state(selected.fingerprint())?,
         )
     };
@@ -252,9 +268,19 @@ pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
         );
         let permit = feedback.begin_pass(&mut budget)?;
         allowance.remaining_passes -= 1;
-        let shape =
-            shape_book_v2_authored_text(policy, flow, admitted, limits, epoch, Some(&inputs))?;
-        let prepared = prepare_book_v2_inline_items_with_native_context(
+        let mut records = 0;
+        let shape = shape_book_v2_authored_text_counted(
+            policy,
+            flow,
+            admitted,
+            limits,
+            epoch,
+            Some(&inputs),
+            &mut records,
+        );
+        allowance.records = allowance.records.max(records);
+        let shape = shape?;
+        let prepared = prepare_book_v2_inline_items_with_native_context_counted(
             flow,
             &shape,
             admitted,
@@ -262,21 +288,28 @@ pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
             limits,
             japanese_mode,
             native,
-        )?;
+            &mut records,
+        );
+        allowance.records = allowance.records.max(records);
+        let prepared = prepared?;
         let selected = allowance.measure(&prepared, body, page_plan, source_widths)?;
         match permit.complete(super::super::reshape::selected_fingerprint_state(
             selected.fingerprint(),
         )?)? {
             LineReshapeObservation::Stable => {
+                let mut records = 0;
+                let footnotes =
+                    prepare_book_v2_footnote_lines_counted(&selected, limits, &mut records);
+                allowance.records = allowance.records.max(records);
                 return Ok(use_stable(BookV2ConvergedBodyLines {
                     lines: &selected,
-                    footnotes: prepare_book_v2_footnote_lines(&selected, limits)?,
+                    footnotes: footnotes?,
                     passes: feedback.records(),
                     candidate_steps: initial_steps - allowance.remaining_steps,
-                }))
+                }));
             }
             LineReshapeObservation::RebreakRequired => {
-                contexts = selected.selected_line_contexts()?
+                contexts = allowance.capture_contexts(&selected)?
             }
         }
     }
@@ -290,6 +323,7 @@ pub struct BookV2BodyLineBudget {
     remaining_steps: u64,
     maximum_passes: u16,
     remaining_passes: u16,
+    records: u64,
 }
 impl BookV2BodyLineBudget {
     pub fn new(maximum_steps: u64, maximum_passes: u16) -> Self {
@@ -298,7 +332,21 @@ impl BookV2BodyLineBudget {
             remaining_steps: maximum_steps,
             maximum_passes,
             remaining_passes: maximum_passes,
+            records: 0,
         }
+    }
+    /// Largest accepted local record prefix; not a sum of released pass storage.
+    pub fn record_charge(&self) -> u64 {
+        self.records
+    }
+    fn capture_contexts(
+        &mut self,
+        selected: &BookV2InlineLineLayout<'_, '_>,
+    ) -> Result<ProductionSelectedLineContexts, ProductionInlinePreparationError> {
+        let mut records = 0;
+        let result = selected.selected_line_contexts_counted(&mut records);
+        self.records = self.records.max(records);
+        result
     }
     pub fn candidate_steps(&self) -> u64 {
         self.maximum_steps - self.remaining_steps
@@ -320,15 +368,18 @@ impl BookV2BodyLineBudget {
         source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
     ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
         let mut consumed = 0;
-        let result = super::frames::layout_body_lines_counted(
+        let mut records = 0;
+        let result = super::frames::layout_body_lines_counted_with_records(
             prepared,
             body,
             self.remaining_steps,
             page_plan,
             source_widths,
             &mut consumed,
+            &mut records,
         );
         self.remaining_steps -= consumed;
+        self.records = self.records.max(records);
         result
     }
 }

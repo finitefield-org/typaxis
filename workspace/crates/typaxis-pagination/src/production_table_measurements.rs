@@ -224,6 +224,15 @@ pub(super) fn project_table_measurements(
     inputs: TableMeasurementInputs<'_>,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<TableMeasurementProjection, ProductionBodyPaginationError> {
+    project_table_measurements_counted(inputs, limits, &mut 0)
+}
+/// Preserve accepted constructor charges when no owner can be returned.
+pub(super) fn project_table_measurements_counted(
+    inputs: TableMeasurementInputs<'_>,
+    limits: &M4EffectiveResourceLimits,
+    observed_records: &mut u64,
+) -> Result<TableMeasurementProjection, ProductionBodyPaginationError> {
+    *observed_records = inputs.prior_records;
     let root = NodeId::new(0);
     let mut charge = Charge {
         remaining: limits
@@ -233,226 +242,230 @@ pub(super) fn project_table_measurements(
             .checked_sub(inputs.prior_records)
             .ok_or_else(|| error(root, E::FragmentLimit))?,
     };
-    let sources = inputs.sources;
-    let content_records =
-        inputs
-            .collected
-            .tables
-            .tables
+    let result = (|| {
+        let sources = inputs.sources;
+        let content_records =
+            inputs
+                .collected
+                .tables
+                .tables
+                .iter()
+                .try_fold(0usize, |sum, table| {
+                    let sum = if let Some(caption) = &table.caption {
+                        let count = content_count(
+                            &caption.items,
+                            &caption.children,
+                            &inputs.collected.tables.tables,
+                            table.owner,
+                        )?;
+                        sum.checked_add(1)
+                            .and_then(|n| n.checked_add(count))
+                            .ok_or_else(|| error(table.owner, E::FragmentLimit))?
+                    } else {
+                        sum
+                    };
+                    table.cells.iter().try_fold(sum, |sum, cell| {
+                        sum.checked_add(content_count(
+                            &cell.items,
+                            &cell.children,
+                            &inputs.collected.tables.tables,
+                            table.owner,
+                        )?)
+                        .ok_or_else(|| error(table.owner, E::FragmentLimit))
+                    })
+                })?;
+        // Retained tables/cells/rows/content, scratch row sizes, verification prefix
+        // work and rowspan visits are bounded before allocating the measurement.
+        let records = sources
             .iter()
-            .try_fold(0usize, |sum, table| {
-                let sum = if let Some(caption) = &table.caption {
-                    let count = content_count(
-                        &caption.items,
-                        &caption.children,
-                        &inputs.collected.tables.tables,
-                        table.owner,
-                    )?;
-                    sum.checked_add(1)
-                        .and_then(|n| n.checked_add(count))
-                        .ok_or_else(|| error(table.owner, E::FragmentLimit))?
-                } else {
-                    sum
-                };
-                table.cells.iter().try_fold(sum, |sum, cell| {
-                    sum.checked_add(content_count(
-                        &cell.items,
-                        &cell.children,
-                        &inputs.collected.tables.tables,
-                        table.owner,
-                    )?)
-                    .ok_or_else(|| error(table.owner, E::FragmentLimit))
-                })
-            })?;
-    // Retained tables/cells/rows/content, scratch row sizes, verification prefix
-    // work and rowspan visits are bounded before allocating the measurement.
-    let records = sources
-        .iter()
-        .try_fold(sources.len(), |n, table| {
-            let spans = table
-                .cells()
-                .iter()
-                .try_fold(0usize, |n, c| n.checked_add(usize::from(c.rowspan().get())))?;
-            n.checked_add(table.cells().len().checked_mul(2)?)?
-                .checked_add(table.rows().len().checked_mul(3)?)?
-                .checked_add(spans)
-        })
-        .and_then(|n| n.checked_add(content_records))
-        .and_then(|n| n.checked_add(sources.len().checked_mul(2)?))
-        .ok_or_else(|| error(root, E::FragmentLimit))?;
-    charge.take(records, root)?;
-    let mut reversed: Vec<ProductionMeasuredTable> = Vec::new();
-    reversed
-        .try_reserve_exact(sources.len())
-        .map_err(|_| error(root, E::AllocationFailure))?;
-    for index in (0..sources.len()).rev() {
-        let source = &sources[index];
-        let collected = &inputs.collected.tables.tables[index];
-        let owner = source.owner();
-        let mut cells = Vec::new();
-        cells
-            .try_reserve_exact(source.cells().len())
-            .map_err(|_| error(owner, E::AllocationFailure))?;
-        let mut row_sizes = Vec::new();
-        row_sizes
-            .try_reserve_exact(source.rows().len())
-            .map_err(|_| error(owner, E::AllocationFailure))?;
-        row_sizes.resize(source.rows().len(), Length::ZERO);
-        for (binding, cell) in source.cells().iter().zip(&collected.cells) {
-            let (content, end) = measure_content(
-                &cell.items,
-                &cell.children,
-                inputs.collected,
-                &reversed,
-                sources.len(),
-                owner,
-            )?;
-            // Same source-order policy as layout_table_row_bands: place the
-            // complete deficit in the last covered row, including zero bands.
-            let start = binding.row() as usize;
-            let last = start
-                .checked_add(usize::from(binding.rowspan().get()))
-                .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
-            let covered = row_sizes
-                .get(start..last)
-                .ok_or_else(|| error(owner, E::ReceiptMismatch))?
-                .iter()
-                .try_fold(Length::ZERO, |sum, n| add(sum, *n, owner))?;
-            if end > covered {
-                let deficit = end
-                    .checked_sub(covered)
-                    .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
-                row_sizes[last - 1] = add(row_sizes[last - 1], deficit, owner)?;
-            }
-            cells.push(ProductionMeasuredTableCell {
-                owner: binding.owner(),
-                source_index: cell.source_index,
-                natural_height: end,
-                content,
-            });
-        }
-        let caption = collected
-            .caption
-            .as_ref()
-            .map(|caption| {
-                let (content, height) = measure_content(
-                    &caption.items,
-                    &caption.children,
+            .try_fold(sources.len(), |n, table| {
+                let spans = table
+                    .cells()
+                    .iter()
+                    .try_fold(0usize, |n, c| n.checked_add(usize::from(c.rowspan().get())))?;
+                n.checked_add(table.cells().len().checked_mul(2)?)?
+                    .checked_add(table.rows().len().checked_mul(3)?)?
+                    .checked_add(spans)
+            })
+            .and_then(|n| n.checked_add(content_records))
+            .and_then(|n| n.checked_add(sources.len().checked_mul(2)?))
+            .ok_or_else(|| error(root, E::FragmentLimit))?;
+        charge.take(records, root)?;
+        let mut reversed: Vec<ProductionMeasuredTable> = Vec::new();
+        reversed
+            .try_reserve_exact(sources.len())
+            .map_err(|_| error(root, E::AllocationFailure))?;
+        for index in (0..sources.len()).rev() {
+            let source = &sources[index];
+            let collected = &inputs.collected.tables.tables[index];
+            let owner = source.owner();
+            let mut cells = Vec::new();
+            cells
+                .try_reserve_exact(source.cells().len())
+                .map_err(|_| error(owner, E::AllocationFailure))?;
+            let mut row_sizes = Vec::new();
+            row_sizes
+                .try_reserve_exact(source.rows().len())
+                .map_err(|_| error(owner, E::AllocationFailure))?;
+            row_sizes.resize(source.rows().len(), Length::ZERO);
+            for (binding, cell) in source.cells().iter().zip(&collected.cells) {
+                let (content, end) = measure_content(
+                    &cell.items,
+                    &cell.children,
                     inputs.collected,
                     &reversed,
                     sources.len(),
                     owner,
                 )?;
-                Ok::<_, ProductionBodyPaginationError>(ProductionMeasuredTableCaption {
-                    height,
+                // Same source-order policy as layout_table_row_bands: place the
+                // complete deficit in the last covered row, including zero bands.
+                let start = binding.row() as usize;
+                let last = start
+                    .checked_add(usize::from(binding.rowspan().get()))
+                    .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
+                let covered = row_sizes
+                    .get(start..last)
+                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?
+                    .iter()
+                    .try_fold(Length::ZERO, |sum, n| add(sum, *n, owner))?;
+                if end > covered {
+                    let deficit = end
+                        .checked_sub(covered)
+                        .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
+                    row_sizes[last - 1] = add(row_sizes[last - 1], deficit, owner)?;
+                }
+                cells.push(ProductionMeasuredTableCell {
+                    owner: binding.owner(),
+                    source_index: cell.source_index,
+                    natural_height: end,
                     content,
+                });
+            }
+            let caption = collected
+                .caption
+                .as_ref()
+                .map(|caption| {
+                    let (content, height) = measure_content(
+                        &caption.items,
+                        &caption.children,
+                        inputs.collected,
+                        &reversed,
+                        sources.len(),
+                        owner,
+                    )?;
+                    Ok::<_, ProductionBodyPaginationError>(ProductionMeasuredTableCaption {
+                        height,
+                        content,
+                    })
                 })
-            })
-            .transpose()?;
-        let mut rows = Vec::new();
-        rows.try_reserve_exact(source.rows().len())
-            .map_err(|_| error(owner, E::AllocationFailure))?;
-        let mut height = caption.as_ref().map_or(Length::ZERO, |c| c.height);
-        for (row, size) in source.rows().iter().zip(row_sizes) {
-            rows.push(ProductionMeasuredTableRow {
-                owner: row.owner(),
-                section: row.section(),
-                top: height,
-                height: size,
+                .transpose()?;
+            let mut rows = Vec::new();
+            rows.try_reserve_exact(source.rows().len())
+                .map_err(|_| error(owner, E::AllocationFailure))?;
+            let mut height = caption.as_ref().map_or(Length::ZERO, |c| c.height);
+            for (row, size) in source.rows().iter().zip(row_sizes) {
+                rows.push(ProductionMeasuredTableRow {
+                    owner: row.owner(),
+                    section: row.section(),
+                    top: height,
+                    height: size,
+                });
+                height = add(height, size, owner)?;
+            }
+            for (binding, cell) in source.cells().iter().zip(&cells) {
+                let start = binding.row() as usize;
+                let end = start + usize::from(binding.rowspan().get());
+                let bottom = rows.get(end).map_or(height, |r| r.top);
+                let available = bottom
+                    .checked_sub(rows[start].top)
+                    .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
+                if available < cell.natural_height {
+                    return Err(error(cell.owner, E::ReceiptMismatch));
+                }
+            }
+            reversed.push(ProductionMeasuredTable {
+                owner,
+                source_index: index,
+                cells,
+                caption,
+                rows,
+                height,
+                before: collected.before,
+                after: collected.after,
+                keep: collected.keep,
+                keep_together: collected.keep_together,
             });
-            height = add(height, size, owner)?;
         }
-        for (binding, cell) in source.cells().iter().zip(&cells) {
-            let start = binding.row() as usize;
-            let end = start + usize::from(binding.rowspan().get());
-            let bottom = rows.get(end).map_or(height, |r| r.top);
-            let available = bottom
-                .checked_sub(rows[start].top)
-                .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
-            if available < cell.natural_height {
-                return Err(error(cell.owner, E::ReceiptMismatch));
-            }
+        reversed.reverse();
+        let canonical_capacity = records
+            .checked_mul(64)
+            .and_then(|n| n.checked_add(128))
+            .ok_or_else(|| error(root, E::FragmentLimit))?;
+        if inputs
+            .max_canonical_bytes
+            .is_some_and(|limit| canonical_capacity as u64 > limit)
+        {
+            return Err(error(root, E::SpoolLimit));
         }
-        reversed.push(ProductionMeasuredTable {
-            owner,
-            source_index: index,
-            cells,
-            caption,
-            rows,
-            height,
-            before: collected.before,
-            after: collected.after,
-            keep: collected.keep,
-            keep_together: collected.keep_together,
-        });
-    }
-    reversed.reverse();
-    let canonical_capacity = records
-        .checked_mul(64)
-        .and_then(|n| n.checked_add(128))
-        .ok_or_else(|| error(root, E::FragmentLimit))?;
-    if inputs
-        .max_canonical_bytes
-        .is_some_and(|limit| canonical_capacity as u64 > limit)
-    {
-        return Err(error(root, E::SpoolLimit));
-    }
-    let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(canonical_capacity)
-        .map_err(|_| error(root, E::AllocationFailure))?;
-    for value in inputs.fingerprint_header {
-        bytes.extend_from_slice(&value);
-    }
-    for table in &reversed {
-        bytes.extend_from_slice(&table.owner.get().to_be_bytes());
-        bytes.push(u8::from(table.keep));
-        bytes.push(u8::from(table.keep_together));
-        for n in [table.height, table.before, table.after] {
-            bytes.extend_from_slice(&n.raw().to_be_bytes());
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(canonical_capacity)
+            .map_err(|_| error(root, E::AllocationFailure))?;
+        for value in inputs.fingerprint_header {
+            bytes.extend_from_slice(&value);
         }
-        if let Some(caption) = &table.caption {
-            bytes.extend_from_slice(b"caption");
-            bytes.extend_from_slice(&caption.height.raw().to_be_bytes());
-            bytes.extend_from_slice(&(caption.content.len() as u64).to_be_bytes());
-            for item in &caption.content {
-                let (kind, index) = match item.source {
-                    ProductionTableContentSource::FlowItem(i) => (0, i),
-                    ProductionTableContentSource::Table(i) => (1, i),
-                };
-                bytes.push(kind);
-                bytes.extend_from_slice(&(index as u64).to_be_bytes());
-                bytes.extend_from_slice(&item.top.raw().to_be_bytes());
-                bytes.extend_from_slice(&item.end.raw().to_be_bytes());
-            }
-        }
-        for row in &table.rows {
-            bytes.extend_from_slice(&row.owner.get().to_be_bytes());
-            for n in [row.top, row.height] {
+        for table in &reversed {
+            bytes.extend_from_slice(&table.owner.get().to_be_bytes());
+            bytes.push(u8::from(table.keep));
+            bytes.push(u8::from(table.keep_together));
+            for n in [table.height, table.before, table.after] {
                 bytes.extend_from_slice(&n.raw().to_be_bytes());
             }
-        }
-        for cell in &table.cells {
-            bytes.extend_from_slice(&cell.owner.get().to_be_bytes());
-            bytes.extend_from_slice(&cell.natural_height.raw().to_be_bytes());
-            for item in &cell.content {
-                let (kind, index) = match item.source {
-                    ProductionTableContentSource::FlowItem(i) => (0, i),
-                    ProductionTableContentSource::Table(i) => (1, i),
-                };
-                bytes.push(kind);
-                bytes.extend_from_slice(&(index as u64).to_be_bytes());
-                for n in [item.top, item.end] {
+            if let Some(caption) = &table.caption {
+                bytes.extend_from_slice(b"caption");
+                bytes.extend_from_slice(&caption.height.raw().to_be_bytes());
+                bytes.extend_from_slice(&(caption.content.len() as u64).to_be_bytes());
+                for item in &caption.content {
+                    let (kind, index) = match item.source {
+                        ProductionTableContentSource::FlowItem(i) => (0, i),
+                        ProductionTableContentSource::Table(i) => (1, i),
+                    };
+                    bytes.push(kind);
+                    bytes.extend_from_slice(&(index as u64).to_be_bytes());
+                    bytes.extend_from_slice(&item.top.raw().to_be_bytes());
+                    bytes.extend_from_slice(&item.end.raw().to_be_bytes());
+                }
+            }
+            for row in &table.rows {
+                bytes.extend_from_slice(&row.owner.get().to_be_bytes());
+                for n in [row.top, row.height] {
                     bytes.extend_from_slice(&n.raw().to_be_bytes());
                 }
             }
+            for cell in &table.cells {
+                bytes.extend_from_slice(&cell.owner.get().to_be_bytes());
+                bytes.extend_from_slice(&cell.natural_height.raw().to_be_bytes());
+                for item in &cell.content {
+                    let (kind, index) = match item.source {
+                        ProductionTableContentSource::FlowItem(i) => (0, i),
+                        ProductionTableContentSource::Table(i) => (1, i),
+                    };
+                    bytes.push(kind);
+                    bytes.extend_from_slice(&(index as u64).to_be_bytes());
+                    for n in [item.top, item.end] {
+                        bytes.extend_from_slice(&n.raw().to_be_bytes());
+                    }
+                }
+            }
         }
-    }
-    Ok(TableMeasurementProjection {
-        tables: reversed,
-        record_charge: limits.base().get().max_fragments - charge.remaining,
-        fingerprint: sha256(&bytes),
-    })
+        Ok(TableMeasurementProjection {
+            tables: reversed,
+            record_charge: limits.base().get().max_fragments - charge.remaining,
+            fingerprint: sha256(&bytes),
+        })
+    })();
+    *observed_records = limits.base().get().max_fragments - charge.remaining;
+    result
 }
 
 fn content_count(

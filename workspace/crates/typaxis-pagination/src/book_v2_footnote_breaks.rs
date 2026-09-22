@@ -308,6 +308,26 @@ pub fn prepare_book_v2_footnote_search<'b, 'f, 's, 'p, 'a>(
     maximum_visited_items: u64,
     prior_records: u64,
 ) -> Result<BookV2FootnoteBreakSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    prepare_book_v2_footnote_search_counted(
+        flow,
+        limits,
+        maximum_visited_items,
+        prior_records,
+        &mut 0,
+        &mut 0,
+    )
+}
+/// Return accepted constructor work and the cumulative record prefix on failure too.
+pub fn prepare_book_v2_footnote_search_counted<'b, 'f, 's, 'p, 'a>(
+    flow: &'b BookV2PreparedBodyFlow<'f, 's, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    maximum_visited_items: u64,
+    prior_records: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
+) -> Result<BookV2FootnoteBreakSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    *observed_records = prior_records.max(flow.record_charge());
+    *observed_work = 0;
     flow.verify(flow.lines(), flow.blocks(), flow.footnotes(), limits)?;
     let root = NodeId::new(0);
     let maximum_records = limits.base().get().max_fragments;
@@ -316,68 +336,71 @@ pub fn prepare_book_v2_footnote_search<'b, 'f, 's, 'p, 'a>(
             .checked_sub(prior_records.max(flow.record_charge()))
             .ok_or_else(|| error(root, E::FragmentLimit))?,
     };
-    prepare_book_v2_footnote_search_charged(flow, limits, maximum_visited_items, charge, 0)
-}
-pub(super) fn prepare_book_v2_footnote_search_charged<'b, 'f, 's, 'p, 'a>(
-    flow: &'b BookV2PreparedBodyFlow<'f, 's, 'p, 'a>,
-    limits: &M4EffectiveResourceLimits,
-    maximum_visited_items: u64,
-    charge: Charge,
-    steps: u64,
-) -> Result<BookV2FootnoteBreakSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    prepare_book_v2_footnote_context_charged(
+    prepare_book_v2_footnote_context_charged_counted(
         flow,
         limits,
         maximum_visited_items,
         charge,
-        steps,
+        0,
         false,
+        observed_records,
+        observed_work,
     )
 }
-pub(super) fn prepare_book_v2_footnote_context_charged<'b, 'f, 's, 'p, 'a>(
+#[allow(clippy::too_many_arguments)]
+pub(super) fn prepare_book_v2_footnote_context_charged_counted<'b, 'f, 's, 'p, 'a>(
     flow: &'b BookV2PreparedBodyFlow<'f, 's, 'p, 'a>,
     limits: &M4EffectiveResourceLimits,
     maximum_visited_items: u64,
     mut charge: Charge,
     mut steps: u64,
     table_candidates: bool,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
 ) -> Result<BookV2FootnoteBreakSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    flow.verify(flow.lines(), flow.blocks(), flow.footnotes(), limits)?;
-    let maximum_records = limits.base().get().max_fragments;
-    // Definition tables require recursive table-aware content selection. A flat
-    // definition cursor must never serialize their parallel cell streams.
-    for table in &flow.collected.tables.tables {
-        visit(&mut steps, maximum_visited_items, table.owner)?;
-        if table.definition.is_some() && !table_candidates {
-            return Err(error(
-                table.owner,
-                E::PendingRegion("table_footnote_definition"),
-            ));
+    let result = (|| {
+        flow.verify(flow.lines(), flow.blocks(), flow.footnotes(), limits)?;
+        let maximum_records = limits.base().get().max_fragments;
+        // Definition tables require recursive table-aware content selection. A flat
+        // definition cursor must never serialize their parallel cell streams.
+        for table in &flow.collected.tables.tables {
+            visit(&mut steps, maximum_visited_items, table.owner)?;
+            if table.definition.is_some() && !table_candidates {
+                return Err(error(
+                    table.owner,
+                    E::PendingRegion("table_footnote_definition"),
+                ));
+            }
         }
-    }
-    let (paragraph_lengths, headings) = prepare_search_context(
-        &flow.collected,
-        BodyLines::BookV2(flow.lines()),
-        table_candidates,
-        maximum_visited_items,
-        &mut charge,
-        &mut steps,
-    )?;
-    Ok(BookV2FootnoteBreakSearch {
-        flow,
-        paragraph_lengths,
-        headings,
-        charge,
-        maximum_records,
-        maximum_candidates: limits.base().get().max_page_break_lookback,
-        maximum_height: flow
-            .lines()
-            .frames()
-            .and_then(|f| f.footnote_region())
-            .map_or(Length::ZERO, |r| r.height().get()),
-        maximum_steps: maximum_visited_items,
-        steps,
-    })
+        let (paragraph_lengths, headings) = prepare_search_context(
+            &flow.collected,
+            BodyLines::BookV2(flow.lines()),
+            table_candidates,
+            maximum_visited_items,
+            &mut charge,
+            &mut steps,
+        )?;
+        Ok(BookV2FootnoteBreakSearch {
+            flow,
+            paragraph_lengths,
+            headings,
+            charge: Charge {
+                remaining: charge.remaining,
+            },
+            maximum_records,
+            maximum_candidates: limits.base().get().max_page_break_lookback,
+            maximum_height: flow
+                .lines()
+                .frames()
+                .and_then(|f| f.footnote_region())
+                .map_or(Length::ZERO, |r| r.height().get()),
+            maximum_steps: maximum_visited_items,
+            steps,
+        })
+    })();
+    *observed_records = limits.base().get().max_fragments - charge.remaining;
+    *observed_work = steps;
+    result
 }
 
 impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteCursor<'b, 'f, 's, 'p, 'a> {

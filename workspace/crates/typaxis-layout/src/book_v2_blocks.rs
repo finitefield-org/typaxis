@@ -149,6 +149,19 @@ pub fn prepare_book_v2_vector_blocks<'s, 'p, 'a>(
     limits: &M4EffectiveResourceLimits,
     prior_records: u64,
 ) -> Result<Option<BookV2VectorBlockLayout<'s, 'p, 'a>>, BookV2VectorBlockError> {
+    prepare_book_v2_vector_blocks_counted(lines, numbers, limits, prior_records, &mut 0)
+}
+/// Report accepted storage bounds before allocation and block geometry checks.
+pub fn prepare_book_v2_vector_blocks_counted<'s, 'p, 'a>(
+    lines: &'s BookV2InlineLineLayout<'p, 'a>,
+    numbers: Option<&'s BookV2EquationNumberShapes<'a>>,
+    limits: &M4EffectiveResourceLimits,
+    prior_records: u64,
+    observed_records: &mut u64,
+) -> Result<Option<BookV2VectorBlockLayout<'s, 'p, 'a>>, BookV2VectorBlockError> {
+    *observed_records = prior_records
+        .max(lines.output_records())
+        .max(numbers.map_or(0, |n| n.record_charge()));
     use BookV2VectorBlockError as E;
     let prepared = lines.prepared();
     if prepared.effective_limits_fingerprint() != limits.fingerprint() {
@@ -188,12 +201,14 @@ pub fn prepare_book_v2_vector_blocks<'s, 'p, 'a>(
         .max(numbers.map_or(0, |n| n.prior_records()))
         .checked_add(numbers.map_or(0, |n| n.retained_records()))
         .ok_or(E::OutputLimit)?;
+    *observed_records = base;
     let record_charge = base
         .checked_add(1)
         .and_then(|n| n.checked_add(count as u64))
         .and_then(|n| n.checked_add(numbers.map_or(0, |n| n.shapes().len()) as u64))
         .filter(|n| *n <= limits.base().get().max_fragments)
         .ok_or(E::OutputLimit)?;
+    *observed_records = record_charge;
     let mut blocks = Vec::new();
     blocks
         .try_reserve_exact(count)

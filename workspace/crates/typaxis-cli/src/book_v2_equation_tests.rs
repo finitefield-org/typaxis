@@ -1,4 +1,6 @@
 use super::*;
+#[path = "book_v2_label_block_budget_tests.rs"]
+mod constructor_budget;
 use typaxis_shaping::book_v2::{
     shape_book_v2_equation_numbers, BookV2EquationNumberErrorKind as E,
 };
@@ -332,4 +334,3 @@ fn book_v2_number_references_equation_number_leaf_keeps_math_destination() {
     )
     .unwrap();
 }
-

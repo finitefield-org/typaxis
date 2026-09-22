@@ -1,4 +1,6 @@
 use super::*;
+#[path = "book_v2_page_region_record_tests.rs"]
+mod record_budget;
 use typaxis_core::Length;
 use typaxis_layout::book_v2::{
     layout_book_v2_page_region_lines as layout_region,

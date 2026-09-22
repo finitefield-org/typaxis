@@ -196,6 +196,7 @@ mod tests;
 #[path = "book_v2_page_region_flow.rs"]
 mod page_regions;
 pub use page_regions::{
-    prepare_book_v2_page_region_text_flow, BookV2PageRegionKind, BookV2PageRegionTextFlow,
+    prepare_book_v2_page_region_text_flow, prepare_book_v2_page_region_text_flow_counted,
+    BookV2PageRegionKind, BookV2PageRegionTextFlow,
     BOOK_V2_PAGE_REGION_FLOW_ALGORITHM,
 };

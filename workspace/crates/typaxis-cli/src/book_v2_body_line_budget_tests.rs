@@ -1,6 +1,18 @@
 use super::*;
+#[path = "book_v2_line_context_record_tests.rs"]
+mod context_records;
 #[path = "book_v2_downstream_budget_tests.rs"]
 mod downstream;
+#[path = "book_v2_footnote_constructor_budget_tests.rs"]
+mod footnote_constructor;
+#[path = "book_v2_frame_line_record_tests.rs"]
+mod frame_line_records;
+#[path = "book_v2_page_constructor_budget_tests.rs"]
+mod page_constructor;
+#[path = "book_v2_projection_body_budget_tests.rs"]
+mod projection_constructor;
+#[path = "book_v2_shape_inline_record_tests.rs"]
+mod shape_inline_records;
 use typaxis_core::{Length, PositiveLength, Rect};
 use typaxis_layout::book_v2::{
     bind_book_v2_vectors, with_budgeted_book_v2_body_lines_with_source_widths as budgeted,
@@ -193,7 +205,7 @@ fn check_candidates(text: &str, font: Option<&[u8]>) {
     assert!(run(&mut untouched, Some(&assignments)).is_err());
     assert_eq!(untouched.candidate_steps(), 0);
 
-    let (paragraph_width, unit_count) = fresh(
+    let (paragraph_width, unit_count, frame_records) = fresh(
         &policy,
         &flow,
         input.resources(),
@@ -214,6 +226,7 @@ fn check_candidates(text: &str, font: Option<&[u8]>) {
                     .unwrap()
                     .units()
                     .len(),
+                stable.lines().frames().unwrap().record_charge(),
             )
         },
     )
@@ -250,6 +263,17 @@ fn check_candidates(text: &str, font: Option<&[u8]>) {
     );
     assert_eq!(assigned_exact.remaining_steps(), 0);
 
+    // Failure occurs during initial shaping, before line-context reservations.
+    let shape_records = shape_book_v2_authored_text(
+        &policy,
+        &flow,
+        input.resources(),
+        &limits,
+        bindings.epoch(),
+        None,
+    )
+    .unwrap()
+    .output_records();
     // Rejected block ownership retains traversal; rejected table ownership retains
     // the existing conservative prepaid re-projection charge.
     let wrong_owner = [(typaxis_core::NodeId::new(999), width)];
@@ -263,12 +287,19 @@ fn check_candidates(text: &str, font: Option<&[u8]>) {
         let mut budget = BookV2BodyLineBudget::new(1_000_000, passes);
         assert!(run(&mut budget, Some(&assigned)).is_err());
         let charged = budget.candidate_steps();
+        let records = shape_records.max(if table {
+            2 * frame_records
+        } else {
+            frame_records + 1
+        });
+        assert_eq!(budget.record_charge(), records);
         assert!(charged > 0);
         assert!(run(&mut budget, Some(&assigned)).is_err());
         assert_eq!(budget.candidate_steps(), 2 * charged);
         let mut before_charge = BookV2BodyLineBudget::new(charged - 1, passes);
         assert!(run(&mut before_charge, Some(&assigned)).is_err());
         assert!(before_charge.candidate_steps() < charged);
+        assert_eq!(before_charge.record_charge(), records);
         if table {
             assert_eq!(before_charge.candidate_steps(), 0);
         }
@@ -479,6 +510,7 @@ fn check_seed_budget(text: &str, font: Option<&[u8]>) {
     let actual = run(&mut exact, 0).unwrap();
     assert_eq!(actual.fingerprint(), expected.fingerprint());
     assert_eq!(actual.record_charge(), expected.record_charge());
+    assert_eq!(exact.record_charge(), expected.record_charge());
     assert_eq!(actual.work_steps(), expected.work_steps());
     assert_eq!(actual.reshape_passes(), expected.reshape_passes());
     assert_eq!((exact.remaining_work(), exact.remaining_passes()), (0, 0));
@@ -495,6 +527,7 @@ fn check_seed_budget(text: &str, font: Option<&[u8]>) {
     assert!(run(&mut short, 0).is_err());
     assert_eq!(short.work_steps(), expected.work_steps() - 1);
     assert_eq!(short.reshape_passes(), expected.reshape_passes());
+    assert!(short.record_charge() > 0 && short.record_charge() <= expected.record_charge());
     assert!(run(&mut short, 0).is_err());
     assert_eq!(short.work_steps(), expected.work_steps() - 1);
     let mut line = BookV2LineVariantBudget::new(1, passes);
@@ -507,6 +540,10 @@ fn check_seed_budget(text: &str, font: Option<&[u8]>) {
     assert_eq!(
         (prior_rejected.work_steps(), prior_rejected.reshape_passes()),
         (0, 0)
+    );
+    assert_eq!(
+        prior_rejected.record_charge(),
+        limits.base().get().max_fragments
     );
     // Capacity for the seed context is checked after actual stable convergence.
     // Rejecting that allocation must retain both convergence and capture work.
@@ -531,6 +568,7 @@ fn check_seed_budget(text: &str, font: Option<&[u8]>) {
         .unwrap();
     assert_eq!(observed.fingerprint(), sibling.fingerprint());
     assert_eq!(observed.record_charge(), sibling.record_charge());
+    assert_eq!(allowance.record_charge(), sibling.record_charge());
     assert_eq!(allowance.work_steps(), sibling.work_steps());
     assert_eq!(allowance.reshape_passes(), sibling.reshape_passes());
     let foreign_flow = prepare_book_v2_text_flow(input.body().styled(), &nav).unwrap();
@@ -613,26 +651,34 @@ fn check_replay_budget(text: &str, font: Option<&[u8]>) {
     };
     let mut exact = BookV2LineVariantBudget::new(baseline.1, 0);
     assert_eq!(run(&mut exact, 0).unwrap(), baseline);
+    assert_eq!(exact.record_charge(), baseline.2);
     assert_eq!((exact.remaining_work(), exact.reshape_passes()), (0, 0));
     assert!(run(&mut exact, 0).is_err());
     assert_eq!(exact.work_steps(), baseline.1);
     let mut short = BookV2LineVariantBudget::new(baseline.1 - 1, 0);
     assert!(run(&mut short, 0).is_err());
     assert_eq!(short.work_steps(), baseline.1 - 1);
+    assert_eq!(short.record_charge(), baseline.2);
     assert!(run(&mut short, 0).is_err());
     assert_eq!(short.work_steps(), baseline.1 - 1);
+    assert_eq!(short.record_charge(), baseline.2);
     let mut partial = BookV2LineVariantBudget::new(baseline.1 / 2, 0);
     assert!(run(&mut partial, 0).is_err());
     assert!(
         partial.work_steps() > 1,
         "must retain actual candidate work"
     );
+    assert_eq!(partial.record_charge(), baseline.2);
     let before = partial.work_steps();
     assert!(run(&mut partial, 0).is_err());
     assert!(partial.work_steps() >= before && partial.work_steps() <= baseline.1 / 2);
     let mut no_records = BookV2LineVariantBudget::new(1_000_000, 0);
     assert!(run(&mut no_records, limits.base().get().max_fragments).is_err());
     assert_eq!(no_records.work_steps(), 0);
+    assert_eq!(
+        no_records.record_charge(),
+        limits.base().get().max_fragments
+    );
     let mut consumer = BookV2LineVariantBudget::new(1_000_000, 0);
     assert_eq!(
         replay(&expected, &mut consumer, 0, |_| Err::<(), _>("consumer")).unwrap(),
@@ -668,6 +714,7 @@ fn check_replay_budget(text: &str, font: Option<&[u8]>) {
     };
     let mut exact = BookV2LineVariantBudget::new(all.1, 0);
     assert_eq!(run_set(&mut exact, 0).unwrap(), all);
+    assert_eq!(exact.record_charge(), all.2);
     assert_eq!((exact.remaining_work(), exact.reshape_passes()), (0, 0));
     let mut repeated = BookV2LineVariantBudget::new(2 * all.1, 0);
     for n in 1..=2 {
@@ -677,6 +724,7 @@ fn check_replay_budget(text: &str, font: Option<&[u8]>) {
     let mut short = BookV2LineVariantBudget::new(all.1 - 1, 0);
     assert!(run_set(&mut short, 0).is_err());
     assert_eq!(short.work_steps(), all.1 - 1);
+    assert_eq!(short.record_charge(), all.2);
     // Allow the first graph and only part of the second graph's candidate work.
     let cap = all.1 - baseline.1 / 2 - 3;
     let mut partial = BookV2LineVariantBudget::new(cap, 0);
@@ -685,6 +733,7 @@ fn check_replay_budget(text: &str, font: Option<&[u8]>) {
         partial.work_steps() > all.1 - baseline.1,
         "lost completed first graph or partial second graph: total={}, single={}, cap={}, charged={} ,", all.1, baseline.1, cap, partial.work_steps()
     );
+    assert_eq!(partial.record_charge(), all.2);
     let charged = partial.work_steps();
     assert!(run_set(&mut partial, 0).is_err());
     assert!(partial.work_steps() >= charged && partial.work_steps() <= cap);
@@ -694,8 +743,10 @@ fn check_replay_budget(text: &str, font: Option<&[u8]>) {
         Err("consumer")
     );
     assert_eq!(consumer.work_steps(), all.1);
+    assert_eq!(consumer.record_charge(), all.2);
     let mut records = BookV2LineVariantBudget::new(1_000_000, 0);
     assert!(run_set(&mut records, limits.base().get().max_fragments).is_err());
+    assert_eq!(records.record_charge(), limits.base().get().max_fragments);
     let inspection = records.work_steps();
     assert!(inspection > 0 && inspection < all.1);
     assert!(run_set(&mut records, limits.base().get().max_fragments).is_err());
@@ -724,6 +775,7 @@ fn check_replay_budget(text: &str, font: Option<&[u8]>) {
     assert!(replay_set(&[&expected, &foreign], &mut identity, 0, |_| ()).is_err());
     assert!(identity.work_steps() > 0 && identity.work_steps() < all.1);
     assert_eq!(identity.reshape_passes(), 0);
+    assert_eq!(identity.record_charge(), expected.record_charge());
     // One command owner can retain seed convergence and replay without refunding
     // seed work or spending another reshape permit for replay.
     let mut shared = BookV2LineVariantBudget::new(expected.work_steps() + baseline.1, passes);
@@ -747,6 +799,7 @@ fn check_replay_budget(text: &str, font: Option<&[u8]>) {
         replay(&seed, &mut shared, 0, |v| v.work_steps()).unwrap(),
         baseline.1
     );
+    assert_eq!(shared.record_charge(), baseline.2);
     assert_eq!(shared.remaining_work(), 0);
     assert_eq!(shared.reshape_passes(), seed_passes);
 }

@@ -87,7 +87,9 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
                     .map_err(|_| error(owner, E::AllocationFailure))?;
                 let charge = std::mem::replace(&mut self.kernel.charge, Charge { remaining: 0 });
                 let used = std::mem::replace(&mut self.kernel.work.used, 0);
-                let mut child = prepare_book_v2_table_search_charged(
+                let mut records = 0;
+                let mut steps = 0;
+                let child = prepare_book_v2_table_search_charged_counted(
                     self.measurements,
                     index,
                     limits,
@@ -96,7 +98,13 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
                         used,
                         maximum: self.kernel.work.maximum,
                     },
-                )?;
+                    &mut records,
+                    &mut steps,
+                );
+                // Restore the shared ledger before propagating a child's error.
+                self.kernel.charge.remaining = limits.base().get().max_fragments - records;
+                self.kernel.work.used = steps;
+                let mut child = child?;
                 self.kernel.charge =
                     std::mem::replace(&mut child.kernel.charge, Charge { remaining: 0 });
                 self.kernel.work.used = std::mem::replace(&mut child.kernel.work.used, 0);

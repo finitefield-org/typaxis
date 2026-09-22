@@ -341,7 +341,8 @@ pub use crate::book_navigation::book_v2::{
 pub use super::production_flow::book_v2::{
     prepare_book_v2_text_flow, prepare_book_v2_text_flow_with_page_references,
     PreparedBookV2TextFlow, BOOK_V2_TEXT_FLOW_ALGORITHM,
-    prepare_book_v2_page_region_text_flow, BookV2PageRegionTextFlow, BookV2PageRegionKind,
+    prepare_book_v2_page_region_text_flow, prepare_book_v2_page_region_text_flow_counted,
+    BookV2PageRegionTextFlow, BookV2PageRegionKind,
     BOOK_V2_PAGE_REGION_FLOW_ALGORITHM,
 };
 pub use super::production_flow::{BookV2DescriptionItem, BookV2DescriptionList};

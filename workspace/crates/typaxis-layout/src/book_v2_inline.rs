@@ -4,13 +4,13 @@ use super::*;
 #[path = "book_v2_page_region_lines.rs"]
 mod page_region_lines;
 pub use crate::block_vector::book_v2::{
-    prepare_book_v2_vector_blocks, BookV2VectorBlock, BookV2VectorBlockError,
+    prepare_book_v2_vector_blocks, prepare_book_v2_vector_blocks_counted, BookV2VectorBlock, BookV2VectorBlockError,
     BookV2VectorBlockLayout, BOOK_V2_VECTOR_BLOCK_ALGORITHM,
 };
 pub use page_region_lines::*;
 #[path = "book_v2_footnotes.rs"]
 mod footnote_lines;
-pub use footnote_lines::{prepare_book_v2_footnote_lines, BookV2FootnoteLines};
+pub use footnote_lines::{prepare_book_v2_footnote_lines, prepare_book_v2_footnote_lines_counted, BookV2FootnoteLines};
 #[path = "book_v2_reshape.rs"]
 mod feedback;
 pub use feedback::{
@@ -46,7 +46,8 @@ pub use crate::safe_vector::book_v2::{
     BOOK_V2_VECTOR_BINDING_ALGORITHM, BOOK_V2_VECTOR_EPOCH_ALGORITHM, BOOK_V2_VECTOR_SET_ALGORITHM,
 };
 pub use frames::{
-    layout_book_v2_body_inline_lines, prepare_book_v2_body_inline_frames, BookV2BodyInlineFrames,
+    layout_book_v2_body_inline_lines, prepare_book_v2_body_inline_frames,
+    prepare_book_v2_body_inline_frames_counted, BookV2BodyInlineFrames,
     BookV2TableOccurrenceFrames, BOOK_V2_BODY_FRAMES_ALGORITHM,
 };
 use typaxis_resource_admission::AdmittedProductionResourceLedgerV3;
@@ -138,6 +139,7 @@ pub fn prepare_book_v2_text_inlines<'a>(
         japanese_mode,
         None,
         None,
+        &mut 0,
     )
 }
 /// Join actual source-bound vector placements with the shared authored text.
@@ -164,6 +166,7 @@ pub fn prepare_book_v2_inline_items<'a>(
         japanese_mode,
         Some(bindings),
         native.map(PreparedBookV2Math::Owned),
+        &mut 0,
     )
 }
 /// Reuse the same immutable native computations across actual line/page passes.
@@ -177,6 +180,30 @@ pub fn prepare_book_v2_inline_items_with_native_context<'a>(
     japanese_mode: JapaneseLineBreakMode,
     native: Option<&'a BookV2NativeMath<'a>>,
 ) -> Result<BookV2PreparedInlines<'a>, ProductionInlinePreparationError> {
+    prepare_book_v2_inline_items_with_native_context_counted(
+        flow,
+        shaped,
+        admitted,
+        bindings,
+        limits,
+        japanese_mode,
+        native,
+        &mut 0,
+    )
+}
+
+/// Preserve native history and accepted inline reservations on every return path.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_book_v2_inline_items_with_native_context_counted<'a>(
+    flow: &'a PreparedBookV2TextFlow<'a>,
+    shaped: &'a BookV2AuthoredTextShape<'a>,
+    admitted: &AdmittedProductionResourceLedgerV3,
+    bindings: &'a BookV2VectorBindings<'a>,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: JapaneseLineBreakMode,
+    native: Option<&'a BookV2NativeMath<'a>>,
+    observed_records: &mut u64,
+) -> Result<BookV2PreparedInlines<'a>, ProductionInlinePreparationError> {
     prepare_inlines(
         flow,
         shaped,
@@ -186,6 +213,7 @@ pub fn prepare_book_v2_inline_items_with_native_context<'a>(
         japanese_mode,
         Some(bindings),
         native.map(PreparedBookV2Math::Borrowed),
+        observed_records,
     )
 }
 #[allow(clippy::too_many_arguments)]
@@ -198,7 +226,9 @@ fn prepare_inlines<'a>(
     japanese_mode: JapaneseLineBreakMode,
     bindings: Option<&'a BookV2VectorBindings<'a>>,
     native_math: Option<PreparedBookV2Math<'a>>,
+    charge: &mut u64,
 ) -> Result<BookV2PreparedInlines<'a>, ProductionInlinePreparationError> {
+    *charge = native_math.as_ref().map_or(0, |n| n.record_charge());
     if let Some(bindings) = bindings {
         bindings
             .verify(bindings.body(), admitted, limits)
@@ -236,7 +266,6 @@ fn prepare_inlines<'a>(
             ProductionInlinePreparationErrorKind::ReceiptMismatch,
         )
     })?;
-    let mut charge = native_math.as_ref().map_or(0, |n| n.record_charge());
     let paragraphs = prepare_paragraphs(
         InlineFlow::BookV2(flow),
         shaped.paragraphs(),
@@ -244,12 +273,12 @@ fn prepare_inlines<'a>(
         native_math.as_deref().map(InlineNativeMath::BookV2),
         limits,
         japanese_mode,
-        &mut charge,
+        charge,
     )?;
     let figures = figure::prepare_figures(
         InlineFlow::BookV2(flow),
         InlineImages::BookV2(admitted),
-        &mut charge,
+        charge,
         limits.base().get().max_fragments,
     )?;
     let mut fingerprint = sha256(BOOK_V2_TEXT_INLINE_ALGORITHM.as_bytes());
@@ -333,11 +362,19 @@ impl<'p, 'a> BookV2InlineLineLayout<'p, 'a> {
     pub fn selected_line_contexts(
         &self,
     ) -> Result<ProductionSelectedLineContexts, ProductionInlinePreparationError> {
-        line_context::selected_contexts(
+        self.selected_line_contexts_counted(&mut 0)
+    }
+    /// Preserve accepted paragraph/context records when capture fails.
+    pub fn selected_line_contexts_counted(
+        &self,
+        observed_records: &mut u64,
+    ) -> Result<ProductionSelectedLineContexts, ProductionInlinePreparationError> {
+        line_context::selected_contexts_counted(
             self.paragraphs(),
             self.output_records(),
             self.prepared.max_fragments,
             self.fingerprint(),
+            observed_records,
         )
     }
 }
@@ -410,6 +447,7 @@ fn layout_with_source_widths<'p, 'a>(
         record_base,
         source_widths,
         &mut 0,
+        &mut 0,
     )
 }
 fn layout_with_source_widths_counted<'p, 'a>(
@@ -419,8 +457,9 @@ fn layout_with_source_widths_counted<'p, 'a>(
     record_base: u64,
     source_widths: Option<&[Option<typaxis_linebreak::ProductionInlineSourceWidths<'_>>]>,
     consumed: &mut u64,
+    observed_records: &mut u64,
 ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
-    let projection = selected::project_lines_counted(
+    let projection = selected::project_lines_counted_with_records(
         selected::LineInputs {
             max_fragments: prepared.max_fragments,
             flow: InlineFlow::BookV2(prepared.flow),
@@ -437,6 +476,7 @@ fn layout_with_source_widths_counted<'p, 'a>(
         BOOK_V2_TEXT_LINE_ALGORITHM,
         source_widths,
         consumed,
+        observed_records,
     )?;
     Ok(BookV2InlineLineLayout {
         prepared,

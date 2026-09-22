@@ -336,9 +336,21 @@ fn shape_document<'a>(
     lines: Option<&[ProductionParagraphLineContext<'_>]>,
     algorithm: &str,
 ) -> Result<BodyShapeOutput<'a>, ProductionTextShapeError> {
+    shape_document_counted(flow, admitted, limits, epoch, lines, algorithm, &mut 0)
+}
+
+fn shape_document_counted<'a>(
+    flow: BodyFlow<'a>,
+    admitted: BodyFonts<'_>,
+    limits: &M4EffectiveResourceLimits,
+    epoch: [u8; 32],
+    lines: Option<&[ProductionParagraphLineContext<'_>]>,
+    algorithm: &str,
+    output_records: &mut u64,
+) -> Result<BodyShapeOutput<'a>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let root = NodeId::new(0);
-    let mut output_records = 0u64;
+    *output_records = 0;
     let mut line_context_fingerprint = None;
     if let Some(contexts) = lines {
         if contexts.len() != flow_call!(flow, paragraphs()).len() {
@@ -349,7 +361,7 @@ fn shape_document<'a>(
             if context.owner != paragraph.owner() {
                 return Err(error(paragraph.owner(), E::InvalidLineContext));
             }
-            output_records = output_records
+            *output_records = output_records
                 .checked_add(context.ends.len() as u64)
                 .and_then(|n| n.checked_add(1))
                 .filter(|n| *n <= limits.base().get().max_fragments)
@@ -378,13 +390,12 @@ fn shape_document<'a>(
             paragraph,
             admitted,
             limits,
-            &mut output_records,
+            output_records,
             lines.map(|contexts| contexts[index].ends),
         )?);
     }
-    let list_markers = list_markers::shape_markers(flow, admitted, limits, &mut output_records)?;
-    let footnote_markers =
-        footnote_markers::shape_markers(flow, admitted, limits, &mut output_records)?;
+    let list_markers = list_markers::shape_markers(flow, admitted, limits, output_records)?;
+    let footnote_markers = footnote_markers::shape_markers(flow, admitted, limits, output_records)?;
     // Fixed-size paragraph digests bound the document receipt allocation even for
     // books with millions of glyphs. Each paragraph owns a separate glyph digest.
     let capacity = paragraphs
@@ -429,7 +440,7 @@ fn shape_document<'a>(
         paragraphs,
         list_markers,
         footnote_markers,
-        output_records,
+        output_records: *output_records,
         fingerprint,
     })
 }

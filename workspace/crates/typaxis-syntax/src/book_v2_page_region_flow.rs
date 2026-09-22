@@ -84,6 +84,20 @@ pub fn prepare_book_v2_page_region_text_flow<'a>(
     navigation: &'a PreparedBookV2Navigation<'a>,
     prior_records: u64,
 ) -> Result<BookV2PageRegionTextFlow<'a>, ProductionFlowError> {
+    prepare_book_v2_page_region_text_flow_counted(selected, kind, navigation, prior_records, &mut 0)
+}
+
+/// Preserve caller history and each accepted source reservation, including when
+/// a later reservation or source/style check fails. Rejected reservations are
+/// atomic and leave the last accepted prefix intact.
+pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
+    selected: BookV2SelectedPageMaster<'a>,
+    kind: BookV2PageRegionKind,
+    navigation: &'a PreparedBookV2Navigation<'a>,
+    prior_records: u64,
+    observed_records: &mut u64,
+) -> Result<BookV2PageRegionTextFlow<'a>, ProductionFlowError> {
+    *observed_records = prior_records;
     let body = selected.source();
     navigation
         .verify_for(body)
@@ -100,6 +114,7 @@ pub fn prepare_book_v2_page_region_text_flow<'a>(
         .checked_add(1)
         .filter(|n| *n <= limits.get().max_fragments)
         .ok_or_else(fail)?;
+    *observed_records = records;
     let mut nodes = 1u64;
     for block in &region.blocks {
         let children = match block {
@@ -117,6 +132,7 @@ pub fn prepare_book_v2_page_region_text_flow<'a>(
             .and_then(|n| n.checked_add(children.len() as u64))
             .filter(|n| *n <= limits.get().max_fragments)
             .ok_or_else(fail)?;
+        *observed_records = records;
     }
     let rules = lower_semantic_style_rules_version(body.body().wire().style_sheet(), limits, true)
         .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;

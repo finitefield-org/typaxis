@@ -197,6 +197,7 @@ pub(super) fn layout_source_width_lines_from_flow<'p, 'a>(
         maximum_work,
         prior_records,
         &mut 0,
+        &mut 0,
     )
 }
 pub(super) fn layout_source_width_lines_counted<'p, 'a>(
@@ -206,7 +207,10 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
     maximum_work: u64,
     prior_records: u64,
     consumed: &mut u64,
+    observed_records: &mut u64,
 ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
+    *observed_records = prior_records;
+    let mut projected_records = prior_records;
     let mut remaining = maximum_work;
     let mut projected = 0;
     let result = (|| {
@@ -224,10 +228,12 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
             .checked_add(prepared.native_math().map_or(0, |m| m.record_charge()))
             .filter(|n| *n <= prepared.max_fragments)
             .ok_or_else(|| error(root, E::UnitLimit))?;
+        *observed_records = records;
         records = records
             .checked_add(assignments.widths.len() as u64)
             .filter(|n| *n <= prepared.max_fragments)
             .ok_or_else(|| error(root, E::UnitLimit))?;
+        *observed_records = records;
         let step = |remaining: &mut u64, owner| {
             *remaining = remaining.checked_sub(1).ok_or_else(|| {
                 error(
@@ -252,6 +258,7 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
                     .checked_add(ends.len() as u64)
                     .filter(|n| *n <= prepared.max_fragments)
                     .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
+                *observed_records = records;
             }
             if let Some(widths) = widths {
                 let items = p
@@ -264,6 +271,7 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
                     .checked_add(widths.len() as u64)
                     .filter(|n| *n <= prepared.max_fragments)
                     .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
+                *observed_records = records;
             }
         }
         let mut bindings = Vec::new();
@@ -349,6 +357,7 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
             prior_records,
             Some(&bindings),
             &mut projected,
+            &mut projected_records,
         )?;
         lines.projection.candidate_steps = lines
             .projection
@@ -357,6 +366,7 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
             .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
         Ok(lines)
     })();
+    *observed_records = (*observed_records).max(projected_records);
     *consumed = maximum_work - remaining + projected;
     result
 }

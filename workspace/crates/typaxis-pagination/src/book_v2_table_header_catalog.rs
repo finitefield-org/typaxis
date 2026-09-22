@@ -130,187 +130,216 @@ pub fn prepare_book_v2_table_header_catalog<'b, 'f, 's, 'p, 'a>(
     maximum_work: u64,
     prior_records: u64,
 ) -> Result<BookV2TableHeaderCatalog<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    let root = NodeId::new(0);
-    let frames = base
-        .flow()
-        .lines()
-        .frames()
-        .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+    prepare_book_v2_table_header_catalog_counted(
+        base,
+        headers,
+        limits,
+        maximum_work,
+        prior_records,
+        &mut 0,
+        &mut 0,
+    )
+}
+/// Preserve accepted constructor charges when no owner can be returned.
+pub fn prepare_book_v2_table_header_catalog_counted<'b, 'f, 's, 'p, 'a>(
+    base: &'b BookV2TableMeasurements<'f, 's, 'p, 'a>,
+    headers: &[&'b BookV2TableHeaderVariant<'b, 'f, 's, 'p, 'a>],
+    limits: &'b M4EffectiveResourceLimits,
+    maximum_work: u64,
+    prior_records: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
+) -> Result<BookV2TableHeaderCatalog<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    *observed_records = prior_records.max(base.record_charge());
     let mut work = 0u64;
-    let mut step = |n: u64| -> Result<(), ProductionBodyPaginationError> {
-        work = work
-            .checked_add(n)
-            .filter(|n| *n <= maximum_work)
-            .ok_or_else(|| error(root, E::TableSearchLimit))?;
-        Ok(())
-    };
-    if headers.is_empty() {
-        step(1)?;
-        base.flow().verify(
-            base.flow().lines(),
-            base.flow().blocks(),
-            base.flow().footnotes(),
-            limits,
-        )?;
-    }
-    let mut shared = base.record_charge();
-    let mut independent = 0u64;
-    for header in headers {
-        step(1)?;
-        header.verify(base, header.variant(), limits)?;
-        shared = shared.max(header.shared_record_charge());
-        independent = independent
-            .checked_add(
-                header
-                    .record_charge()
-                    .checked_sub(header.shared_record_charge())
-                    .ok_or_else(|| error(root, E::ReceiptMismatch))?,
-            )
-            .ok_or_else(|| error(root, E::FragmentLimit))?;
-    }
-    let (projection_records, projection_work) = frames
-        .table_source_occurrence_projection_budget()
-        .map_err(map_error)?;
-    let owner_records = headers
-        .iter()
-        .try_fold(0u64, |n, h| n.checked_add(h.leaves().len() as u64))
-        .ok_or_else(|| error(root, E::FragmentLimit))?;
-    let records = shared
-        .max(prior_records)
-        .checked_add(independent)
-        .and_then(|n| n.checked_add(owner_records))
-        .and_then(|n| n.checked_add(headers.len() as u64 + 1))
-        .and_then(|n| {
-            projection_records
-                .checked_mul(headers.len() as u64)
-                .and_then(|p| n.checked_add(p))
-        })
-        .filter(|n| *n <= limits.base().get().max_fragments)
-        .ok_or_else(|| error(root, E::FragmentLimit))?;
-    let mut entries = Vec::new();
-    entries
-        .try_reserve_exact(headers.len())
-        .map_err(|_| error(root, E::AllocationFailure))?;
-    let mut last = None;
-    let mut fingerprint = typaxis_core::sha256(b"typaxis.book-2-table-header-catalog/1");
-    for header in headers {
-        step(1)?;
-        let index = header.table_index();
-        let source = base
-            .flow()
-            .collected
-            .tables
-            .tables
-            .get(index)
-            .ok_or_else(|| error(root, E::ReceiptMismatch))?;
-        step(index as u64 + 1)?;
-        let root_index = root_table_index(base, index)?;
-        let root_owner = base.tables()[root_index].owner();
-        let actual = header
-            .variant()
+    let result = (|| {
+        let root = NodeId::new(0);
+        let frames = base
             .flow()
             .lines()
             .frames()
-            .ok_or_else(|| error(source.owner, E::ReceiptMismatch))?;
-        step(actual.measurement_region_lookup_work())?;
-        let width = actual
-            .region(root_owner)
-            .ok_or_else(|| error(source.owner, E::ReceiptMismatch))?
-            .width();
-        let key = (index, width.get().raw());
-        if last.is_some_and(|p| p >= key) {
-            return Err(error(source.owner, E::ReceiptMismatch));
-        }
-        last = Some(key);
-        let mut owners = Vec::new();
-        owners
-            .try_reserve_exact(header.leaves().len())
-            .map_err(|_| error(source.owner, E::AllocationFailure))?;
-        let count = header.leaves().len();
-        step(
-            (count as u64)
-                .checked_mul(u64::from(count.checked_ilog2().unwrap_or(0)) + 3)
-                .ok_or_else(|| error(source.owner, E::ArithmeticOverflow))?,
-        )?;
-        owners.extend(header.leaves().iter().map(|leaf| leaf.source().owner()));
-        owners.sort_unstable();
-        owners.dedup();
-        step(projection_work)?;
-        let expected = frames
-            .remeasure_table_parent_for_sources(
-                root_owner,
-                width,
-                &owners,
-                projection_work,
-                frames.record_charge(),
-            )
-            .map_err(map_error)?;
-        for leaf in header.leaves() {
+            .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+        let mut step = |n: u64| -> Result<(), ProductionBodyPaginationError> {
+            work = work
+                .checked_add(n)
+                .filter(|n| *n <= maximum_work)
+                .ok_or_else(|| error(root, E::TableSearchLimit))?;
+            Ok(())
+        };
+        if headers.is_empty() {
             step(1)?;
-            let item = header
-                .variant()
-                .item(leaf.variant_item_index())
-                .ok_or_else(|| error(source.owner, E::ReceiptMismatch))?;
-            match item.source() {
-                Some(ProductionBodyFragmentSource::ParagraphLine {
-                    paragraph_index,
-                    line_index,
-                }) => {
-                    let p = header
-                        .variant()
-                        .flow()
-                        .lines()
-                        .paragraphs()
-                        .get(paragraph_index as usize)
-                        .filter(|p| p.owner() == item.owner())
-                        .ok_or_else(|| error(item.owner(), E::ReceiptMismatch))?;
-                    let line = p
-                        .selected()
-                        .and_then(|s| s.lines().get(line_index as usize))
-                        .ok_or_else(|| error(item.owner(), E::ReceiptMismatch))?;
-                    step(expected.source_owner_lookup_work())?;
-                    let target = expected
-                        .paragraph(paragraph_index as usize, item.owner())
-                        .ok_or_else(|| error(item.owner(), E::ReceiptMismatch))?;
-                    let start = actual
-                        .source_unit_start(paragraph_index as usize, line.line().start_unit())
-                        .unwrap_or(actual.paragraphs()[paragraph_index as usize].start());
-                    if line.inline_size() != target.width() || start != target.start() {
-                        return Err(error(item.owner(), E::WidthMismatch));
-                    }
-                }
-                Some(_) => {
-                    step(expected.region_lookup_work() + actual.measurement_region_lookup_work())?;
-                    let actual_region = actual
-                        .region(item.owner())
-                        .ok_or_else(|| error(item.owner(), E::ReceiptMismatch))?;
-                    let expected_region = expected
-                        .region(item.owner())
-                        .ok_or_else(|| error(item.owner(), E::ReceiptMismatch))?;
-                    if actual_region != expected_region {
-                        return Err(error(item.owner(), E::WidthMismatch));
-                    }
-                }
-                None => return Err(error(item.owner(), E::ReceiptMismatch)),
-            }
+            base.flow().verify(
+                base.flow().lines(),
+                base.flow().blocks(),
+                base.flow().footnotes(),
+                limits,
+            )?;
         }
-        step(1)?;
-        let mut bytes = [0u8; 80];
-        bytes[..32].copy_from_slice(&fingerprint);
-        bytes[32..64].copy_from_slice(&header.fingerprint());
-        bytes[64..72].copy_from_slice(&(index as u64).to_be_bytes());
-        bytes[72..].copy_from_slice(&width.get().raw().to_be_bytes());
-        fingerprint = typaxis_core::sha256(&bytes);
-        entries.push((index, width, *header));
-    }
-    Ok(BookV2TableHeaderCatalog {
-        base,
-        entries,
-        limits,
-        records,
-        work,
-        fingerprint,
-    })
+        let mut shared = base.record_charge();
+        let mut independent = 0u64;
+        for header in headers {
+            step(1)?;
+            header.verify(base, header.variant(), limits)?;
+            *observed_records = (*observed_records).max(header.record_charge());
+            shared = shared.max(header.shared_record_charge());
+            independent = independent
+                .checked_add(
+                    header
+                        .record_charge()
+                        .checked_sub(header.shared_record_charge())
+                        .ok_or_else(|| error(root, E::ReceiptMismatch))?,
+                )
+                .ok_or_else(|| error(root, E::FragmentLimit))?;
+        }
+        let (projection_records, projection_work) = frames
+            .table_source_occurrence_projection_budget()
+            .map_err(map_error)?;
+        let owner_records = headers
+            .iter()
+            .try_fold(0u64, |n, h| n.checked_add(h.leaves().len() as u64))
+            .ok_or_else(|| error(root, E::FragmentLimit))?;
+        let records = shared
+            .max(prior_records)
+            .checked_add(independent)
+            .and_then(|n| n.checked_add(owner_records))
+            .and_then(|n| n.checked_add(headers.len() as u64 + 1))
+            .and_then(|n| {
+                projection_records
+                    .checked_mul(headers.len() as u64)
+                    .and_then(|p| n.checked_add(p))
+            })
+            .filter(|n| *n <= limits.base().get().max_fragments)
+            .ok_or_else(|| error(root, E::FragmentLimit))?;
+        *observed_records = records;
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(headers.len())
+            .map_err(|_| error(root, E::AllocationFailure))?;
+        let mut last = None;
+        let mut fingerprint = typaxis_core::sha256(b"typaxis.book-2-table-header-catalog/1");
+        for header in headers {
+            step(1)?;
+            let index = header.table_index();
+            let source = base
+                .flow()
+                .collected
+                .tables
+                .tables
+                .get(index)
+                .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+            step(index as u64 + 1)?;
+            let root_index = root_table_index(base, index)?;
+            let root_owner = base.tables()[root_index].owner();
+            let actual = header
+                .variant()
+                .flow()
+                .lines()
+                .frames()
+                .ok_or_else(|| error(source.owner, E::ReceiptMismatch))?;
+            step(actual.measurement_region_lookup_work())?;
+            let width = actual
+                .region(root_owner)
+                .ok_or_else(|| error(source.owner, E::ReceiptMismatch))?
+                .width();
+            let key = (index, width.get().raw());
+            if last.is_some_and(|p| p >= key) {
+                return Err(error(source.owner, E::ReceiptMismatch));
+            }
+            last = Some(key);
+            let mut owners = Vec::new();
+            owners
+                .try_reserve_exact(header.leaves().len())
+                .map_err(|_| error(source.owner, E::AllocationFailure))?;
+            let count = header.leaves().len();
+            step(
+                (count as u64)
+                    .checked_mul(u64::from(count.checked_ilog2().unwrap_or(0)) + 3)
+                    .ok_or_else(|| error(source.owner, E::ArithmeticOverflow))?,
+            )?;
+            owners.extend(header.leaves().iter().map(|leaf| leaf.source().owner()));
+            owners.sort_unstable();
+            owners.dedup();
+            step(projection_work)?;
+            let expected = frames
+                .remeasure_table_parent_for_sources(
+                    root_owner,
+                    width,
+                    &owners,
+                    projection_work,
+                    frames.record_charge(),
+                )
+                .map_err(map_error)?;
+            for leaf in header.leaves() {
+                step(1)?;
+                let item = header
+                    .variant()
+                    .item(leaf.variant_item_index())
+                    .ok_or_else(|| error(source.owner, E::ReceiptMismatch))?;
+                match item.source() {
+                    Some(ProductionBodyFragmentSource::ParagraphLine {
+                        paragraph_index,
+                        line_index,
+                    }) => {
+                        let p = header
+                            .variant()
+                            .flow()
+                            .lines()
+                            .paragraphs()
+                            .get(paragraph_index as usize)
+                            .filter(|p| p.owner() == item.owner())
+                            .ok_or_else(|| error(item.owner(), E::ReceiptMismatch))?;
+                        let line = p
+                            .selected()
+                            .and_then(|s| s.lines().get(line_index as usize))
+                            .ok_or_else(|| error(item.owner(), E::ReceiptMismatch))?;
+                        step(expected.source_owner_lookup_work())?;
+                        let target = expected
+                            .paragraph(paragraph_index as usize, item.owner())
+                            .ok_or_else(|| error(item.owner(), E::ReceiptMismatch))?;
+                        let start = actual
+                            .source_unit_start(paragraph_index as usize, line.line().start_unit())
+                            .unwrap_or(actual.paragraphs()[paragraph_index as usize].start());
+                        if line.inline_size() != target.width() || start != target.start() {
+                            return Err(error(item.owner(), E::WidthMismatch));
+                        }
+                    }
+                    Some(_) => {
+                        step(
+                            expected.region_lookup_work() + actual.measurement_region_lookup_work(),
+                        )?;
+                        let actual_region = actual
+                            .region(item.owner())
+                            .ok_or_else(|| error(item.owner(), E::ReceiptMismatch))?;
+                        let expected_region = expected
+                            .region(item.owner())
+                            .ok_or_else(|| error(item.owner(), E::ReceiptMismatch))?;
+                        if actual_region != expected_region {
+                            return Err(error(item.owner(), E::WidthMismatch));
+                        }
+                    }
+                    None => return Err(error(item.owner(), E::ReceiptMismatch)),
+                }
+            }
+            step(1)?;
+            let mut bytes = [0u8; 80];
+            bytes[..32].copy_from_slice(&fingerprint);
+            bytes[32..64].copy_from_slice(&header.fingerprint());
+            bytes[64..72].copy_from_slice(&(index as u64).to_be_bytes());
+            bytes[72..].copy_from_slice(&width.get().raw().to_be_bytes());
+            fingerprint = typaxis_core::sha256(&bytes);
+            entries.push((index, width, *header));
+        }
+        Ok(BookV2TableHeaderCatalog {
+            base,
+            entries,
+            limits,
+            records,
+            work,
+            fingerprint,
+        })
+    })();
+    *observed_work = work;
+    result
 }
 fn map_error(e: typaxis_layout::ProductionInlinePreparationError) -> ProductionBodyPaginationError {
     use typaxis_layout::ProductionInlinePreparationErrorKind as L;

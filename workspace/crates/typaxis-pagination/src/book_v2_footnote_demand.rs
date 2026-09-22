@@ -1,8 +1,7 @@
 //! Successor demand branches, using the common snapshot/queue transition kernel.
 use super::super::book_v2::{
-    prepare_book_v2_footnote_context_charged, prepare_book_v2_footnote_search,
-    prepare_book_v2_footnote_search_charged, BookV2FootnoteBreakSearch, BookV2FootnoteCursor,
-    BookV2FootnoteFragmentSelection,
+    prepare_book_v2_footnote_context_charged_counted, prepare_book_v2_footnote_search_counted,
+    BookV2FootnoteBreakSearch, BookV2FootnoteCursor, BookV2FootnoteFragmentSelection,
 };
 use super::*;
 use crate::production_body::body_flow::book_v2::BookV2PreparedBodyFlow;
@@ -383,10 +382,35 @@ pub fn prepare_book_v2_footnote_demand_search<'b, 'f, 's, 'p, 'a>(
     maximum_work: u64,
     prior_records: u64,
 ) -> Result<BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    let content = prepare_book_v2_footnote_search(flow, limits, maximum_work, prior_records)?;
-    finish_book_v2_demand_search(content, limits)
+    prepare_book_v2_footnote_demand_search_counted(
+        flow,
+        limits,
+        maximum_work,
+        prior_records,
+        &mut 0,
+        &mut 0,
+    )
 }
-pub(in crate::production_body::body_flow) fn prepare_book_v2_table_demand_search<
+/// Return accepted constructor work and the cumulative record prefix on failure too.
+pub fn prepare_book_v2_footnote_demand_search_counted<'b, 'f, 's, 'p, 'a>(
+    flow: &'b BookV2PreparedBodyFlow<'f, 's, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    maximum_work: u64,
+    prior_records: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
+) -> Result<BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    let content = prepare_book_v2_footnote_search_counted(
+        flow,
+        limits,
+        maximum_work,
+        prior_records,
+        observed_records,
+        observed_work,
+    )?;
+    finish_book_v2_demand_search_counted(content, limits, observed_records, observed_work)
+}
+pub(in crate::production_body::body_flow) fn prepare_book_v2_table_demand_search_counted<
     'b,
     'f,
     's,
@@ -398,13 +422,22 @@ pub(in crate::production_body::body_flow) fn prepare_book_v2_table_demand_search
     maximum_work: u64,
     charge: Charge,
     steps: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
 ) -> Result<BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    finish_book_v2_demand_search(
-        prepare_book_v2_footnote_search_charged(flow, limits, maximum_work, charge, steps)?,
+    let content = prepare_book_v2_footnote_context_charged_counted(
+        flow,
         limits,
-    )
+        maximum_work,
+        charge,
+        steps,
+        false,
+        observed_records,
+        observed_work,
+    )?;
+    finish_book_v2_demand_search_counted(content, limits, observed_records, observed_work)
 }
-pub(in crate::production_body::body_flow) fn prepare_book_v2_definition_candidate_demand<
+pub(in crate::production_body::body_flow) fn prepare_book_v2_definition_candidate_demand_counted<
     'b,
     'f,
     's,
@@ -416,17 +449,31 @@ pub(in crate::production_body::body_flow) fn prepare_book_v2_definition_candidat
     maximum_work: u64,
     charge: Charge,
     steps: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
 ) -> Result<BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    finish_book_v2_demand_search(
-        prepare_book_v2_footnote_context_charged(flow, limits, maximum_work, charge, steps, true)?,
+    let content = prepare_book_v2_footnote_context_charged_counted(
+        flow,
         limits,
-    )
+        maximum_work,
+        charge,
+        steps,
+        true,
+        observed_records,
+        observed_work,
+    )?;
+    finish_book_v2_demand_search_counted(content, limits, observed_records, observed_work)
 }
-fn finish_book_v2_demand_search<'b, 'f, 's, 'p, 'a>(
+fn finish_book_v2_demand_search_counted<'b, 'f, 's, 'p, 'a>(
     mut content: BookV2FootnoteBreakSearch<'b, 'f, 's, 'p, 'a>,
     limits: &M4EffectiveResourceLimits,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
 ) -> Result<BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    *observed_records = content.record_charge();
+    *observed_work = content.visited_items();
     content.charge(1, NodeId::new(0))?;
+    *observed_records = content.record_charge();
     let owner_id = NEXT_SEARCH
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
         .map_err(|_| error(NodeId::new(0), E::ArithmeticOverflow))?;
@@ -459,35 +506,76 @@ pub fn prepare_book_v2_table_body_search<'b, 'f, 's, 'p, 'a>(
     maximum_work: u64,
     prior_records: u64,
 ) -> Result<BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    if measurements.flow().collected.tables.tables.last().is_some_and(|table| table.definition.is_some()) {
-        let (tables, definitions, charge, steps) =
-            crate::production_body::body_flow::table_measurements::BookV2TableBodyContext::prepare_joint(
-                measurements, limits, maximum_work, prior_records,
-            )?;
-        let mut search = prepare_book_v2_definition_candidate_demand(
-            measurements.flow(), limits, maximum_work, charge, steps,
-        )?;
-        search.tables = Some(tables);
-        search.definition_tables = Some(definitions);
-        return Ok(search);
-    }
-    let (tables, charge, steps) =
-        crate::production_body::body_flow::table_measurements::BookV2TableBodyContext::prepare(
+    prepare_book_v2_table_body_search_counted(
+        measurements,
+        limits,
+        maximum_work,
+        prior_records,
+        &mut 0,
+        &mut 0,
+    )
+}
+/// Retain accepted initialization charges through hierarchy, table, definition
+/// and demand preparation. Work is local; records include the incoming prefix.
+pub fn prepare_book_v2_table_body_search_counted<'b, 'f, 's, 'p, 'a>(
+    measurements: &'b crate::production_body::body_flow::book_v2::BookV2TableMeasurements<
+        'f,
+        's,
+        'p,
+        'a,
+    >,
+    limits: &M4EffectiveResourceLimits,
+    maximum_work: u64,
+    prior_records: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
+) -> Result<BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    use crate::production_body::body_flow::table_measurements::BookV2TableBodyContext;
+    let definitions_present = measurements
+        .flow()
+        .collected
+        .tables
+        .tables
+        .last()
+        .is_some_and(|table| table.definition.is_some());
+    let (tables, definitions, charge, steps) = if definitions_present {
+        let (tables, definitions, charge, steps) = BookV2TableBodyContext::prepare_joint_counted(
             measurements,
             limits,
             maximum_work,
             prior_records,
+            observed_records,
+            observed_work,
         )?;
-    let mut search = prepare_book_v2_table_demand_search(
+        (tables, Some(definitions), charge, steps)
+    } else {
+        let (tables, charge, steps) = BookV2TableBodyContext::prepare_counted(
+            measurements,
+            limits,
+            maximum_work,
+            prior_records,
+            observed_records,
+            observed_work,
+        )?;
+        (tables, None, charge, steps)
+    };
+    let content = prepare_book_v2_footnote_context_charged_counted(
         measurements.flow(),
         limits,
         maximum_work,
         charge,
         steps,
+        definitions_present,
+        observed_records,
+        observed_work,
     )?;
+    let mut search =
+        finish_book_v2_demand_search_counted(content, limits, observed_records, observed_work)?;
     search.tables = Some(tables);
+    search.definition_tables = definitions;
     Ok(search)
 }
+
 impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     pub fn body_table_count(&self) -> usize {
         self.tables.as_ref().map_or(0, |tables| tables.len())
@@ -516,11 +604,11 @@ mod definition_table_transition;
 
 #[path = "book_v2_definition_mixed_candidate.rs"]
 mod definition_mixed;
-pub use definition_mixed::{BookV2DefinitionCandidates, BookV2RankedDefinitionCandidate, prepare_book_v2_definition_mixed_search, BookV2DefinitionMixedSearch, BookV2DefinitionCandidatePart, BookV2DefinitionSelectedPart, BookV2DefinitionSourceState, BookV2DefinitionMixedCandidate,};
+pub use definition_mixed::{BookV2DefinitionCandidates, BookV2RankedDefinitionCandidate, prepare_book_v2_definition_mixed_search, prepare_book_v2_definition_mixed_search_counted, BookV2DefinitionMixedSearch, BookV2DefinitionCandidatePart, BookV2DefinitionSelectedPart, BookV2DefinitionSourceState, BookV2DefinitionMixedCandidate,};
 
 #[path = "book_v2_definition_queue.rs"]
 mod definition_queue;
-pub use definition_queue::prepare_book_v2_mixed_footnote_demand_search;
+pub use definition_queue::{prepare_book_v2_mixed_footnote_demand_search, prepare_book_v2_mixed_footnote_demand_search_counted};
 
 
 /// Construct search directly from its sealed catalog. Its complete retained
@@ -532,7 +620,35 @@ pub fn prepare_book_v2_table_body_search_with_headers<'b, 'f, 's, 'p, 'a>(
     maximum_work: u64,
     prior_records: u64,
 ) -> Result<BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    let mut search=prepare_book_v2_table_body_search(catalog.base(),limits,maximum_work,prior_records.max(catalog.record_charge()))?;
-    search.bind_table_header_catalog(catalog,true)?;
+    prepare_book_v2_table_body_search_with_headers_counted(
+        catalog,
+        limits,
+        maximum_work,
+        prior_records,
+        &mut 0,
+        &mut 0,
+    )
+}
+/// Include a failed header-catalog bind in the constructor observations.
+pub fn prepare_book_v2_table_body_search_with_headers_counted<'b, 'f, 's, 'p, 'a>(
+    catalog: &'b crate::book_v2::BookV2TableHeaderCatalog<'b, 'f, 's, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    maximum_work: u64,
+    prior_records: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
+) -> Result<BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    let mut search = prepare_book_v2_table_body_search_counted(
+        catalog.base(),
+        limits,
+        maximum_work,
+        prior_records.max(catalog.record_charge()),
+        observed_records,
+        observed_work,
+    )?;
+    let bound = search.bind_table_header_catalog(catalog, true);
+    *observed_records = search.record_charge();
+    *observed_work = search.work_steps();
+    bound?;
     Ok(search)
 }

@@ -49,6 +49,7 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variants<R>(
     prior_records: u64,
     use_variants: impl FnOnce(BookV2RebuiltBodyLineVariants<'_, '_, '_>) -> R,
 ) -> Result<R, ProductionBodyReshapeError> {
+    allowance.records = allowance.records.max(prior_records);
     let maximum_work = allowance.remaining_work();
     let mut work = 0u64;
     let result = (|| {
@@ -80,6 +81,7 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variants<R>(
             {
                 return Err(error(root, E::ReceiptMismatch).into());
             }
+            allowance.records = allowance.records.max(seed.record_charge());
             base = base.max(seed.records - seed.captured_records);
             captured = captured
                 .checked_add(seed.captured_records)
@@ -111,6 +113,7 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variants<R>(
             .and_then(|n| n.checked_add(1))
             .filter(|n| *n <= first.limits.base().get().max_fragments)
             .ok_or_else(|| error(root, E::UnitLimit))?;
+        allowance.records = allowance.records.max(records);
         let mut inputs = Vec::new();
         inputs
             .try_reserve_exact(seeds.len())

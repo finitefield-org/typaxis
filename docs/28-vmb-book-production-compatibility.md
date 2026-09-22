@@ -5335,3 +5335,233 @@ byte一致、文書更新前の82ソースhashの一致を確認した。
 [実装台帳§248](28-vmb-book-production-progress.md#downstream-failure-budget-design-14248)を参照。
 constructorの失敗、柱の合成途中、ownerが保持しない内部処理は未完経路として残る。
 完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。
+
+
+### 14.249 柱・フッターの合成途中で失敗した消費量を保持（実装追補）
+
+with_page_regions_countedは本文と柱の累積work／recordを成功・失敗の両方で返す。
+旧APIは同じ処理へ委譲し、選択された柱が空の場合も元のidentity・課金・出力を保つ。
+private driverはpage master選択、source準備、行候補探索、描画、最終合成の途中までの
+観測値をPDF driverへ戻す。callback前の失敗した行候補量も計上し、callback到達時は
+既存の加算と重複しない。source準備で得たrecordは、その後のwork拒否より先に保持する。
+
+projection builderが返す上限超過の試行量はcommandの残予算を使い切る値へ制限し、
+元の描画エラーを別のdriverエラーで置き換えない。この値は拒否された全処理の実行量を
+意味しない。成功時の課金規約は変更しない。
+
+controlled TT／無変更原Haranoの2 testsで複数ページにまたがる16段階のwork上限を使い、
+行組み・描画・最終合成の実失敗、再試行、上限一致成功を検証した。関連32 testsは
+失敗／ignored 0で成功した。agent実行のCLI全266 tests／font全76 testsと全専用試験も
+成功し、759 PDF／2,896 pagesと58 resource subsetsの独立検証、前段階との全759組の
+実ファイルbyte一致、文書更新前の84ソースhashの一致を確認した。
+[ADR-0112](../adr/ADR-0112-book-2-region-failure-budget.md)と
+[実装台帳§249](28-vmb-book-production-progress.md#region-failure-budget-design-14249)を参照。
+constructorやsource／shape／layout内部が公開しない消費量、完全なcommand予算、
+公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は引き続き未完である。
+
+
+### 14.250 描画builderの初期化失敗でも予約と検証量を保持（実装追補）
+
+本文／数式と柱のdisplay builderへnew_countedを追加し、旧constructorは同じ実装へ
+委譲する。本文側はbuilderのrecord予約と表見出しreceiptの途中までの検証workを保持する。
+柱側はfont instance用recordの予約後にwork検査が失敗しても、その予約を保持する。
+拒否されたworkは加算せず、事前のidentity／epoch拒否も入力prefix以外を加算しない。
+private driverはbuilderが返らない場合も両counterを再利用可能な予算へ戻す。
+
+実際の表見出しの初期／中盤／終盤での拒否、上限一致、record枯渇、返されたprefixを
+使った再試行、柱constructorの事前拒否と予約後拒否を検証した。原Haranoを含む
+表見出し7 tests、柱display 3 tests、constructor失敗を含むdriver 2 testsが成功した。
+CLI全266 tests／font全76 testsと全専用試験も失敗／ignored 0で成功し、759 PDF／
+2,896 pagesの独立検証、前段階との全759組のbyte一致、90ソースhashの一致を確認した。
+[ADR-0113](../adr/ADR-0113-book-2-display-constructor-budget.md)と
+[実装台帳§250](28-vmb-book-production-progress.md#display-constructor-budget-design-14250)を参照。
+他のconstructor、source admission、shape内部、完全なcommand予算、公開Book /2、
+元全巻・管理ホスト・性能・著者／人手受入は引き続き未完である。
+
+
+### 14.251 表探索の初期化と子表の失敗時に消費量を保持（実装追補）
+
+prepare_book_v2_table_search_countedを追加し、旧APIは同じ処理へ委譲する。
+共有table kernelが初期化中のworkとrecordを保持し、成功ownerが返らない場合も
+観測値を返す。入れ子の表では子に渡した予算をエラー伝播前に親へ戻し、先行する子表と
+失敗した子表の途中までの消費を保持する。受理されなかった予約は加算しない。
+
+controlled TT／無変更原Haranoで、すべての初期化work境界、複数の子表、深い入れ子、
+再試行、上限一致、record不足、index不正と成功fragment一致を検証する。
+[ADR-0114](../adr/ADR-0114-book-2-table-constructor-budget.md)と
+[実装台帳§251](28-vmb-book-production-progress.md#table-constructor-budget-design-14251)を参照。
+body／joint／definition contextからdriverへの伝播、完全なcommand予算、公開Book /2、
+元全巻・管理ホスト・性能・著者／人手受入は引き続き未完である。
+
+agent実行の新2 tests、Book /2関連CLI 268 tests、pagination 104 tests、font 76 testsと
+全専用試験が失敗／ignored 0で成功した。workspace型検査、759 PDF／2,896 pagesと
+58 resource subsetsの独立検証、前段階との全759組のbyte一致も成功し、94ソースhashと
+24成功ログの対応を保存した。これは上記constructor層の検証完了であり、設計全体の
+受入完了を意味しない。
+
+
+### 14.252 ページ探索の初期化失敗をprivate driverまで伝播（実装追補）
+
+本文と脚注内の表をまとめるcontextは、共有するrecord／workを参照で更新する。
+階層情報、先行する表と脚注、失敗した子表の途中消費を保持する。共通kernelの旧production
+経路も同じ走査へ委譲し、成功時の予約量と表の順序を維持する。
+
+prepare_book_v2_table_body_search_countedとwith_headers_countedを追加した。
+脚注contextの初期化、demand ownerの予約、見出しcatalogの設定失敗まで観測値を返す。
+private PDF driverの通常・見出し・見出し探索の経路は、constructorが返らない失敗でも
+消費量を回収する。成功時はsearchが持つ累積prefixを一度だけ加算する。
+
+controlled TT／無変更原Haranoで、本文のみ、複数の子表、脚注の表、本文と複数脚注、
+見出しcatalogの設定・探索を検証する。
+[ADR-0115](../adr/ADR-0115-book-2-page-constructor-budget.md)と
+[実装台帳§252](28-vmb-book-production-progress.md#page-constructor-budget-design-14252)を参照。
+独立した脚注constructor、catalog自体の構築、body flow／measurement、source／shape内部、
+完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。
+
+agent実行の新4 testsと、最終ソースのBook /2関連CLI 272 tests、pagination 104 tests、
+font 76 tests、公開／旧CFF診断が失敗／ignored 0で成功した。workspace型検査、
+759 PDF／2,896 pagesと58 resource subsetsの独立検証、前段階との全759組のbyte一致も
+成功した。104ソースhashと16成功ログの対応を保存した。これは主ページ探索constructor
+経路の検証完了であり、設計全体や意味情報が未作成の全巻入力の受入完了を意味しない。
+
+
+### 14.253 独立した脚注探索の初期化失敗で消費量を保持（実装追補）
+
+脚注content／demand、単一表の脚注探索、脚注内表のdemand、単一定義と複数定義queueの
+各constructorにcounted APIを追加した。既存APIは同じ実装へ委譲する。階層準備、
+定義走査、子表、脚注context、demand ownerの途中まで受理されたwork／recordを戻す。
+単一表から脚注へ予算を移す前の追加owner予約も、後続の失敗で失われない。
+
+入力不正の検証順序、平坦な脚注cursorによる定義内表の拒否、元のtyped errorと
+成功時の課金量を維持する。失敗した予約そのものは消費に加えない。
+[ADR-0116](../adr/ADR-0116-book-2-footnote-constructor-budget.md)と
+[実装台帳§253](28-vmb-book-production-progress.md#footnote-constructor-budget-design-14253)を参照。
+catalog構築、body flow／measurement、source／shape内部、完全なcommand予算、
+公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。
+
+新2 tests、workspace型検査、pagination 104 tests、font 76 tests、公開／旧CFF診断が
+成功した。Book /2関連CLIは中断前の成功202件と再開した72件をテスト名で照合し、
+全274件の成功・重複と漏れ0を確認した。759 PDF／2,896 pagesと58 resource subsetsの
+独立検証、前段階との全759組のbyte一致、113ソースhashと実行結果の対応も成功した。
+中断したプロセス自体の正常終了や、設計全体の受入完了を意味するものではない。
+
+
+### 14.254 本文・表測定・見出し投影の初期化失敗で予算を保持（実装追補）
+
+body flow、table measurements、header variant、header catalogにcounted constructorを
+追加した。本文と測定はrecord、見出しはrecord／workの受理済み値を結果伝播前に戻す。
+測定kernelは旧production APIも同じ実装へ委譲し、予約後のcanonical buffer容量拒否も
+観測できる。従来の型付きエラー、検証順序、共有履歴と独立した保持領域の区別を維持する。
+
+通常PDF driverとheader catalog driverはownerが返らない失敗でも観測値を保持する。
+本文・測定内部に元から存在しないwork計測を追加済みとは扱わない。
+[ADR-0117](../adr/ADR-0117-book-2-projection-constructor-budget.md)と
+[実装台帳§254](28-vmb-book-production-progress.md#projection-constructor-budget-design-14254)を参照。
+他の準備owner、source／shape内部、完全なcommand予算、公開Book /2、元全巻・
+管理ホスト・性能・著者／人手受入は継続する。
+
+新2 testsと拡張した見出し試験、workspace型検査、Book /2関連CLI 276 tests、
+pagination 104 tests、font 76 tests、公開／旧CFF診断が成功した。759 PDF／2,896 pagesと
+58 subsetsの独立検証、前段階との全759組のbyte一致、123ソースhashと16成功ログの
+対応照合も成功した。設計全体や全巻入力の受入完了を意味するものではない。
+
+
+### 14.255 式番号・図版ブロックの初期化失敗で予算を保持（実装追補）
+
+式番号shapeとvector block layoutへcounted constructorを追加し、旧APIは同じ実装へ
+委譲する。ownerとshape、受理済みrun／glyph／cluster、blockの保存領域を後続の
+style／spool／geometry拒否で失わない。元の型付きエラー、検証順序、成功時のfingerprintと
+共有履歴・独立保持領域の課金区別を維持する。通常PDF／見出しdriverへ伝播し、
+中間観測値の回収による二重課金を避ける。
+
+[ADR-0118](../adr/ADR-0118-book-2-label-block-constructor-budget.md)と
+[実装台帳§255](28-vmb-book-production-progress.md#label-block-constructor-budget-design-14255)を参照。
+shape内部の失敗時allocationやworkを新たに計測済みとは扱わない。line captureとその他の
+準備owner、完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。
+
+新2 tests、workspace型検査、Book /2関連CLI 278 tests、shaping 27 tests（通常25＋
+原Harano専用2）、layout 69 tests、pagination 104 tests、font 76 tests、公開／旧CFF診断が
+成功した。shaping／layoutのdoc-testsも成功した。759 PDF／2,896 pagesと58 subsetsの
+独立検証、全759組の前段階とのbyte一致、133ソースhashと19成功ログの対応照合を確認した。
+全巻入力や設計全体の受入完了を意味するものではない。
+
+
+### 14.256 行コンテキスト・脚注行投影・再構築の失敗時record保持（実装追補）
+
+共有line context／footnote projection kernelへcounted経路を追加し、旧APIは同じ処理へ
+委譲する。段落ごとの受理済みcontext予約、脚注定義・index・referenceの予約を、後続の
+失敗でも戻す。body line予算は完了したline measurement、context、footnote投影の最大
+local prefixを保持する。破棄したpass領域の単純合算や、shape内部の完全な課金ではない。
+
+seed捕捉とsingle／set replayは既存の共有履歴と独立領域の区別を保ちながら、失敗時の
+予約を予算ownerへ戻す。通常PDF／header driverはcallbackへ到達しなかった場合も
+work・開始済みpass・recordを回収する。成功時の既存owner／fingerprintは維持する。
+[ADR-0119](../adr/ADR-0119-book-2-line-context-record-budget.md)と
+[実装台帳§256](28-vmb-book-production-progress.md#line-context-record-budget-design-14256)を参照。
+残るshape／frame／line内部、完全なcommand予算、名前付きページ・段組、公開Book /2、
+元全巻・管理ホスト・性能・著者／人手受入は継続する。
+
+関連8 tests、workspace型検査、Book /2関連CLI 280 tests、layout 69 testsとdoc-test 1件、
+pagination 104 tests、font 76 tests、公開／旧CFF診断が成功した。759 PDF／2,896 pagesと
+58 subsetsの独立検証、全759組の前段階とのbyte一致、142ソースhashと17成功ログの
+対応照合も成功した。設計全体や元全巻の受入完了を意味するものではない。
+
+
+### 14.257 フレーム・幅再投影・行選択の失敗時record保持（実装追補）
+
+共有frame kernelで受理済み予約を返し、Book /2のbody frame constructorへcounted経路を
+追加する。初期フレーム、表・block幅、source unit開始位置、幅binding、選択行の予約を
+途中失敗でもbody line予算へ戻す。bindingと行投影が表す同じ保存領域は最大値で併合し、
+表の元フレームと再投影の独立した保持領域は既存の予約通りに計上する。
+成功時のfingerprint、検証順序、型付き原因とwork計測を維持する。
+
+[ADR-0120](../adr/ADR-0120-book-2-frame-line-record-budget.md)と
+[実装台帳§257](28-vmb-book-production-progress.md#frame-line-record-budget-design-14257)を参照。
+新2 tests・既存関連3 tests、workspace型検査、Book /2 CLI 282 tests、layout 69 testsと
+doc-test 1件、pagination 104 tests、font 76 tests、公開／旧CFF診断が成功した。
+759 PDF／2,896 pagesと58 subsetsの独立検証、前段階との全759組のbyte一致、
+149ソースhashと17成功ログの対応照合も成功した。shape／source準備とlinebreak内部の
+完全な課金、完全なcommand予算、名前付きページ・段組、公開Book /2、元全巻・
+管理ホスト・性能・著者／人手受入は継続する。
+
+
+### 14.258 本文shape・inline準備の失敗時record保持（実装追補）
+
+共有authored shape kernelが受理済みcontext／output予約を返し、Book /2は
+shape_book_v2_authored_text_countedを追加した。inline準備もcounted経路を持ち、native履歴と
+受理済みunit・cluster・anchor・figure予約を後続失敗でも戻す。本文の初回処理と各rebreakで
+結果伝播前に回収し、frame／line／contextと同じ最大local prefixへ併合する。
+成功時の既存ownerとfingerprint、検証順序と型付き原因を維持する。
+
+[ADR-0121](../adr/ADR-0121-book-2-shape-inline-record-budget.md)と
+[実装台帳§258](28-vmb-book-production-progress.md#shape-inline-record-budget-design-14258)を参照。
+関連22 tests、workspace型検査、Book /2 CLI 284 tests、shaping 27 tests、layout 69 tests、
+pagination 104 tests、font 76 tests、shaping／layoutのdoc-test各1件、公開／旧CFF診断が
+成功した。759 PDF／2,896 pagesと58 subsetsの独立検証、全759組の前段階とのbyte一致、
+156ソースhashと18成功ログの対応照合も成功した。font instanceやbackend内部、柱の
+shape／inline準備、完全なcommand予算、名前付きページ・段組、公開Book /2、元全巻・
+管理ホスト・性能・著者／人手受入は継続する。
+
+
+### 14.259 柱shape・inline・line/contextの失敗時record保持（実装追補）
+
+柱のshapeとinline準備にcounted経路を追加し、width・selected-line・origin予約とcontext捕捉、
+feedback保持を途中失敗でも戻す。柱の予算ownerは各段階の受理済みprefixの最大値を保持し、
+PDF attachment driverはcallback未到達時も回収する。inline準備でshapeとcaller履歴を
+加算する既存の計算を維持し、解放済みpassや拒否した予約を加算しない。
+
+[ADR-0122](../adr/ADR-0122-book-2-page-region-record-budget.md)と
+[実装台帳§259](28-vmb-book-production-progress.md#page-region-record-budget-design-14259)を参照。
+柱関連23 tests、workspace型検査、Book /2 CLI 286 tests、shaping 27 tests、layout 69 tests、
+pagination 104 tests、font 76 tests、shaping／layoutのdoc-test各1件、公開／旧CFF診断が
+成功した。759 PDF／2,896 pagesと58 subsetsの独立検証、全759組の前段階とのbyte一致、
+163ソースhashと18成功ログの対応照合も成功した。source flow・admission・backend内部と
+完全なcommand予算、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・
+著者／人手受入は継続する。
+
+
+### 14.260 柱source constructorの失敗時予約保持（実装追補）
+
+柱source flowへcounted経路を追加し、identity検査前のcaller履歴と、受理したowner／段落・inline予約を後続失敗でも返す。PDF attachmentはsourceエラー伝播前に回収し、その増分に対する既存の保守的work予約を上限内で受理する。work予約拒否は消費せず、source失敗の型付き原因を優先する。成功時のowner・fingerprint・work課金を維持する。
+
+[ADR-0123](../adr/ADR-0123-book-2-page-region-source-budget.md)と[実装台帳§260](28-vmb-book-production-progress.md#page-region-source-budget-design-14260)を参照。workspace型検査、syntax 138 tests＋doc-test 12件、柱CLI 25 testsが成功した。柱PDF 3件／10ページ／126 glyph paintsの独立検証と31改変拒否、§259との3 PDF全byte一致を確認した。140ソースhashと5ログを記録した。§259の759 PDF全回帰は既存証拠として区別する。native math・admission・backend内部、完全なcommand予算、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。

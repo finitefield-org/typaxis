@@ -35,17 +35,27 @@ pub fn prepare_book_v2_footnote_lines<'s, 'p, 'a>(
     lines: &'s BookV2InlineLineLayout<'p, 'a>,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<BookV2FootnoteLines<'s, 'p, 'a>, ProductionInlinePreparationError> {
+    prepare_book_v2_footnote_lines_counted(lines, limits, &mut 0)
+}
+/// Preserve input history and the accepted projection bound on failure.
+pub fn prepare_book_v2_footnote_lines_counted<'s, 'p, 'a>(
+    lines: &'s BookV2InlineLineLayout<'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    observed_records: &mut u64,
+) -> Result<BookV2FootnoteLines<'s, 'p, 'a>, ProductionInlinePreparationError> {
+    *observed_records = lines.output_records();
     if lines.prepared().limits_fingerprint != limits.fingerprint() {
         return Err(error(
             NodeId::new(0),
             ProductionInlinePreparationErrorKind::ReceiptMismatch,
         ));
     }
-    let projection = footnotes::project_footnote_lines(
+    let projection = footnotes::project_footnote_lines_counted(
         InlineFlow::BookV2(lines.prepared().source_flow()),
         lines.paragraphs(),
         lines.output_records(),
         limits,
+        observed_records,
     )?;
     Ok(BookV2FootnoteLines {
         lines,

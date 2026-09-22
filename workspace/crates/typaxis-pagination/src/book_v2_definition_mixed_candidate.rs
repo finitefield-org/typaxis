@@ -131,19 +131,43 @@ pub fn prepare_book_v2_definition_mixed_search<'b, 'f, 's, 'p, 'a>(
     maximum_work: u64,
     prior_records: u64,
 ) -> Result<BookV2DefinitionMixedSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    let (tables, charge, steps) = BookV2DefinitionTableContext::prepare(
+    prepare_book_v2_definition_mixed_search_counted(
         measurements,
         definition,
         limits,
         maximum_work,
         prior_records,
+        &mut 0,
+        &mut 0,
+    )
+}
+/// Return accepted constructor work and the cumulative record prefix on failure too.
+pub fn prepare_book_v2_definition_mixed_search_counted<'b, 'f, 's, 'p, 'a>(
+    measurements: &'b BookV2TableMeasurements<'f, 's, 'p, 'a>,
+    definition: usize,
+    limits: &M4EffectiveResourceLimits,
+    maximum_work: u64,
+    prior_records: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
+) -> Result<BookV2DefinitionMixedSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    let (tables, charge, steps) = BookV2DefinitionTableContext::prepare_counted(
+        measurements,
+        definition,
+        limits,
+        maximum_work,
+        prior_records,
+        observed_records,
+        observed_work,
     )?;
-    let notes = prepare_book_v2_definition_candidate_demand(
+    let notes = prepare_book_v2_definition_candidate_demand_counted(
         measurements.flow(),
         limits,
         maximum_work,
         charge,
         steps,
+        observed_records,
+        observed_work,
     )?;
     Ok(BookV2DefinitionMixedSearch {
         notes,

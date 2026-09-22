@@ -134,6 +134,7 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
             },
         );
         if !entered {
+            budget.records = budget.records.max(replay.record_charge());
             budget.work(replay.work_steps(), maximum_work)?;
         }
         result.map_err(|e| stage("header base replay", e))??
@@ -259,6 +260,7 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
             BookV2LineVariantBudget::new(maximum_work - budget.work, remaining_passes);
         let result =
             base.prepare_budgeted_with_source_widths(assignment, &mut allowance, budget.records);
+        budget.records = budget.records.max(allowance.record_charge());
         budget.work(allowance.work_steps(), maximum_work)?;
         budget.line_passes = budget
             .line_passes
@@ -288,48 +290,52 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
             reserve(&mut numbers, count)?;
             for v in set.variants() {
                 budget.work(1, maximum_work)?;
-                let number = typaxis_shaping::book_v2::shape_book_v2_equation_numbers(
+                let mut records = budget.records;
+                let number = typaxis_shaping::book_v2::shape_book_v2_equation_numbers_counted(
                     v.lines().prepared().shaped(),
                     limits,
                     budget.records,
-                )
-                .map_err(|e| stage("header equation labels", e))?;
-                if let Some(number) = &number {
-                    budget.records = number.record_charge();
-                }
+                    &mut records,
+                );
+                budget.records = budget.records.max(records);
+                let number = number.map_err(|e| stage("header equation labels", e))?;
                 numbers.push(number);
             }
             let mut blocks = Vec::new();
             reserve(&mut blocks, count)?;
             for (v, number) in set.variants().iter().zip(&numbers) {
                 budget.work(1, maximum_work)?;
-                let block = prepare_book_v2_vector_blocks(
+                let mut records = budget.records;
+                let block = prepare_book_v2_vector_blocks_counted(
                     v.lines(),
                     number.as_ref(),
                     limits,
                     budget.records,
-                )
-                .map_err(|e| stage("header block layout", e))?;
-                if let Some(block) = &block {
-                    budget.records = block.record_charge();
-                }
+                    &mut records,
+                );
+                budget.records = budget.records.max(records);
+                let block = block.map_err(|e| stage("header block layout", e))?;
                 blocks.push(block);
             }
             let mut measurements = Vec::new();
             reserve(&mut measurements, count)?;
             for (v, block) in set.variants().iter().zip(&blocks) {
                 budget.work(1, maximum_work)?;
-                let flow = prepare_book_v2_body_flow(
+                let mut records = budget.records;
+                let flow = prepare_book_v2_body_flow_counted(
                     v.lines(),
                     block.as_ref(),
                     v.footnotes(),
                     limits,
                     budget.records,
-                )
-                .map_err(|e| stage("header body flow", e))?;
-                let measurement = prepare_book_v2_table_measurements(flow, limits)
-                    .map_err(|e| stage("header tables", e))?;
-                budget.records = measurement.record_charge();
+                    &mut records,
+                );
+                budget.records = budget.records.max(records);
+                let flow = flow.map_err(|e| stage("header body flow", e))?;
+                let measurement =
+                    prepare_book_v2_table_measurements_counted(flow, limits, &mut records);
+                budget.records = budget.records.max(records);
+                let measurement = measurement.map_err(|e| stage("header tables", e))?;
                 measurements.push(measurement);
             }
             let mut headers = Vec::new();
@@ -345,7 +351,9 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
                 {
                     return Err(E::Identity);
                 }
-                let header = prepare_book_v2_table_header_variant(
+                let mut records = budget.records;
+                let mut work = 0;
+                let header = prepare_book_v2_table_header_variant_counted(
                     &set,
                     &measurements[0],
                     measurement,
@@ -353,30 +361,37 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
                     limits,
                     maximum_work - budget.work,
                     budget.records,
-                )
-                .map_err(|e| stage("header variant", e))?;
-                budget.work(header.work_steps(), maximum_work)?;
-                budget.records = header.record_charge();
+                    &mut records,
+                    &mut work,
+                );
+                budget.records = budget.records.max(records);
+                budget.work(work, maximum_work)?;
+                let header = header.map_err(|e| stage("header variant", e))?;
                 headers.push(header);
             }
             let mut refs = Vec::new();
             reserve(&mut refs, requests.len())?;
             budget.work(requests.len() as u64, maximum_work)?;
             refs.extend(headers.iter());
-            let catalog = prepare_book_v2_table_header_catalog(
+            let mut records = budget.records;
+            let mut work = 0;
+            let catalog = prepare_book_v2_table_header_catalog_counted(
                 &measurements[0],
                 &refs,
                 limits,
                 maximum_work - budget.work,
                 budget.records,
-            )
-            .map_err(|e| stage("header catalog", e))?;
-            budget.work(catalog.work_steps(), maximum_work)?;
-            budget.records = catalog.record_charge();
+                &mut records,
+                &mut work,
+            );
+            budget.records = budget.records.max(records);
+            budget.work(work, maximum_work)?;
+            let catalog = catalog.map_err(|e| stage("header catalog", e))?;
             use_catalog(&catalog, budget)
         },
     );
     if !entered {
+        budget.records = budget.records.max(replay.record_charge());
         budget.work(replay.work_steps(), maximum_work)?;
     }
     result.map_err(|e| stage("header replay set", e))?
@@ -421,13 +436,21 @@ pub(in crate::book_v2_resources) fn with_discovered_header_catalog<R>(
                     .checked_add(1)
                     .filter(|n| *n <= limits.base().get().max_layout_passes)
                     .ok_or(E::Limit("header page passes"))?;
-                let mut search = prepare_book_v2_table_body_search_with_headers(
+                let mut records = budget.records;
+                let mut work = 0;
+                let search = prepare_book_v2_table_body_search_with_headers_counted(
                     catalog,
                     limits,
                     maximum_work - budget.work,
                     budget.records,
-                )
-                .map_err(|e| stage("header discovery search", e))?;
+                    &mut records,
+                    &mut work,
+                );
+                if search.is_err() {
+                    budget.records = budget.records.max(records);
+                    budget.work(work, maximum_work)?;
+                }
+                let mut search = search.map_err(|e| stage("header discovery search", e))?;
                 let selected = search.select_mixed_pages();
                 budget.work(search.work_steps(), maximum_work)?;
                 budget.records = search.record_charge();

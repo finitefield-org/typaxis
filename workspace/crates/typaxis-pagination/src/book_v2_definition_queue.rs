@@ -9,18 +9,40 @@ pub fn prepare_book_v2_mixed_footnote_demand_search<'b, 'f, 's, 'p, 'a>(
     maximum_work: u64,
     prior_records: u64,
 ) -> Result<BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    let (contexts, charge, steps) = BookV2DefinitionTableContext::prepare_all(
+    prepare_book_v2_mixed_footnote_demand_search_counted(
         measurements,
         limits,
         maximum_work,
         prior_records,
+        &mut 0,
+        &mut 0,
+    )
+}
+/// Return accepted constructor work and the cumulative record prefix on failure too.
+pub fn prepare_book_v2_mixed_footnote_demand_search_counted<'b, 'f, 's, 'p, 'a>(
+    measurements: &'b BookV2TableMeasurements<'f, 's, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    maximum_work: u64,
+    prior_records: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
+) -> Result<BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    let (contexts, charge, steps) = BookV2DefinitionTableContext::prepare_all_counted(
+        measurements,
+        limits,
+        maximum_work,
+        prior_records,
+        observed_records,
+        observed_work,
     )?;
-    let mut search = prepare_book_v2_definition_candidate_demand(
+    let mut search = prepare_book_v2_definition_candidate_demand_counted(
         measurements.flow(),
         limits,
         maximum_work,
         charge,
         steps,
+        observed_records,
+        observed_work,
     )?;
     search.definition_tables = Some(contexts);
     Ok(search)

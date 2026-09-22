@@ -34,7 +34,12 @@ impl ProductionSelectedLineContexts {
 pub fn production_selected_line_contexts(
     selected: &ProductionInlineLineLayout<'_, '_>,
 ) -> Result<ProductionSelectedLineContexts, ProductionInlinePreparationError> {
-    selected_contexts(selected.paragraphs(), selected.output_records(), selected.prepared_limit(), selected.fingerprint())
+    selected_contexts(
+        selected.paragraphs(),
+        selected.output_records(),
+        selected.prepared_limit(),
+        selected.fingerprint(),
+    )
 }
 pub(super) fn selected_contexts(
     selected_paragraphs: &[ProductionInlineParagraphLineLayout<'_, '_>],
@@ -42,6 +47,22 @@ pub(super) fn selected_contexts(
     max_fragments: u64,
     fingerprint: [u8; 32],
 ) -> Result<ProductionSelectedLineContexts, ProductionInlinePreparationError> {
+    selected_contexts_counted(
+        selected_paragraphs,
+        output_records,
+        max_fragments,
+        fingerprint,
+        &mut 0,
+    )
+}
+pub(super) fn selected_contexts_counted(
+    selected_paragraphs: &[ProductionInlineParagraphLineLayout<'_, '_>],
+    output_records: u64,
+    max_fragments: u64,
+    fingerprint: [u8; 32],
+    observed_records: &mut u64,
+) -> Result<ProductionSelectedLineContexts, ProductionInlinePreparationError> {
+    *observed_records = output_records;
     use ProductionInlinePreparationErrorKind as E;
     let root = NodeId::new(0);
     let mut record_charge = output_records;
@@ -52,6 +73,7 @@ pub(super) fn selected_contexts(
             .and_then(|n| n.checked_add(2))
             .filter(|n| *n <= max_fragments)
             .ok_or_else(|| error(paragraph.owner(), E::UnitLimit))?;
+        *observed_records = record_charge;
     }
     let mut paragraphs = Vec::new();
     paragraphs

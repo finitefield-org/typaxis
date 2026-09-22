@@ -29,6 +29,33 @@ fn check_display(font: Option<&[u8]>, text: &str) {
         Builder::new(body, input.resources(), &limits, EPOCH, 0, 0, 1_000_000).unwrap();
     let initial_records = builder.record_charge();
     let initial_work = builder.work_steps();
+    let mut observed_records = u64::MAX;
+    let mut observed_work = u64::MAX;
+    let counted = Builder::new_counted(
+        body, input.resources(), &limits, EPOCH, 0, 0, initial_work,
+        &mut observed_records, &mut observed_work,
+    ).unwrap();
+    assert_eq!(observed_records, initial_records);
+    assert_eq!(observed_work, initial_work);
+    assert_eq!(counted.record_charge(), initial_records);
+    assert_eq!(counted.work_steps(), initial_work);
+    assert!(Builder::new_counted(
+        body, input.resources(), &limits, EPOCH, 0, 0, initial_work - 1,
+        &mut observed_records, &mut observed_work,
+    ).is_err());
+    assert_eq!((observed_records, observed_work), (initial_records, 0));
+    assert!(Builder::new_counted(
+        body, input.resources(), &limits, EPOCH, observed_records, observed_work, initial_work - 1,
+        &mut observed_records, &mut observed_work,
+    ).is_err());
+    assert_eq!((observed_records, observed_work), (2 * initial_records, 0));
+    for (epoch, prior) in [([0; 32], 7), (EPOCH, limits.base().get().max_fragments)] {
+        assert!(Builder::new_counted(
+            body, input.resources(), &limits, epoch, prior, 11, 1_000_000,
+            &mut observed_records, &mut observed_work,
+        ).is_err());
+        assert_eq!((observed_records, observed_work), (prior, 11));
+    }
     let mut displays = Vec::new();
     let mut expected = Vec::new();
     // These source/shape/line owners must be gone before retained displays are consumed.

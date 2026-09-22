@@ -16069,3 +16069,339 @@ agent実行の全回帰と独立検証を完了した。CLIは264 tests／313.75
 - 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
 
 §248の検証待ちを解消した。完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続し、設計全体の完了とは扱わない。コミット・pushは行っていない。
+
+
+<a id="region-failure-budget-design-14249"></a>
+
+## 249. 柱・フッターの合成途中で失敗した消費量を保持（2026-09-22）
+
+開始時のgit statusはクリーンで、HEADは7f3e6f5だった。前段階§248の修正を現コードで確認し、[ADR-0112](../adr/ADR-0112-book-2-region-failure-budget.md)に従って柱・フッターの失敗時counter回収を追加した。with_page_regions_countedが成功／失敗時の累積work／recordを返し、旧APIは同じ実装へ委譲する。private attachmentはmaster選択・source準備・行候補・描画・joinまでの観測値を外側のPDF driverへ戻す。
+
+行convergenceのcallback前の失敗ではallowanceのcandidate_stepsを回収し、callbackに入った場合は既存の加算を一度だけ使う。projection builderのbuild結果からエラーを伝播する前にwork／recordを回収する。既存builderのworkは拒否された上限超過の試行も含むため、command側では残量を使い切る値までに制限し、元Stageエラーを保持する。これは拒否された全処理の実行量を表すものではない。sourceが返った時点のrecordは、後続のwork拒否に先立ち保存する。
+
+新2 testsはcontrolled TrueType／無変更原Haranoを使い、複数ページの柱・フッター合成に16段階のwork上限を設定する。行・描画・joinのすべての失敗経路を実際に通ることを必須とし、attachment単体とPDF driverのStage／work／record／spool／開始済みline passes、完成PDF候補0を照合する。同じownerで再試行しても消費が戻らず、work上限も超えない。上限一致成功のfingerprintとcounterは元の合成結果と一致する。未選択の柱による空joinについてもcounted成功と1手不足の実消費を照合した。
+
+証跡はworkspace/target/vmb-design/20260922/region-failure-budget/に保存する。
+
+- region-tests-01.log: 新2 tests成功、失敗／ignored 0、build 22.70秒／test 3.06秒。
+- region-tests-02.log: 最終修正後の関連32 tests成功、失敗／ignored 0、test 12.31秒。旧production脚注経路と原Haranoも含む。
+- workspace-check-01.log: workspace --all-features --tests check成功、21.08秒。
+
+全CLI回帰とPDF独立検証はagentが実行する。失敗constructorやstage ownerが公開しないsource／shape／layout内部のwork／record、完全なcommand allocation予算は未完である。公開Book /2、元全巻・管理ホスト・性能・著者／人手受入も継続し、設計全体の完了とは扱わない。
+
+
+workspace-check-02.logは最終ソースを含むworkspace --all-features --tests check成功、2.32秒。3 runnerのPython AST検査とgit diff --checkも成功した。
+
+agent実行の全回帰と独立検証を完了した。CLIは266 tests／528.78秒、fontは76 tests／8.65秒、新region試験は2 tests／3.44秒、downstreamは2 tests／1.32秒、ページ探索は1 test／0.02秒、replayは2 tests／1.32秒、variantは2 tests／1.23秒、本文は3 tests／1.24秒、subset診断は1 test／3.79秒、公開/1診断は1 test（7ケース）／6.23秒、旧CFF診断は1 test／0.03秒で、すべて失敗0／ignored 0だった。これらの時間は当該実行の観測値であり、制御された性能比較ではない。無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsの検証も成功した。
+
+実行開始時・固定時・文書更新前の84ファイルが一致した。21成功ログのhash／結果行、ソースhash、759 PDF対応表のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を再確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+§249の検証待ちを解消した。完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続し、設計全体の完了とは扱わない。この段階ではコミット・pushを行っていない。
+
+
+<a id="display-constructor-budget-design-14250"></a>
+
+## 250. 描画builderの初期化失敗でも予約と検証量を保持（2026-09-22）
+
+前段階§249の未コミット変更を維持し、[ADR-0113](../adr/ADR-0113-book-2-display-constructor-budget.md)に従って本文／数式と柱のdisplay builderへnew_countedを追加した。既存constructorは同じ実装へ委譲する。本文側はbuilder record予約後の表見出しreceipt検証を囲み、成功／失敗のいずれでもownerのrecord／workを返してから結果を伝播する。柱側はfont instance領域のrecord予約をwork検査より先に保存し、拒否されたworkは消費に含めない。事前identity／epoch拒否は入力prefixを保つだけで追加課金しない。
+
+private PDF driverと柱attachmentを両constructorのcounted経路へ接続した。builderが返る前の失敗でも消費量をownerに残し、成功時は後段の累積prefixで一度だけ課金する。既存の検証順序、元エラー、成功時の予算とfingerprintを変更しない。
+
+実table headerを含む既存試験へ初期／中盤／終盤のconstructor work拒否、上限一致、record枯渇、返されたprefixによる再試行を追加した。native／vector／raster／contextual glyph／無変更原Haranoの実receiptを使う。柱試験はwork上限一致、record予約後のwork1手不足、再試行、epoch不正、record枯渇を検証する。driver試験はconstructorのworkが始まらない2つの上限を追加し、保持record・消費work・開始pass0・元Stageが一致することを確認する。
+
+証跡はworkspace/target/vmb-design/20260922/display-constructor-budget/に保存する。
+
+- region-tests-01.log: constructor失敗を含むdriver 2 tests成功、失敗／ignored 0、build 25.63秒／test 3.01秒。
+- header-tests-01.log: 表見出し7 tests成功、失敗／ignored 0、test 12.92秒。
+- display-tests-01.log: 柱display 3 tests成功、失敗／ignored 0、test 9.60秒。
+
+全CLI回帰とPDF独立検証はagentが続けて実行する。他のconstructor、source admission、shape内部、全allocationを包含するcommand予算は未完である。公開Book /2、元全巻・管理ホスト・性能・著者／人手受入も継続し、設計全体の完了とは扱わない。
+
+
+workspace-check-01.logは最終ソースを含むworkspace --all-features --tests check成功、11.53秒。4 runnerのPython AST検査とgit diff --checkも成功した。
+
+agent実行の全回帰と独立検証を完了した。CLIは266 tests／321.55秒、fontは76 tests／4.68秒、constructor境界を含むregion試験は2 tests／3.02秒、downstreamは2 tests／1.36秒、ページ探索は1 test／0.02秒、replayは2 tests／1.52秒、variantは2 tests／1.25秒、本文は3 tests／1.28秒、subset診断は1 test／3.92秒、公開/1診断は1 test（7ケース）／6.31秒、旧CFF診断は1 test／0.02秒で、すべて失敗0／ignored 0だった。時間は当該実行の観測値であり、制御された性能比較ではない。無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsの検証も成功した。
+
+実行開始時・固定時・文書更新前の90ファイルが一致した。23成功ログのhash／結果行、ソースhash、759 PDF対応表のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を再確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+### 現在の全巻入力の再検査
+
+同日のVMB側read-only監査を実行した。vmb-coreでGOCACHE=/private/tmp/typaxis-vmb-audit-cache-20260922、GOFLAGS=-mod=readonlyを指定し、go run ./tools/typaxis-book-audit -project ../vmb-book-fractions-equivalence/v1/project.json -profile profile.print -locale jaを-release=false／trueで実行した。出力先は今回の証跡ディレクトリ内のcurrent-book-draft-inventory.json／current-book-release-inventory.jsonを絶対パスで指定した。VMB sourceや承認記録は変更していない。
+
+draft監査は成功し、current-book-draft-inventory.jsonは既存の追跡済みinventoryとbyte一致した。canonical SHA-256はff25625dbf10f7abde790c6cf6d3279369958512ae8940c4e89940cb967df6e9、source digestはsha256:1b7ff2b6b607fd3d34cbef4b30500059dbcc71ff2a38622f01222414b2a0b436で変わらない。167節／本文内数式6,343件についてSpeechとSemanticRefはいずれも0件だった。別保存先の有無を確認し、ユーザーは「未作成」と回答した。したがってこれは現在も著者入力側の未完データであり、生成済み・承認済みとは扱わない。
+
+release監査はexit 1で終了し、VMB-E0317が4,786件、VMB-E0473が232件だった。release reportは作成されていない。これはリリース用の承認条件の観測であり、draft生成や独立した実装を停止させる新しい条件ではない。current-book-audit-summary.jsonに入力・ログ・reportのhash、診断件数、ユーザー回答を記録し、そのhashもrun-source-correspondence.jsonへ保存した。この監査はDocumentPackage／全巻PDFの成功を証明せず、元の8,149数式配置packageの受入を置き換えない。
+
+§250の検証待ちを解消した。他constructor・完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続し、設計全体の完了とは扱わない。この段階ではコミット・pushを行っていない。
+
+
+<a id="table-constructor-budget-design-14251"></a>
+## 251. 表探索constructorの部分消費と再帰的な子表失敗を保持（design §14.251）
+
+共有table kernelへcounted経路を追加した。constructorのローカルCharge／Workを保持し、成功時はその値をownerへコピーする。成功・失敗とも結果の伝播前にrecord／workを返す。Book /2のprepare_book_v2_table_search_countedは入力prefixと初期work 0を事前検証より先に設定し、既存APIは同じ処理へ委譲する。
+
+子表constructorへ共有予算を渡した後は、結果の成功・失敗を調べる前に子表の観測値を親へ戻す。これにより複数の子表・再帰的な入れ子の途中で失敗しても、既に消費した量が0や架空のrecord上限へ置き換わらない。受理された予約の順序と元エラー、成功時の課金規約は維持する。
+
+新2 testsはcontrolled TT／無変更原Haranoの実測定を使い、forced／two-children／deep／definition-queryを検証する。初期化に成功するwork量未満の全上限でTableSearchLimitと単調かつ上限内の部分消費を確認し、保持prefixを使う再試行、work／record上限一致、record不足、index不正と成功fragment fingerprintの一致も調べる。
+
+証跡はworkspace/target/vmb-design/20260922/table-constructor-budget/に保存する。初回のtable-tests-01.logはテストの予算設定で2件失敗した。初期化上限を使い切ったownerでbeginまで実行していたため、constructor上限一致の検証とfragment比較の予算を分けた。全回帰と独立検証はagentが実行する。
+
+この段階は単一表と子表constructorの観測APIである。body／joint／definition contextの初期化からprivate driverへ消費量を戻す接続は未完。source admission／shape内部／完全なcommand allocation予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入も継続し、設計全体の完了とは扱わない。
+
+再試験table-tests-02.logとTT単独診断tt-diagnostic-01.logはdeep fixtureの行組みで失敗した。fixtureのpage masterに合わせてdeepケースの本文幅を780ptへ修正した。既存の他ケースは180ptを維持する。
+
+
+最終ソースを固定してagentが検証を完了した。workspace --all-features --tests checkは2分40秒で成功した。pagination全104 testsは3.79秒、新constructor 2 testsは21.09秒、Book /2関連CLI全268 testsは1,768.34秒、font全76 testsは38.38秒で、すべて失敗0／ignored 0だった。CLIの件数はbook_v2_resourcesフィルタの対象であり、全CLI binaryの687件を実行したという意味ではない。region／downstream／page-search／line-replay／line-variant／body-line、subset診断、公開CFF診断、旧CFF診断の専用試験も成功した。無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsの検証も成功した。時間は今回の観測値であり、制御された性能比較ではない。
+
+run-cli-accepted-01.py、run-independent-01.py、compare-accepted-01.pyで回帰・独立検証・実PDF比較を行い、verify-correspondence.pyで件数と終了結果、hashと実ファイルを照合した。実行開始時・固定時・文書更新前の94ファイルが一致した。24成功ログのhash／結果行、ソースhash、759 PDF対応表、原フォントと保存済み元全巻入力のhash、および照合スクリプト自体のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+§251の検証待ちを解消した。次に伝播が必要なconstructor経路はnext-constructor-paths.mdへ整理した。body／joint／definition contextとdriverへの接続、完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。§250で確認したSpeech／SemanticRef未作成の事実を変更せず、全巻受入の成功とは扱わない。この段階ではコミット・pushを行っていない。
+
+
+<a id="page-constructor-budget-design-14252"></a>
+## 252. ページ探索の初期化失敗を上位予算へ戻す（design §14.252）
+
+共有table context kernelへ借用ledgerの経路を追加した。Book /2の本文contextと本文／脚注のjoint contextは、階層準備・表走査・定義走査・子表の初期化を通じて同じCharge／Workを保持する。成功した非選択searchには従来と同じ空ledgerを置き、選択時だけ親と交換する。旧production経路も同じ走査実装を使用する。
+
+prepare_book_v2_table_body_search_countedとprepare_book_v2_table_body_search_with_headers_countedを公開staging APIへ追加した。脚注contextの受理済みwork／record、demand owner確保前のrecord予約、見出しcatalog設定途中の消費をエラー伝播前に回収する。元のAPIは同じ実装へ委譲する。これは既存の受理済み課金の保持であり、receipt検証やshape内部の未計測処理を計測済みとするものではない。
+
+private PDF driverの通常・見出しの両constructorと見出し探索を接続した。失敗時だけconstructor観測値を加算し、成功時はsearchの累積prefixを後段で一度だけ回収する。元Stageとtyped cause、見出し探索の既存の開始済みpassを維持する。
+
+新4 testsを追加した。本文のみ、複数の子表、脚注内の表、本文と複数脚注を実測定から構築する。TTは全work上限、原Haranoは32段階と終端境界でtable／footnoteの両拒否経路を確認し、record／work上限一致、record不足、driverの独立構築値との一致、typed cause、再試行を検証する。見出しは実catalogの設定途中と空catalogによる探索constructor失敗を照合する。既存fixtureのconstructor部分だけを実行する専用入口を設け、既存の完全なページ・PDF試験は維持する。
+
+証跡はworkspace/target/vmb-design/20260922/page-constructor-budget/に保存する。初期のpagination-check-01.logはre-export不足で失敗し、修正後のworkspace-check-01.logは成功した。page-tests-01.logは空contextの既存work 0をテストが誤って正値としたため失敗し、0を保つ条件へ修正した。page-tests-02／03.logはテスト用callbackのResult戻り値と型推論の修正前のコンパイル診断である。最終回帰と独立検証はagentが実行する。
+
+主ページ探索以外の独立した脚注constructor、header catalog自体の構築、body flow／measurement、source admission／shape内部と完全なcommand allocation予算は未完。公開Book /2、元全巻・管理ホスト・性能・著者／人手受入も継続する。
+
+page-tests-04.logは新4 tests成功、失敗／ignored 0（build 4分42秒、test 123.83秒）。通常driverと見出し探索の初期／中盤／終盤のconstructor拒否、元のtyped cause、work／record、開始済みpass、再試行を直接構築した観測値と照合した。最終回帰では専用の同一試験を重複実行せず、全Book /2試験に含めて再検証する。
+
+最終ソースを固定してagentが全回帰と独立検証を完了した。workspace --all-features --tests checkは41.20秒で成功した。pagination全104 testsは0.40秒、Book /2関連CLI全272 testsは2,296.27秒、font全76 testsは13.61秒、公開CFF診断1 test（7ケース）は39.17秒、旧CFF診断1 testは0.17秒で、すべて失敗0／ignored 0だった。CLI件数はbook_v2_resourcesフィルタの対象であり、全CLI binaryの691件を実行したという意味ではない。この272件に新constructor試験、既存の失敗予算試験とsubset診断を含む。重複する専用試験を別途再実行したとは扱わない。無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsの検証も成功した。時間は今回の観測値であり、制御された性能比較ではない。
+
+run-cli-accepted-01.py、run-independent-01.py、compare-accepted-01.pyで回帰・独立検証・実PDF比較を実行し、verify-correspondence.pyで件数と終了結果、hashと実ファイルを照合した。実行開始時・固定時・文書更新前の104ファイルが一致した。16成功ログのhash／結果行、ソースhash、759 PDF対応表、原フォントと保存済み元全巻入力のhash、および照合スクリプト自体のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+§252の検証待ちを解消した。残るconstructor経路をremaining-constructor-paths.mdへ整理した。独立した脚注探索、catalog構築、body flow／measurement、完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。§250のSpeech／SemanticRef未作成というユーザー回答は変わらず、全巻受入の成功とは扱わない。この段階ではコミット・pushを行っていない。
+
+
+<a id="footnote-constructor-budget-design-14253"></a>
+## 253. 独立した脚注探索constructorの消費量を保持（design §14.253）
+
+前段階までの未コミット変更を維持し、[ADR-0116](../adr/ADR-0116-book-2-footnote-constructor-budget.md)に従って独立した脚注探索へcounted経路を追加した。対象はprepare_book_v2_footnote_search、prepare_book_v2_footnote_demand_search、prepare_book_v2_table_footnote_search、prepare_book_v2_definition_table_demand_search、prepare_book_v2_definition_mixed_search、prepare_book_v2_mixed_footnote_demand_searchで、既存APIは対応する_countedへ委譲する。
+
+単一定義／全定義contextは既存の階層準備・走査・子表の共有ledgerを保持して、結果伝播前に観測値を返す。脚注contentと最終demand ownerまで同じwork／recordを渡し、単一表と脚注ownerの間で受理した追加recordも保持する。範囲不正・定義root不正を予算拒否より先に返す既存の検証順序、平坦cursorの定義内表拒否、元typed error、成功時の課金は維持する。
+
+新2 testsはcontrolled TT／無変更原Haranoの空context、通常脚注付きの入れ子本文表、脚注内の入れ子表、本文表と複数脚注を使用する。旧APIとcountedの成功値・失敗原因、work上限（TT全境界／Harano32段階）、全record予約境界、上限一致、保持prefixでの再試行、未対応の平坦cursor、index不正と入力prefixの保持を検証する。
+
+証跡はworkspace/target/vmb-design/20260922/footnote-constructor-budget/に保存する。pagination-check-01.logは成功した。新試験と全回帰・独立検証はagentが実行する。
+
+catalog構築、body flow／measurement、source admission／shape内部と完全なcommand allocation予算は未完。公開Book /2、元全巻・管理ホスト・性能・著者／人手受入も継続する。Speech／SemanticRef未作成というユーザー回答を維持し、全巻受入成功とは扱わない。
+
+footnote-tests-01.logは新2 tests成功、失敗／ignored 0（build 6分49秒、test 24.18秒）。失敗時の非ゼロprefixと、独立した単一表constructorの観測値に対して追加owner recordが正確に1件残ることを明示的に検査した最終版も、footnote-tests-02.logで2 tests成功（build 26.08秒、test 26.25秒、失敗／ignored 0）だった。全回帰とPDF独立検証を続ける。
+
+最終ソースを固定したworkspace --all-features --tests checkは2分03秒、pagination全104 testsは2.21秒、公開CFF診断1 test（7ケース）は109.64秒で成功した。その後のCLI回帰はユーザーによる中断でプロセスも終了していた。実行handleの消失に加えてrunnerとCLI本体のプロセス不在を確認した。cli-tests-accepted-01.logには成功202件・失敗0が記録され、最終結果行はない。このログを正常終了した全回帰とは扱わない。
+
+同じbinaryのテスト一覧274件と成功した202件を名前で照合し、残り72件をcli-continuation-selection.jsonへ保存した。skip文字列が未完了ケースに一致しないことも確認した。中断時の生成物1,628ファイルをinterrupted-artifacts-01へ保全し、全hashを記録した。再開時に除去が必要なcreate_new出力は存在しなかった。run-cli-continued-02.pyは同じソースと環境で未完了72件だけを実行し、cli-tests-continued-02.logで全72件成功（171.86秒、失敗／ignored 0）を確認した。
+
+続くfont全76 testsは4.16秒、旧CFF診断1 testは0.03秒で、いずれも失敗／ignored 0だった。無変更原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsの検証も成功した。CLIは中断前202件＋再開72件でbook_v2_resourcesの全274件を網羅し、重複と漏れは0である。全CLI binaryの693件を実行したという意味ではない。中断した実行の総所要時間は確定しておらず、記載時間は各完了ログの観測値で、制御された性能比較ではない。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyによる独立検証と対応照合も成功した。固定時・初回開始時・再開時・文書更新前の113ファイルが一致した。16成功ログのhash／結果行、中断ログと274件の分割一覧、保存した1,628ファイルのhash、継続runnerと実行commandのhash、759 PDF対応表、原フォントと保存済み元全巻入力のhash、および照合スクリプト自体のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+§253の検証待ちを解消した。次のconstructor経路をremaining-constructor-paths.mdへ整理した。catalog構築、body flow／measurement、完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持し、全巻受入成功とは扱わない。この段階ではコミット・pushを行っていない。
+
+
+<a id="projection-constructor-budget-design-14254"></a>
+## 254. 本文・表測定・見出し投影constructorの消費量を保持（design §14.254）
+
+前段階までの未コミット変更を維持し、[ADR-0117](../adr/ADR-0117-book-2-projection-constructor-budget.md)に従ってprepare_book_v2_body_flow、prepare_book_v2_table_measurements、prepare_book_v2_table_header_variant、prepare_book_v2_table_header_catalogへcounted版を追加した。旧APIは同じ処理へ委譲する。共有measurement kernelもlocal Chargeを保持してから結果を伝播し、旧productionの成功時課金を維持する。
+
+本文はleaf収集・名前付きページの検査・marker／referenceの確定、表測定は一括record予約からcanonical bufferの容量検査まで、ownerが返らない場合のrecordを回収する。見出しは受理済みのworkとrecordを保持する。catalogは検証済みの見出し履歴も残す。通常PDF driverとheader catalog driverへ接続し、元Stageとtyped cause、共有履歴と独立領域の課金区別を維持する。本文・測定の未計測workを0として計測済みにする変更ではない。
+
+証跡はworkspace/target/vmb-design/20260922/projection-constructor-budget/に保存する。workspace-check-01.logはworkspace --all-features --tests check成功、30.80秒。header-tests-01.logはテストが見出しの既存workを10,000未満と仮定したため2件失敗した。小さいwork範囲は全境界、大きい範囲と原Haranoは64段階と終端境界で検証するよう修正した。
+
+constructor-tests-02.logでは既存の表・脚注・主ページconstructorと拡張した見出し境界の8件が成功した。追加した本文・測定2件は、fixtureのページ選択ルールが空なのに先頭要素を参照して失敗した。既存masterを指定する名前付きルールを明示的に追加するよう修正し、再検証する。新試験はrecord全予約境界、上限一致、名前付きページ衝突、予約後SpoolLimit、独立に構築した値とのdriver照合と再試行を含む。
+
+最終回帰とPDF独立検証はagentが実行する。他の準備owner、source admission／shape内部、未計測workと完全なcommand allocation予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。
+
+body-tests-03／04.logは低spool fixtureと既定font subset上限の組合せが不正なため失敗した。body-tests-05.logでは入力準備と実行時の上限が異なりOwnerOrLimitsで拒否された。body-tests-06.logでは設定を一致させたが、512 bytesではresource admissionのcanonical領域が先に不足した。入力の整合性検査を変更せず、同一の有効設定を渡し、resource admissionを通過する容量でmeasurementの予約後拒否を検証するfixtureへ修正している。
+
+body-tests-07.logでは4,096 bytesで測定も成功したため拒否を期待したfixtureが失敗した。入力受付のcanonical領域より大きく、表測定のcanonical予約より小さい2,560 bytesへ調整した最終body-tests-08.logは2 tests成功（build 8.52秒、test 11.54秒、失敗／ignored 0）。TTと無変更原HaranoでSpoolLimit後のrecord保持とdriver観測の一致も確認した。最終ソースを固定して全回帰へ進む。
+
+最終ソースを固定してagentが全回帰を完了した。workspace --all-features --tests checkは20.11秒、pagination全104 testsは0.36秒、Book /2関連CLI全276 testsは533.85秒、font全76 testsは9.33秒、公開CFF診断1 test（7ケース）は10.42秒、旧CFF診断1 testは0.03秒で、すべて失敗／ignored 0だった。CLI件数はbook_v2_resourcesフィルタの対象であり、全CLI binaryの695件を実行したという意味ではない。原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsも成功した。時間は今回の観測値であり、制御された性能比較ではない。
+
+run-cli-accepted-01.py、run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyを実行し、固定時・開始時・文書更新前の123ファイルのhash一致、16成功ログの終了結果とhash、759 PDF対応表、原フォントと保存済み元全巻入力のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+§254の検証待ちを解消した。次のconstructor経路はremaining-constructor-paths.mdへ整理した。式番号・vector block・line captureとその他準備owner、source／shape内部、完全なcommand予算、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持し、全巻受入成功とは扱わない。この段階ではコミット・pushを行っていない。
+
+
+<a id="label-block-constructor-budget-design-14255"></a>
+## 255. 式番号・図版ブロックconstructorの消費量を保持（design §14.255）
+
+[ADR-0118](../adr/ADR-0118-book-2-label-block-constructor-budget.md)に従いshape_book_v2_equation_numbers_countedとprepare_book_v2_vector_blocks_countedを追加した。旧APIは同じ処理へ委譲する。式番号のowner／shapeと受理済みrun・glyph・cluster、blockの保存領域をallocation／style／spool／geometry拒否の前に観測へ戻す。失敗した予約自体は加算しない。既存の検証順序、型付き原因、成功時の課金量とfingerprintを維持する。
+
+通常PDF driverとheader catalog driverがエラー伝播前に観測値を回収する。通常driverでは中間値をtotalへ記録しても、後続constructorへ渡す共有prefixは従来の値を維持し、式番号／blockの独立領域を二度足さない。label／block不在では新しいownerを予約しない。
+
+新2 testsはTT／原Haranoの空入力、単一／複数式番号、style不足、式番号shape後のspool拒否、式番号と数式の重なりを使う。全label予約境界・record上限一致・異なるlimitsによるreceipt拒否を確認し、旧APIとの原因／fingerprint一致と通常driverのrecord値を照合する。見出し側の同じ失敗経路と再試行も追加した。
+
+証跡はworkspace/target/vmb-design/20260922/label-block-constructor-budget/に保存する。workspace-check-01.logはworkspace --all-features --tests check成功、35.96秒（新test追加前）。label-block-tests-01.logは新2 tests成功（build 39.97秒、test 27.35秒、失敗／ignored 0）。見出し側の試験追加後の検証と全回帰・独立検証をagentが行う。
+
+line capture、脚注line projection、source admission／shape内部、未計測workと完全なcommand allocation、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持する。
+
+label-block-tests-02.logは見出し側を含む新2 tests成功（build 31.44秒、test 41.02秒、失敗／ignored 0）。最終回帰ではshaping／layout各crateの試験も実行する。
+
+最終ソースを固定したworkspace --all-features --tests checkは10.01秒で成功した。shapingは通常25 tests（0.01秒）とdoc-test 1件（1.48秒）が成功し、原Harano専用2件は既定のignored指定で実行対象外だった。run-shaping-original-02.pyを回帰終了後に実行し、その2件だけをshaping-original-tests-accepted-02.logで成功させた（7.87秒、失敗／ignored 0）。verify-correspondence-02.pyは初回ignored 2件と追加成功2件の名前の完全一致、および通常成功との重複0を検査する。元の未使用verify-correspondence.pyと最初のログは保持し、通常の25件を重複実行したとは扱わない。
+
+layout全69 testsは0.94秒とdoc-test 1件1.17秒、pagination全104 testsは0.56秒、Book /2関連CLI全278 testsは994.98秒、font全76 testsは12.91秒、公開CFF診断1 test（7ケース）は12.11秒、旧CFF診断1 testは0.06秒で成功した。いずれも対象試験に失敗はなく、shapingの既定除外は上記の専用実行で補完した。CLI件数はbook_v2_resourcesフィルタの対象であり、全CLI binaryの697件を実行したという意味ではない。原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsも成功した。時間は今回の観測値であり、制御された性能比較ではない。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence-02.pyによる独立検証と対応照合も成功した。固定時・初回開始時・追加試験開始時・文書更新前の133ファイルが一致した。19成功ログのhash／結果行、追加shapingケース一覧、専用runner／commandのhash、759 PDF対応表、原フォントと保存済み元全巻入力のhash、および照合スクリプト自体のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+§255の検証待ちを解消した。残るline context／脚注line projectionとcommand予算、公開ゲート・全巻要件はremaining-constructor-paths.mdへ整理した。Speech／SemanticRef未作成の事実を維持し、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入を完了扱いにはしない。この段階ではコミット・pushを行っていない。
+
+
+<a id="line-context-record-budget-design-14256"></a>
+## 256. 行コンテキスト・脚注行投影・再構築のrecordを保持（design §14.256）
+
+[ADR-0119](../adr/ADR-0119-book-2-line-context-record-budget.md)に従い、共有selected_contextsとproject_footnote_linesへcounted経路を追加した。旧production APIも同じ処理へ委譲する。Book /2はselected_line_contexts_countedとprepare_book_v2_footnote_lines_countedで入力履歴と受理済み予約を返す。body line予算は完了したmeasurement／context／footnote projectionの最大local prefixを保持し、shape／frame／line内部の未計測allocationを計測済みとは扱わない。
+
+line variant予算はcaller履歴、seed context捕捉とsingle／set replayの既存予約を保持する。setは既存の検証走査内で受理したseed履歴だけを回収し、新しい予算外走査を追加しない。通常PDFの失敗line経路は独立したcommand prefixに加え、headerのseed・sibling・single／set replayは累積prefixの最大値を回収する。work・開始済みpassを保持してからrecord上限を判定する。成功したcallbackの既存課金とfingerprintは維持する。
+
+証跡はworkspace/target/vmb-design/20260922/line-context-record-budget/に保存する。workspace-check-01.logは新record fieldの追加先を誤ってseedへ重複定義したコンパイルエラーで失敗した。fieldを予算ownerへ修正したworkspace-check-02.logはworkspace --all-features --tests check成功、45.27秒だった（新test追加前）。新試験と最終回帰をagentが実行する。
+
+新2 testsは複数段落、順不同の脚注定義と繰り返し参照を実TT／原Haranoから構築する。context／footnoteの成功課金、異なるlimitsによる拒否、seed context全予約境界・上限一致・途中段落の保持、通常driverのline失敗時のwork／record／passと独立構築値の一致を検査する。既存seed／replay試験にも成功・work不足・入力不一致・再試行時のrecord観測を追加した。
+
+残るshape／frame／line内部、完全なcommand allocation／spool予算、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持する。
+
+line-tests-01.logは新testで観測API名をline_passesと誤記してコンパイルに失敗した。line_reshape_passesへ修正したline-tests-02.logは関連8 tests成功（build 56.08秒、test 27.05秒、失敗／ignored 0）。新2 testsと拡張したseed／replay試験を含む。全回帰のソースを固定してlayout／pagination／CLI／fontと独立PDF検証へ進む。
+
+最終ソースを固定したworkspace --all-features --tests checkは39.84秒、layout全69 testsは0.81秒とdoc-test 1件1.13秒、pagination全104 testsは0.47秒、Book /2関連CLI全280 testsは1,551.96秒、font全76 testsは22.97秒、公開CFF診断1 test（7ケース）は30.44秒、旧CFF診断1 testは0.04秒で成功した。すべて失敗／ignored 0である。CLI件数はbook_v2_resourcesフィルタの対象であり、全CLI binaryの699件を実行したという意味ではない。原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsも成功した。時間は今回の観測値であり、制御された性能比較ではない。最後の長時間ケースでは実行handleに加え実プロセスのCPU使用と実行状態を確認し、再起動せず正常終了まで待った。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyによる独立検証と対応照合も成功した。固定時・開始時・文書更新前の142ファイルが一致した。17成功ログのhash／結果行、759 PDF対応表、原フォントと保存済み元全巻入力のhash、および照合スクリプト自体のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+§256の検証待ちを解消した。次のframe／source-width／selected-line内部の予約伝播はremaining-record-paths.mdへ整理した。完全なcommand予算、残る名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持し、全巻受入成功とは扱わない。この段階ではコミット・pushを行っていない。
+
+
+<a id="frame-line-record-budget-design-14257"></a>
+## 257. フレーム・幅再投影・行選択のrecordを保持（design §14.257）
+
+[ADR-0120](../adr/ADR-0120-book-2-frame-line-record-budget.md)に従い、共有frame／selected-line kernelで受理済み予約を回収する。Book /2はprepare_book_v2_body_inline_frames_countedを公開し、body line内部は初期frame、表の再投影、block幅、source unit開始位置、幅binding、selected-lineの途中失敗を予算ownerへ伝播する。source bindingとshared projectionの重複予約を加算しない。replayの既存prepaid rebuild boundも二重課金しない。
+
+証跡はworkspace/target/vmb-design/20260922/frame-line-record-budget/に保存する。workspace-check-01.logで新test追加前のworkspace --all-features --tests checkが成功した。新2 testsと既存のframe transform失敗試験でTT／原Haranoの予約保持・予算境界・再試行を検証し、全回帰と独立PDF照合をagentが実行する。
+
+shape／source準備とlinebreak内部、完全なcommand allocation／spool／work予算、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持する。
+
+frame-line-tests-01.logは新2 tests成功（build 53.30秒、test 2.19秒）、body-line-tests-01.logは拡張した既存3 tests成功（test 2.39秒）。いずれも失敗／ignored 0。ソースを固定し、全回帰と独立検証へ進む。
+
+最終ソースを固定したworkspace --all-features --tests checkは30.07秒、layout全69 testsは0.58秒とdoc-test 1件1.26秒、pagination全104 testsは0.39秒、Book /2関連CLI全282 testsは1,071.38秒、font全76 testsは13.61秒、公開CFF診断1 test（7ケース）は10.23秒、旧CFF診断1 testは0.05秒で成功した。すべて失敗／ignored 0。CLI件数はbook_v2_resourcesフィルタの対象であり、全CLI binaryの701件を実行したという意味ではない。原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsも成功した。時間は今回の観測値であり、制御された性能比較ではない。長時間ケースは実行handleと実プロセスのCPU使用を確認し、再起動せず終了まで待った。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyによる独立検証と対応照合も成功した。固定時・開始時・文書更新前の149ファイルが一致した。17成功ログのhash／結果行、759 PDF対応表、原フォントと保存済み元全巻入力のhash、照合スクリプト自身のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+§257の検証待ちを解消した。次のsource inline準備・authored shaping内部の予約伝播はremaining-record-paths.mdへ整理した。完全なcommand予算、残る名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持し、全巻受入成功とは扱わない。この段階ではコミット・pushを行っていない。
+
+
+<a id="shape-inline-record-budget-design-14258"></a>
+## 258. 本文shape・inline準備のrecordを保持（design §14.258）
+
+[ADR-0121](../adr/ADR-0121-book-2-shape-inline-record-budget.md)に従い、共有authored shape kernelでcontextとoutputの受理済み予約を返す。Book /2へshape_book_v2_authored_text_countedとprepare_book_v2_inline_items_with_native_context_countedを追加し、本文の初回と各rebreakで結果伝播前に回収する。stage-local prefixは最大値で併合し、解放済みpass領域やreplayの既存prepaid boundを重ねて足さない。
+
+証跡はworkspace/target/vmb-design/20260922/shape-inline-record-budget/に保存する。workspace-check-01.logは新counterを結果structへ参照のまま渡した型不一致で失敗した。値を参照解除する修正後、shape-inline-tests-01.logで新2 testsが成功した（build 58.05秒、test 9.72秒、失敗／ignored 0）。成功fingerprint、異なるepoch／context、後続段落の欠落glyph、shape上限の直前と一致、text／hard break保存後の図版geometry拒否、本文予算の再試行をTT／原Haranoで確認した。seedとPDF driverへの伝播試験も追加し、既存本文予算テストと全回帰をagentが実行する。
+
+font instance、backend temporary allocationやcontext buffer、柱shape／inline準備、完全なcommand allocation／spool／work、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持する。
+
+body-line-tests-02.logは関連22件中21件成功、1件失敗（test 19.08秒）。初回frame transform失敗の期待値へ、line contextを含む再組み直し後のshape予約を使っていた試験側の誤りだった。初回shapeの実測値へ修正したbody-line-tests-03.logは22件すべて成功した（build 19.50秒、test 17.84秒、失敗／ignored 0）。ソースを固定し、shaping専用の原Harano試験も含めて全回帰・独立検証へ進む。
+
+最終ソースを固定したworkspace --all-features --tests checkは31.20秒、shaping全27 tests（原Harano専用2件を含む）は6.48秒とdoc-test 1件0.91秒、layout全69 testsは0.81秒とdoc-test 1件1.26秒、pagination全104 testsは0.33秒、Book /2関連CLI全284 testsは984.19秒、font全76 testsは10.99秒、公開CFF診断1 test（7ケース）は10.73秒、旧CFF診断1 testは0.04秒で成功した。すべて失敗／ignored 0。CLI件数はbook_v2_resourcesフィルタの対象であり、全CLI binaryの703件を実行したという意味ではない。原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsも成功した。時間は今回の観測値であり、制御された性能比較ではない。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyによる独立検証と対応照合も成功した。固定時・開始時・文書更新前の156ファイルが一致した。18成功ログのhash／結果行、759 PDF対応表、原フォントと保存済み元全巻入力のhash、照合スクリプト自身のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+§258の検証待ちを解消した。次の柱shape／inline準備・line/context捕捉からpage-region driverへの伝播はremaining-record-paths.mdへ整理した。完全なcommand予算、残る名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持し、全巻受入成功とは扱わない。この段階ではコミット・pushを行っていない。
+
+
+<a id="page-region-record-budget-design-14259"></a>
+## 259. 柱shape・inline・line/contextのrecordを保持（design §14.259）
+
+[ADR-0122](../adr/ADR-0122-book-2-page-region-record-budget.md)に従い、柱のshape／inline constructor、測定のwidth／selected-line／origin、context捕捉、feedback保持から予約量を回収する。BookV2PageRegionLineBudgetは既存stage-local prefixの最大値を保持する。shapeのlocal counterはinline準備でcaller履歴への加算を受理するまでlocalのままであり、完全なcommand allocation計測とは扱わない。PDF attachment driverはstable callback未到達時にwork／開始済みpassとrecordを回収し、成功ownerの課金とfingerprintを維持する。
+
+証跡はworkspace/target/vmb-design/20260922/page-region-record-budget/に保存する。workspace-check-01.logは新試験追加前のworkspace --all-features --tests check成功（33.44秒）。page-region-record-tests-01.logは新2 testsとも失敗した。検証用callback内で追加したcontextの予約まで本体予算へ要求していた試験側の誤りであり、callback外の本体予約と独立したcontext検証へ修正した。
+
+新2 testsでTT／原Haranoの全inline予約境界・convergence予約境界・上限一致・候補workゼロ・indent／height拒否・後続段落の欠落glyph・identity／context・再試行を検査する。既存attachment試験にも、最初の候補直前で失敗する柱を独立構築し、attachmentとPDF driverのrecord／work／passへ伝播する試験を追加した。局所試験・全回帰・独立PDF検証をagentが実行する。
+
+source flow／admission／font instance／backend・context内部、完全なcommand allocation／spool／work、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持する。
+
+page-region-record-tests-02.logは新2 tests成功（build 36.46秒、test 7.74秒、失敗／ignored 0）。page-region-tests-03.logは新2件と拡張したattachment／driver試験を含む柱関連23 tests成功（test 14.37秒、失敗／ignored 0）。ソースを固定し、全回帰と独立PDF検証へ進む。
+
+最終ソースを固定したworkspace --all-features --tests checkは28.22秒、shaping全27 tests（原Harano専用2件を含む）は7.17秒とdoc-test 1件1.01秒、layout全69 testsは0.74秒とdoc-test 1件1.69秒、pagination全104 testsは0.31秒、Book /2関連CLI全286 testsは569.52秒、font全76 testsは11.49秒、公開CFF診断1 test（7ケース）は7.94秒、旧CFF診断1 testは0.04秒で成功した。すべて失敗／ignored 0。CLI件数はbook_v2_resourcesフィルタの対象であり、全CLI binaryの705件を実行したという意味ではない。原Harano全23,060 glyph／8,376,159 operations／1,572,638 segmentsも成功した。時間は今回の観測値であり、制御された性能比較ではない。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyによる独立検証と対応照合も成功した。固定時・開始時・文書更新前の163ファイルが一致した。18成功ログのhash／結果行、759 PDF対応表、原フォントと保存済み元全巻入力のhash、照合スクリプト自身のhashをrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を確認した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+- 原Harano内部予算診断2件／16改変拒否、旧CFF finalization診断2件／22改変拒否、公開/1診断7ケース／84改変拒否、原Harano subset診断2件／24改変拒否が成功した。
+
+§259の検証待ちを解消した。次の柱source flow constructorとnative math共有予算／constructorからdriverへの伝播はremaining-record-paths.mdへ整理した。完全なcommand予算、残る名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持し、全巻受入成功とは扱わない。この段階ではコミット・pushを行っていない。
+
+
+<a id="page-region-source-budget-design-14260"></a>
+## 260. 柱source constructorの予約を保持（design §14.260）
+
+[ADR-0123](../adr/ADR-0123-book-2-page-region-source-budget.md)に従い、prepare_book_v2_page_region_text_flow_countedを追加した。caller履歴をidentity検査前に初期化し、ownerと各段落の既存予約を受理直後に観測値へ反映する。後続の予約・style・source構築で失敗しても保持し、拒否した予約は加算しない。既存APIは委譲し、成功ownerとfingerprintを維持する。
+
+attachment driverはsource結果を伝播する前にrecordを回収する。既存のsource record増分に対する保守的work予約も受理可能な場合に保持する。work不足時は予約を消費せず、元のsource失敗を優先する。成功sourceのwork不足は既存どおりworkエラーとなる。実際のsource内部処理をすべて計測したという意味ではない。
+
+証跡はworkspace/target/vmb-design/20260922/page-region-source-budget/。新2 testsでTT／原Haranoの全予約境界・上限一致・overflow・再試行・style不足・異なるbody／不在regionを検証する。attachment既存2 testsにはrecord上限付近の本文履歴を持つdisplayを追加し、sourceの独立構築と原因・record・work・passを照合する。変更範囲に合わせ、workspace型検査、syntax、柱CLI、柱PDF独立検証と§259とのbyte比較を実施する。§259の759 PDF全回帰は今回の再実行として扱わない。
+
+native math・admission・backend内部、完全なcommand allocation／spool／work、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持し、全巻受入成功とは扱わない。
+
+新2 testsはbuild 49.87秒／test 4.13秒で成功した。拡張したattachment試験を含む柱関連25 testsは17.58秒で成功した。workspace --all-features --tests checkは52.78秒、syntax 138 testsは3.02秒、doc-test 12件は9.70秒で成功した（syntax build 26.18秒）。すべて失敗／ignored 0。時間は今回の観測値であり、制御された性能比較ではない。
+
+独立検証では3 region PDFs／10 pages／126 glyph paints、2 TrueType＋1 CFF subsets／14 mapped glyphsを検証し、resource改変9件とPDF／source改変22件を拒否した。全3 PDFの実バイトが§259と一致した。run-verification-01.pyとverification.jsonに実行コマンド・終了コード・140ソースhash・5ログhashと結果行・3 PDF対応表を保存した。ソースhashは局所試験後・workspace／syntax／独立検証前に取得し、その間の実装変更はない。追跡済み変更58ファイルをすべて含むことを照合した。検証後の文書更新3件は別のhash一覧で区別する。
+
+§260の検証待ちを解消した。native math等の次の経路はremaining-record-paths.mdへ引き継ぐ。設計全体の受け入れは未完了であり、今回コミット・pushは行っていない。

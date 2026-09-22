@@ -627,286 +627,317 @@ pub(super) fn prepare_kernel<'m>(
     input: TableSearchInput<'m>,
     maximum_height: Length,
     maximum_records: u64,
+    charge: Charge,
+    work: Work,
+) -> Result<TableBreakKernel<'m>, ProductionBodyPaginationError> {
+    prepare_kernel_counted(
+        input,
+        maximum_height,
+        maximum_records,
+        charge,
+        work,
+        &mut 0,
+        &mut 0,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub(super) fn prepare_kernel_counted<'m>(
+    input: TableSearchInput<'m>,
+    maximum_height: Length,
+    maximum_records: u64,
     mut charge: Charge,
     mut work: Work,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
 ) -> Result<TableBreakKernel<'m>, ProductionBodyPaginationError> {
-    let table = input.table;
-    let source = input.source;
-    let owner = table.owner;
-    work.take(
-        u64::from(table.rows.len().checked_ilog2().unwrap_or(0)) + 1,
-        owner,
-    )?;
-    let header_rows = table
-        .rows
-        .partition_point(|r| r.section == ProductionTableSection::Head);
-    let caption_height = table.caption.as_ref().map_or(Length::ZERO, |c| c.height);
-    let header_end = table.rows.get(header_rows).map_or(table.height, |r| r.top);
-    let header_height = header_end
-        .checked_sub(caption_height)
-        .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
-    if header_height > maximum_height {
-        return Err(error(owner, E::TableHeaderOversize));
-    }
-    let mut blocked: Vec<Blocked> = Vec::new();
-    let mut caption_breaks = Vec::new();
-    let mut cell_breaks = false;
-    let mut header_breaks = false;
-    let mut nested_body = false;
-    let mut has_spans = None;
-    if let Some(caption) = &table.caption {
-        let mut previous = Length::ZERO;
-        for (index, content) in caption.content.iter().enumerate() {
-            work.take(1, owner)?;
-            let item_index = match content.source {
-                ProductionTableContentSource::FlowItem(index) => index,
-                ProductionTableContentSource::Table(index) => {
-                    let child = input
-                        .tables
-                        .get(index)
-                        .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                    if input.parallel_breaks {
-                        work.take(source.cells().len() as u64, owner)?;
-                        has_spans = Some(source.cells().iter().any(|c| c.rowspan().get() != 1));
-                        nested_body = true;
-                        cell_breaks = true;
-                        previous = content.end;
-                        continue;
+    let result = (|| {
+        let table = input.table;
+        let source = input.source;
+        let owner = table.owner;
+        work.take(
+            u64::from(table.rows.len().checked_ilog2().unwrap_or(0)) + 1,
+            owner,
+        )?;
+        let header_rows = table
+            .rows
+            .partition_point(|r| r.section == ProductionTableSection::Head);
+        let caption_height = table.caption.as_ref().map_or(Length::ZERO, |c| c.height);
+        let header_end = table.rows.get(header_rows).map_or(table.height, |r| r.top);
+        let header_height = header_end
+            .checked_sub(caption_height)
+            .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
+        if header_height > maximum_height {
+            return Err(error(owner, E::TableHeaderOversize));
+        }
+        let mut blocked: Vec<Blocked> = Vec::new();
+        let mut caption_breaks = Vec::new();
+        let mut cell_breaks = false;
+        let mut header_breaks = false;
+        let mut nested_body = false;
+        let mut has_spans = None;
+        if let Some(caption) = &table.caption {
+            let mut previous = Length::ZERO;
+            for (index, content) in caption.content.iter().enumerate() {
+                work.take(1, owner)?;
+                let item_index = match content.source {
+                    ProductionTableContentSource::FlowItem(index) => index,
+                    ProductionTableContentSource::Table(index) => {
+                        let child = input
+                            .tables
+                            .get(index)
+                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                        if input.parallel_breaks {
+                            work.take(source.cells().len() as u64, owner)?;
+                            has_spans = Some(source.cells().iter().any(|c| c.rowspan().get() != 1));
+                            nested_body = true;
+                            cell_breaks = true;
+                            previous = content.end;
+                            continue;
+                        }
+                        return Err(error(child.owner, E::PendingRegion("nested_table_breaks")));
                     }
-                    return Err(error(child.owner, E::PendingRegion("nested_table_breaks")));
-                }
-            };
-            let item = input
-                .items
-                .get(item_index)
-                .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-            if item.source.is_none() {
-                if table.keep_together {
-                    return Err(error(owner, E::KeepAcrossForcedBreak));
-                }
-                if index > 0 {
-                    let prior = match caption.content[index - 1].source {
-                        ProductionTableContentSource::FlowItem(i) => {
-                            input.items[i].keep.then_some(input.items[i].owner)
-                        }
-                        ProductionTableContentSource::Table(i) => {
-                            input.tables[i].keep.then_some(input.tables[i].owner)
-                        }
-                    };
-                    if let Some(owner) = prior {
+                };
+                let item = input
+                    .items
+                    .get(item_index)
+                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                if item.source.is_none() {
+                    if table.keep_together {
                         return Err(error(owner, E::KeepAcrossForcedBreak));
                     }
+                    if index > 0 {
+                        let prior = match caption.content[index - 1].source {
+                            ProductionTableContentSource::FlowItem(i) => {
+                                input.items[i].keep.then_some(input.items[i].owner)
+                            }
+                            ProductionTableContentSource::Table(i) => {
+                                input.tables[i].keep.then_some(input.tables[i].owner)
+                            }
+                        };
+                        if let Some(owner) = prior {
+                            return Err(error(owner, E::KeepAcrossForcedBreak));
+                        }
+                    }
+                    charge.take(1, item.owner)?;
+                    caption_breaks
+                        .try_reserve(1)
+                        .map_err(|_| error(item.owner, E::AllocationFailure))?;
+                    caption_breaks.push(index);
+                    previous = content.end;
+                    continue;
                 }
                 charge.take(1, item.owner)?;
-                caption_breaks
+                blocked
                     .try_reserve(1)
                     .map_err(|_| error(item.owner, E::AllocationFailure))?;
-                caption_breaks.push(index);
+                blocked.push(Blocked {
+                    start: previous,
+                    end: content.end,
+                    closed_end: item.keep
+                        && (index + 1 < caption.content.len() || table.height > caption.height),
+                });
                 previous = content.end;
-                continue;
             }
-            charge.take(1, item.owner)?;
-            blocked
-                .try_reserve(1)
-                .map_err(|_| error(item.owner, E::AllocationFailure))?;
-            blocked.push(Blocked {
-                start: previous,
-                end: content.end,
-                closed_end: item.keep
-                    && (index + 1 < caption.content.len() || table.height > caption.height),
-            });
-            previous = content.end;
+            // A header cannot be broken internally or orphaned before its body.
+            if header_height > Length::ZERO {
+                charge.take(1, owner)?;
+                blocked
+                    .try_reserve(1)
+                    .map_err(|_| error(owner, E::AllocationFailure))?;
+                blocked.push(Blocked {
+                    start: caption.height,
+                    end: header_end,
+                    closed_end: header_end < table.height,
+                });
+            }
         }
-        // A header cannot be broken internally or orphaned before its body.
-        if header_height > Length::ZERO {
+        for (binding, cell) in source.cells().iter().zip(&table.cells) {
+            let origin = table.rows[binding.row() as usize].top;
+            let mut previous = Length::ZERO;
+            for (index, content) in cell.content.iter().enumerate() {
+                work.take(1, cell.owner)?;
+                let item_index = match content.source {
+                    ProductionTableContentSource::FlowItem(index) => index,
+                    ProductionTableContentSource::Table(index) => {
+                        let child = input
+                            .tables
+                            .get(index)
+                            .ok_or_else(|| error(cell.owner, E::ReceiptMismatch))?;
+                        if input.parallel_breaks {
+                            if !nested_body {
+                                work.take(source.cells().len() as u64, owner)?;
+                                has_spans =
+                                    Some(source.cells().iter().any(|c| c.rowspan().get() != 1));
+                            }
+                            nested_body = true;
+                            cell_breaks = true;
+                            previous = content.end;
+                            continue;
+                        }
+                        return Err(error(child.owner, E::PendingRegion("nested_table_breaks")));
+                    }
+                };
+                let item = input
+                    .items
+                    .get(item_index)
+                    .ok_or_else(|| error(cell.owner, E::ReceiptMismatch))?;
+                if item.source.is_none() {
+                    if !input.parallel_breaks {
+                        return Err(error(item.owner, E::PendingRegion("table_forced_break")));
+                    }
+                    if has_spans.is_none() {
+                        work.take(source.cells().len() as u64, owner)?;
+                        has_spans = Some(source.cells().iter().any(|c| c.rowspan().get() != 1));
+                    }
+                    if table.keep_together {
+                        return Err(error(owner, E::KeepAcrossForcedBreak));
+                    }
+                    if index > 0 {
+                        let prior = match cell.content[index - 1].source {
+                            ProductionTableContentSource::FlowItem(i) => {
+                                input.items[i].keep.then_some(input.items[i].owner)
+                            }
+                            ProductionTableContentSource::Table(i) => {
+                                input.tables[i].keep.then_some(input.tables[i].owner)
+                            }
+                        };
+                        if let Some(owner) = prior {
+                            return Err(error(owner, E::KeepAcrossForcedBreak));
+                        }
+                    }
+                    cell_breaks = true;
+                    header_breaks |=
+                        table.rows[binding.row() as usize].section == ProductionTableSection::Head;
+                    previous = content.end;
+                    continue;
+                }
+                charge.take(1, cell.owner)?;
+                blocked
+                    .try_reserve(1)
+                    .map_err(|_| error(cell.owner, E::AllocationFailure))?;
+                blocked.push(Blocked {
+                    start: add(origin, previous, cell.owner)?,
+                    end: add(origin, content.end, cell.owner)?,
+                    closed_end: item.keep && index + 1 < cell.content.len(),
+                });
+                previous = content.end;
+            }
+        }
+        if table.keep_together {
             charge.take(1, owner)?;
             blocked
                 .try_reserve(1)
                 .map_err(|_| error(owner, E::AllocationFailure))?;
             blocked.push(Blocked {
-                start: caption.height,
-                end: header_end,
-                closed_end: header_end < table.height,
+                start: Length::ZERO,
+                end: table.height,
+                closed_end: false,
             });
         }
-    }
-    for (binding, cell) in source.cells().iter().zip(&table.cells) {
-        let origin = table.rows[binding.row() as usize].top;
-        let mut previous = Length::ZERO;
-        for (index, content) in cell.content.iter().enumerate() {
-            work.take(1, cell.owner)?;
-            let item_index = match content.source {
-                ProductionTableContentSource::FlowItem(index) => index,
-                ProductionTableContentSource::Table(index) => {
-                    let child = input
-                        .tables
-                        .get(index)
-                        .ok_or_else(|| error(cell.owner, E::ReceiptMismatch))?;
-                    if input.parallel_breaks {
-                        if !nested_body {
-                            work.take(source.cells().len() as u64, owner)?;
-                            has_spans = Some(source.cells().iter().any(|c| c.rowspan().get() != 1));
-                        }
-                        nested_body = true;
-                        cell_breaks = true;
-                        previous = content.end;
-                        continue;
+        sort_blocked(&mut blocked, &mut work, owner)?;
+        let mut retained = 0usize;
+        for index in 0..blocked.len() {
+            work.take(1, owner)?;
+            let next = blocked[index];
+            if retained != 0 {
+                let last = &mut blocked[retained - 1];
+                if next.start < last.end || (next.start == last.end && last.closed_end) {
+                    if next.end > last.end {
+                        last.end = next.end;
+                        last.closed_end = next.closed_end;
+                    } else if next.end == last.end {
+                        last.closed_end |= next.closed_end;
                     }
-                    return Err(error(child.owner, E::PendingRegion("nested_table_breaks")));
+                    continue;
                 }
-            };
-            let item = input
-                .items
-                .get(item_index)
-                .ok_or_else(|| error(cell.owner, E::ReceiptMismatch))?;
-            if item.source.is_none() {
-                if !input.parallel_breaks {
-                    return Err(error(item.owner, E::PendingRegion("table_forced_break")));
+            }
+            blocked[retained] = next;
+            retained += 1;
+        }
+        blocked.truncate(retained);
+        // Different cell line heights can merge every common vertical cut across
+        // an entire row. In the successor, retain independent source positions if
+        // such a gap cannot fit the smallest reachable empty-page capacity. Keep
+        // the common-cut path where it fits, and the frozen profile's refusal policy.
+        if input.parallel_breaks && !cell_breaks && !table.keep_together {
+            let body_capacity = input
+                .minimum_fragment_height
+                .unwrap_or(maximum_height)
+                .checked_sub(header_height)
+                .ok_or_else(|| error(owner, E::ArithmeticOverflow))?
+                .max(Length::ZERO);
+            for interval in &blocked {
+                work.take(1, owner)?;
+                if interval.end <= header_end {
+                    continue;
                 }
-                if has_spans.is_none() {
+                let gap = interval
+                    .end
+                    .checked_sub(interval.start.max(header_end))
+                    .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
+                if gap > body_capacity || (gap == body_capacity && interval.closed_end) {
                     work.take(source.cells().len() as u64, owner)?;
                     has_spans = Some(source.cells().iter().any(|c| c.rowspan().get() != 1));
+                    cell_breaks = true;
+                    break;
                 }
-                if table.keep_together {
-                    return Err(error(owner, E::KeepAcrossForcedBreak));
-                }
-                if index > 0 {
-                    let prior = match cell.content[index - 1].source {
-                        ProductionTableContentSource::FlowItem(i) => {
-                            input.items[i].keep.then_some(input.items[i].owner)
-                        }
-                        ProductionTableContentSource::Table(i) => {
-                            input.tables[i].keep.then_some(input.tables[i].owner)
-                        }
-                    };
-                    if let Some(owner) = prior {
-                        return Err(error(owner, E::KeepAcrossForcedBreak));
-                    }
-                }
-                cell_breaks = true;
-                header_breaks |=
-                    table.rows[binding.row() as usize].section == ProductionTableSection::Head;
-                previous = content.end;
-                continue;
             }
-            charge.take(1, cell.owner)?;
-            blocked
-                .try_reserve(1)
-                .map_err(|_| error(cell.owner, E::AllocationFailure))?;
-            blocked.push(Blocked {
-                start: add(origin, previous, cell.owner)?,
-                end: add(origin, content.end, cell.owner)?,
-                closed_end: item.keep && index + 1 < cell.content.len(),
-            });
-            previous = content.end;
         }
-    }
-    if table.keep_together {
-        charge.take(1, owner)?;
-        blocked
-            .try_reserve(1)
+        let tree_base = source
+            .cells()
+            .len()
+            .checked_next_power_of_two()
+            .ok_or_else(|| error(owner, E::FragmentLimit))?;
+        let nodes = tree_base
+            .checked_mul(2)
+            .ok_or_else(|| error(owner, E::FragmentLimit))?;
+        charge.take(
+            nodes
+                .checked_add(1)
+                .ok_or_else(|| error(owner, E::FragmentLimit))?,
+            owner,
+        )?;
+        work.take(nodes as u64, owner)?;
+        let mut max_ends = Vec::new();
+        max_ends
+            .try_reserve_exact(nodes)
             .map_err(|_| error(owner, E::AllocationFailure))?;
-        blocked.push(Blocked {
-            start: Length::ZERO,
-            end: table.height,
-            closed_end: false,
-        });
-    }
-    sort_blocked(&mut blocked, &mut work, owner)?;
-    let mut retained = 0usize;
-    for index in 0..blocked.len() {
-        work.take(1, owner)?;
-        let next = blocked[index];
-        if retained != 0 {
-            let last = &mut blocked[retained - 1];
-            if next.start < last.end || (next.start == last.end && last.closed_end) {
-                if next.end > last.end {
-                    last.end = next.end;
-                    last.closed_end = next.closed_end;
-                } else if next.end == last.end {
-                    last.closed_end |= next.closed_end;
-                }
-                continue;
-            }
+        max_ends.resize(nodes, Length::ZERO);
+        for (index, cell) in source.cells().iter().enumerate() {
+            let end_row = cell.row() as usize + usize::from(cell.rowspan().get());
+            max_ends[tree_base + index] = table.rows.get(end_row).map_or(table.height, |r| r.top);
         }
-        blocked[retained] = next;
-        retained += 1;
-    }
-    blocked.truncate(retained);
-    // Different cell line heights can merge every common vertical cut across
-    // an entire row. In the successor, retain independent source positions if
-    // such a gap cannot fit the smallest reachable empty-page capacity. Keep
-    // the common-cut path where it fits, and the frozen profile's refusal policy.
-    if input.parallel_breaks && !cell_breaks && !table.keep_together {
-        let body_capacity = input
-            .minimum_fragment_height
-            .unwrap_or(maximum_height)
-            .checked_sub(header_height)
-            .ok_or_else(|| error(owner, E::ArithmeticOverflow))?
-            .max(Length::ZERO);
-        for interval in &blocked {
-            work.take(1, owner)?;
-            if interval.end <= header_end {
-                continue;
-            }
-            let gap = interval
-                .end
-                .checked_sub(interval.start.max(header_end))
-                .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
-            if gap > body_capacity || (gap == body_capacity && interval.closed_end) {
-                work.take(source.cells().len() as u64, owner)?;
-                has_spans = Some(source.cells().iter().any(|c| c.rowspan().get() != 1));
-                cell_breaks = true;
-                break;
-            }
+        for index in (1..tree_base).rev() {
+            max_ends[index] = max_ends[index * 2].max(max_ends[index * 2 + 1]);
         }
-    }
-    let tree_base = source
-        .cells()
-        .len()
-        .checked_next_power_of_two()
-        .ok_or_else(|| error(owner, E::FragmentLimit))?;
-    let nodes = tree_base
-        .checked_mul(2)
-        .ok_or_else(|| error(owner, E::FragmentLimit))?;
-    charge.take(
-        nodes
-            .checked_add(1)
-            .ok_or_else(|| error(owner, E::FragmentLimit))?,
-        owner,
-    )?;
-    work.take(nodes as u64, owner)?;
-    let mut max_ends = Vec::new();
-    max_ends
-        .try_reserve_exact(nodes)
-        .map_err(|_| error(owner, E::AllocationFailure))?;
-    max_ends.resize(nodes, Length::ZERO);
-    for (index, cell) in source.cells().iter().enumerate() {
-        let end_row = cell.row() as usize + usize::from(cell.rowspan().get());
-        max_ends[tree_base + index] = table.rows.get(end_row).map_or(table.height, |r| r.top);
-    }
-    for index in (1..tree_base).rev() {
-        max_ends[index] = max_ends[index * 2].max(max_ends[index * 2 + 1]);
-    }
-    Ok(TableBreakKernel {
-        input,
-        header_rows,
-        header_height,
-        repeated_header_height: None,
-        maximum_height,
-        blocked,
-        caption_breaks,
-        cell_breaks,
-        header_breaks,
-        nested_body,
-        #[cfg(feature = "book-v2-staging")]
-        spanning_breaks: has_spans.unwrap_or(false),
-        #[cfg(feature = "book-v2-staging")]
-        cell_states: Vec::new(),
-        max_ends,
-        tree_base,
-        charge,
-        maximum_records,
-        work,
-    })
+        Ok(TableBreakKernel {
+            input,
+            header_rows,
+            header_height,
+            repeated_header_height: None,
+            maximum_height,
+            blocked,
+            caption_breaks,
+            cell_breaks,
+            header_breaks,
+            nested_body,
+            #[cfg(feature = "book-v2-staging")]
+            spanning_breaks: has_spans.unwrap_or(false),
+            #[cfg(feature = "book-v2-staging")]
+            cell_states: Vec::new(),
+            max_ends,
+            tree_base,
+            charge: Charge {
+                remaining: charge.remaining,
+            },
+            maximum_records,
+            work: Work {
+                used: work.used,
+                maximum: work.maximum,
+            },
+        })
+    })();
+    *observed_records = maximum_records - charge.remaining;
+    *observed_work = work.used;
+    result
 }

@@ -115,7 +115,17 @@ pub fn prepare_book_v2_body_inline_frames<'p, 'a>(
     prepared: &'p BookV2PreparedInlines<'a>,
     body: Rect,
 ) -> Result<BookV2BodyInlineFrames<'p, 'a>, ProductionInlinePreparationError> {
-    let projection = list_frames::project_frames(
+    prepare_book_v2_body_inline_frames_counted(prepared, body, &mut 0)
+}
+
+/// Return the accepted frame reservation even when geometry or allocation fails.
+/// The observation is reset on entry; rejected reservations are not charged.
+pub fn prepare_book_v2_body_inline_frames_counted<'p, 'a>(
+    prepared: &'p BookV2PreparedInlines<'a>,
+    body: Rect,
+    observed_records: &mut u64,
+) -> Result<BookV2BodyInlineFrames<'p, 'a>, ProductionInlinePreparationError> {
+    let projection = list_frames::project_frames_counted(
         InlineFlow::BookV2(prepared.flow),
         prepared.shaped.list_markers(),
         prepared.shaped.footnote_markers(),
@@ -123,6 +133,7 @@ pub fn prepare_book_v2_body_inline_frames<'p, 'a>(
         prepared.fingerprint(),
         body,
         BOOK_V2_BODY_FRAMES_ALGORITHM,
+        observed_records,
     )?;
     Ok(BookV2BodyInlineFrames {
         prepared,
@@ -174,7 +185,28 @@ pub(super) fn layout_body_lines_counted<'p, 'a>(
     source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
     consumed: &mut u64,
 ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
+    layout_body_lines_counted_with_records(
+        prepared,
+        body,
+        max_candidate_steps,
+        page_plan,
+        source_widths,
+        consumed,
+        &mut 0,
+    )
+}
+
+pub(super) fn layout_body_lines_counted_with_records<'p, 'a>(
+    prepared: &'p BookV2PreparedInlines<'a>,
+    body: Rect,
+    max_candidate_steps: u64,
+    page_plan: Option<&'p BookV2PageFramePlan<'a>>,
+    source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
+    consumed: &mut u64,
+    observed_records: &mut u64,
+) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
     *consumed = 0;
+    *observed_records = 0;
     let mut frames = if let Some(plan) = page_plan {
         if !std::ptr::eq(plan.source(), prepared.flow.body()) || body != plan.measurement_body() {
             return Err(error(
@@ -184,7 +216,7 @@ pub(super) fn layout_body_lines_counted<'p, 'a>(
         }
         BookV2BodyInlineFrames {
             prepared,
-            projection: list_frames::project_frames_in_regions(
+            projection: list_frames::project_frames_in_regions_counted(
                 InlineFlow::BookV2(prepared.flow),
                 prepared.shaped.list_markers(),
                 prepared.shaped.footnote_markers(),
@@ -193,6 +225,7 @@ pub(super) fn layout_body_lines_counted<'p, 'a>(
                 body,
                 plan.measurement_footnote(),
                 BOOK_V2_BODY_FRAMES_ALGORITHM,
+                observed_records,
             )?,
             page_plan: Some(plan),
             block_measurements: Vec::new(),
@@ -202,7 +235,7 @@ pub(super) fn layout_body_lines_counted<'p, 'a>(
             table_measurements: None,
         }
     } else {
-        prepare_book_v2_body_inline_frames(prepared, body)?
+        prepare_book_v2_body_inline_frames_counted(prepared, body, observed_records)?
     };
     if let Some(assignments) = source_widths {
         for pass in [
@@ -215,7 +248,7 @@ pub(super) fn layout_body_lines_counted<'p, 'a>(
             let remaining = max_candidate_steps - *consumed;
             let result = match pass {
                 FrameWidthPass::Tables => {
-                    frames.apply_table_widths(assignments, remaining, &mut spent)
+                    frames.apply_table_widths(assignments, remaining, &mut spent, observed_records)
                 }
                 FrameWidthPass::Blocks => {
                     frames.apply_block_widths(assignments, remaining, &mut spent)
@@ -223,10 +256,14 @@ pub(super) fn layout_body_lines_counted<'p, 'a>(
                 FrameWidthPass::BlockStarts => {
                     frames.apply_block_starts(assignments, remaining, &mut spent)
                 }
-                FrameWidthPass::UnitStarts => {
-                    frames.apply_source_unit_starts(assignments, remaining, &mut spent)
-                }
+                FrameWidthPass::UnitStarts => frames.apply_source_unit_starts(
+                    assignments,
+                    remaining,
+                    &mut spent,
+                    observed_records,
+                ),
             };
+            *observed_records = (*observed_records).max(frames.record_charge());
             *consumed += spent;
             result?;
         }
@@ -257,6 +294,7 @@ pub(super) fn layout_body_lines_counted<'p, 'a>(
             remaining_work,
             frames.record_charge(),
             &mut projected,
+            observed_records,
         )
     } else {
         layout_with_source_widths_counted(
@@ -266,6 +304,7 @@ pub(super) fn layout_body_lines_counted<'p, 'a>(
             frames.record_charge(),
             None,
             &mut projected,
+            observed_records,
         )
     };
     *consumed += projected;

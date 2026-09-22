@@ -408,7 +408,7 @@ fn prepare_search_context(
 
 #[cfg(feature = "book-v2-staging")]
 pub use demand::book_v2::{
-    BookV2DefinitionCandidates, BookV2RankedDefinitionCandidate, prepare_book_v2_mixed_footnote_demand_search, prepare_book_v2_definition_mixed_search, BookV2DefinitionMixedSearch, BookV2DefinitionCandidatePart, BookV2DefinitionSelectedPart, BookV2DefinitionSourceState, BookV2DefinitionMixedCandidate,
+    BookV2DefinitionCandidates, BookV2RankedDefinitionCandidate, prepare_book_v2_mixed_footnote_demand_search, prepare_book_v2_mixed_footnote_demand_search_counted, prepare_book_v2_definition_mixed_search, prepare_book_v2_definition_mixed_search_counted, BookV2DefinitionMixedSearch, BookV2DefinitionCandidatePart, BookV2DefinitionSelectedPart, BookV2DefinitionSourceState, BookV2DefinitionMixedCandidate,
     BookV2BodyFootnoteCandidate,
     BookV2BodyMixedStablePages, BookV2BodyPlacedHeaderVariant, BookV2BodyPlacedEquationNumber, BookV2BodySourceClosure,
     BookV2TableWidthSource, BookV2TableWidthPiece, BookV2TableWidthOccurrence, BookV2TableWidthOccurrences, BookV2ParagraphWidthCandidate, BookV2ParagraphWidthFeedback,
@@ -417,13 +417,14 @@ pub use demand::book_v2::{
     BookV2BodyMixedPageState, BookV2BodyMixedPageSelection, BookV2BodyMixedPageSequence,
     BookV2BodyCandidatePart,BookV2BodySelectedPart,BookV2BodyMixedCandidate,BookV2BodySourceState,
     prepare_book_v2_table_body_search, prepare_book_v2_table_body_search_with_headers,
-    prepare_book_v2_footnote_demand_search, BookV2FootnoteDemandSearch,
+    prepare_book_v2_table_body_search_counted, prepare_book_v2_table_body_search_with_headers_counted,
+    prepare_book_v2_footnote_demand_search, prepare_book_v2_footnote_demand_search_counted, BookV2FootnoteDemandSearch,
     BookV2FootnoteDemandSelection, BookV2FootnoteDemandState, BookV2FootnoteRegionFragment,
     BookV2FootnoteRegionSelection,
 };
 
 #[cfg(feature = "book-v2-staging")]
-pub(super) use demand::book_v2::{prepare_book_v2_table_demand_search, prepare_book_v2_definition_candidate_demand, BookV2BodyFootnoteFit};
+pub(super) use demand::book_v2::{prepare_book_v2_table_demand_search_counted, prepare_book_v2_definition_candidate_demand_counted, BookV2BodyFootnoteFit};
 
 /// Root tables are serial siblings; their flattened cells are separate streams.
 /// Cell/caption keep checks belong to the recursive table search.

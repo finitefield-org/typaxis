@@ -99,14 +99,38 @@ pub fn prepare_book_v2_page_region_inlines<'a>(
     japanese_mode: JapaneseLineBreakMode,
     prior_records: u64,
 ) -> Result<BookV2PageRegionInlines<'a>, BookV2PageRegionLayoutError> {
+    prepare_book_v2_page_region_inlines_counted(
+        flow,
+        shaped,
+        admitted,
+        limits,
+        epoch,
+        japanese_mode,
+        prior_records,
+        &mut 0,
+    )
+}
+
+/// Preserve caller history and each accepted retained shape/inline reservation.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_book_v2_page_region_inlines_counted<'a>(
+    flow: &'a BookV2PageRegionTextFlow<'a>,
+    shaped: &'a BookV2PageRegionTextShape<'a>,
+    admitted: &AdmittedProductionResourceLedgerV3,
+    limits: &M4EffectiveResourceLimits,
+    epoch: [u8; 32],
+    japanese_mode: JapaneseLineBreakMode,
+    prior_records: u64,
+    records: &mut u64,
+) -> Result<BookV2PageRegionInlines<'a>, BookV2PageRegionLayoutError> {
+    *records = prior_records;
     shaped.verify(flow, admitted, limits, epoch)?;
     let owner = NodeId::new(flow.source().node_id);
     let maximum = limits.base().get().max_fragments;
-    let mut records = prior_records;
-    retain(&mut records, shaped.output_records(), maximum, owner)?;
-    retain(&mut records, 1, maximum, owner)?;
+    retain(records, shaped.output_records(), maximum, owner)?;
+    retain(records, 1, maximum, owner)?;
     retain(
-        &mut records,
+        records,
         flow.text_flow().paragraphs().len() as u64,
         maximum,
         owner,
@@ -118,7 +142,7 @@ pub fn prepare_book_v2_page_region_inlines<'a>(
         None,
         limits,
         japanese_mode,
-        &mut records,
+        records,
     )?;
     let mut fingerprint = sha256(BOOK_V2_PAGE_REGION_INLINE_ALGORITHM.as_bytes());
     for digest in [
@@ -137,7 +161,7 @@ pub fn prepare_book_v2_page_region_inlines<'a>(
         flow,
         shaped,
         paragraphs,
-        records,
+        records: *records,
         max_fragments: maximum,
         fingerprint,
     })
@@ -229,11 +253,18 @@ impl<'p, 'a> BookV2PageRegionLines<'p, 'a> {
     pub fn selected_line_contexts(
         &self,
     ) -> Result<ProductionSelectedLineContexts, ProductionInlinePreparationError> {
-        line_context::selected_contexts(
+        self.selected_line_contexts_counted(&mut 0)
+    }
+    pub fn selected_line_contexts_counted(
+        &self,
+        observed_records: &mut u64,
+    ) -> Result<ProductionSelectedLineContexts, ProductionInlinePreparationError> {
+        line_context::selected_contexts_counted(
             self.paragraphs(),
             self.records,
             self.prepared.max_fragments,
             self.fingerprint,
+            observed_records,
         )
     }
     fn check_fit(&self) -> Result<(), BookV2PageRegionLayoutError> {
@@ -273,6 +304,7 @@ fn measure_region<'p, 'a>(
         max_candidate_steps,
         prior_records,
         &mut 0,
+        &mut 0,
     )
 }
 fn measure_region_counted<'p, 'a>(
@@ -281,8 +313,10 @@ fn measure_region_counted<'p, 'a>(
     max_candidate_steps: u64,
     prior_records: u64,
     consumed_steps: &mut u64,
+    records: &mut u64,
 ) -> Result<BookV2PageRegionLines<'p, 'a>, BookV2PageRegionLayoutError> {
     *consumed_steps = 0;
+    *records = prior_records;
     use ProductionInlinePreparationErrorKind as E;
     let flow = prepared.flow;
     let owner = NodeId::new(flow.source().node_id);
@@ -316,15 +350,9 @@ fn measure_region_counted<'p, 'a>(
     }
     let frame = Rect::new(x, y, width, height);
     let maximum = prepared.max_fragments;
-    let mut records = prior_records;
-    retain(&mut records, prepared.records, maximum, owner)?;
-    retain(&mut records, 1, maximum, owner)?;
-    retain(
-        &mut records,
-        prepared.paragraphs.len() as u64,
-        maximum,
-        owner,
-    )?;
+    retain(records, prepared.records, maximum, owner)?;
+    retain(records, 1, maximum, owner)?;
+    retain(records, prepared.paragraphs.len() as u64, maximum, owner)?;
     let mut widths = Vec::new();
     widths
         .try_reserve_exact(prepared.paragraphs.len())
@@ -340,7 +368,7 @@ fn measure_region_counted<'p, 'a>(
                 .ok_or(BookV2PageRegionLayoutError::Geometry { owner: p.owner() })?,
         );
     }
-    let projection = selected::project_lines_counted(
+    let projection = selected::project_lines_counted_with_records(
         selected::LineInputs {
             max_fragments: maximum,
             flow: InlineFlow::PageRegion(flow),
@@ -353,12 +381,13 @@ fn measure_region_counted<'p, 'a>(
         },
         &widths,
         max_candidate_steps,
-        records,
+        *records,
         BOOK_V2_PAGE_REGION_LINE_ALGORITHM,
         None,
         consumed_steps,
+        records,
     )?;
-    records = projection.output_records;
+    *records = projection.output_records;
     let mut origins = Vec::new();
     let mut cursor = Length::ZERO;
     let mut previous_after = Length::ZERO;
@@ -374,12 +403,7 @@ fn measure_region_counted<'p, 'a>(
         let lines = p
             .selected()
             .ok_or_else(|| error(source.owner(), E::ReceiptMismatch))?;
-        retain(
-            &mut records,
-            lines.lines().len() as u64,
-            maximum,
-            source.owner(),
-        )?;
+        retain(records, lines.lines().len() as u64, maximum, source.owner())?;
         origins
             .try_reserve_exact(lines.lines().len())
             .map_err(|_| error(source.owner(), E::AllocationFailure))?;
@@ -442,7 +466,7 @@ fn measure_region_counted<'p, 'a>(
         projection,
         origins,
         height: NonNegativeLength::new(cursor).ok_or_else(geometry)?,
-        records,
+        records: *records,
         fingerprint,
     })
 }

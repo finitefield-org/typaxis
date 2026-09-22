@@ -34,7 +34,7 @@ use BookV2ConvergenceError as E;
 #[path = "book_v2_header_catalog_driver.rs"]
 pub(super) mod header_catalog_driver;
 #[path = "book_v2_page_region_driver.rs"]
-mod page_region_driver;
+pub(super) mod page_region_driver;
 fn stage<T: std::error::Error + 'static>(stage: &'static str, source: T) -> E {
     E::Stage {
         stage,
@@ -526,15 +526,18 @@ pub fn with_budgeted_book_v2_pdf<R>(
                 let terminals = search
                     .finalize_mixed_page_math(closure, limits, total.spool)
                     .map_err(|e| stage("math terminals", e))?;
-                let mut display = typaxis_display_list::book_v2::BookV2MathDisplayBuilder::new(
-                    &terminals,
-                    admitted,
-                    limits,
-                    remaining,
-                    terminals.record_charge(),
-                    terminals.work_steps(),
-                )
-                .map_err(|e| stage("display", e))?;
+                let mut display =
+                    typaxis_display_list::book_v2::BookV2MathDisplayBuilder::new_counted(
+                        &terminals,
+                        admitted,
+                        limits,
+                        remaining,
+                        terminals.record_charge(),
+                        terminals.work_steps(),
+                        &mut downstream.records,
+                        &mut downstream.work,
+                    )
+                    .map_err(|e| stage("display", e))?;
                 let body_result = display.build_body();
                 downstream.work = display.work_steps();
                 downstream.records = display.record_charge();
@@ -547,6 +550,8 @@ pub fn with_budgeted_book_v2_pdf<R>(
                     japanese_mode,
                     remaining,
                     &mut total.line_passes,
+                    &mut downstream.records,
+                    &mut downstream.work,
                 )?;
                 downstream.work = display.work_steps();
                 downstream.records = display.record_charge();
@@ -606,8 +611,14 @@ pub fn with_budgeted_book_v2_pdf<R>(
                     maximum_work,
                     "work",
                 )?;
-                total.records = total.records.max(search.record_charge()).max(downstream.records);
-                total.spool = total.spool.max(search.terminal_spool_charge()).max(downstream.spool);
+                total.records = total
+                    .records
+                    .max(search.record_charge())
+                    .max(downstream.records);
+                total.spool = total
+                    .spool
+                    .max(search.terminal_spool_charge())
+                    .max(downstream.spool);
                 total.output = total.output.max(downstream.output);
             }
             result
@@ -629,6 +640,7 @@ pub fn with_budgeted_book_v2_pdf<R>(
                 Some(&page_plan),
                 assignments.as_ref(),
             );
+            total.records = total.records.max(allowance.record_charge());
             total.work = add(total.work, allowance.work_steps(), maximum_work, "work")?;
             total.line_passes = total
                 .line_passes
@@ -654,13 +666,21 @@ pub fn with_budgeted_book_v2_pdf<R>(
                     total.line_passes = budget.line_passes;
                     total.page_passes = budget.page_passes;
                     let remaining = maximum_work - budget.work;
-                    let search = prepare_book_v2_table_body_search_with_headers(
+                    let mut records = budget.records;
+                    let mut work = 0;
+                    let search = prepare_book_v2_table_body_search_with_headers_counted(
                         catalog,
                         limits,
                         remaining,
                         budget.records,
-                    )
-                    .map_err(|e| stage("page headers", e))?;
+                        &mut records,
+                        &mut work,
+                    );
+                    if search.is_err() {
+                        budget.records = budget.records.max(records);
+                        budget.work = add(budget.work, work, maximum_work, "work")?;
+                    }
+                    let search = search.map_err(|e| stage("page headers", e))?;
                     let result = finish(search, &mut total, remaining);
                     budget.work = total.work;
                     budget.records = total.records;
@@ -706,36 +726,56 @@ pub fn with_budgeted_book_v2_pdf<R>(
                         caps.max_fragments,
                         "records",
                     )?;
-                    let numbers = typaxis_shaping::book_v2::shape_book_v2_equation_numbers(
+                    let mut observed_records = records;
+                    let numbers = typaxis_shaping::book_v2::shape_book_v2_equation_numbers_counted(
                         lines.lines().prepared().shaped(),
                         limits,
                         records,
-                    )
-                    .map_err(|e| stage("equation labels", e))?;
-                    let blocks = prepare_book_v2_vector_blocks(
+                        &mut observed_records,
+                    );
+                    total.records = total.records.max(observed_records);
+                    let numbers = numbers.map_err(|e| stage("equation labels", e))?;
+                    let blocks = prepare_book_v2_vector_blocks_counted(
                         lines.lines(),
                         numbers.as_ref(),
                         limits,
                         records,
-                    )
-                    .map_err(|e| stage("block layout", e))?;
-                    let body_flow = prepare_book_v2_body_flow(
+                        &mut observed_records,
+                    );
+                    total.records = total.records.max(observed_records);
+                    let blocks = blocks.map_err(|e| stage("block layout", e))?;
+                    let body_flow = prepare_book_v2_body_flow_counted(
                         lines.lines(),
                         blocks.as_ref(),
                         lines.footnotes(),
                         limits,
                         records,
-                    )
-                    .map_err(|e| stage("body flow", e))?;
-                    let measured = prepare_book_v2_table_measurements(body_flow, limits)
-                        .map_err(|e| stage("tables", e))?;
-                    let search = prepare_book_v2_table_body_search(
+                        &mut observed_records,
+                    );
+                    total.records = total.records.max(observed_records);
+                    let body_flow = body_flow.map_err(|e| stage("body flow", e))?;
+                    let measured = prepare_book_v2_table_measurements_counted(
+                        body_flow,
+                        limits,
+                        &mut observed_records,
+                    );
+                    total.records = total.records.max(observed_records);
+                    let measured = measured.map_err(|e| stage("tables", e))?;
+                    let mut records = measured.record_charge();
+                    let mut work = 0;
+                    let search = prepare_book_v2_table_body_search_counted(
                         &measured,
                         limits,
                         remaining,
                         measured.record_charge(),
-                    )
-                    .map_err(|e| stage("page search", e))?;
+                        &mut records,
+                        &mut work,
+                    );
+                    if search.is_err() {
+                        total.records = total.records.max(records);
+                        total.work = add(total.work, work, maximum_work, "work")?;
+                    }
+                    let search = search.map_err(|e| stage("page search", e))?;
                     finish(search, &mut total, remaining)
                 },
             );
@@ -751,6 +791,12 @@ pub fn with_budgeted_book_v2_pdf<R>(
                     .checked_add(allowance.reshape_passes())
                     .filter(|n| *n <= caps.max_line_reshape_passes)
                     .ok_or(E::Limit("line passes"))?;
+                total.records = add(
+                    total.records,
+                    allowance.record_charge(),
+                    caps.max_fragments,
+                    "records",
+                )?;
             }
             result.map_err(|e| stage("line feedback", e))??
         };

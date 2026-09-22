@@ -5,7 +5,7 @@ use crate::production_body::body_flow::book_v2::{
     BookV2FootnoteDemandSearch, BookV2FootnoteDemandState, BookV2FootnoteRegionSelection,
 };
 use crate::production_body::body_flow::footnote_breaks::{
-    prepare_book_v2_table_demand_search, BookV2BodyFootnoteFit,
+    prepare_book_v2_table_demand_search_counted, BookV2BodyFootnoteFit,
 };
 
 pub struct BookV2TableFootnoteSearch<'m, 'f, 's, 'p, 'a> {
@@ -134,25 +134,52 @@ pub fn prepare_book_v2_table_footnote_search<'m, 'f, 's, 'p, 'a>(
     maximum_work: u64,
     prior_records: u64,
 ) -> Result<BookV2TableFootnoteSearch<'m, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    let mut table = prepare_book_v2_table_search(
+    prepare_book_v2_table_footnote_search_counted(
         measurements,
         table_index,
         limits,
         maximum_work,
         prior_records,
+        &mut 0,
+        &mut 0,
+    )
+}
+/// Return accepted constructor work and the cumulative record prefix on failure too.
+pub fn prepare_book_v2_table_footnote_search_counted<'m, 'f, 's, 'p, 'a>(
+    measurements: &'m BookV2TableMeasurements<'f, 's, 'p, 'a>,
+    table_index: usize,
+    limits: &M4EffectiveResourceLimits,
+    maximum_work: u64,
+    prior_records: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
+) -> Result<BookV2TableFootnoteSearch<'m, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    *observed_records = prior_records.max(measurements.record_charge());
+    *observed_work = 0;
+    let mut table = prepare_book_v2_table_search_counted(
+        measurements,
+        table_index,
+        limits,
+        maximum_work,
+        prior_records,
+        observed_records,
+        observed_work,
     )?;
     table
         .kernel
         .charge
         .take(1, measurements.tables()[table_index].owner)?;
+    *observed_records = table.record_charge();
     let charge = std::mem::replace(&mut table.kernel.charge, Charge { remaining: 0 });
     let steps = std::mem::replace(&mut table.kernel.work.used, 0);
-    let notes = prepare_book_v2_table_demand_search(
+    let notes = prepare_book_v2_table_demand_search_counted(
         measurements.flow(),
         limits,
         maximum_work,
         charge,
         steps,
+        observed_records,
+        observed_work,
     )?;
     Ok(BookV2TableFootnoteSearch { table, notes })
 }

@@ -3,6 +3,10 @@ use std::collections::BTreeSet;
 use typaxis_display_list::book_v2::{BookV2BodyDisplay, BookV2FontUseText};
 #[path = "book_v2_header_resource_tests.rs"]
 mod nested_resources;
+#[path = "book_v2_header_constructor_budget_tests.rs"]
+mod constructor_budget;
+#[path = "book_v2_projection_header_budget_tests.rs"]
+mod projection_budget;
 use typaxis_layout::book_v2::with_rebuilt_book_v2_body_line_variants;
 use typaxis_pagination::book_v2::{
     prepare_book_v2_table_body_search, prepare_book_v2_table_header_catalog,
@@ -10,14 +14,16 @@ use typaxis_pagination::book_v2::{
 };
 
 pub(super) fn check(font: Option<&[u8]>, placement: bool) {
-    check_base(font, placement, false);
+    check_base(font, placement, false, false);
     if placement {
-        check_base(font, placement, true);
+        check_base(font, placement, true, false);
     }
 }
-fn check_base(font: Option<&[u8]>, placement: bool, wide_base: bool) {
+fn check_base(font: Option<&[u8]>, placement: bool, wide_base: bool, constructor_only: bool) {
     for mode in ["common", "nested-header"] {
+        if constructor_only && mode != "common" { continue; }
         for notes in [false, true] {
+            if constructor_only && notes { continue; }
             let root = Root::new();
             let original_limits = driver_limits();
             let mut caps = original_limits.base().get().clone();
@@ -220,7 +226,12 @@ fn check_base(font: Option<&[u8]>, placement: bool, wide_base: bool) {
             let first = make(Some(&narrow));
             let second = make(Some(&wide));
             if !placement {
-                check_automatic_catalog(if wide_base { &second } else { &first }, &limits, physical_narrow, physical_wide);
+                if constructor_only {
+                    constructor_budget::discovery(&first, &limits);
+                    projection_budget::driver(&first, &limits, original_parent, flow.tables()[0].owner());
+                } else {
+                    check_automatic_catalog(if wide_base { &second } else { &first }, &limits, physical_narrow, physical_wide);
+                }
             }
             with_rebuilt_book_v2_body_line_variants(&[&first,&second,&bad_seed],10_000_000,0,|set| {
                 let measured=set.variants().iter().map(|v|prepare_book_v2_table_measurements(prepare_book_v2_body_flow(v.lines(),None,v.footnotes(),&limits,0).unwrap(),&limits).unwrap()).collect::<Vec<_>>();
@@ -232,6 +243,11 @@ fn check_base(font: Option<&[u8]>, placement: bool, wide_base: bool) {
                 let entries=[&h0,&h1];
                 let build=|work,prior|prepare_book_v2_table_header_catalog(base,&entries,&limits,work,prior);
                 let catalog=build(10_000_000,0).unwrap();
+                if constructor_only {
+                    constructor_budget::catalog(&catalog, &limits);
+                    projection_budget::projections(&set, base, &measured[0], &entries, &bad_header, &limits, font.is_some());
+                    return;
+                }
                 assert_eq!(catalog.len(),2);assert!(!catalog.is_empty());
                 assert!(std::ptr::eq(catalog.for_region_width(0,Some(physical_narrow)).unwrap(),&h0));
                 assert!(std::ptr::eq(catalog.for_region_width(0,Some(physical_wide)).unwrap(),&h1));
@@ -750,4 +766,15 @@ fn check_automatic_driver(font: Option<&[u8]>, mode: &str) {
             value.0
         );
     }
+}
+
+#[test]
+fn book_v2_page_constructor_budget_retains_header_binding_and_discovery() {
+    check_base(None, false, false, true);
+}
+#[test]
+#[ignore = "requires explicit original TYPAXIS_HARANO_FONT"]
+fn book_v2_page_constructor_budget_retains_original_harano_headers() {
+    let font = fs::read(std::env::var("TYPAXIS_HARANO_FONT").unwrap()).unwrap();
+    check_base(Some(&font), false, false, true);
 }

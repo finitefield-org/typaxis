@@ -64,6 +64,19 @@ pub fn shape_book_v2_page_region_text<'a>(
     epoch: [u8; 32],
     lines: Option<&[ProductionParagraphLineContext<'_>]>,
 ) -> Result<BookV2PageRegionTextShape<'a>, ProductionTextShapeError> {
+    shape_book_v2_page_region_text_counted(policy, flow, admitted, limits, epoch, lines, &mut 0)
+}
+
+pub fn shape_book_v2_page_region_text_counted<'a>(
+    policy: &BookV2ResourcePolicy<'_>,
+    flow: &'a BookV2PageRegionTextFlow<'a>,
+    admitted: &'a AdmittedProductionResourceLedgerV3,
+    limits: &M4EffectiveResourceLimits,
+    epoch: [u8; 32],
+    lines: Option<&[ProductionParagraphLineContext<'_>]>,
+    observed_records: &mut u64,
+) -> Result<BookV2PageRegionTextShape<'a>, ProductionTextShapeError> {
+    *observed_records = 0;
     let mismatch = || {
         error(
             NodeId::new(flow.source().node_id),
@@ -90,13 +103,14 @@ pub fn shape_book_v2_page_region_text<'a>(
         admitted.fonts().iter().map(|f| f.font_face_id()),
     )
     .map_err(|_| mismatch())?;
-    let output = shape_document(
+    let output = shape_document_counted(
         BodyFlow::PageRegion(flow),
         BodyFonts::BookV2(&instances, admitted),
         limits,
         epoch,
         lines,
         BOOK_V2_PAGE_REGION_SHAPE_ALGORITHM,
+        observed_records,
     )?;
     Ok(BookV2PageRegionTextShape {
         flow,

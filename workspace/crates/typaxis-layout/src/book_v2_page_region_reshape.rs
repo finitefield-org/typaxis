@@ -4,7 +4,9 @@ use typaxis_linebreak::{
     BreakError, LineLayoutContext, LineReshapeFeedback, LineReshapeObservation,
     LineReshapePassRecord,
 };
-use typaxis_shaping::{book_v2::shape_book_v2_page_region_text, ProductionParagraphLineContext};
+use typaxis_shaping::{
+    book_v2::shape_book_v2_page_region_text_counted, ProductionParagraphLineContext,
+};
 use typaxis_syntax::book_v2::BookV2ResourcePolicy;
 
 /// Only a stable shape/selection comparison constructs this borrowed view.
@@ -35,6 +37,7 @@ pub struct BookV2PageRegionLineBudget {
     remaining_steps: u64,
     maximum_passes: u16,
     remaining_passes: u16,
+    records: u64,
 }
 impl BookV2PageRegionLineBudget {
     pub fn new(maximum_steps: u64, maximum_passes: u16) -> Self {
@@ -43,7 +46,21 @@ impl BookV2PageRegionLineBudget {
             remaining_steps: maximum_steps,
             maximum_passes,
             remaining_passes: maximum_passes,
+            records: 0,
         }
+    }
+    /// Largest accepted record prefix across preparation, measurement and retries.
+    pub fn record_charge(&self) -> u64 {
+        self.records
+    }
+    fn capture_contexts(
+        &mut self,
+        lines: &BookV2PageRegionLines<'_, '_>,
+    ) -> Result<ProductionSelectedLineContexts, ProductionInlinePreparationError> {
+        let mut records = 0;
+        let result = lines.selected_line_contexts_counted(&mut records);
+        self.records = self.records.max(records);
+        result
     }
     pub fn candidate_steps(&self) -> u64 {
         self.maximum_steps - self.remaining_steps
@@ -63,8 +80,16 @@ impl BookV2PageRegionLineBudget {
         selected: BookV2SelectedPageMaster<'a>,
     ) -> Result<BookV2PageRegionLines<'p, 'a>, BookV2PageRegionLayoutError> {
         let mut consumed = 0;
-        let result =
-            measure_region_counted(prepared, selected, self.remaining_steps, 0, &mut consumed);
+        let mut records = 0;
+        let result = measure_region_counted(
+            prepared,
+            selected,
+            self.remaining_steps,
+            0,
+            &mut consumed,
+            &mut records,
+        );
+        self.records = self.records.max(records);
         // The projection cannot spend beyond the allowance it was given.
         self.remaining_steps -= consumed;
         result
@@ -119,14 +144,26 @@ pub fn with_budgeted_book_v2_page_region_lines<R>(
     prior_records: u64,
     use_stable: impl FnOnce(BookV2ConvergedPageRegionLines<'_, '_, '_>) -> R,
 ) -> Result<R, BookV2PageRegionLayoutError> {
+    allowance.records = allowance.records.max(prior_records);
     if allowance.remaining_passes == 0 {
         return Err(BreakError::IterationLimit.into());
     }
     let owner = NodeId::new(flow.source().node_id);
     let initial_remaining_steps = allowance.remaining_steps;
     let (mut contexts, initial_state) = {
-        let shape = shape_book_v2_page_region_text(policy, flow, admitted, limits, epoch, None)?;
-        let prepared = prepare_book_v2_page_region_inlines(
+        let mut records = 0;
+        let shape = shape_book_v2_page_region_text_counted(
+            policy,
+            flow,
+            admitted,
+            limits,
+            epoch,
+            None,
+            &mut records,
+        );
+        allowance.records = allowance.records.max(records);
+        let shape = shape?;
+        let prepared = prepare_book_v2_page_region_inlines_counted(
             flow,
             &shape,
             admitted,
@@ -134,10 +171,13 @@ pub fn with_budgeted_book_v2_page_region_lines<R>(
             epoch,
             japanese_mode,
             prior_records,
-        )?;
+            &mut records,
+        );
+        allowance.records = allowance.records.max(records);
+        let prepared = prepared?;
         let lines = allowance.measure(&prepared, selected)?;
         (
-            lines.selected_line_contexts()?,
+            allowance.capture_contexts(&lines)?,
             super::super::super::reshape::selected_fingerprint_state(lines.fingerprint())?,
         )
     };
@@ -157,6 +197,7 @@ pub fn with_budgeted_book_v2_page_region_lines<R>(
             limits.base().get().max_fragments,
             owner,
         )?;
+        allowance.records = allowance.records.max(records);
         for p in contexts.paragraphs() {
             retain(
                 &mut records,
@@ -164,6 +205,7 @@ pub fn with_budgeted_book_v2_page_region_lines<R>(
                 limits.base().get().max_fragments,
                 p.owner(),
             )?;
+            allowance.records = allowance.records.max(records);
         }
         let mut inputs = Vec::new();
         inputs
@@ -180,9 +222,19 @@ pub fn with_budgeted_book_v2_page_region_lines<R>(
         );
         let permit = feedback.begin_pass(&mut budget)?;
         allowance.remaining_passes -= 1;
-        let shape =
-            shape_book_v2_page_region_text(policy, flow, admitted, limits, epoch, Some(&inputs))?;
-        let prepared = prepare_book_v2_page_region_inlines(
+        let mut shape_records = 0;
+        let shape = shape_book_v2_page_region_text_counted(
+            policy,
+            flow,
+            admitted,
+            limits,
+            epoch,
+            Some(&inputs),
+            &mut shape_records,
+        );
+        allowance.records = allowance.records.max(shape_records);
+        let shape = shape?;
+        let prepared = prepare_book_v2_page_region_inlines_counted(
             flow,
             &shape,
             admitted,
@@ -190,7 +242,10 @@ pub fn with_budgeted_book_v2_page_region_lines<R>(
             epoch,
             japanese_mode,
             records,
-        )?;
+            &mut shape_records,
+        );
+        allowance.records = allowance.records.max(shape_records);
+        let prepared = prepared?;
         let lines = allowance.measure(&prepared, selected)?;
         match permit.complete(super::super::super::reshape::selected_fingerprint_state(
             lines.fingerprint(),
@@ -205,7 +260,9 @@ pub fn with_budgeted_book_v2_page_region_lines<R>(
                     candidate_steps: initial_remaining_steps - allowance.remaining_steps,
                 }));
             }
-            LineReshapeObservation::RebreakRequired => contexts = lines.selected_line_contexts()?,
+            LineReshapeObservation::RebreakRequired => {
+                contexts = allowance.capture_contexts(&lines)?
+            }
         }
     }
 }

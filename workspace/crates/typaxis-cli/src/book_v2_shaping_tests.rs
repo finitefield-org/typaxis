@@ -1,4 +1,6 @@
 use super::*;
+#[path = "book_v2_table_constructor_budget_tests.rs"]
+mod table_constructor_budget;
 #[path = "book_v2_body_line_budget_tests.rs"]
 mod body_line_budget;
 #[path = "book_v2_cff_diagnostic_tests.rs"]

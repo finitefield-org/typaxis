@@ -17,7 +17,7 @@ pub use header_selection::{BookV2TableHeaderFragmentSelection, BookV2TableHeader
 #[path = "book_v2_table_footnotes.rs"]
 mod footnotes;
 pub use footnotes::{
-    prepare_book_v2_table_footnote_search, BookV2TableFootnoteSearch, BookV2TableFootnoteSelection,
+    prepare_book_v2_table_footnote_search, prepare_book_v2_table_footnote_search_counted, BookV2TableFootnoteSearch, BookV2TableFootnoteSelection,
     BookV2TableFootnoteState,
 };
 
@@ -398,6 +398,30 @@ pub fn prepare_book_v2_table_search<'m, 'f, 's, 'p, 'a>(
     maximum_work: u64,
     prior_records: u64,
 ) -> Result<BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    prepare_book_v2_table_search_counted(
+        measurements,
+        table_index,
+        limits,
+        maximum_work,
+        prior_records,
+        &mut 0,
+        &mut 0,
+    )
+}
+/// Preserve constructor work and retained records even when preparing a table or
+/// one of its nested children fails. Work is local; records include the prefix.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_book_v2_table_search_counted<'m, 'f, 's, 'p, 'a>(
+    measurements: &'m BookV2TableMeasurements<'f, 's, 'p, 'a>,
+    table_index: usize,
+    limits: &M4EffectiveResourceLimits,
+    maximum_work: u64,
+    prior_records: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
+) -> Result<BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    *observed_records = prior_records.max(measurements.record_charge());
+    *observed_work = 0;
     measurements.flow().verify(
         measurements.flow().lines(),
         measurements.flow().blocks(),
@@ -417,7 +441,7 @@ pub fn prepare_book_v2_table_search<'m, 'f, 's, 'p, 'a>(
             .checked_sub(prior_records.max(measurements.record_charge()))
             .ok_or_else(|| error(owner, E::FragmentLimit))?,
     };
-    prepare_book_v2_table_search_charged(
+    prepare_book_v2_table_search_charged_counted(
         measurements,
         table_index,
         limits,
@@ -426,15 +450,54 @@ pub fn prepare_book_v2_table_search<'m, 'f, 's, 'p, 'a>(
             used: 0,
             maximum: maximum_work,
         },
+        observed_records,
+        observed_work,
     )
 }
-fn prepare_book_v2_table_search_charged<'m, 'f, 's, 'p, 'a>(
+/// Prepare an inactive context entry, retaining its consumed ledger in the
+/// caller. Successful entries borrow that ledger again only while selected.
+fn prepare_book_v2_table_search_borrowed<'m, 'f, 's, 'p, 'a>(
+    measurements: &'m BookV2TableMeasurements<'f, 's, 'p, 'a>,
+    table_index: usize,
+    limits: &M4EffectiveResourceLimits,
+    charge: &mut Charge,
+    work: &mut Work,
+) -> Result<BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    let mut records = 0;
+    let mut steps = 0;
+    let result = prepare_book_v2_table_search_charged_counted(
+        measurements,
+        table_index,
+        limits,
+        Charge {
+            remaining: charge.remaining,
+        },
+        Work {
+            used: work.used,
+            maximum: work.maximum,
+        },
+        &mut records,
+        &mut steps,
+    );
+    charge.remaining = limits.base().get().max_fragments - records;
+    work.used = steps;
+    result.map(|mut search| {
+        search.kernel.charge.remaining = 0;
+        search.kernel.work.used = 0;
+        search
+    })
+}
+fn prepare_book_v2_table_search_charged_counted<'m, 'f, 's, 'p, 'a>(
     measurements: &'m BookV2TableMeasurements<'f, 's, 'p, 'a>,
     table_index: usize,
     limits: &M4EffectiveResourceLimits,
     charge: Charge,
     work: Work,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
 ) -> Result<BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    *observed_records = limits.base().get().max_fragments - charge.remaining;
+    *observed_work = work.used;
     let flow = measurements.flow();
     flow.verify(flow.lines(), flow.blocks(), flow.footnotes(), limits)?;
     let root = NodeId::new(0);
@@ -457,7 +520,7 @@ fn prepare_book_v2_table_search_charged<'m, 'f, 's, 'p, 'a>(
     } else {
         frames.body()
     };
-    let kernel = prepare_kernel(
+    let kernel = kernel::prepare_kernel_counted(
         TableSearchInput {
             table,
             source: &flow.lines().prepared().source_flow().tables()[table_index],
@@ -493,6 +556,8 @@ fn prepare_book_v2_table_search_charged<'m, 'f, 's, 'p, 'a>(
         limits.base().get().max_fragments,
         charge,
         work,
+        observed_records,
+        observed_work,
     )?;
     let mut search = BookV2TableBreakSearch {
         measurements,
@@ -503,16 +568,21 @@ fn prepare_book_v2_table_search_charged<'m, 'f, 's, 'p, 'a>(
         frame_catalog: None,
         frame_width: None,
     };
-    if search.kernel.nested_body {
-        search.prepare_nested(limits)?;
-    }
+    let nested = if search.kernel.nested_body {
+        search.prepare_nested(limits)
+    } else {
+        Ok(())
+    };
+    *observed_records = search.record_charge();
+    *observed_work = search.work_charge();
+    nested?;
     Ok(search)
 }
 
 #[path = "book_v2_definition_table_demand.rs"]
 mod definition_demand;
 pub use definition_demand::{
-    prepare_book_v2_definition_table_demand_search, BookV2DefinitionTableDemandSearch,
+    prepare_book_v2_definition_table_demand_search, prepare_book_v2_definition_table_demand_search_counted, BookV2DefinitionTableDemandSearch,
     BookV2DefinitionTableDemandSelection, BookV2DefinitionTableDemandState,
 };
 

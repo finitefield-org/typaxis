@@ -7,6 +7,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
         assignments: &BookV2SourceWidthAssignments<'_, '_>,
         maximum_work: u64,
         consumed: &mut u64,
+        observed_records: &mut u64,
     ) -> Result<u64, ProductionInlinePreparationError> {
         let mut work = 0u64;
         let result = (|| {
@@ -42,6 +43,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
                 .checked_sub(retained)
                 .filter(|remaining| *remaining >= projected)
                 .ok_or_else(|| error(root, E::UnitLimit))?;
+            *observed_records = retained + projected;
             // Conservative prepaid traversal bound: records cover all events,
             // columns and glyph/marker entries; 64 covers frame encoding and each
             // linear resolver pass, with a logarithmic allowance for owner lookups.

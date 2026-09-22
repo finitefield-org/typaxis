@@ -4,7 +4,7 @@ use super::*;
 #[path = "book_v2_equation_numbers.rs"]
 mod equation_numbers;
 pub use equation_numbers::{
-    book_v2_equation_number_font, shape_book_v2_equation_numbers, BookV2EquationNumberError, BookV2EquationNumberErrorKind,
+    book_v2_equation_number_font, shape_book_v2_equation_numbers, shape_book_v2_equation_numbers_counted, BookV2EquationNumberError, BookV2EquationNumberErrorKind,
     BookV2EquationNumberShape, BookV2EquationNumberShapes, BOOK_V2_EQUATION_NUMBER_ALGORITHM,
 };
 use typaxis_resource_admission::{
@@ -73,6 +73,21 @@ pub fn shape_book_v2_authored_text<'a>(
     epoch: [u8; 32],
     lines: Option<&[ProductionParagraphLineContext<'_>]>,
 ) -> Result<BookV2AuthoredTextShape<'a>, ProductionTextShapeError> {
+    shape_book_v2_authored_text_counted(policy, flow, admitted, limits, epoch, lines, &mut 0)
+}
+
+/// Return accepted context and shaped-output reservations even on failure.
+/// Font-instance construction and backend temporary allocations have separate limits.
+pub fn shape_book_v2_authored_text_counted<'a>(
+    policy: &BookV2ResourcePolicy<'_>,
+    flow: &'a PreparedBookV2TextFlow<'a>,
+    admitted: &'a AdmittedProductionResourceLedgerV3,
+    limits: &M4EffectiveResourceLimits,
+    epoch: [u8; 32],
+    lines: Option<&[ProductionParagraphLineContext<'_>]>,
+    observed_records: &mut u64,
+) -> Result<BookV2AuthoredTextShape<'a>, ProductionTextShapeError> {
+    *observed_records = 0;
     use ProductionTextShapeErrorKind as E;
     let mismatch = || error(NodeId::new(0), E::ReceiptMismatch);
     policy
@@ -95,13 +110,14 @@ pub fn shape_book_v2_authored_text<'a>(
         admitted.fonts().iter().map(|f| f.font_face_id()),
     )
     .map_err(|_| mismatch())?;
-    let output = shape_document(
+    let output = shape_document_counted(
         BodyFlow::BookV2(flow),
         BodyFonts::BookV2(&instances, admitted),
         limits,
         epoch,
         lines,
         BOOK_V2_AUTHORED_TEXT_SHAPE_ALGORITHM,
+        observed_records,
     )?;
     Ok(BookV2AuthoredTextShape {
         flow,
@@ -126,5 +142,5 @@ impl std::fmt::Debug for BookV2AuthoredTextShape<'_> {
 #[path = "book_v2_page_region_text.rs"]
 mod page_regions;
 pub use page_regions::{
-    shape_book_v2_page_region_text, BookV2PageRegionTextShape, BOOK_V2_PAGE_REGION_SHAPE_ALGORITHM,
+    shape_book_v2_page_region_text, shape_book_v2_page_region_text_counted, BookV2PageRegionTextShape, BOOK_V2_PAGE_REGION_SHAPE_ALGORITHM,
 };

@@ -85,6 +85,7 @@ impl<'a> BookV2BodyLineVariantSeed<'a> {
         allowance: &mut BookV2LineVariantBudget,
         prior_records: u64,
     ) -> Result<BookV2BodyLineVariantSeed<'b>, ProductionBodyReshapeError> {
+        allowance.records = allowance.records.max(prior_records);
         if !widths.matches_flow(self.flow) {
             return Err(error(
                 NodeId::new(0),
@@ -118,6 +119,7 @@ pub struct BookV2LineVariantBudget {
     maximum_passes: u16,
     work: u64,
     passes: u16,
+    records: u64,
 }
 impl BookV2LineVariantBudget {
     pub fn new(maximum_work: u64, maximum_passes: u16) -> Self {
@@ -126,7 +128,12 @@ impl BookV2LineVariantBudget {
             maximum_passes,
             work: 0,
             passes: 0,
+            records: 0,
         }
+    }
+    /// Accepted cumulative prefix from seed/capture/replay construction.
+    pub fn record_charge(&self) -> u64 {
+        self.records
     }
     pub fn work_steps(&self) -> u64 {
         self.work
@@ -195,6 +202,7 @@ pub fn prepare_budgeted_book_v2_body_line_variant_seed<'a>(
     page_plan: Option<&'a BookV2PageFramePlan<'a>>,
     source_widths: Option<&'a BookV2SourceWidthAssignments<'a, 'a>>,
 ) -> Result<BookV2BodyLineVariantSeed<'a>, ProductionBodyReshapeError> {
+    allowance.records = allowance.records.max(prior_records);
     if prior_records >= limits.base().get().max_fragments {
         return Err(error(
             NodeId::new(0),
@@ -205,6 +213,7 @@ pub fn prepare_budgeted_book_v2_body_line_variant_seed<'a>(
     let maximum_work = allowance.remaining_work();
     let mut line_budget = BookV2BodyLineBudget::new(maximum_work, allowance.remaining_passes());
     let mut capture_work = 0;
+    let mut capture_records = prior_records;
     let result = with_budgeted_book_v2_body_lines_with_source_widths(
         policy,
         flow,
@@ -234,11 +243,12 @@ pub fn prepare_budgeted_book_v2_body_line_variant_seed<'a>(
             }
             take_work(&mut capture_work, 1, capture_maximum)?;
             let rebuild_records = stable.footnotes().record_charge();
-            let contexts = super::super::line_context::selected_contexts(
+            let contexts = super::super::line_context::selected_contexts_counted(
                 lines.paragraphs(),
                 prior_records.max(rebuild_records),
                 limits.base().get().max_fragments - 1,
                 lines.fingerprint(),
+                &mut capture_records,
             )?;
             let records = contexts.record_charge().checked_add(1).ok_or_else(|| {
                 error(
@@ -246,6 +256,7 @@ pub fn prepare_budgeted_book_v2_body_line_variant_seed<'a>(
                     ProductionInlinePreparationErrorKind::UnitLimit,
                 )
             })?;
+            capture_records = records;
             Ok(BookV2BodyLineVariantSeed {
                 policy,
                 flow,
@@ -267,6 +278,10 @@ pub fn prepare_budgeted_book_v2_body_line_variant_seed<'a>(
             })
         },
     );
+    allowance.records = allowance
+        .records
+        .max(capture_records)
+        .max(line_budget.record_charge());
     allowance.work += line_budget.candidate_steps() + capture_work;
     allowance.passes += line_budget.reshape_passes();
     result?
@@ -319,6 +334,10 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variant<R>(
     prior_records: u64,
     use_variant: impl FnOnce(BookV2RebuiltBodyLineVariant<'_, '_, '_>) -> R,
 ) -> Result<R, ProductionBodyReshapeError> {
+    allowance.records = allowance
+        .records
+        .max(prior_records)
+        .max(seed.record_charge());
     let maximum_work = allowance.remaining_work();
     let mut work = 0;
     let result = (|| {
@@ -330,6 +349,7 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variant<R>(
             .and_then(|n| n.checked_add(1))
             .filter(|n| *n <= seed.limits.base().get().max_fragments)
             .ok_or_else(|| error(root, ProductionInlinePreparationErrorKind::UnitLimit))?;
+        allowance.records = allowance.records.max(records);
         take_work(
             &mut work,
             seed.contexts.paragraphs().len() as u64,

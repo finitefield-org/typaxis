@@ -197,8 +197,32 @@ pub(super) fn project_frames(
     body: Rect,
     algorithm: &str,
 ) -> Result<FrameProjection, ProductionInlinePreparationError> {
+    project_frames_counted(
+        flow,
+        list_markers,
+        footnote_markers,
+        max_fragments,
+        prepared_fingerprint,
+        body,
+        algorithm,
+        &mut 0,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn project_frames_counted(
+    flow: InlineFlow<'_>,
+    list_markers: &[typaxis_shaping::ProductionListMarkerShape<'_>],
+    footnote_markers: &[typaxis_shaping::ProductionFootnoteMarkerShape<'_>],
+    max_fragments: u64,
+    prepared_fingerprint: [u8; 32],
+    body: Rect,
+    algorithm: &str,
+    observed_records: &mut u64,
+) -> Result<FrameProjection, ProductionInlinePreparationError> {
+    *observed_records = 0;
     let footnote_region = declared_footnote_region(flow, body)?;
-    project_frames_in_regions(
+    project_frames_in_regions_counted(
         flow,
         list_markers,
         footnote_markers,
@@ -207,10 +231,11 @@ pub(super) fn project_frames(
         body,
         footnote_region,
         algorithm,
+        observed_records,
     )
 }
 #[allow(clippy::too_many_arguments)]
-pub(super) fn project_frames_in_regions(
+pub(super) fn project_frames_in_regions_counted(
     flow: InlineFlow<'_>,
     list_markers: &[typaxis_shaping::ProductionListMarkerShape<'_>],
     footnote_markers: &[typaxis_shaping::ProductionFootnoteMarkerShape<'_>],
@@ -219,8 +244,9 @@ pub(super) fn project_frames_in_regions(
     body: Rect,
     footnote_region: Option<Rect>,
     algorithm: &str,
+    observed_records: &mut u64,
 ) -> Result<FrameProjection, ProductionInlinePreparationError> {
-    project_frames_with_root_table_widths(
+    project_frames_with_root_table_widths_counted(
         flow,
         list_markers,
         footnote_markers,
@@ -232,6 +258,7 @@ pub(super) fn project_frames_in_regions(
         &[],
         None,
         None,
+        observed_records,
     )
 }
 
@@ -249,6 +276,38 @@ pub(super) fn project_frames_with_root_table_widths(
     table_scope: Option<(NodeId, &FrameProjection)>,
     source_owners: Option<&[NodeId]>,
 ) -> Result<FrameProjection, ProductionInlinePreparationError> {
+    project_frames_with_root_table_widths_counted(
+        flow,
+        list_markers,
+        footnote_markers,
+        max_fragments,
+        prepared_fingerprint,
+        body,
+        footnote_region,
+        algorithm,
+        root_table_widths,
+        table_scope,
+        source_owners,
+        &mut 0,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn project_frames_with_root_table_widths_counted(
+    flow: InlineFlow<'_>,
+    list_markers: &[typaxis_shaping::ProductionListMarkerShape<'_>],
+    footnote_markers: &[typaxis_shaping::ProductionFootnoteMarkerShape<'_>],
+    max_fragments: u64,
+    prepared_fingerprint: [u8; 32],
+    body: Rect,
+    footnote_region: Option<Rect>,
+    algorithm: &str,
+    root_table_widths: &[(NodeId, PositiveLength)],
+    table_scope: Option<(NodeId, &FrameProjection)>,
+    source_owners: Option<&[NodeId]>,
+    observed_records: &mut u64,
+) -> Result<FrameProjection, ProductionInlinePreparationError> {
+    *observed_records = 0;
     use ProductionInlinePreparationErrorKind as E;
     let root = NodeId::new(0);
     // Region lookup, traversal stack, list-column summaries and temporary widths
@@ -277,6 +336,7 @@ pub(super) fn project_frames_with_root_table_widths(
         })
         .filter(|n| *n <= max_fragments)
         .ok_or_else(|| error(root, E::UnitLimit))?;
+    *observed_records = record_charge;
     let record_charge = record_charge
         .checked_add(if source_owners.is_some() {
             (flow_call!(flow, events()).len() as u64)
@@ -287,6 +347,7 @@ pub(super) fn project_frames_with_root_table_widths(
         })
         .filter(|n| *n <= max_fragments)
         .ok_or_else(|| error(root, E::UnitLimit))?;
+    *observed_records = record_charge;
     let selected_scope = if let Some(owners) = source_owners {
         Some(source_scope::SourceScope::new(
             flow,
@@ -813,10 +874,12 @@ fn declared_footnote_region(
         #[cfg(feature = "book-v2-staging")]
         InlineFlow::BookV2(flow) => geometry!(flow.body().body().wire()),
         #[cfg(feature = "book-v2-staging")]
-        InlineFlow::PageRegion(flow) => return Err(error(
-            NodeId::new(flow.source().node_id),
-            ProductionInlinePreparationErrorKind::ReceiptMismatch,
-        )),
+        InlineFlow::PageRegion(flow) => {
+            return Err(error(
+                NodeId::new(flow.source().node_id),
+                ProductionInlinePreparationErrorKind::ReceiptMismatch,
+            ))
+        }
     };
     let invalid = || error(owner, E::InvalidFootnoteGeometry);
     let page_width = Length::from_raw(width)

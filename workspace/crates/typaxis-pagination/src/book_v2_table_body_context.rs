@@ -22,12 +22,16 @@ impl std::ops::Deref for HierarchyOwner {
     }
 }
 impl<'b, 'f, 's, 'p, 'a> BookV2TableBodyContext<'b, 'f, 's, 'p, 'a> {
-    pub fn prepare(
+    pub fn prepare_counted(
         measurements: &'b BookV2TableMeasurements<'f, 's, 'p, 'a>,
         limits: &M4EffectiveResourceLimits,
         maximum_work: u64,
         prior_records: u64,
+        observed_records: &mut u64,
+        observed_work: &mut u64,
     ) -> Result<(Self, Charge, u64), ProductionBodyPaginationError> {
+        *observed_records = prior_records.max(measurements.record_charge());
+        *observed_work = 0;
         let flow = measurements.flow();
         flow.verify(flow.lines(), flow.blocks(), flow.footnotes(), limits)?;
         let mut charge = Charge {
@@ -42,37 +46,43 @@ impl<'b, 'f, 's, 'p, 'a> BookV2TableBodyContext<'b, 'f, 's, 'p, 'a> {
             used: 0,
             maximum: maximum_work,
         };
-        let hierarchy =
-            hierarchy::Hierarchy::prepare(&flow.collected.tables.tables, &mut charge, &mut work)?;
-        let (searches, charge, steps) = context_kernel::prepare_searches(
-            &flow.collected.tables.tables,
-            charge,
-            work,
-            |index, charge, work| {
-                prepare_book_v2_table_search_charged(measurements, index, limits, charge, work)
-            },
-            |search| {
-                (
-                    std::mem::replace(&mut search.kernel.charge, Charge { remaining: 0 }),
-                    std::mem::replace(&mut search.kernel.work.used, 0),
-                )
-            },
-        )?;
-        Ok((
-            Self {
-                measurements,
-                searches,
-                hierarchy: HierarchyOwner::Owned(hierarchy),
-            },
-            charge,
-            steps,
-        ))
+        let result = (|| {
+            let hierarchy = hierarchy::Hierarchy::prepare(
+                &flow.collected.tables.tables,
+                &mut charge,
+                &mut work,
+            )?;
+            let searches = context_kernel::prepare_searches_borrowed(
+                &flow.collected.tables.tables,
+                &mut charge,
+                &mut work,
+                |index, charge, work| {
+                    prepare_book_v2_table_search_borrowed(measurements, index, limits, charge, work)
+                },
+            )?;
+            Ok((
+                Self {
+                    measurements,
+                    searches,
+                    hierarchy: HierarchyOwner::Owned(hierarchy),
+                },
+                Charge {
+                    remaining: charge.remaining,
+                },
+                work.used,
+            ))
+        })();
+        *observed_records = limits.base().get().max_fragments - charge.remaining;
+        *observed_work = work.used;
+        result
     }
-    pub fn prepare_joint(
+    pub fn prepare_joint_counted(
         measurements: &'b BookV2TableMeasurements<'f, 's, 'p, 'a>,
         limits: &M4EffectiveResourceLimits,
         maximum_work: u64,
         prior_records: u64,
+        observed_records: &mut u64,
+        observed_work: &mut u64,
     ) -> Result<
         (
             Self,
@@ -82,6 +92,8 @@ impl<'b, 'f, 's, 'p, 'a> BookV2TableBodyContext<'b, 'f, 's, 'p, 'a> {
         ),
         ProductionBodyPaginationError,
     > {
+        *observed_records = prior_records.max(measurements.record_charge());
+        *observed_work = 0;
         let flow = measurements.flow();
         flow.verify(flow.lines(), flow.blocks(), flow.footnotes(), limits)?;
         let root = NodeId::new(0);
@@ -97,53 +109,51 @@ impl<'b, 'f, 's, 'p, 'a> BookV2TableBodyContext<'b, 'f, 's, 'p, 'a> {
             used: 0,
             maximum: maximum_work,
         };
-        charge.take(1, root)?;
-        let sources = &flow.collected.tables.tables;
-        let hierarchy = std::sync::Arc::new(hierarchy::Hierarchy::prepare(
-            sources,
-            &mut charge,
-            &mut work,
-        )?);
-        let mut body_end = 0;
-        while body_end < sources.len() && sources[body_end].definition.is_none() {
-            work.take(1, sources[body_end].owner)?;
-            body_end += 1;
-        }
-        let (searches, charge, used) = context_kernel::prepare_searches(
-            &sources[..body_end],
-            charge,
-            work,
-            |index, charge, work| {
-                prepare_book_v2_table_search_charged(measurements, index, limits, charge, work)
-            },
-            |search| {
-                (
-                    std::mem::replace(&mut search.kernel.charge, Charge { remaining: 0 }),
-                    std::mem::replace(&mut search.kernel.work.used, 0),
-                )
-            },
-        )?;
-        let (definitions, charge, used) = BookV2DefinitionTableContext::prepare_remaining(
-            measurements,
-            limits,
-            charge,
-            Work {
-                used,
-                maximum: maximum_work,
-            },
-            hierarchy.clone(),
-            body_end,
-        )?;
-        Ok((
-            Self {
+        let result = (|| {
+            charge.take(1, root)?;
+            let sources = &flow.collected.tables.tables;
+            let hierarchy = std::sync::Arc::new(hierarchy::Hierarchy::prepare(
+                sources,
+                &mut charge,
+                &mut work,
+            )?);
+            let mut body_end = 0;
+            while body_end < sources.len() && sources[body_end].definition.is_none() {
+                work.take(1, sources[body_end].owner)?;
+                body_end += 1;
+            }
+            let searches = context_kernel::prepare_searches_borrowed(
+                &sources[..body_end],
+                &mut charge,
+                &mut work,
+                |index, charge, work| {
+                    prepare_book_v2_table_search_borrowed(measurements, index, limits, charge, work)
+                },
+            )?;
+            let definitions = BookV2DefinitionTableContext::prepare_remaining(
                 measurements,
-                searches,
-                hierarchy: HierarchyOwner::Shared(hierarchy),
-            },
-            definitions,
-            charge,
-            used,
-        ))
+                limits,
+                &mut charge,
+                &mut work,
+                hierarchy.clone(),
+                body_end,
+            )?;
+            Ok((
+                Self {
+                    measurements,
+                    searches,
+                    hierarchy: HierarchyOwner::Shared(hierarchy),
+                },
+                definitions,
+                Charge {
+                    remaining: charge.remaining,
+                },
+                work.used,
+            ))
+        })();
+        *observed_records = limits.base().get().max_fragments - charge.remaining;
+        *observed_work = work.used;
+        result
     }
     pub fn measurements_fingerprint(&self) -> [u8; 32] {
         self.measurements.fingerprint()

@@ -109,6 +109,20 @@ pub fn prepare_book_v2_body_flow<'f, 's, 'p, 'a>(
     limits: &M4EffectiveResourceLimits,
     prior_records: u64,
 ) -> Result<BookV2PreparedBodyFlow<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    prepare_book_v2_body_flow_counted(lines, blocks, footnotes, limits, prior_records, &mut 0)
+}
+/// Preserve accepted constructor charges when no owner can be returned.
+pub fn prepare_book_v2_body_flow_counted<'f, 's, 'p, 'a>(
+    lines: &'s BookV2InlineLineLayout<'p, 'a>,
+    blocks: Option<&'f BookV2VectorBlockLayout<'s, 'p, 'a>>,
+    footnotes: &'f BookV2FootnoteLines<'s, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    prior_records: u64,
+    observed_records: &mut u64,
+) -> Result<BookV2PreparedBodyFlow<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    *observed_records = prior_records
+        .max(footnotes.record_charge())
+        .max(blocks.map_or(0, |b| b.record_charge()));
     let root = NodeId::new(0);
     footnotes
         .verify(lines, limits)
@@ -135,6 +149,7 @@ pub fn prepare_book_v2_body_flow<'f, 's, 'p, 'a>(
     let base = prior_records
         .checked_add(blocks.map_or(0, |b| b.retained_records()))
         .ok_or_else(|| error(root, E::FragmentLimit))?;
+    *observed_records = base;
     let mut charge = Charge {
         remaining: limits
             .base()
@@ -143,77 +158,104 @@ pub fn prepare_book_v2_body_flow<'f, 's, 'p, 'a>(
             .checked_sub(base)
             .ok_or_else(|| error(root, E::FragmentLimit))?,
     };
-    charge.take(1, root)?;
-    let view = BodyLines::BookV2(lines);
-    let block_view = BodyBlocks::BookV2(blocks.map_or(&[], |b| b.blocks()));
-    let mut collected = collect_items_shared(
-        view,
-        block_view,
-        frames.body(),
-        Some(footnotes.definitions()),
-        &mut charge,
-        true,
-    )?;
-    let mut body_page_names = Vec::new();
-    let mut table_page_names = Vec::new();
-    if let Some(plan) = frames.page_plan().filter(|p|p.has_source_names()) {
-        charge.take(collected.body_end.checked_add(collected.tables.tables.len())
-            .and_then(|n|n.checked_add(2)).ok_or_else(||error(root,E::FragmentLimit))?,root)?;
-        body_page_names.try_reserve_exact(collected.body_end).map_err(|_|error(root,E::AllocationFailure))?;
-        table_page_names.try_reserve_exact(collected.tables.tables.len()).map_err(|_|error(root,E::AllocationFailure))?;
-        body_page_names.extend(collected.items[..collected.body_end].iter().map(|i|plan.source_name_index(i.owner)));
-        for table in &collected.tables.tables {
-            let mut name=plan.source_name_index(table.owner);
-            if table.definition.is_none() {
-                let names=body_page_names.get(table.items.clone()).ok_or_else(||error(table.owner,E::ReceiptMismatch))?;
-                // A nonempty parallel table uses the common name of its actual
-                // content, including captions and nested leaves. Empty tables
-                // retain their own scope. Only roots scan the whole range:
-                // nested ranges are subsets already checked by their root.
-                if let Some(first)=names.first() { name=*first; }
-                if let Some(parent)=table.parent {
-                    if table_page_names.get(parent).copied()!=Some(name) { return Err(error(table.owner,E::PendingNamedPage)); }
-                } else {
-                    if let Some(i)=names.iter().position(|n|*n!=name) {
-                        return Err(error(collected.items[table.items.start+i].owner,E::PendingNamedPage));
+    let result = (|| {
+        charge.take(1, root)?;
+        let view = BodyLines::BookV2(lines);
+        let block_view = BodyBlocks::BookV2(blocks.map_or(&[], |b| b.blocks()));
+        let mut collected = collect_items_shared(
+            view,
+            block_view,
+            frames.body(),
+            Some(footnotes.definitions()),
+            &mut charge,
+            true,
+        )?;
+        let mut body_page_names = Vec::new();
+        let mut table_page_names = Vec::new();
+        if let Some(plan) = frames.page_plan().filter(|p| p.has_source_names()) {
+            charge.take(
+                collected
+                    .body_end
+                    .checked_add(collected.tables.tables.len())
+                    .and_then(|n| n.checked_add(2))
+                    .ok_or_else(|| error(root, E::FragmentLimit))?,
+                root,
+            )?;
+            body_page_names
+                .try_reserve_exact(collected.body_end)
+                .map_err(|_| error(root, E::AllocationFailure))?;
+            table_page_names
+                .try_reserve_exact(collected.tables.tables.len())
+                .map_err(|_| error(root, E::AllocationFailure))?;
+            body_page_names.extend(
+                collected.items[..collected.body_end]
+                    .iter()
+                    .map(|i| plan.source_name_index(i.owner)),
+            );
+            for table in &collected.tables.tables {
+                let mut name = plan.source_name_index(table.owner);
+                if table.definition.is_none() {
+                    let names = body_page_names
+                        .get(table.items.clone())
+                        .ok_or_else(|| error(table.owner, E::ReceiptMismatch))?;
+                    // A nonempty parallel table uses the common name of its actual
+                    // content, including captions and nested leaves. Empty tables
+                    // retain their own scope. Only roots scan the whole range:
+                    // nested ranges are subsets already checked by their root.
+                    if let Some(first) = names.first() {
+                        name = *first;
+                    }
+                    if let Some(parent) = table.parent {
+                        if table_page_names.get(parent).copied() != Some(name) {
+                            return Err(error(table.owner, E::PendingNamedPage));
+                        }
+                    } else {
+                        if let Some(i) = names.iter().position(|n| *n != name) {
+                            return Err(error(
+                                collected.items[table.items.start + i].owner,
+                                E::PendingNamedPage,
+                            ));
+                        }
                     }
                 }
+                table_page_names.push(name);
             }
-            table_page_names.push(name);
         }
-    }
-    let (definition_markers, references) = finish_collection(
-        view,
-        block_view,
-        footnotes.definitions(),
-        footnotes.references(),
-        &mut collected,
-        &mut charge,
-    )?;
-    Ok(BookV2PreparedBodyFlow {
-        lines,
-        blocks,
-        footnotes,
-        collected,
-        definition_markers,
-        references,
-        record_charge: limits.base().get().max_fragments - charge.remaining,
-        prior_records,
-        limits_fingerprint: limits.fingerprint(),
-        body_page_names,
-        table_page_names,
-    })
+        let (definition_markers, references) = finish_collection(
+            view,
+            block_view,
+            footnotes.definitions(),
+            footnotes.references(),
+            &mut collected,
+            &mut charge,
+        )?;
+        Ok(BookV2PreparedBodyFlow {
+            lines,
+            blocks,
+            footnotes,
+            collected,
+            definition_markers,
+            references,
+            record_charge: limits.base().get().max_fragments - charge.remaining,
+            prior_records,
+            limits_fingerprint: limits.fingerprint(),
+            body_page_names,
+            table_page_names,
+        })
+    })();
+    *observed_records = limits.base().get().max_fragments - charge.remaining;
+    result
 }
 
 pub const BOOK_V2_TABLE_MEASUREMENT_ALGORITHM: &str = "typaxis.book-2-table-measurements/1";
 #[path = "book_v2_table_header_variant.rs"]
 mod header_variant;
 pub use header_variant::{
-    prepare_book_v2_table_header_variant, BookV2TableHeaderVariant, BookV2TableHeaderVariantLeaf,
+    prepare_book_v2_table_header_variant, prepare_book_v2_table_header_variant_counted, BookV2TableHeaderVariant, BookV2TableHeaderVariantLeaf,
 };
 #[path = "book_v2_table_header_catalog.rs"]
 mod header_catalog;
-pub use header_catalog::{prepare_book_v2_table_header_catalog, BookV2TableHeaderCatalog};
+pub use header_catalog::{prepare_book_v2_table_header_catalog, prepare_book_v2_table_header_catalog_counted, BookV2TableHeaderCatalog};
 /// Actual row bands and nested child extents, retaining the complete dedicated
 /// body owner. No legacy table/page receipt is minted by this projection.
 pub struct BookV2TableMeasurements<'f, 's, 'p, 'a> {
@@ -249,8 +291,17 @@ pub fn prepare_book_v2_table_measurements<'f, 's, 'p, 'a>(
     flow: BookV2PreparedBodyFlow<'f, 's, 'p, 'a>,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<BookV2TableMeasurements<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    prepare_book_v2_table_measurements_counted(flow, limits, &mut 0)
+}
+/// Preserve accepted constructor charges when no owner can be returned.
+pub fn prepare_book_v2_table_measurements_counted<'f, 's, 'p, 'a>(
+    flow: BookV2PreparedBodyFlow<'f, 's, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    observed_records: &mut u64,
+) -> Result<BookV2TableMeasurements<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    *observed_records = flow.record_charge();
     flow.verify(flow.lines, flow.blocks, flow.footnotes, limits)?;
-    let projection = table_measurements::project_table_measurements(
+    let projection = table_measurements::project_table_measurements_counted(
         table_measurements::TableMeasurementInputs {
             collected: &flow.collected,
             sources: flow.lines.prepared().source_flow().tables(),
@@ -264,25 +315,26 @@ pub fn prepare_book_v2_table_measurements<'f, 's, 'p, 'a>(
             ],
         },
         limits,
+        observed_records,
     )?;
     Ok(BookV2TableMeasurements { flow, projection })
 }
 
 pub use table_measurements::{
-    prepare_book_v2_table_footnote_search, BookV2TableFootnoteSearch, BookV2TableFootnoteState, BookV2TableFootnoteSelection,
-    prepare_book_v2_table_search, BookV2TableBreakSearch, BookV2TableCursor,
+    prepare_book_v2_table_footnote_search, prepare_book_v2_table_footnote_search_counted, BookV2TableFootnoteSearch, BookV2TableFootnoteState, BookV2TableFootnoteSelection,
+    prepare_book_v2_table_search, prepare_book_v2_table_search_counted, BookV2TableBreakSearch, BookV2TableCursor,
     BookV2TableFragmentSelection, BookV2TableSourceLeaf, BOOK_V2_TABLE_FRAGMENT_ALGORITHM,
     BookV2TableHeaderFragmentSelection, BookV2TableHeaderPaintLeaf,
-    prepare_book_v2_definition_table_demand_search,BookV2DefinitionTableDemandSearch,BookV2DefinitionTableDemandState,BookV2DefinitionTableDemandSelection,
+    prepare_book_v2_definition_table_demand_search, prepare_book_v2_definition_table_demand_search_counted,BookV2DefinitionTableDemandSearch,BookV2DefinitionTableDemandState,BookV2DefinitionTableDemandSelection,
 };
 
 pub use footnote_breaks::book_v2::{
-    prepare_book_v2_footnote_search, BookV2FootnoteBreakSearch, BookV2FootnoteCursor,
+    prepare_book_v2_footnote_search, prepare_book_v2_footnote_search_counted, BookV2FootnoteBreakSearch, BookV2FootnoteCursor,
     BookV2FootnoteFragmentSelection,
 };
 
 pub use footnote_breaks::{
-    BookV2DefinitionCandidates, BookV2RankedDefinitionCandidate, prepare_book_v2_mixed_footnote_demand_search, prepare_book_v2_definition_mixed_search, BookV2DefinitionMixedSearch, BookV2DefinitionCandidatePart, BookV2DefinitionSelectedPart, BookV2DefinitionSourceState, BookV2DefinitionMixedCandidate,
+    BookV2DefinitionCandidates, BookV2RankedDefinitionCandidate, prepare_book_v2_mixed_footnote_demand_search, prepare_book_v2_mixed_footnote_demand_search_counted, prepare_book_v2_definition_mixed_search, prepare_book_v2_definition_mixed_search_counted, BookV2DefinitionMixedSearch, BookV2DefinitionCandidatePart, BookV2DefinitionSelectedPart, BookV2DefinitionSourceState, BookV2DefinitionMixedCandidate,
     BookV2FootnoteRegionFragment, BookV2FootnoteRegionSelection,
     BookV2BodyFootnoteCandidate,
     BookV2BodyMixedStablePages, BookV2BodyPlacedHeaderVariant, BookV2BodyPlacedEquationNumber, BookV2BodySourceClosure,
@@ -292,6 +344,7 @@ pub use footnote_breaks::{
     BookV2BodyMixedPageState, BookV2BodyMixedPageSelection, BookV2BodyMixedPageSequence,
     BookV2BodyCandidatePart,BookV2BodySelectedPart,BookV2BodyMixedCandidate,BookV2BodySourceState,
     prepare_book_v2_table_body_search, prepare_book_v2_table_body_search_with_headers,
-    prepare_book_v2_footnote_demand_search, BookV2FootnoteDemandSearch,
+    prepare_book_v2_table_body_search_counted, prepare_book_v2_table_body_search_with_headers_counted,
+    prepare_book_v2_footnote_demand_search, prepare_book_v2_footnote_demand_search_counted, BookV2FootnoteDemandSearch,
     BookV2FootnoteDemandSelection, BookV2FootnoteDemandState,
 };
