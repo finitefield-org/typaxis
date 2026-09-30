@@ -198,3 +198,5 @@
 - [ADR-0122: Retain running-region preparation and measurement record prefixes](ADR-0122-book-2-page-region-record-budget.md)
 - [ADR-0123: Preserve running-region source construction reservations](ADR-0123-book-2-page-region-source-budget.md)
 - [ADR-0124: Retain native math reservations through constructor failures](ADR-0124-book-2-native-constructor-budget.md)
+- [ADR-0125: Reserve command bounds before native math construction](ADR-0125-book-2-native-command-preflight.md)
+- [ADR-0126: Compare math canonicals without rebuilding temporary strings](ADR-0126-math-canonical-streaming.md)

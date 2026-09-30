@@ -113,6 +113,62 @@ impl BookV2PdfConvergenceObservation {
         self.work
     }
 }
+
+/// Accept each local preflight reservation before entering native construction.
+/// Keeping the continuation here makes rejected command bounds unable to start
+/// font-instance allocation, MATH parsing or computation.
+pub(super) fn with_reserved_book_v2_native_math<'a, R>(
+    bindings: &'a BookV2VectorBindings<'a>,
+    admitted: &'a typaxis_resources::AdmittedProductionResourceLedgerV3,
+    limits: &M4EffectiveResourceLimits,
+    maximum_work: u64,
+    total: &mut BookV2PdfConvergenceObservation,
+    construct: impl FnOnce(
+        Option<BookV2NativeMathPreflight<'a>>,
+    ) -> Result<R, typaxis_layout::ProductionNativeMathComputationError>,
+) -> Result<R, E> {
+    let mut native_budget = BookV2NativeMathBudgetObservation::default();
+    let plan = preflight_book_v2_native_math_counted(
+        bindings, admitted, limits, 0, 0, &mut native_budget,
+    );
+    // Reservations remain individually atomic: accept independent bounds and
+    // retain the accepted prefix even if another bound or the preflight fails.
+    let native_work = add(
+        total.work,
+        native_budget.reserved_layout_units(),
+        maximum_work,
+        "work",
+    );
+    if let Ok(accepted) = native_work {
+        total.work = accepted;
+    }
+    let native_records = add(
+        total.records,
+        native_budget.record_charge(),
+        limits.base().get().max_fragments,
+        "records",
+    );
+    if let Ok(accepted) = native_records {
+        total.records = accepted;
+    }
+    let native_spool = add(
+        total.spool,
+        native_budget.spool_charge(),
+        limits.base().get().max_spool_bytes,
+        "spool",
+    );
+    if let Ok(accepted) = native_spool {
+        total.spool = accepted;
+    }
+    // A rejected local preflight keeps its typed cause. A complete preflight
+    // checks command work, records and spool before discovering any font error.
+    let plan = plan.map_err(|e| stage("native math", e))?;
+    native_work?;
+    native_records?;
+    native_spool?;
+    construct(plan).map_err(|e| stage("native math", e))
+}
+
 /// Reuse the admitted originals, vector bindings and native computations across
 /// actual label -> shaping -> line -> page -> display -> PDF passes. All page,
 /// reshape and downstream record/spool/output/work ceilings span the loop.
@@ -211,45 +267,17 @@ pub fn with_budgeted_book_v2_pdf<R>(
     let admitted = input.resources();
     let bindings =
         bind_book_v2_vectors(&policy, admitted, limits).map_err(|e| stage("vectors", e))?;
-    let mut native_budget = BookV2NativeMathBudgetObservation::default();
-    let native = compute_book_v2_native_math_counted(
-        &bindings, admitted, limits, 0, 0, &mut native_budget,
-    );
-    // Recover each accepted local reservation, even when later construction
-    // failed. Command reservations remain atomic and never exceed their caps.
-    let native_work = add(
-        total.work,
-        native_budget.reserved_layout_units(),
+    let native = with_reserved_book_v2_native_math(
+        &bindings,
+        admitted,
+        limits,
         maximum_work,
-        "work",
-    );
-    if let Ok(accepted) = native_work {
-        total.work = accepted;
-    }
-    let native_records = add(
-        total.records,
-        native_budget.record_charge(),
-        caps.max_fragments,
-        "records",
-    );
-    if let Ok(accepted) = native_records {
-        total.records = accepted;
-    }
-    let native_spool = add(
-        total.spool,
-        native_budget.spool_charge(),
-        caps.max_spool_bytes,
-        "spool",
-    );
-    if let Ok(accepted) = native_spool {
-        total.spool = accepted;
-    }
-    // Keep the original typed native failure ahead of command-limit errors.
-    // Successful native construction retains work, record, spool error order.
-    let native = native.map_err(|e| stage("native math", e))?;
-    native_work?;
-    native_records?;
-    native_spool?;
+        total,
+        |plan| {
+            plan.map(|plan| compute_preflighted_book_v2_native_math(plan, limits))
+                .transpose()
+        },
+    )?;
     let mut values = Vec::new();
     let page_plan;
     {

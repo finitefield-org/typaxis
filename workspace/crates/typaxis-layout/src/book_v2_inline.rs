@@ -39,8 +39,10 @@ pub use source_widths::{
 #[path = "book_v2_frames.rs"]
 mod frames;
 pub use crate::math::book_v2::{
-    compute_book_v2_native_math, compute_book_v2_native_math_counted, BookV2MathReceipt,
-    BookV2NativeMath, BookV2NativeMathBudgetObservation, BookV2PlacedInlineMath,
+    compute_book_v2_native_math, compute_book_v2_native_math_counted,
+    compute_preflighted_book_v2_native_math, preflight_book_v2_native_math_counted,
+    BookV2MathReceipt, BookV2NativeMath, BookV2NativeMathBudgetObservation,
+    BookV2NativeMathPreflight, BookV2PlacedInlineMath,
     BOOK_V2_NATIVE_MATH_ALGORITHM, BOOK_V2_NATIVE_MATH_SET_ALGORITHM,
 };
 pub use crate::safe_vector::book_v2::{

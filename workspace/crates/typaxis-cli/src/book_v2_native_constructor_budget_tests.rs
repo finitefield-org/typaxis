@@ -8,6 +8,9 @@ use typaxis_layout::book_v2::{
     BookV2NativeMathBudgetObservation as Observation,
 };
 
+#[path = "book_v2_native_command_preflight_tests.rs"]
+mod command_preflight;
+
 #[test]
 fn book_v2_native_budget_preserves_atomic_preflight_and_owned_line_contexts() {
     let root = Root::new();
@@ -430,7 +433,11 @@ fn check_missing_font(font: &[u8], media: &str) {
             )
             .err()
             .unwrap();
-            assert_native_error(failure, &cause);
+            if attempt == 1 {
+                assert_native_error(failure, &cause);
+            } else {
+                assert_command_limit(failure, "work");
+            }
             let history = command.observation();
             assert_eq!(history.work_steps(), initial.reserved_layout_units());
             assert_eq!(
@@ -525,7 +532,13 @@ fn check_driver(
             )
             .err()
             .unwrap();
-            assert_native_error(failure, cause);
+            if native.spool_charge() > 0 && maximum < native.reserved_layout_units() {
+                // A complete local preflight is stopped by the command budget
+                // before it can discover the invalid MATH face.
+                assert_command_limit(failure, "work");
+            } else {
+                assert_native_error(failure, cause);
+            }
             let kept = command.observation();
             assert_eq!(
                 kept.work_steps(),
@@ -576,4 +589,11 @@ fn assert_native_error(
         source.downcast_ref::<ProductionNativeMathComputationError>(),
         Some(cause)
     );
+}
+
+fn assert_command_limit(error: BookV2ConvergenceError, expected: &'static str) {
+    let BookV2ConvergenceError::Limit(name) = error else {
+        panic!("expected command {expected} limit, got {error:?}");
+    };
+    assert_eq!(name, expected);
 }

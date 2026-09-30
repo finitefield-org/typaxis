@@ -257,24 +257,7 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
         0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
         0xc67178f2,
     ];
-    let mut hash = [
-        0x6a09e667u32,
-        0xbb67ae85,
-        0x3c6ef372,
-        0xa54ff53a,
-        0x510e527f,
-        0x9b05688c,
-        0x1f83d9ab,
-        0x5be0cd19,
-    ];
-    let bit_len = (bytes.len() as u64).wrapping_mul(8);
-    let mut padded = bytes.to_vec();
-    padded.push(0x80);
-    while padded.len() % 64 != 56 {
-        padded.push(0);
-    }
-    padded.extend_from_slice(&bit_len.to_be_bytes());
-    for chunk in padded.chunks_exact(64) {
+    fn compress(hash: &mut [u32; 8], chunk: &[u8]) {
         let mut words = [0u32; 64];
         for (index, word) in words[..16].iter_mut().enumerate() {
             let start = index * 4;
@@ -292,7 +275,7 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
                 .wrapping_add(words[index - 7])
                 .wrapping_add(s1);
         }
-        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = hash;
+        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *hash;
         for index in 0..64 {
             let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
             let choice = (e & f) ^ ((!e) & g);
@@ -316,6 +299,32 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
         for (slot, value) in hash.iter_mut().zip([a, b, c, d, e, f, g, h]) {
             *slot = slot.wrapping_add(value);
         }
+    }
+    let mut hash = [
+        0x6a09e667u32,
+        0xbb67ae85,
+        0x3c6ef372,
+        0xa54ff53a,
+        0x510e527f,
+        0x9b05688c,
+        0x1f83d9ab,
+        0x5be0cd19,
+    ];
+    let mut chunks = bytes.chunks_exact(64);
+    for chunk in chunks.by_ref() {
+        compress(&mut hash, chunk);
+    }
+    // Borrow complete input blocks and retain only the one- or two-block tail.
+    // Hashing never copies the whole input into a padded heap allocation.
+    let remainder = chunks.remainder();
+    let mut tail = [0u8; 128];
+    tail[..remainder.len()].copy_from_slice(remainder);
+    tail[remainder.len()] = 0x80;
+    let tail_len = if remainder.len() < 56 { 64 } else { 128 };
+    let bit_len = (bytes.len() as u64).wrapping_mul(8);
+    tail[tail_len - 8..tail_len].copy_from_slice(&bit_len.to_be_bytes());
+    for chunk in tail[..tail_len].chunks_exact(64) {
+        compress(&mut hash, chunk);
     }
     let mut output = [0u8; 32];
     for (chunk, word) in output.chunks_exact_mut(4).zip(hash) {
@@ -2191,23 +2200,32 @@ fn push_jcs_string_array(output: &mut String, values: &[String]) {
 }
 
 pub fn push_jcs_string(output: &mut String, value: &str) {
-    output.push('"');
+    write_jcs_string(output, value).expect("writing JCS to a String cannot fail");
+}
+
+/// Use the same canonical escaping with a caller-owned writer, including a
+/// fixed-size buffer or a comparison against existing bytes.
+pub fn write_jcs_string<W: std::fmt::Write + ?Sized>(
+    output: &mut W,
+    value: &str,
+) -> std::fmt::Result {
+    output.write_char('"')?;
     for character in value.chars() {
         match character {
-            '"' => output.push_str("\\\""),
-            '\\' => output.push_str("\\\\"),
-            '\u{08}' => output.push_str("\\b"),
-            '\u{09}' => output.push_str("\\t"),
-            '\u{0a}' => output.push_str("\\n"),
-            '\u{0c}' => output.push_str("\\f"),
-            '\u{0d}' => output.push_str("\\r"),
+            '"' => output.write_str("\\\"")?,
+            '\\' => output.write_str("\\\\")?,
+            '\u{08}' => output.write_str("\\b")?,
+            '\u{09}' => output.write_str("\\t")?,
+            '\u{0a}' => output.write_str("\\n")?,
+            '\u{0c}' => output.write_str("\\f")?,
+            '\u{0d}' => output.write_str("\\r")?,
             character if character <= '\u{1f}' => {
-                output.push_str(&format!("\\u{:04x}", u32::from(character)));
+                write!(output, "\\u{:04x}", u32::from(character))?;
             }
-            character => output.push(character),
+            character => output.write_char(character)?,
         }
     }
-    output.push('"');
+    output.write_char('"')
 }
 
 pub const fn generation_kind_wire_name(kind: GenerationKind) -> &'static str {
@@ -2403,6 +2421,10 @@ fn push_m4_config_limits_jcs(
         ),
     );
 }
+
+#[cfg(test)]
+#[path = "canonical_tests.rs"]
+mod canonical_tests;
 
 #[cfg(test)]
 mod tests {

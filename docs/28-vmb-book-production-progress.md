@@ -16429,3 +16429,51 @@ run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成�
 現在のVMB全巻sourceもread-onlyで再監査した。GOCACHE=/private/tmp/typaxis-vmb-audit-cache-20260922、GOFLAGS=-mod=readonly、GOMAXPROCS=2でgo run ./tools/typaxis-book-auditを実行した（cwdはVMB vmb-core、project ../vmb-book-fractions-equivalence/v1/project.json、profile.print、locale ja）。draft exit 0の167 sections／6,343 inline formulasのinventoryは2026-09-22の実ファイルとbyte一致し、Speech 0件／SemanticRef 0件も同じだった。canonical SHA-256はff25625dbf10f7abde790c6cf6d3279369958512ae8940c4e89940cb967df6e9。release exit 1はE0317 4,786件とE0473 232件で、release inventoryを作成しなかった。current-book-audit-summary.jsonへコマンド・終了コード・各実ファイルとaudit toolのhashを保存した。これはsection inventoryの監査であり、元全巻一package・一PDFゲートの成功ではない。
 
 §261の検証待ちを解消した。残る経路をremaining-paths.mdへ記録した。設計全体の受け入れは継続し、この段階の変更はまだコミット・pushしていない。検証後の文書更新3件は別のhash一覧で区別する。
+
+
+<a id="native-command-preflight-design-14262"></a>
+## 262. native数式の構築前にcommand予算を予約（design §14.262）
+
+前回の依頼で§261の13ファイルをc33d2f4としてcommitし、origin/codex/vmb-book-productionへpushした。今回のgoal turnはそのクリーンな状態から進める。
+
+[ADR-0125](../adr/ADR-0125-book-2-native-command-preflight.md)に従い、BookV2NativeMathPreflightへ元binding／admitted resourceの不変借用、limits fingerprintとwork／record／spool予約を保持する。planはprivate fieldsを持ち、compute_preflighted_book_v2_native_mathで消費する。limits差し替えは構築前に拒否する。旧constructorはpreflight_book_v2_native_math_countedとexecutorへ委譲し、成功fingerprint・paint・課金、native-freeのNoneを維持する。
+
+PDF driverはwith_reserved_book_v2_native_mathで独立した各command予約を先に受理してから、実executorを呼ぶcontinuationへ進む。拒否した予約は消費せず、受理済みの他のdimensionは保持する。局所preflight失敗の型付き原因は維持する。完全なpreflight後のcommand拒否はwork／record／spoolの順で返し、まだ実行していないfont解析の失敗を先に調べない。この動作変更に合わせ、§261のcommand不足時の試験期待値を更新する。
+
+新CLI 3 testsは成功receiptとpaintの同一性、foreign resources／limits、native-free、初回work不足、再試行での個別・同時上限、失敗したfontの最初／後続ownerを検証する。実executorを呼ぶcontinuationの開始回数を観測し、予算拒否後には増えないことを確認する。全PDF driverのerrorと履歴も同じ入力で照合する。TrueTypeと未変更の原Haranoを使い、従来3 testsを含むconstructor_budgetフィルタの全18 testsが成功した（build 42.92秒／test 39.14秒、失敗／ignored 0、695 filtered out）。初回compileのCLI内crate参照を既存typaxis_resources公開型へ修正し、依存追加は行っていない。native-command-tests-01.logはcompile exit 101、修正後の02.logはexit 0である。
+
+証跡はworkspace/target/vmb-design/20260930/native-command-preflight/。active-run-reference.jsonは実行中handle／runner／logを記録する。AST receiptの再検証で作るcanonical、source／admission／navigation・policy・vectors／shapingとbackend内のtemporary allocation、完全なwork、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入を継続する。Speech／SemanticRef未作成を維持する。
+
+最終ソースを固定したworkspace --all-features --tests checkは38.49秒で成功した。layout全70 testsは0.43秒、doc-test 1件は0.86秒で成功し、buildは4.20秒だった。Book /2関連CLI全294 testsは564.15秒で成功し、buildは0.07秒だった。すべて失敗／ignored 0。CLIフィルタの419 filtered outも記録し、binary全713 testsの実行とは扱わない。shaping／pagination／font全体、公開／旧CFF診断の別試験とVMB全巻再監査は今回は繰り返していない。時間は観測値であり、制御された性能比較ではない。実handleと実プロセスの稼働を確認して長時間試験を待ち、再起動しなかった。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成功した。固定時・開始時・文書更新前の155ソースが一致し、7追跡済み変更＋2新規ファイルの全9件を含むことも照合した。5 evidence runnerのhash、原フォント2件と保存済み元全巻packageのhash、10成功ログのhash／結果行、実コマンド・環境・終了コード、759 PDF対応表をrun-source-correspondence.jsonへ保存した。全759組について実ファイルのbyte一致・記録hash・名前変更0を確認した。table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§261と一致した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+
+§262の検証待ちを解消した。次のAST／source／command経路と全体要件をremaining-paths.mdへ記録した。設計全体の受け入れは継続し、今回の変更は未コミットである。検証後の文書更新3件はpost-verification-documentation-hashes.jsonで区別する。
+
+
+<a id="math-canonical-streaming-design-14263"></a>
+## 263. 数式canonicalの再構築とhashの全入力copyを廃止（design §14.263）
+
+[ADR-0126](../adr/ADR-0126-math-canonical-streaming.md)に従い、mathのcanonical.rsでAST・正規化source・parsed receiptを同じfmt::Write visitorから出力する。保持Stringと、元canonicalの全byteを消費する比較sinkを共有する。ParsedMathReceipt::verifyはaccounting・内容・metadataを導出し、保存済みhashも検査する。切り詰め・余剰byte・内容の違いを拒否し、cached hashだけを信頼しない。入れ子formatterのsubtree Stringと、constructor round-trip時の追加AST canonicalをなくす。
+
+Coreのwrite_jcs_stringへescapingを共通化し、既存push_jcs_stringは委譲する。限定sinkの失敗を伝播する。SHA-256は全入力blockを借用し、固定128-byte末尾bufferだけへpaddingする。旧Vecによる全入力copyをなくし、digestと公開signatureを維持する。公開profile／schema／receipt authority／fingerprint domainは変更しない。
+
+証跡はworkspace/target/vmb-design/20260930/math-receipt-streaming/。変更前にrun-client-01.py baselineで現在のpublic APIを構築・実行し、22 math successes／6 grammar rejections／4 JCS cases／4,101 SHA casesと原入力3件を保存した。変更後のafter出力はallocation行を除いて全byte一致し、Python hashlibとも一致した。verifyとrequired unitsの22式ずつ、4,101 SHA cases、原入力hash3件の全4,148観測で変更後のheap割当が0だった。旧verifyは22式合計16,220 alloc/realloc calls、最大式で要求bytes合計9,040,727だった。これは要求byteの累積値であり、peak memoryではない。測定はignored standalone clientの標準allocator forwardsだけでunsafeを使い、workspace実装の禁止を維持する。
+
+core-math-tests-01.logはCore 20 tests／math 8 testsとそれぞれdoc-test 0件が成功した（build 5.23秒、core 0.00秒／math 0.03秒、失敗／ignored 0）。新Core 2 testsはpadding境界とcontrol／Unicode escaping・限定writerの失敗を検証する。新math 2 testsは自己hashを更新したAST／source／receipt cacheの改変と全UTF-8 prefixの拒否を検証する。測定後のroot source差分はcfg(test)登録2件のみで、その対応とvisitor／測定binary hashを保存した。
+
+最終ソースを固定したworkspace --all-features --tests checkは1分04秒で成功した。layout全70 testsは0.83秒、doc-test 1件は1.02秒で成功し、buildは28.57秒だった。Book /2関連CLI全294 testsは551.14秒で成功し、buildは1分25秒だった。すべて失敗／ignored 0。CLIフィルタの419 filtered outも記録し、binary全713 testsの実行とは扱わない。shaping／pagination／font全体、公開／旧CFF診断とVMB全巻再監査は今回は繰り返していない。時間は観測値であり、制御された性能比較ではない。長時間試験は同じ実handleを待ち、再起動しなかった。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成功した。固定時・開始時・文書更新前の160ソースが一致し、9追跡済み変更＋6新規ファイルの全15件を含むことも照合した。7 evidence client／runner、原フォント2件と保存済み元全巻package、10成功ログのhash／結果行、実コマンド・環境・終了コード、測定clientの前後出力・binary・cfg(test)登録差分、759 PDF対応表をrun-source-correspondence.jsonへ保存した。照合checkerのtab／newline literalの過剰escapeは実行前に修正し、前後hashと理由をproof-checker-correction.jsonへ記録した。実装ソースと他6 client／runnerは固定した。全759組について実ファイルのbyte一致・記録hash・名前変更0を確認した。table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§262と一致した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+
+§263の検証待ちを解消した。次のsource／command経路と全体要件をremaining-paths.mdへ記録した。検証後の文書更新3件はpost-verification-documentation-hashes.jsonで区別する。
+
+完全なcommand allocation／spool／work、元source flowのcollection／再検証、source／admission／navigation・policy・vectors／shaping・backend内部と同時保持graph、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入を継続する。Speech／SemanticRef未作成を維持する。

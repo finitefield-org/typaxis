@@ -5584,3 +5584,45 @@ byte一致、151ソースhashと10成功ログの対応照合も成功した。c
 再監査し、Speech／SemanticRef欠落が継続することを確認した。
 constructor実行前のcommand全予約・内部temporary storage・完全なwork計測、
 名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。
+
+
+### 14.262 native数式の構築前command予約（実装追補）
+
+Book /2 native preflightとfont instance／MATH解析・実組版を分離する。
+非構築可能なBookV2NativeMathPreflightは元binding・admitted resourceの不変借用と
+limits fingerprint、受理済みwork／record／spoolを持ち、executorで消費する。
+PDF driverは各予約をcommand履歴へ受理してからexecutorへ進む。完全な局所preflight後に
+command上限が不足した場合、フォントの問題を調べる前に上限で停止する。
+局所preflight自体の型付き失敗・受理済みprefix、成功時のreceipt／paint／課金を維持する。
+
+[ADR-0125](../adr/ADR-0125-book-2-native-command-preflight.md)と
+[実装台帳§262](28-vmb-book-production-progress.md#native-command-preflight-design-14262)を参照。
+構築continuationが拒否後に始まらないことを直接観測し、全PDF driverの予算履歴とも照合する。
+局所CLI 18 tests、workspace型検査、layout 70 tests＋doc-test 1件、Book /2 CLI 294 testsが
+成功した。759 PDF／2,896 pagesと58 font subsetsの独立検証、および全759組と保存済み
+VMB表出力2件の§261とのbyte一致も成功した。155ソース・5 runner・3原入力・10成功ログと
+実コマンド／終了コード／環境を照合し、検証後の文書3件の更新を別hashで記録した。
+AST再検証のcanonical allocation、他stageと内部temporary storageを含む完全なcommand予算、
+名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。
+
+
+### 14.263 数式canonicalの直接照合と固定長hash処理（実装追補）
+
+数式AST・正規化source・receiptの共通visitorを保持Stringと比較sinkへ使う。
+再検証はaccountingと内容を元ASTから導出し、保存済み全byteを照合する。
+部分一致や保存済みhashだけで認可しない。入れ子のformatterの一時Stringと
+round-tripの追加AST canonicalもなくす。CoreのJCS escapingをwriterへ共有し、
+SHA-256は元の全blockを借用して128-byte末尾bufferだけでpaddingする。
+既存canonical・digest・型付き拒否・fingerprint domainを維持する。
+
+[ADR-0126](../adr/ADR-0126-math-canonical-streaming.md)と
+[実装台帳§263](28-vmb-book-production-progress.md#math-canonical-streaming-design-14263)を参照。
+変更前後のpublic client出力とPython SHA oracleが一致し、4,148操作の変更後heap割当は0だった。
+Core 20 tests、math 8 tests、workspace型検査、layout 70 tests＋doc-test 1件、
+Book /2 CLI 294 testsが成功した。759 PDF／2,896 pagesと58 font subsetsの独立検証、
+全759組と保存済みVMB表出力2件の§262とのbyte一致も成功した。
+160ソース・7 client／runner・3原入力・10成功ログ、実コマンド／終了コード／環境、
+測定binaryと全PDF対応表を照合した。照合checkerのescape修正と検証後の文書3件の更新は
+別hashで記録し、実装ソースと他6 client／runnerの固定を確認した。
+完全なcommand allocation／spool／work、source／admission／backend内部、名前付きページ・段組、
+公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。

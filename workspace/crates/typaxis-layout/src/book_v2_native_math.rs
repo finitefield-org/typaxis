@@ -51,6 +51,40 @@ impl<'a> BookV2MathReceipt<'a> {
         self.fingerprint
     }
 }
+
+/// Sealed native preflight bound to the exact immutable inputs.
+/// This is a reservation plan, not a computation receipt. Font instances,
+/// MATH faces and geometry are constructed only when the plan is consumed.
+#[must_use]
+pub struct BookV2NativeMathPreflight<'a> {
+    bindings: &'a BookV2VectorBindings<'a>,
+    admitted: &'a AdmittedProductionResourceLedgerV3,
+    limits_fingerprint: [u8; 32],
+    work: u64,
+    record_charge: u64,
+    spool_charge: u64,
+}
+impl BookV2NativeMathPreflight<'_> {
+    pub fn reserved_layout_units(&self) -> u64 {
+        self.work
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.record_charge
+    }
+    pub fn spool_charge(&self) -> u64 {
+        self.spool_charge
+    }
+}
+impl std::fmt::Debug for BookV2NativeMathPreflight<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BookV2NativeMathPreflight")
+            .field("reserved_layout_units", &self.work)
+            .field("record_charge", &self.record_charge)
+            .field("spool_charge", &self.spool_charge)
+            .finish_non_exhaustive()
+    }
+}
+
 pub struct BookV2NativeMath<'a> {
     bindings: &'a BookV2VectorBindings<'a>,
     admitted: &'a AdmittedProductionResourceLedgerV3,
@@ -153,6 +187,29 @@ pub fn compute_book_v2_native_math_counted<'a>(
     prior_spool: u64,
     observed: &mut BookV2NativeMathBudgetObservation,
 ) -> Result<Option<BookV2NativeMath<'a>>, ProductionNativeMathComputationError> {
+    preflight_book_v2_native_math_counted(
+        bindings,
+        admitted,
+        limits,
+        prior_records,
+        prior_spool,
+        observed,
+    )?
+    .map(|plan| compute_preflighted_book_v2_native_math(plan, limits))
+    .transpose()
+}
+
+/// Reserve native storage locally without creating font instances or parsing
+/// MATH faces. Callers can accept the observed bounds into a command budget
+/// before consuming the sealed plan. Failed reservations retain their prefix.
+pub fn preflight_book_v2_native_math_counted<'a>(
+    bindings: &'a BookV2VectorBindings<'a>,
+    admitted: &'a AdmittedProductionResourceLedgerV3,
+    limits: &M4EffectiveResourceLimits,
+    prior_records: u64,
+    prior_spool: u64,
+    observed: &mut BookV2NativeMathBudgetObservation,
+) -> Result<Option<BookV2NativeMathPreflight<'a>>, ProductionNativeMathComputationError> {
     *observed = BookV2NativeMathBudgetObservation::new(prior_records, prior_spool);
     bindings
         .verify(bindings.body(), admitted, limits)
@@ -186,6 +243,35 @@ pub fn compute_book_v2_native_math_counted<'a>(
         prior_spool,
         observed,
     )?;
+    Ok(Some(BookV2NativeMathPreflight {
+        bindings,
+        admitted,
+        limits_fingerprint: limits.fingerprint(),
+        work,
+        record_charge,
+        spool_charge,
+    }))
+}
+
+/// Consume the preflight using its bound source and resources. A different
+/// limits identity is rejected before any native allocation or font parsing.
+pub fn compute_preflighted_book_v2_native_math<'a>(
+    preflight: BookV2NativeMathPreflight<'a>,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<BookV2NativeMath<'a>, ProductionNativeMathComputationError> {
+    let BookV2NativeMathPreflight {
+        bindings,
+        admitted,
+        limits_fingerprint,
+        work,
+        record_charge,
+        spool_charge,
+    } = preflight;
+    if limits_fingerprint != limits.fingerprint() {
+        return Err(StagingMathLayoutError::ReceiptMismatch.into());
+    }
+    let styled = bindings.body().styled();
+    let nodes = styled.body().math();
     let instances = AdmittedProductionFontInstancesV3::from_used_faces(
         admitted,
         admitted.fonts().iter().map(|f| f.font_face_id()),
@@ -292,10 +378,10 @@ pub fn compute_book_v2_native_math_counted<'a>(
     if actual_work != work {
         return Err(StagingMathLayoutError::ReceiptMismatch.into());
     }
-    Ok(Some(BookV2NativeMath {
+    Ok(BookV2NativeMath {
         bindings,
         admitted,
-        limits_fingerprint: limits.fingerprint(),
+        limits_fingerprint,
         instances,
         receipts,
         display_blocks,
@@ -303,7 +389,7 @@ pub fn compute_book_v2_native_math_counted<'a>(
         record_charge,
         spool_charge,
         fingerprint,
-    }))
+    })
 }
 
 #[derive(Debug)]
