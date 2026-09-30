@@ -5565,3 +5565,22 @@ pagination 104 tests、font 76 tests、shaping／layoutのdoc-test各1件、公�
 柱source flowへcounted経路を追加し、identity検査前のcaller履歴と、受理したowner／段落・inline予約を後続失敗でも返す。PDF attachmentはsourceエラー伝播前に回収し、その増分に対する既存の保守的work予約を上限内で受理する。work予約拒否は消費せず、source失敗の型付き原因を優先する。成功時のowner・fingerprint・work課金を維持する。
 
 [ADR-0123](../adr/ADR-0123-book-2-page-region-source-budget.md)と[実装台帳§260](28-vmb-book-production-progress.md#page-region-source-budget-design-14260)を参照。workspace型検査、syntax 138 tests＋doc-test 12件、柱CLI 25 testsが成功した。柱PDF 3件／10ページ／126 glyph paintsの独立検証と31改変拒否、§259との3 PDF全byte一致を確認した。140ソースhashと5ログを記録した。§259の759 PDF全回帰は既存証拠として区別する。native math・admission・backend内部、完全なcommand予算、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。
+
+
+### 14.261 native数式constructorの失敗時予約保持（実装追補）
+
+共有native preflightはlayout units・record・spoolの各予約を受理直後に観測値へ返す。
+旧constructorとBook /2 constructorはcounted経路へ委譲し、後続のfont解析・計算・
+receipt検証・display準備で失敗しても保持する。数式を所有するinline／本文line入口にも
+観測値を接続し、PDF driverは型付き原因を返す前にcommand履歴へ受理する。
+拒否した予約は消費せず、累積上限を超えない。layout unitsは事前予約であり、完了した
+計算量やline candidate workと区別する。
+
+[ADR-0124](../adr/ADR-0124-book-2-native-constructor-budget.md)と
+[実装台帳§261](28-vmb-book-production-progress.md#native-constructor-budget-design-14261)を参照。
+局所CLI 3 tests、workspace型検査、layout 70 tests＋doc-test 1件、Book /2 CLI 291 testsが
+成功した。759 PDF／2,896 pagesと58 resource subsetsの独立検証、全759組の前段階との
+byte一致、151ソースhashと10成功ログの対応照合も成功した。current VMB section inventoryも
+再監査し、Speech／SemanticRef欠落が継続することを確認した。
+constructor実行前のcommand全予約・内部temporary storage・完全なwork計測、
+名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。

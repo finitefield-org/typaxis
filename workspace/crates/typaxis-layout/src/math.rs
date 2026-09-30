@@ -26,7 +26,8 @@ use crate::layout_staging_semantic_containers;
 #[path = "production_native_math_computations.rs"]
 mod production_computations;
 pub use production_computations::{
-    compute_production_native_math, ProductionNativeMathComputationError,
+    compute_production_native_math, compute_production_native_math_counted,
+    ProductionNativeMathBudgetObservation, ProductionNativeMathComputationError,
     ProductionNativeMathComputations, ProductionNativeMathDisplayBlock,
 };
 

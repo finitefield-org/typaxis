@@ -519,3 +519,6 @@ fn book_v2_native_math_preflights_cumulative_records_spool_and_missing_math_font
 
 #[path = "book_v2_native_source_width_tests.rs"]
 mod source_widths;
+
+#[path = "book_v2_native_constructor_budget_tests.rs"]
+mod constructor_budget;

@@ -16405,3 +16405,27 @@ native math・admission・backend内部、完全なcommand allocation／spool／
 独立検証では3 region PDFs／10 pages／126 glyph paints、2 TrueType＋1 CFF subsets／14 mapped glyphsを検証し、resource改変9件とPDF／source改変22件を拒否した。全3 PDFの実バイトが§259と一致した。run-verification-01.pyとverification.jsonに実行コマンド・終了コード・140ソースhash・5ログhashと結果行・3 PDF対応表を保存した。ソースhashは局所試験後・workspace／syntax／独立検証前に取得し、その間の実装変更はない。追跡済み変更58ファイルをすべて含むことを照合した。検証後の文書更新3件は別のhash一覧で区別する。
 
 §260の検証待ちを解消した。native math等の次の経路はremaining-record-paths.mdへ引き継ぐ。設計全体の受け入れは未完了であり、今回コミット・pushは行っていない。
+
+
+<a id="native-constructor-budget-design-14261"></a>
+## 261. native数式constructorの予約を保持（design §14.261）
+
+[ADR-0124](../adr/ADR-0124-book-2-native-constructor-budget.md)に従い、共有native preflightが受理済みlayout-unit／record／spool予約を返す。ProductionNativeMathBudgetObservationはcaller履歴で初期化し、拒否した予約は加算しない。旧APIはcounted constructorへ委譲する。Book /2も同じ観測型を公開し、font instance構築・MATH解析・実計算・receipt／display構築後の失敗でも予約を保持する。成功receipt・fingerprint・課金とnative-freeのNoneを維持する。
+
+数式を所有するinline入口にprepare_book_v2_inline_items_counted、本文line入口にwith_budgeted_book_v2_body_linesを追加した。native予約とinline／candidate予約を別々に観測し、開始前のnative失敗もline予算へrecordを戻す。layout unitsは保守的な事前予約であり、完了した実計算やcandidate workという意味ではない。PDF driverは結果伝播前に各予約をcommand履歴へ受理する。予約拒否は上限内の既存履歴を保持し、元のnative原因を優先する。成功時のwork／record／spoolのエラー順序を維持する。
+
+証跡はworkspace/target/vmb-design/20260930/native-constructor-budget/。workspace-check-01.logは新試験追加前の型検査成功（56.10秒）。native-budget-tests-01.logは試験内sum()の型推論不足でcompile exit 101。sum::<u64>()へ修正したnative-budget-tests-02.logは新3 tests成功（build 51.74秒／test 8.79秒、失敗／ignored 0）。共有preflight新1 testと、work／record／spool境界、上限一致、overflow、foreign-resource／native-free、owned inline／line、最初と後続の式でのMATH font拒否、原Harano、command再試行と予算飽和を検証する。最終ソースを固定してworkspace型検査、layout全体、Book /2全回帰、独立PDF検証と前段階とのbyte照合へ進む。
+
+command全予約をconstructor実行前に受理すること、native内部のtemporary allocation、完全なcommand allocation／spool／work、source／admission／shaping内部、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成の事実を維持し、全巻受入成功とは扱わない。
+
+最終ソースを固定したworkspace --all-features --tests checkは21.71秒、layout全70 testsは0.52秒とdoc-test 1件1.01秒、Book /2関連CLI全291 testsは628.08秒で成功した。すべて失敗／ignored 0。layout buildは15.27秒、CLI buildは22.01秒。CLI件数はbook_v2_resourcesフィルタの対象であり、全CLI binary 710件を実行したという意味ではない。shaping／pagination／font全体と公開／旧CFF診断は今回は再実行せず、以前の結果を今回の実行として扱わない。時間は今回の観測値であり、制御された性能比較ではない。長時間試験は実handleと実プロセスの稼働を確認して再起動せず待った。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成功した。固定時・開始時・文書更新前の151ファイルが一致し、追跡済み変更11ファイルの網羅も確認した。10成功ログのhash／結果行、原フォントと保存済み元全巻入力のhash、実行コマンドと終了コード、759 PDF対応表をrun-source-correspondence.jsonへ保存した。全759組の実ファイルについてbyte一致・記録hash・名前変更0を確認した。table_captionとtable_alignmentの保存済み実VMB出力も前段階と一致した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+
+現在のVMB全巻sourceもread-onlyで再監査した。GOCACHE=/private/tmp/typaxis-vmb-audit-cache-20260922、GOFLAGS=-mod=readonly、GOMAXPROCS=2でgo run ./tools/typaxis-book-auditを実行した（cwdはVMB vmb-core、project ../vmb-book-fractions-equivalence/v1/project.json、profile.print、locale ja）。draft exit 0の167 sections／6,343 inline formulasのinventoryは2026-09-22の実ファイルとbyte一致し、Speech 0件／SemanticRef 0件も同じだった。canonical SHA-256はff25625dbf10f7abde790c6cf6d3279369958512ae8940c4e89940cb967df6e9。release exit 1はE0317 4,786件とE0473 232件で、release inventoryを作成しなかった。current-book-audit-summary.jsonへコマンド・終了コード・各実ファイルとaudit toolのhashを保存した。これはsection inventoryの監査であり、元全巻一package・一PDFゲートの成功ではない。
+
+§261の検証待ちを解消した。残る経路をremaining-paths.mdへ記録した。設計全体の受け入れは継続し、この段階の変更はまだコミット・pushしていない。検証後の文書更新3件は別のhash一覧で区別する。

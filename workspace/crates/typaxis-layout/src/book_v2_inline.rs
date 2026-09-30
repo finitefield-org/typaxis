@@ -14,7 +14,8 @@ pub use footnote_lines::{prepare_book_v2_footnote_lines, prepare_book_v2_footnot
 #[path = "book_v2_reshape.rs"]
 mod feedback;
 pub use feedback::{
-    with_budgeted_book_v2_body_lines_with_source_widths, with_converged_book_v2_body_lines,
+    with_budgeted_book_v2_body_lines, with_budgeted_book_v2_body_lines_with_source_widths,
+    with_converged_book_v2_body_lines,
     with_converged_book_v2_body_lines_in_page_frames,
     with_converged_book_v2_body_lines_with_native_context,
     with_converged_book_v2_body_lines_with_remaining_passes,
@@ -38,7 +39,8 @@ pub use source_widths::{
 #[path = "book_v2_frames.rs"]
 mod frames;
 pub use crate::math::book_v2::{
-    compute_book_v2_native_math, BookV2MathReceipt, BookV2NativeMath, BookV2PlacedInlineMath,
+    compute_book_v2_native_math, compute_book_v2_native_math_counted, BookV2MathReceipt,
+    BookV2NativeMath, BookV2NativeMathBudgetObservation, BookV2PlacedInlineMath,
     BOOK_V2_NATIVE_MATH_ALGORITHM, BOOK_V2_NATIVE_MATH_SET_ALGORITHM,
 };
 pub use crate::safe_vector::book_v2::{
@@ -151,7 +153,28 @@ pub fn prepare_book_v2_inline_items<'a>(
     limits: &M4EffectiveResourceLimits,
     japanese_mode: JapaneseLineBreakMode,
 ) -> Result<BookV2PreparedInlines<'a>, ProductionInlinePreparationError> {
-    let native = compute_book_v2_native_math(bindings, admitted, limits, 0, 0).map_err(|e| {
+    prepare_book_v2_inline_items_counted(
+        flow, shaped, admitted, bindings, limits, japanese_mode,
+        &mut BookV2NativeMathBudgetObservation::default(), &mut 0,
+    )
+}
+
+/// Observe owned native reservations independently from subsequent inline
+/// reservations. Native layout units do not represent line-candidate work.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_book_v2_inline_items_counted<'a>(
+    flow: &'a PreparedBookV2TextFlow<'a>,
+    shaped: &'a BookV2AuthoredTextShape<'a>,
+    admitted: &'a AdmittedProductionResourceLedgerV3,
+    bindings: &'a BookV2VectorBindings<'a>,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: JapaneseLineBreakMode,
+    native_budget: &mut BookV2NativeMathBudgetObservation,
+    observed_records: &mut u64,
+) -> Result<BookV2PreparedInlines<'a>, ProductionInlinePreparationError> {
+    let native = compute_book_v2_native_math_counted(bindings, admitted, limits, 0, 0, native_budget);
+    *observed_records = native_budget.record_charge();
+    let native = native.map_err(|e| {
         error(
             NodeId::new(0),
             ProductionInlinePreparationErrorKind::NativeMath(e),
@@ -166,7 +189,7 @@ pub fn prepare_book_v2_inline_items<'a>(
         japanese_mode,
         Some(bindings),
         native.map(PreparedBookV2Math::Owned),
-        &mut 0,
+        observed_records,
     )
 }
 /// Reuse the same immutable native computations across actual line/page passes.

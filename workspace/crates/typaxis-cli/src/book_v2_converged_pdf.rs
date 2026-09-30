@@ -211,26 +211,45 @@ pub fn with_budgeted_book_v2_pdf<R>(
     let admitted = input.resources();
     let bindings =
         bind_book_v2_vectors(&policy, admitted, limits).map_err(|e| stage("vectors", e))?;
-    let native = compute_book_v2_native_math(&bindings, admitted, limits, 0, 0)
-        .map_err(|e| stage("native math", e))?;
-    total.work = add(
+    let mut native_budget = BookV2NativeMathBudgetObservation::default();
+    let native = compute_book_v2_native_math_counted(
+        &bindings, admitted, limits, 0, 0, &mut native_budget,
+    );
+    // Recover each accepted local reservation, even when later construction
+    // failed. Command reservations remain atomic and never exceed their caps.
+    let native_work = add(
         total.work,
-        native.as_ref().map_or(0, |n| n.layout_work()),
+        native_budget.reserved_layout_units(),
         maximum_work,
         "work",
-    )?;
-    total.records = add(
+    );
+    if let Ok(accepted) = native_work {
+        total.work = accepted;
+    }
+    let native_records = add(
         total.records,
-        native.as_ref().map_or(0, |n| n.record_charge()),
+        native_budget.record_charge(),
         caps.max_fragments,
         "records",
-    )?;
-    total.spool = add(
+    );
+    if let Ok(accepted) = native_records {
+        total.records = accepted;
+    }
+    let native_spool = add(
         total.spool,
-        native.as_ref().map_or(0, |n| n.spool_charge()),
+        native_budget.spool_charge(),
         caps.max_spool_bytes,
         "spool",
-    )?;
+    );
+    if let Ok(accepted) = native_spool {
+        total.spool = accepted;
+    }
+    // Keep the original typed native failure ahead of command-limit errors.
+    // Successful native construction retains work, record, spool error order.
+    let native = native.map_err(|e| stage("native math", e))?;
+    native_work?;
+    native_records?;
+    native_spool?;
     let mut values = Vec::new();
     let page_plan;
     {

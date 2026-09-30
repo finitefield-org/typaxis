@@ -44,13 +44,11 @@ pub fn with_converged_book_v2_body_lines<R>(
     max_candidate_steps: u64,
     use_stable: impl FnOnce(BookV2ConvergedBodyLines<'_, '_, '_>) -> R,
 ) -> Result<R, ProductionBodyReshapeError> {
-    let native = compute_book_v2_native_math(bindings, admitted, limits, 0, 0).map_err(|e| {
-        error(
-            NodeId::new(0),
-            ProductionInlinePreparationErrorKind::NativeMath(e),
-        )
-    })?;
-    with_converged_book_v2_body_lines_with_native_context(
+    let mut allowance = BookV2BodyLineBudget::new(
+        max_candidate_steps,
+        limits.base().get().max_line_reshape_passes,
+    );
+    with_budgeted_book_v2_body_lines(
         policy,
         flow,
         admitted,
@@ -58,8 +56,48 @@ pub fn with_converged_book_v2_body_lines<R>(
         limits,
         japanese_mode,
         body,
-        max_candidate_steps,
+        &mut allowance,
+        &mut BookV2NativeMathBudgetObservation::default(),
+        use_stable,
+    )
+}
+
+/// Construct owned native math and retain its reservation independently from
+/// line-candidate work. Reuse the line owner to retain begun passes and records.
+#[allow(clippy::too_many_arguments)]
+pub fn with_budgeted_book_v2_body_lines<R>(
+    policy: &BookV2ResourcePolicy<'_>,
+    flow: &PreparedBookV2TextFlow<'_>,
+    admitted: &AdmittedProductionResourceLedgerV3,
+    bindings: &BookV2VectorBindings<'_>,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: JapaneseLineBreakMode,
+    body: Rect,
+    allowance: &mut BookV2BodyLineBudget,
+    native_budget: &mut BookV2NativeMathBudgetObservation,
+    use_stable: impl FnOnce(BookV2ConvergedBodyLines<'_, '_, '_>) -> R,
+) -> Result<R, ProductionBodyReshapeError> {
+    let native =
+        compute_book_v2_native_math_counted(bindings, admitted, limits, 0, 0, native_budget);
+    allowance.records = allowance.records.max(native_budget.record_charge());
+    let native = native.map_err(|e| {
+        error(
+            NodeId::new(0),
+            ProductionInlinePreparationErrorKind::NativeMath(e),
+        )
+    })?;
+    with_budgeted_book_v2_body_lines_with_source_widths(
+        policy,
+        flow,
+        admitted,
+        bindings,
+        limits,
+        japanese_mode,
+        body,
         native.as_ref(),
+        allowance,
+        None,
+        None,
         use_stable,
     )
 }

@@ -197,3 +197,4 @@
 - [ADR-0121: Preserve authored shaping and inline preparation record observations](ADR-0121-book-2-shape-inline-record-budget.md)
 - [ADR-0122: Retain running-region preparation and measurement record prefixes](ADR-0122-book-2-page-region-record-budget.md)
 - [ADR-0123: Preserve running-region source construction reservations](ADR-0123-book-2-page-region-source-budget.md)
+- [ADR-0124: Retain native math reservations through constructor failures](ADR-0124-book-2-native-constructor-budget.md)

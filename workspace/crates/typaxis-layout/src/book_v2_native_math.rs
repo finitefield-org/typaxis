@@ -1,4 +1,5 @@
 //! Actual successor native computations, shared across line/page feedback.
+pub use super::ProductionNativeMathBudgetObservation as BookV2NativeMathBudgetObservation;
 use super::*;
 use crate::book_v2::BookV2VectorBindings;
 use typaxis_core::FontInstanceId;
@@ -131,6 +132,28 @@ pub fn compute_book_v2_native_math<'a>(
     prior_records: u64,
     prior_spool: u64,
 ) -> Result<Option<BookV2NativeMath<'a>>, ProductionNativeMathComputationError> {
+    compute_book_v2_native_math_counted(
+        bindings,
+        admitted,
+        limits,
+        prior_records,
+        prior_spool,
+        &mut BookV2NativeMathBudgetObservation::default(),
+    )
+}
+
+/// Retain the caller's history and accepted preflight reservations on all exits.
+/// Font-table prefixes are included only when the shared storage bound accepts
+/// them; arithmetic or identity rejection does not consume a reservation.
+pub fn compute_book_v2_native_math_counted<'a>(
+    bindings: &'a BookV2VectorBindings<'a>,
+    admitted: &'a AdmittedProductionResourceLedgerV3,
+    limits: &M4EffectiveResourceLimits,
+    prior_records: u64,
+    prior_spool: u64,
+    observed: &mut BookV2NativeMathBudgetObservation,
+) -> Result<Option<BookV2NativeMath<'a>>, ProductionNativeMathComputationError> {
+    *observed = BookV2NativeMathBudgetObservation::new(prior_records, prior_spool);
     bindings
         .verify(bindings.body(), admitted, limits)
         .map_err(|_| StagingMathLayoutError::ReceiptMismatch)?;
@@ -161,6 +184,7 @@ pub fn compute_book_v2_native_math<'a>(
         limits,
         prior_records,
         prior_spool,
+        observed,
     )?;
     let instances = AdmittedProductionFontInstancesV3::from_used_faces(
         admitted,

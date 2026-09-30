@@ -88,7 +88,8 @@ pub use jpeg::{
     STAGING_JPEG_SIZING_ALGORITHM,
 };
 pub use math::{
-    compute_production_native_math, ProductionNativeMathComputationError,
+    compute_production_native_math, compute_production_native_math_counted,
+    ProductionNativeMathBudgetObservation, ProductionNativeMathComputationError,
     ProductionNativeMathComputations, ProductionNativeMathDisplayBlock,
     layout_staging_math, BoundPrecomposedMathSource, MathFlowId, MathReceiptKey,
     PrecomposedMathVectorKind, StagingMathFlow, StagingMathLayout, StagingMathLayoutEpoch,
