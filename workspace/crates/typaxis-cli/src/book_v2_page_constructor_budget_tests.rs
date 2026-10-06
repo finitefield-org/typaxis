@@ -98,7 +98,7 @@ fn check(font: Option<&[u8]>) {
             |lines| {
                 let prefix = pre_work + lines.candidate_steps();
                 let prior = command_source_record_charge(&flow)
-                    + plan.record_charge() + lines.footnotes().record_charge();
+                    + plan.record_charge() + lines.source_record_charge() + lines.retained_record_charge();
                 let measured = prepare_book_v2_table_measurements(
                     prepare_book_v2_body_flow(
                         lines.lines(),

@@ -107,7 +107,7 @@ fn check(font: Option<&[u8]>) {
             None,
             |lines| {
                 let initial = command_source_record_charge(&flow)
-                    + plan.record_charge() + lines.footnotes().record_charge();
+                    + plan.record_charge() + lines.source_record_charge() + lines.retained_record_charge();
                 let body = |prior, observed: &mut u64| {
                     prepare_book_v2_body_flow_counted(
                         lines.lines(),

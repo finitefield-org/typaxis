@@ -1,6 +1,8 @@
 use super::*;
 #[path = "book_v2_source_flow_record_tests.rs"]
 mod source_flow_records;
+#[path = "book_v2_source_verification_budget_tests.rs"]
+mod source_verification;
 #[path = "book_v2_table_constructor_budget_tests.rs"]
 mod table_constructor_budget;
 #[path = "book_v2_body_line_budget_tests.rs"]

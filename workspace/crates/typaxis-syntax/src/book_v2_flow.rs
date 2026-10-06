@@ -19,6 +19,47 @@ pub const BOOK_V2_TEXT_FLOW_ALGORITHM: &str = "typaxis.book-2-source-text-flow/1
 pub type PreparedBookV2TextFlow<'a> =
     SourceTextFlow<'a, StyledBookV2Body, PreparedBookV2Navigation<'a>>;
 
+/// Caller-owned reservations for full source reconstructions. This observation
+/// includes earlier caller history and grants no source or receipt authority.
+#[derive(Debug)]
+pub struct BookV2SourceVerificationBudget {
+    records: u64,
+    maximum: u64,
+    retained_records: u64,
+    prepaid_records: u64,
+}
+impl BookV2SourceVerificationBudget {
+    pub fn new(prior_records: u64, maximum_records: u64) -> Self {
+        Self::new_with_prepaid_records(prior_records, maximum_records, 0)
+    }
+    /// Use only after the caller has reserved this intrinsic graph bound in its
+    /// prior history. This budget is an observation, never graph authorization.
+    pub fn new_with_prepaid_records(
+        prior_records: u64, maximum_records: u64, prepaid_records: u64,
+    ) -> Self {
+        Self { records: prior_records, maximum: maximum_records, retained_records: 0, prepaid_records: prepaid_records.min(prior_records) }
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.records
+    }
+    /// Keep already observed intrinsic output out of the room available for a
+    /// new reconstruction. It is accounted separately from source history.
+    pub fn include_retained_records(&mut self, records: u64) {
+        self.retained_records = self.retained_records.max(records.saturating_sub(self.prepaid_records));
+    }
+    /// Keep every accepted reconstruction prefix, including failures and retries.
+    pub fn verify(
+        &mut self,
+        flow: &PreparedBookV2TextFlow<'_>,
+        body: &StyledBookV2Body,
+        navigation: &PreparedBookV2Navigation<'_>,
+    ) -> Result<(), ProductionFlowError> {
+        let maximum = self.maximum.min(body.body().limits().get().max_fragments)
+            .saturating_sub(self.retained_records);
+        flow.verify_for_counted(body, navigation, self.records, maximum, &mut self.records)
+    }
+}
+
 struct BookV2FlowSource<'a, 'b> {
     body: &'a StyledBookV2Body,
     navigation: &'a PreparedBookV2Navigation<'a>,
@@ -123,11 +164,30 @@ impl<'a> PreparedBookV2TextFlow<'a> {
         body: &StyledBookV2Body,
         navigation: &PreparedBookV2Navigation<'_>,
     ) -> Result<(), ProductionFlowError> {
+        self.verify_for_counted(
+            body, navigation, 0, self.package.body().limits().get().max_fragments, &mut 0,
+        )
+    }
+    /// Reconstruct and compare every flow field under both source and caller
+    /// ceilings. Initialize history before identity checks; recover accepted
+    /// reservations even when construction or the final full comparison fails.
+    pub fn verify_for_counted(
+        &self,
+        body: &StyledBookV2Body,
+        navigation: &PreparedBookV2Navigation<'_>,
+        prior_records: u64,
+        maximum_records: u64,
+        observed_records: &mut u64,
+    ) -> Result<(), ProductionFlowError> {
+        *observed_records = prior_records;
         let mismatch = || failure(ProductionFlowErrorKind::ReceiptMismatch, NodeId::new(0));
         if !std::ptr::eq(self.package, body) || !std::ptr::eq(self.navigation, navigation) {
             return Err(mismatch());
         }
-        let observed = prepare_inner(self.package, self.navigation, self.page_reference_values())?;
+        let observed = prepare_inner_counted(
+            self.package, self.navigation, self.page_reference_values(),
+            prior_records, maximum_records, observed_records,
+        )?;
         if self.events != observed.events
             || self.paragraphs != observed.paragraphs
             || self.named_page_breaks != observed.named_page_breaks

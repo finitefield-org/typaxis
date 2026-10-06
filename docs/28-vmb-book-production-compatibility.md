@@ -5672,3 +5672,27 @@ font subsetsの独立検証、全759組と保存済みVMB表2出力の§264と�
 完全なcommand allocation／spool／work、rules／style内部と同時保持再検証graph、
 navigation構築・admission・shaping／backend／font内部、名前付きページ・段組、
 公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。
+
+### 14.266 全flow再構築検査のレコード履歴を組版へ接続（実装追補）
+
+本文flowのcounted検証は元body／navigationのidentityを確認し、全collectionと
+生成buffer・局所課金・fingerprintを再構築して比較する。保存課金やhashだけを
+根拠にしない。caller／本文の上限へ構築前に予約し、後段失敗と再試行でも
+受理済みprefixを保持する。組版／inline／行パスとvariant seed／単一・集合replay
+へ累積検証予算を渡し、実PDF driverが成功・失敗の双方で回収する。
+局所出力は別に観測し、既観測の局所出力が次の再構築の空きを減らす。
+既存canonical、intrinsic outputのfingerprint、legacyと柱領域の予算は維持する。
+
+[ADR-0129](../adr/ADR-0129-book-2-source-verification-budget.md)と
+[実装台帳§266](28-vmb-book-production-progress.md#source-verification-budget-design-14266)を参照。
+実public clientの17成功例／7型付き拒否と通常38割当観測は§265と一致し、40検証拒否の
+追加heap割当0と20 exact／one-below境界が成功した。Core 21／math 8 tests、legacy
+syntax 76 tests＋doc-test 6件、Book /2 syntax 146 tests＋doc-test 12件、workspace型検査、
+layout 70 tests＋doc-test 1件とCLI 298 testsが成功した。原フォントと保存済みVMB入力を
+使い、759 PDF／2,896 pagesと58 font subsetsの独立検証、全759組と保存済みVMB表
+2出力の§265とのbyte一致も成功した。177ソース・全24変更・8 client／runner・3原入力・
+12成功ログ、実コマンド／終了コード／環境と測定binaryを照合し、検証後の文書3件を
+別hashで記録した。
+局所出力のcaller残量による事前制限、完全なcommand byte／spool／work、
+rules／style・同時保持graph・navigation・admission・backend／font内部、
+名前付きページ・段組、公開Book /2、元全巻と管理ホスト・性能・著者／人手受入は継続する。

@@ -56,7 +56,7 @@ pub use frames::{
 };
 use typaxis_resource_admission::AdmittedProductionResourceLedgerV3;
 use typaxis_shaping::book_v2::BookV2AuthoredTextShape;
-use typaxis_syntax::book_v2::PreparedBookV2TextFlow;
+use typaxis_syntax::book_v2::{BookV2SourceVerificationBudget, PreparedBookV2TextFlow};
 
 pub const BOOK_V2_TEXT_INLINE_ALGORITHM: &str = "typaxis.book-2-text-inline/1";
 pub const BOOK_V2_TEXT_LINE_ALGORITHM: &str = "typaxis.book-2-text-lines/1";
@@ -144,6 +144,7 @@ pub fn prepare_book_v2_text_inlines<'a>(
         None,
         None,
         &mut 0,
+        &mut BookV2SourceVerificationBudget::new(0, limits.base().get().max_fragments),
     )
 }
 /// Join actual source-bound vector placements with the shared authored text.
@@ -192,6 +193,7 @@ pub fn prepare_book_v2_inline_items_counted<'a>(
         Some(bindings),
         native.map(PreparedBookV2Math::Owned),
         observed_records,
+        &mut BookV2SourceVerificationBudget::new(0, limits.base().get().max_fragments),
     )
 }
 /// Reuse the same immutable native computations across actual line/page passes.
@@ -229,7 +231,29 @@ pub fn prepare_book_v2_inline_items_with_native_context_counted<'a>(
     native: Option<&'a BookV2NativeMath<'a>>,
     observed_records: &mut u64,
 ) -> Result<BookV2PreparedInlines<'a>, ProductionInlinePreparationError> {
-    prepare_inlines(
+    prepare_book_v2_inline_items_with_source_budget_counted(
+        flow, shaped, admitted, bindings, limits, japanese_mode, native,
+        &mut BookV2SourceVerificationBudget::new(0, limits.base().get().max_fragments),
+        observed_records,
+    )
+}
+
+/// Keep full source revalidation history independent from native/inline output.
+/// The same caller budget can span shaping, line passes and replayed graphs.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_book_v2_inline_items_with_source_budget_counted<'a>(
+    flow: &'a PreparedBookV2TextFlow<'a>,
+    shaped: &'a BookV2AuthoredTextShape<'a>,
+    admitted: &AdmittedProductionResourceLedgerV3,
+    bindings: &'a BookV2VectorBindings<'a>,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: JapaneseLineBreakMode,
+    native: Option<&'a BookV2NativeMath<'a>>,
+    source_budget: &mut BookV2SourceVerificationBudget,
+    observed_records: &mut u64,
+) -> Result<BookV2PreparedInlines<'a>, ProductionInlinePreparationError> {
+    source_budget.include_retained_records(native.map_or(0, |n| n.record_charge()));
+    let result = prepare_inlines(
         flow,
         shaped,
         admitted,
@@ -239,7 +263,10 @@ pub fn prepare_book_v2_inline_items_with_native_context_counted<'a>(
         Some(bindings),
         native.map(PreparedBookV2Math::Borrowed),
         observed_records,
-    )
+        source_budget,
+    );
+    source_budget.include_retained_records(*observed_records);
+    result
 }
 #[allow(clippy::too_many_arguments)]
 fn prepare_inlines<'a>(
@@ -252,6 +279,7 @@ fn prepare_inlines<'a>(
     bindings: Option<&'a BookV2VectorBindings<'a>>,
     native_math: Option<PreparedBookV2Math<'a>>,
     charge: &mut u64,
+    source_budget: &mut BookV2SourceVerificationBudget,
 ) -> Result<BookV2PreparedInlines<'a>, ProductionInlinePreparationError> {
     *charge = native_math.as_ref().map_or(0, |n| n.record_charge());
     if let Some(bindings) = bindings {
@@ -263,13 +291,18 @@ fn prepare_inlines<'a>(
                     ProductionInlinePreparationErrorKind::ReceiptMismatch,
                 )
             })?;
-        flow.verify_for(bindings.body().styled(), flow.navigation())
-            .map_err(|_| {
-                error(
-                    NodeId::new(0),
-                    ProductionInlinePreparationErrorKind::ReceiptMismatch,
-                )
-            })?;
+    }
+    source_budget.verify(
+        flow, bindings.map_or(flow.body(), |b| b.body().styled()), flow.navigation(),
+    ).map_err(|e| {
+        let kind = match e.kind {
+            typaxis_syntax::ProductionFlowErrorKind::NodeLimit => ProductionInlinePreparationErrorKind::UnitLimit,
+            typaxis_syntax::ProductionFlowErrorKind::AllocationFailure => ProductionInlinePreparationErrorKind::AllocationFailure,
+            _ => ProductionInlinePreparationErrorKind::ReceiptMismatch,
+        };
+        error(e.owner, kind)
+    })?;
+    if let Some(bindings) = bindings {
         if let Some(native) = &native_math {
             native.verify(bindings, admitted, limits).map_err(|e| {
                 error(

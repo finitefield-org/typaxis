@@ -55,7 +55,7 @@ fn check(text: &str, font: Option<&[u8]>) {
             // driver, so a lost failure counter cannot hide in a self-comparison.
             let prefix = pre_work + lines.candidate_steps();
             let records = command_source_record_charge(&flow)
-                + plan.record_charge() + lines.footnotes().record_charge();
+                + plan.record_charge() + lines.source_record_charge() + lines.retained_record_charge();
             let measured = prepare_book_v2_table_measurements(
                 prepare_book_v2_body_flow(lines.lines(), None, lines.footnotes(), &limits, records).unwrap(),
                 &limits,

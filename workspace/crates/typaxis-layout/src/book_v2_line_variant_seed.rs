@@ -3,7 +3,7 @@
 use super::*;
 use typaxis_core::Rect;
 use typaxis_linebreak::BreakError;
-use typaxis_shaping::{book_v2::shape_book_v2_authored_text, ProductionParagraphLineContext};
+use typaxis_shaping::{book_v2::shape_book_v2_authored_text_with_source_budget_counted, ProductionParagraphLineContext};
 use typaxis_syntax::book_v2::{BookV2PageFramePlan, BookV2ResourcePolicy};
 
 /// All replay inputs remain borrowed and immutable. No caller-supplied hash or
@@ -25,6 +25,8 @@ pub struct BookV2BodyLineVariantSeed<'a> {
     records: u64,
     work: u64,
     passes: u16,
+    source_records: u64,
+    retained_records: u64,
 }
 impl<'a> BookV2BodyLineVariantSeed<'a> {
     pub fn source_flow(&self) -> &PreparedBookV2TextFlow<'_> {
@@ -41,6 +43,13 @@ impl<'a> BookV2BodyLineVariantSeed<'a> {
     }
     pub fn reshape_passes(&self) -> u16 {
         self.passes
+    }
+    /// Earlier caller history plus this seed's full source reconstructions.
+    pub fn source_record_charge(&self) -> u64 {
+        self.source_records
+    }
+    pub fn retained_record_charge(&self) -> u64 {
+        self.retained_records
     }
     pub fn contexts(&self) -> &ProductionSelectedLineContexts {
         &self.contexts
@@ -211,7 +220,10 @@ pub fn prepare_budgeted_book_v2_body_line_variant_seed<'a>(
         .into());
     }
     let maximum_work = allowance.remaining_work();
-    let mut line_budget = BookV2BodyLineBudget::new(maximum_work, allowance.remaining_passes());
+    let mut line_budget = BookV2BodyLineBudget::new_with_source_records(
+        maximum_work, allowance.remaining_passes(), allowance.records,
+        limits.base().get().max_fragments,
+    );
     let mut capture_work = 0;
     let mut capture_records = prior_records;
     let result = with_budgeted_book_v2_body_lines_with_source_widths(
@@ -243,9 +255,13 @@ pub fn prepare_budgeted_book_v2_body_line_variant_seed<'a>(
             }
             take_work(&mut capture_work, 1, capture_maximum)?;
             let rebuild_records = stable.footnotes().record_charge();
+            let source_prior = stable.source_record_charge()
+                .checked_add(stable.retained_record_charge())
+                .filter(|n| *n <= limits.base().get().max_fragments)
+                .ok_or_else(|| error(NodeId::new(0), ProductionInlinePreparationErrorKind::UnitLimit))?;
             let contexts = super::super::line_context::selected_contexts_counted(
                 lines.paragraphs(),
-                prior_records.max(rebuild_records),
+                source_prior,
                 limits.base().get().max_fragments - 1,
                 lines.fingerprint(),
                 &mut capture_records,
@@ -270,18 +286,20 @@ pub fn prepare_budgeted_book_v2_body_line_variant_seed<'a>(
                 source_widths,
                 contexts,
                 rebuild_records,
-                captured_records: records - prior_records.max(rebuild_records),
+                captured_records: records - source_prior,
                 records,
                 work: stable.candidate_steps() + capture_work,
                 passes: u16::try_from(stable.passes().len())
                     .map_err(|_| BreakError::IterationLimit)?,
+                source_records: stable.source_record_charge(),
+                retained_records: stable.retained_record_charge(),
             })
         },
     );
-    allowance.records = allowance
-        .records
-        .max(capture_records)
-        .max(line_budget.record_charge());
+    let observed_records = line_budget.source_record_charge()
+        .checked_add(line_budget.record_charge())
+        .ok_or_else(|| error(NodeId::new(0), ProductionInlinePreparationErrorKind::UnitLimit))?;
+    allowance.records = allowance.records.max(capture_records).max(observed_records);
     allowance.work += line_budget.candidate_steps() + capture_work;
     allowance.passes += line_budget.reshape_passes();
     result?
@@ -342,8 +360,7 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variant<R>(
     let mut work = 0;
     let result = (|| {
         let root = NodeId::new(0);
-        let records = prior_records
-            .max(seed.records)
+        let mut records = allowance.records
             .checked_add(seed.rebuild_records)
             .and_then(|n| n.checked_add(seed.contexts.paragraphs().len() as u64))
             .and_then(|n| n.checked_add(1))
@@ -368,15 +385,23 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variant<R>(
                     ends: p.ends(),
                 }),
         );
-        let shape = shape_book_v2_authored_text(
+        let mut source_budget = BookV2SourceVerificationBudget::new_with_prepaid_records(
+            allowance.records, seed.limits.base().get().max_fragments, seed.rebuild_records,
+        );
+        let mut local_records = 0;
+        let shape = shape_book_v2_authored_text_with_source_budget_counted(
             seed.policy,
             seed.flow,
             seed.admitted,
             seed.limits,
             seed.bindings.epoch(),
             Some(&inputs),
-        )?;
-        let prepared = prepare_book_v2_inline_items_with_native_context(
+            &mut source_budget,
+            &mut local_records,
+        );
+        allowance.records = source_budget.record_charge();
+        let shape = shape?;
+        let prepared = prepare_book_v2_inline_items_with_source_budget_counted(
             seed.flow,
             &shape,
             seed.admitted,
@@ -384,7 +409,12 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variant<R>(
             seed.limits,
             seed.japanese_mode,
             seed.native,
-        )?;
+            &mut source_budget,
+            &mut local_records,
+        );
+        allowance.records = source_budget.record_charge();
+        let prepared = prepared?;
+        records = allowance.records;
         let mut consumed = 0;
         let selected = super::frames::layout_body_lines_counted(
             &prepared,

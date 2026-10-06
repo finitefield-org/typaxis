@@ -257,6 +257,15 @@ fn check(font: Option<&[u8]>) {
                 limits.base().get().max_line_reshape_passes,
             );
             for prior in [0, 3] {
+                let history = seed_budget.record_charge().max(prior);
+                let mut independent = BookV2BodyLineBudget::new_with_source_records(
+                    1_000_000, limits.base().get().max_line_reshape_passes,
+                    history, limits.base().get().max_fragments,
+                );
+                assert!(budgeted(
+                    &policy, &flow, input.resources(), &bindings, &limits, MODE,
+                    plan.measurement_body(), None, &mut independent, Some(&plan), None, |_| (),
+                ).is_err());
                 assert!(
                     typaxis_layout::book_v2::prepare_budgeted_book_v2_body_line_variant_seed(
                         &policy,
@@ -276,7 +285,7 @@ fn check(font: Option<&[u8]>) {
                 );
                 assert_eq!(
                     seed_budget.record_charge(),
-                    budget.record_charge().max(prior)
+                    independent.source_record_charge() + independent.record_charge()
                 );
                 assert_eq!(
                     (seed_budget.work_steps(), seed_budget.reshape_passes()),
@@ -293,6 +302,16 @@ fn check(font: Option<&[u8]>) {
                 let mut driver =
                     crate::book_v2_resources::BookV2PdfConvergenceBudget::new(&limits, 1_000_000);
                 for attempt in 1..=2 {
+                    let history = driver.observation().record_charge()
+                        + command_source_record_charge(&flow) + plan.record_charge();
+                    let mut independent = BookV2BodyLineBudget::new_with_source_records(
+                        1_000_000, limits.base().get().max_line_reshape_passes,
+                        history, limits.base().get().max_fragments,
+                    );
+                    assert!(budgeted(
+                        &policy, &flow, input.resources(), &bindings, &limits, MODE,
+                        plan.measurement_body(), None, &mut independent, Some(&plan), None, |_| (),
+                    ).is_err());
                     let cause = crate::book_v2_resources::with_budgeted_book_v2_pdf(
                         &input,
                         &limits,
@@ -313,7 +332,7 @@ fn check(font: Option<&[u8]>) {
                     );
                     assert_eq!(
                         driver.observation().record_charge(),
-                        attempt * (command_source_record_charge(&flow) + plan.record_charge() + budget.record_charge())
+                        independent.source_record_charge() + independent.record_charge()
                     );
                     assert_eq!(driver.observation().work_steps(), attempt * prefix_work);
                     assert_eq!(driver.observation().line_reshape_passes(), 0);

@@ -152,15 +152,19 @@ fn check(font: Option<&[u8]>) {
         };
         let complete = seed(&mut seed_budget, 0).unwrap();
         assert_eq!(seed_budget.record_charge(), complete.record_charge());
-        let extra = complete.record_charge() - rebuilt;
+        let construction = complete.source_record_charge() + complete.retained_record_charge();
+        assert!(complete.retained_record_charge() >= rebuilt);
+        let extra = complete.contexts().paragraphs().iter()
+            .map(|p| p.ends().len() as u64 + 2).sum::<u64>() + 1;
+        assert_eq!(complete.record_charge(), construction + extra);
         let cap = limits.base().get().max_fragments;
         let mut partial = false;
         for remaining in 0..extra {
-            let prior = cap - remaining;
+            let prior = cap - construction - remaining;
             let mut budget = BookV2LineVariantBudget::new(maximum, passes);
             assert!(seed(&mut budget, prior).is_err());
             assert!(budget.record_charge() >= prior && budget.record_charge() <= cap);
-            partial |= budget.record_charge() > prior;
+            partial |= budget.record_charge() > prior + construction;
             if remaining > 0 {
                 assert_eq!(budget.work_steps(), complete.work_steps());
             }
@@ -170,7 +174,7 @@ fn check(font: Option<&[u8]>) {
             "later paragraphs must retain earlier accepted contexts"
         );
         let mut exact = BookV2LineVariantBudget::new(maximum, passes);
-        assert_eq!(seed(&mut exact, cap - extra).unwrap().record_charge(), cap);
+        assert_eq!(seed(&mut exact, cap - construction - extra).unwrap().record_charge(), cap);
         assert_eq!(exact.record_charge(), cap);
         // Independent line attempt versus the driver before its callback.
         let mut local = BookV2BodyLineBudget::new(full.candidate_steps() - 1, passes);
@@ -209,7 +213,8 @@ fn check(font: Option<&[u8]>) {
         );
         assert_eq!(
             driver.observation().record_charge(),
-            command_source_record_charge(&flow) + plan.record_charge() + local.record_charge()
+            command_source_record_charge(&flow) + plan.record_charge()
+                + local.source_record_charge() + local.record_charge()
         );
         assert_eq!(
             driver.observation().work_steps(),

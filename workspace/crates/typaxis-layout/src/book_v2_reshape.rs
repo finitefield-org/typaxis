@@ -6,7 +6,7 @@ use typaxis_linebreak::{
     LineReshapePassRecord,
 };
 use typaxis_shaping::{
-    book_v2::shape_book_v2_authored_text_counted, ProductionParagraphLineContext,
+    book_v2::shape_book_v2_authored_text_with_source_budget_counted, ProductionParagraphLineContext,
 };
 use typaxis_syntax::book_v2::BookV2ResourcePolicy;
 
@@ -17,6 +17,8 @@ pub struct BookV2ConvergedBodyLines<'s, 'p, 'a> {
     footnotes: BookV2FootnoteLines<'s, 'p, 'a>,
     passes: &'s [LineReshapePassRecord],
     candidate_steps: u64,
+    source_records: u64,
+    retained_records: u64,
 }
 impl<'s, 'p, 'a> BookV2ConvergedBodyLines<'s, 'p, 'a> {
     pub fn footnotes(&self) -> &BookV2FootnoteLines<'s, 'p, 'a> {
@@ -30,6 +32,15 @@ impl<'s, 'p, 'a> BookV2ConvergedBodyLines<'s, 'p, 'a> {
     }
     pub fn candidate_steps(&self) -> u64 {
         self.candidate_steps
+    }
+    /// Caller history plus every accepted source-reconstruction reservation.
+    /// Intrinsic line/footnote records remain separate.
+    pub fn source_record_charge(&self) -> u64 {
+        self.source_records
+    }
+    /// Largest accepted intrinsic graph prefix, including context capture.
+    pub fn retained_record_charge(&self) -> u64 {
+        self.retained_records
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -255,18 +266,19 @@ pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
     let initial_steps = allowance.remaining_steps;
     let (mut contexts, initial_state) = {
         let mut records = 0;
-        let shape = shape_book_v2_authored_text_counted(
+        let shape = shape_book_v2_authored_text_with_source_budget_counted(
             policy,
             flow,
             admitted,
             limits,
             epoch,
             None,
+            &mut allowance.source_records,
             &mut records,
         );
         allowance.records = allowance.records.max(records);
         let shape = shape?;
-        let prepared = prepare_book_v2_inline_items_with_native_context_counted(
+        let prepared = prepare_book_v2_inline_items_with_source_budget_counted(
             flow,
             &shape,
             admitted,
@@ -274,6 +286,7 @@ pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
             limits,
             japanese_mode,
             native,
+            &mut allowance.source_records,
             &mut records,
         );
         allowance.records = allowance.records.max(records);
@@ -307,18 +320,19 @@ pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
         let permit = feedback.begin_pass(&mut budget)?;
         allowance.remaining_passes -= 1;
         let mut records = 0;
-        let shape = shape_book_v2_authored_text_counted(
+        let shape = shape_book_v2_authored_text_with_source_budget_counted(
             policy,
             flow,
             admitted,
             limits,
             epoch,
             Some(&inputs),
+            &mut allowance.source_records,
             &mut records,
         );
         allowance.records = allowance.records.max(records);
         let shape = shape?;
-        let prepared = prepare_book_v2_inline_items_with_native_context_counted(
+        let prepared = prepare_book_v2_inline_items_with_source_budget_counted(
             flow,
             &shape,
             admitted,
@@ -326,6 +340,7 @@ pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
             limits,
             japanese_mode,
             native,
+            &mut allowance.source_records,
             &mut records,
         );
         allowance.records = allowance.records.max(records);
@@ -344,6 +359,8 @@ pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
                     footnotes: footnotes?,
                     passes: feedback.records(),
                     candidate_steps: initial_steps - allowance.remaining_steps,
+                    source_records: allowance.source_record_charge(),
+                    retained_records: allowance.record_charge(),
                 }));
             }
             LineReshapeObservation::RebreakRequired => {
@@ -362,20 +379,37 @@ pub struct BookV2BodyLineBudget {
     maximum_passes: u16,
     remaining_passes: u16,
     records: u64,
+    source_records: BookV2SourceVerificationBudget,
 }
 impl BookV2BodyLineBudget {
     pub fn new(maximum_steps: u64, maximum_passes: u16) -> Self {
+        Self::new_with_source_records(maximum_steps, maximum_passes, 0, u64::MAX)
+    }
+    /// Carry command history into each full source reconstruction. The source
+    /// body's ceiling still applies when it is smaller than the caller ceiling.
+    pub fn new_with_source_records(
+        maximum_steps: u64,
+        maximum_passes: u16,
+        prior_records: u64,
+        maximum_records: u64,
+    ) -> Self {
         Self {
             maximum_steps,
             remaining_steps: maximum_steps,
             maximum_passes,
             remaining_passes: maximum_passes,
             records: 0,
+            source_records: BookV2SourceVerificationBudget::new(prior_records, maximum_records),
         }
     }
-    /// Largest accepted local record prefix; not a sum of released pass storage.
+    /// Largest accepted local output prefix, excluding source reconstructions;
+    /// not a sum of released pass storage.
     pub fn record_charge(&self) -> u64 {
         self.records
+    }
+    /// Caller history and all source reservations, including failed attempts.
+    pub fn source_record_charge(&self) -> u64 {
+        self.source_records.record_charge()
     }
     fn capture_contexts(
         &mut self,
@@ -384,6 +418,7 @@ impl BookV2BodyLineBudget {
         let mut records = 0;
         let result = selected.selected_line_contexts_counted(&mut records);
         self.records = self.records.max(records);
+        self.source_records.include_retained_records(self.records);
         result
     }
     pub fn candidate_steps(&self) -> u64 {
@@ -418,6 +453,7 @@ impl BookV2BodyLineBudget {
         );
         self.remaining_steps -= consumed;
         self.records = self.records.max(records);
+        self.source_records.include_retained_records(self.records);
         result
     }
 }

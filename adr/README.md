@@ -202,3 +202,4 @@
 - [ADR-0126: Compare math canonicals without rebuilding temporary strings](ADR-0126-math-canonical-streaming.md)
 - [ADR-0127: Hash source-flow canonicals without retaining temporary strings](ADR-0127-source-flow-canonical-streaming.md)
 - [ADR-0128: Retain main source-flow reservations across command failures](ADR-0128-book-2-source-flow-record-budget.md)
+- [ADR-0129: Retain full source verification reservations through layout](ADR-0129-book-2-source-verification-budget.md)

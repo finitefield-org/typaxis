@@ -22,7 +22,7 @@ use typaxis_layout::book_v2::{
 use typaxis_linebreak::JapaneseLineBreakMode;
 const MODE: JapaneseLineBreakMode = JapaneseLineBreakMode::Normal;
 
-fn wide_data(text: &str) -> Value {
+pub(super) fn wide_data(text: &str) -> Value {
     let mut data = source_data(text);
     let master = &mut data["page_masters"]["masters"][0];
     master["width"] = 12_000_000.into();
@@ -547,14 +547,20 @@ fn check_seed_budget(text: &str, font: Option<&[u8]>) {
     );
     // Capacity for the seed context is checked after actual stable convergence.
     // Rejecting that allocation must retain both convergence and capture work.
-    let mut capture = BookV2LineVariantBudget::new(1_000_000, passes);
+    let captured = expected.contexts().paragraphs().iter()
+        .map(|p| p.ends().len() as u64 + 2).sum::<u64>() + 1;
+    assert_eq!(expected.record_charge(), expected.source_record_charge()
+        + expected.retained_record_charge() + captured);
+    let construction = expected.source_record_charge() + expected.retained_record_charge();
     for n in 1..=2 {
-        assert!(run(&mut capture, limits.base().get().max_fragments - 1).is_err());
-        assert_eq!(capture.work_steps(), n * expected.work_steps());
-        assert_eq!(
-            u64::from(capture.reshape_passes()),
-            n * u64::from(expected.reshape_passes())
-        );
+        let mut capture = BookV2LineVariantBudget::new(1_000_000, passes);
+        assert!(run(&mut capture, limits.base().get().max_fragments - construction - 1).is_err());
+        assert_eq!(capture.work_steps(), expected.work_steps());
+        assert_eq!(capture.reshape_passes(), expected.reshape_passes());
+        let records = capture.record_charge();
+        assert!(run(&mut capture, 0).is_err());
+        assert!(capture.record_charge() >= records);
+        assert_eq!(capture.work_steps(), expected.work_steps(), "retry {n} must not invent convergence work");
     }
     let profiles = vec![None; flow.paragraphs().len()];
     let widths = BookV2SourceWidthAssignments::new(&flow, &profiles).unwrap();
@@ -649,19 +655,22 @@ fn check_replay_budget(text: &str, font: Option<&[u8]>) {
             (v.lines().fingerprint(), v.work_steps(), v.record_charge())
         })
     };
+    let graph = old(&expected, 1_000_000, 0, |v| v.footnotes().record_charge()).unwrap();
+    let replay_reservation = graph + expected.contexts().paragraphs().len() as u64 + 1;
     let mut exact = BookV2LineVariantBudget::new(baseline.1, 0);
     assert_eq!(run(&mut exact, 0).unwrap(), baseline);
     assert_eq!(exact.record_charge(), baseline.2);
     assert_eq!((exact.remaining_work(), exact.reshape_passes()), (0, 0));
     assert!(run(&mut exact, 0).is_err());
     assert_eq!(exact.work_steps(), baseline.1);
+    assert_eq!(exact.record_charge(), baseline.2 + replay_reservation);
     let mut short = BookV2LineVariantBudget::new(baseline.1 - 1, 0);
     assert!(run(&mut short, 0).is_err());
     assert_eq!(short.work_steps(), baseline.1 - 1);
     assert_eq!(short.record_charge(), baseline.2);
     assert!(run(&mut short, 0).is_err());
     assert_eq!(short.work_steps(), baseline.1 - 1);
-    assert_eq!(short.record_charge(), baseline.2);
+    assert_eq!(short.record_charge(), baseline.2 + replay_reservation);
     let mut partial = BookV2LineVariantBudget::new(baseline.1 / 2, 0);
     assert!(run(&mut partial, 0).is_err());
     assert!(
@@ -717,8 +726,12 @@ fn check_replay_budget(text: &str, font: Option<&[u8]>) {
     assert_eq!(exact.record_charge(), all.2);
     assert_eq!((exact.remaining_work(), exact.reshape_passes()), (0, 0));
     let mut repeated = BookV2LineVariantBudget::new(2 * all.1, 0);
+    let set_reservation = seeds.len() as u64 * (graph + expected.contexts().paragraphs().len() as u64 + 5) + 1;
+    let set_verifications = 2 * seeds.len() as u64 * flow.source_record_charge();
     for n in 1..=2 {
-        assert_eq!(run_set(&mut repeated, 0).unwrap(), all);
+        let next = run_set(&mut repeated, 0).unwrap();
+        assert_eq!((&next.0, next.1, &next.3), (&all.0, all.1, &all.3));
+        assert_eq!(next.2, all.2 + (n - 1) * (set_reservation + set_verifications));
         assert_eq!(repeated.work_steps(), n * all.1);
     }
     let mut short = BookV2LineVariantBudget::new(all.1 - 1, 0);

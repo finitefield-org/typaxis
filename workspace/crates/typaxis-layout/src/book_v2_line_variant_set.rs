@@ -100,9 +100,9 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variants<R>(
         }
         // Independent seeds may have overlapping prior charges. Count every owned
         // context once above the largest prior base; preserve a larger caller ledger.
-        let records = base
+        let mut records = base
             .checked_add(captured)
-            .map(|n| n.max(prior_records))
+            .map(|n| n.max(allowance.records))
             .and_then(|n| n.checked_add(graphs))
             .and_then(|n| n.checked_add(views))
             .and_then(|n| {
@@ -140,16 +140,24 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variants<R>(
         shapes
             .try_reserve_exact(seeds.len())
             .map_err(|_| BreakError::AllocationFailure)?;
+        let mut source_budget = BookV2SourceVerificationBudget::new_with_prepaid_records(
+            allowance.records, first.limits.base().get().max_fragments, graphs,
+        );
+        let mut local_records = 0;
         for (seed, inputs) in seeds.iter().zip(&inputs) {
             take_work(&mut work, 1, maximum_work)?;
-            shapes.push(shape_book_v2_authored_text(
+            let shape = shape_book_v2_authored_text_with_source_budget_counted(
                 seed.policy,
                 seed.flow,
                 seed.admitted,
                 seed.limits,
                 seed.bindings.epoch(),
                 Some(inputs),
-            )?);
+                &mut source_budget,
+                &mut local_records,
+            );
+            allowance.records = source_budget.record_charge();
+            shapes.push(shape?);
         }
         let mut prepared = Vec::new();
         prepared
@@ -157,7 +165,7 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variants<R>(
             .map_err(|_| BreakError::AllocationFailure)?;
         for (seed, shape) in seeds.iter().zip(&shapes) {
             take_work(&mut work, 1, maximum_work)?;
-            prepared.push(prepare_book_v2_inline_items_with_native_context(
+            let inlines = prepare_book_v2_inline_items_with_source_budget_counted(
                 seed.flow,
                 shape,
                 seed.admitted,
@@ -165,8 +173,13 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variants<R>(
                 seed.limits,
                 seed.japanese_mode,
                 seed.native,
-            )?);
+                &mut source_budget,
+                &mut local_records,
+            );
+            allowance.records = source_budget.record_charge();
+            prepared.push(inlines?);
         }
+        records = allowance.records;
         let mut selected = Vec::new();
         selected
             .try_reserve_exact(seeds.len())

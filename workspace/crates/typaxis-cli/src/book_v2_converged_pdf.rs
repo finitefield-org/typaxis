@@ -749,7 +749,9 @@ pub fn with_budgeted_book_v2_pdf<R>(
             total.page_passes = budget.page_passes;
             result?
         } else {
-            let mut allowance = BookV2BodyLineBudget::new(remaining_work, reshape_left);
+            let mut allowance = BookV2BodyLineBudget::new_with_source_records(
+                remaining_work, reshape_left, total.records, caps.max_fragments,
+            );
             let mut entered = false;
             let result = with_budgeted_book_v2_body_lines_with_source_widths(
                 &policy,
@@ -765,6 +767,7 @@ pub fn with_budgeted_book_v2_pdf<R>(
                 assignments.as_ref(),
                 |lines| -> Result<Option<R>, E> {
                     entered = true;
+                    total.records = total.records.max(lines.source_record_charge());
                     let line_passes =
                         u16::try_from(lines.passes().len()).map_err(|_| E::Limit("line passes"))?;
                     total.line_passes = total
@@ -776,7 +779,7 @@ pub fn with_budgeted_book_v2_pdf<R>(
                     let remaining = maximum_work - total.work;
                     let records = add(
                         total.records,
-                        lines.footnotes().record_charge(),
+                        lines.retained_record_charge(),
                         caps.max_fragments,
                         "records",
                     )?;
@@ -834,6 +837,9 @@ pub fn with_budgeted_book_v2_pdf<R>(
                 },
             );
             if !entered {
+                // Recover accepted full-source reservations before any later
+                // work/pass/record error can leave this invocation.
+                total.records = total.records.max(allowance.source_record_charge());
                 total.work = add(
                     total.work,
                     allowance.candidate_steps(),

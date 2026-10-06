@@ -10,7 +10,9 @@ pub use equation_numbers::{
 use typaxis_resource_admission::{
     AdmittedProductionFontInstancesV3, AdmittedProductionResourceLedgerV3,
 };
-use typaxis_syntax::book_v2::{BookV2ResourcePolicy, PreparedBookV2TextFlow};
+use typaxis_syntax::book_v2::{
+    BookV2ResourcePolicy, BookV2SourceVerificationBudget, PreparedBookV2TextFlow,
+};
 pub const BOOK_V2_AUTHORED_TEXT_SHAPE_ALGORITHM: &str = "typaxis.book-2-authored-text-shape/1";
 pub struct BookV2AuthoredTextShape<'a> {
     flow: &'a PreparedBookV2TextFlow<'a>,
@@ -87,14 +89,38 @@ pub fn shape_book_v2_authored_text_counted<'a>(
     lines: Option<&[ProductionParagraphLineContext<'_>]>,
     observed_records: &mut u64,
 ) -> Result<BookV2AuthoredTextShape<'a>, ProductionTextShapeError> {
+    shape_book_v2_authored_text_with_source_budget_counted(
+        policy, flow, admitted, limits, epoch, lines,
+        &mut BookV2SourceVerificationBudget::new(0, limits.base().get().max_fragments),
+        observed_records,
+    )
+}
+
+/// Account the independently reconstructed source separately from intrinsic
+/// shaping output. Retain both observations before propagating any error.
+#[allow(clippy::too_many_arguments)]
+pub fn shape_book_v2_authored_text_with_source_budget_counted<'a>(
+    policy: &BookV2ResourcePolicy<'_>,
+    flow: &'a PreparedBookV2TextFlow<'a>,
+    admitted: &'a AdmittedProductionResourceLedgerV3,
+    limits: &M4EffectiveResourceLimits,
+    epoch: [u8; 32],
+    lines: Option<&[ProductionParagraphLineContext<'_>]>,
+    source_budget: &mut BookV2SourceVerificationBudget,
+    observed_records: &mut u64,
+) -> Result<BookV2AuthoredTextShape<'a>, ProductionTextShapeError> {
     *observed_records = 0;
     use ProductionTextShapeErrorKind as E;
     let mismatch = || error(NodeId::new(0), E::ReceiptMismatch);
     policy
         .verify_for(policy.body(), limits)
         .map_err(|_| mismatch())?;
-    flow.verify_for(policy.body().styled(), flow.navigation())
-        .map_err(|_| mismatch())?;
+    source_budget.verify(flow, policy.body().styled(), flow.navigation())
+        .map_err(|e| match e.kind {
+            typaxis_syntax::ProductionFlowErrorKind::NodeLimit => error(e.owner, E::OutputLimit),
+            typaxis_syntax::ProductionFlowErrorKind::AllocationFailure => error(e.owner, E::AllocationFailure),
+            _ => mismatch(),
+        })?;
     if epoch == [0; 32]
         || admitted.profile_fingerprint() != policy.fingerprint()
         || admitted.effective_limits() != limits
@@ -118,7 +144,9 @@ pub fn shape_book_v2_authored_text_counted<'a>(
         lines,
         BOOK_V2_AUTHORED_TEXT_SHAPE_ALGORITHM,
         observed_records,
-    )?;
+    );
+    source_budget.include_retained_records(*observed_records);
+    let output = output?;
     Ok(BookV2AuthoredTextShape {
         flow,
         admitted,

@@ -111,7 +111,8 @@ fn check(font: Option<&[u8]>) {
             |stable| {
                 let lines = stable.lines();
                 let shaped = lines.prepared().shaped();
-                let initial = plan.record_charge() + stable.footnotes().record_charge();
+                let initial = plan.record_charge() + stable.source_record_charge()
+                    + stable.retained_record_charge();
                 let mut records = u64::MAX;
                 let numbers =
                     shape_book_v2_equation_numbers_counted(shaped, &limits, initial, &mut records);

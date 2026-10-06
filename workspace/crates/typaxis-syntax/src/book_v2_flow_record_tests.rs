@@ -186,3 +186,98 @@ fn successor_source_record_accounting_is_revalidated_independently_of_fingerprin
         ProductionFlowErrorKind::ReceiptMismatch
     );
 }
+
+#[test]
+fn successor_source_verification_keeps_every_reconstruction_prefix_and_retry() {
+    let body = styled(&input(), &limits());
+    let nav = prepare_book_v2_navigation(&body).unwrap();
+    for values in [None, Some([(NodeId::new(7), 12)].as_slice())] {
+        let flow = prepare_inner(&body, &nav, values).unwrap();
+        let charge = expected_records(&flow);
+        let prior = 7;
+        let mut last = prior;
+        for available in 0..=charge {
+            let maximum = prior + available;
+            let mut observed = u64::MAX;
+            let result = flow.verify_for_counted(&body, &nav, prior, maximum, &mut observed);
+            assert!(observed >= last && observed <= maximum);
+            last = observed;
+            if available == charge {
+                result.unwrap();
+                assert_eq!(observed, maximum);
+            } else {
+                assert_eq!(result.unwrap_err().kind, ProductionFlowErrorKind::NodeLimit);
+            }
+        }
+        let mut budget =
+            crate::book_v2::BookV2SourceVerificationBudget::new(prior, prior + 2 * charge);
+        budget.verify(&flow, &body, &nav).unwrap();
+        assert_eq!(budget.record_charge(), prior + charge);
+        budget.verify(&flow, &body, &nav).unwrap();
+        assert_eq!(budget.record_charge(), prior + 2 * charge);
+        assert_eq!(
+            budget.verify(&flow, &body, &nav).unwrap_err().kind,
+            ProductionFlowErrorKind::NodeLimit
+        );
+        assert_eq!(budget.record_charge(), prior + 2 * charge);
+        let cap = body.body().limits().get().max_fragments;
+        flow.verify_for_counted(&body, &nav, cap - charge, u64::MAX, &mut last)
+            .unwrap();
+        assert_eq!(last, cap);
+        assert_eq!(
+            flow.verify_for_counted(&body, &nav, cap - charge + 1, u64::MAX, &mut last)
+                .unwrap_err()
+                .kind,
+            ProductionFlowErrorKind::NodeLimit
+        );
+        assert!(last <= cap);
+        assert_eq!(
+            flow.verify_for_counted(&body, &nav, u64::MAX, u64::MAX, &mut last)
+                .unwrap_err()
+                .kind,
+            ProductionFlowErrorKind::NodeLimit
+        );
+        assert_eq!(last, u64::MAX);
+    }
+}
+
+#[test]
+fn successor_source_verification_reconstructs_instead_of_trusting_charge_or_hash() {
+    let data = two_paragraphs();
+    let body = styled(&data, &limits());
+    let nav = prepare_book_v2_navigation(&body).unwrap();
+    let other = styled(&data, &limits());
+    let other_nav = prepare_book_v2_navigation(&other).unwrap();
+    let mut flow = prepare_book_v2_text_flow(&body, &nav).unwrap();
+    let charge = expected_records(&flow);
+    let fingerprint = flow.fingerprint();
+    let mut observed = u64::MAX;
+    for (source, navigation) in [(&other, &nav), (&body, &other_nav), (&other, &other_nav)] {
+        assert_eq!(
+            flow.verify_for_counted(source, navigation, 29, 0, &mut observed)
+                .unwrap_err()
+                .kind,
+            ProductionFlowErrorKind::ReceiptMismatch
+        );
+        assert_eq!(observed, 29);
+    }
+    flow.source_record_charge = 0;
+    assert_eq!(flow.fingerprint(), fingerprint);
+    assert_eq!(
+        flow.verify_for_counted(&body, &nav, 7, 7 + charge - 1, &mut observed)
+            .unwrap_err()
+            .kind,
+        ProductionFlowErrorKind::NodeLimit
+    );
+    assert!(observed > 7 && observed < 7 + charge);
+    for attempt in 1..=2 {
+        let prior = observed;
+        assert_eq!(
+            flow.verify_for_counted(&body, &nav, prior, 1000, &mut observed)
+                .unwrap_err()
+                .kind,
+            ProductionFlowErrorKind::ReceiptMismatch
+        );
+        assert_eq!(observed, prior + charge, "attempt {attempt}");
+    }
+}

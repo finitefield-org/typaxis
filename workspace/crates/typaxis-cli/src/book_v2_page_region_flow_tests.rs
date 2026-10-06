@@ -6,7 +6,7 @@ use typaxis_syntax::book_v2::{
     BookV2PageRegionKind as Kind,
 };
 
-fn region_data(text: &str) -> Value {
+pub(super) fn region_data(text: &str) -> Value {
     let mut data = source_data(text);
     let span = data["document"]["blocks"][0]["span"].clone();
     let paragraph = data["document"]["blocks"][0]["blocks"][0].clone();

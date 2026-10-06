@@ -172,7 +172,9 @@ fn check_variant_seeds(font: Option<&[u8]>, nested: bool) {
             .map(|p| p.ends().len() as u64 + 2)
             .sum::<u64>()
             + 1;
-        let exact_prior = limits.base().get().max_fragments - captured;
+        let construction = first.source_record_charge() + first.retained_record_charge();
+        assert_eq!(first.record_charge(), construction + captured);
+        let exact_prior = limits.base().get().max_fragments - construction - captured;
         assert_eq!(
             make(&a, first.work_steps(), exact_prior)
                 .unwrap()
