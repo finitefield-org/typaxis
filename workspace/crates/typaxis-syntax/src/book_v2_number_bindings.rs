@@ -216,7 +216,9 @@ pub(super) fn prepare<'a>(
         if !seen.insert(binding.anchor_id.as_str()) {
             return Err(invalid(i));
         }
-        let anchor = AnchorId::new(binding.anchor_id.clone()).map_err(|_| invalid(i))?;
+        if !AnchorId::is_valid(&binding.anchor_id) {
+            return Err(invalid(i));
+        }
         let owner = find(binding.owner_node_id)
             .filter(|n| n.can_own)
             .ok_or_else(|| invalid(i))?;
@@ -245,22 +247,25 @@ pub(super) fn prepare<'a>(
         if text.chars().any(char::is_control) || text.trim().is_empty() {
             return Err(invalid(i));
         }
-        if let Some((id, _)) = anchors.get(binding.anchor_id.as_str()) {
+        let existing_anchor = if let Some((id, _)) = anchors.get(binding.anchor_id.as_str()) {
             if !inside(*id) {
                 return Err(invalid(i));
             }
-        } else {
-            anchors.insert(
-                binding.anchor_id.clone(),
-                (owner.id, format!("{path}/{i}/anchor_id")),
-            );
-        }
+            true
+        } else { false };
         charge(
             retained,
             binding.anchor_id.len() as u64,
             &format!("{path}/{i}/anchor_id"),
             limits,
         )?;
+        let anchor = AnchorId::new(binding.anchor_id.clone()).map_err(|_| invalid(i))?;
+        if !existing_anchor {
+            anchors.insert(
+                binding.anchor_id.clone(),
+                (owner.id, format!("{path}/{i}/anchor_id")),
+            );
+        }
         output.push(PreparedBookV2NumberBinding {
             anchor,
             owner: NodeId::new(owner.id),

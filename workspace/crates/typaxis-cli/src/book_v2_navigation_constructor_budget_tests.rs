@@ -5,6 +5,81 @@ use crate::book_v2_resources::{
 use typaxis_syntax::{book_v2::prepare_book_v2_navigation_counted, BookNavigationSyntaxError};
 
 #[test]
+fn book_v2_navigation_text_limits_preserve_driver_history_before_layout() {
+    check_text(None, "Result");
+}
+#[test]
+#[ignore = "requires explicit original TYPAXIS_HARANO_FONT"]
+fn book_v2_navigation_text_limits_preserve_original_harano_driver_history() {
+    let font = fs::read(std::env::var("TYPAXIS_HARANO_FONT").unwrap()).unwrap();
+    check_text(Some(&font), "本文");
+}
+fn check_text(font: Option<&[u8]>, text: &str) {
+    let make = |root: &Root, caps: &M4EffectiveResourceLimits| {
+        let mut data = source_frame(source_data(text));
+        data["metadata"]["title"] = "t".repeat(128).into();
+        if let Some(font) = font {
+            vector_tests::vector_input_with_font(root, data, caps, font, text.as_bytes())
+        } else {
+            prepared(root, data, text.as_bytes(), caps)
+        }
+    };
+    let original = limits();
+    let root = Root::new();
+    let input = make(&root, &original);
+    let reference = prepare_book_v2_navigation(input.body().styled()).unwrap();
+    let charge = reference.source_record_charge();
+    let baseline = input.body().styled().body().retained_text_bytes();
+    for maximum in [baseline + 127, reference.retained_text_bytes() - 1] {
+        let mut caps = original.base().get().clone();
+        caps.max_text_bytes = maximum;
+        caps.max_text_buffer_bytes = maximum as u32;
+        caps.max_shaping_context_bytes = maximum as u32;
+        let bounded = M4EffectiveResourceLimits::new(
+            ValidatedResourceLimits::new(caps).unwrap(),
+            original.extension().get().clone(),
+        )
+        .unwrap();
+        let root = Root::new();
+        let input = make(&root, &bounded);
+        let expected = prepare_book_v2_navigation(input.body().styled()).unwrap_err();
+        assert_eq!(
+            expected.kind(),
+            typaxis_syntax::BookNavigationSyntaxErrorKind::TextAggregateLimit
+        );
+        let mut budget = BookV2PdfConvergenceBudget::new(&bounded, 100_000_000);
+        for attempt in 1..=2 {
+            let error = with_budgeted_book_v2_pdf(
+                &input,
+                &bounded,
+                JapaneseLineBreakMode::Normal,
+                &mut budget,
+                |_, _| panic!("text quota failure emitted PDF"),
+            )
+            .unwrap_err();
+            let BookV2ConvergenceError::Stage { stage, source } = error else {
+                panic!("{error:?}");
+            };
+            assert_eq!(stage, "navigation");
+            let source = source.downcast_ref::<BookNavigationSyntaxError>().unwrap();
+            assert_eq!(source, &expected);
+            let observed = budget.observation();
+            assert_eq!(observed.record_charge(), attempt * charge);
+            assert_eq!(
+                (
+                    observed.work_steps(),
+                    observed.spool_charge(),
+                    observed.output_charge(),
+                    observed.candidate_passes(),
+                    observed.line_reshape_passes()
+                ),
+                (0, 0, 0, 0, 0)
+            );
+        }
+    }
+}
+
+#[test]
 fn book_v2_navigation_constructor_bounds_precede_lines_and_keep_driver_history() {
     check(None, "Result");
 }

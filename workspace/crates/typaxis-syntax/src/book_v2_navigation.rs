@@ -215,22 +215,23 @@ fn prepare_reserved(
     if nodes > limits.get().max_ast_nodes {
         return Err(node_limit("/outline/entries"));
     }
-    let metadata = validate_metadata_fields(wire.metadata(), limits)?;
+    let metadata_source = wire.metadata();
+    validate_metadata_fields_borrowed(metadata_source, limits)?;
     let mut total = prepared.retained_text_bytes();
     for value in [
-        &metadata.author,
-        &metadata.created,
-        &metadata.identifier,
-        &metadata.modified,
-        &metadata.subject,
-        &metadata.title,
+        &metadata_source.author,
+        &metadata_source.created,
+        &metadata_source.identifier,
+        &metadata_source.modified,
+        &metadata_source.subject,
+        &metadata_source.title,
     ]
     .into_iter()
     .flatten()
     {
         charge(&mut total, value.len() as u64, "/metadata", limits)?;
     }
-    for keyword in &metadata.keywords {
+    for keyword in &metadata_source.keywords {
         charge(
             &mut total,
             keyword.len() as u64,
@@ -238,6 +239,7 @@ fn prepare_reserved(
             limits,
         )?;
     }
+    let metadata = copy_metadata_fields(metadata_source);
     let mut sites = Vec::new();
     let mut owners = BTreeMap::new();
     let mut raw_anchors = BTreeMap::new();
@@ -266,17 +268,17 @@ fn prepare_reserved(
                     .ok_or_else(BookNavigationSyntaxError::mismatch)
             })
             .transpose()?;
-        let explicit = site
+        let canonical = site
             .raw
-            .as_ref()
             .map(|raw| {
-                canonicalize_language(raw, &site.pointer, limits)
-                    .map(|canonical| intern_language(&mut pool, canonical))
+                bcp47::canonicalize(raw, u64::from(limits.get().max_text_buffer_bytes))
+                    .map_err(|error| language_canonicalization_error(error, &site.pointer))
             })
             .transpose()?;
-        let effective = explicit
-            .clone()
-            .or_else(|| parent.map(|r| r.effective.clone()))
+        let effective = canonical
+            .as_ref()
+            .map(bcp47::CanonicalLanguage::as_str)
+            .or_else(|| parent.map(|r| r.effective.as_ref()))
             .ok_or_else(BookNavigationSyntaxError::mismatch)?;
         let span = site
             .span
@@ -302,8 +304,7 @@ fn prepare_reserved(
         let language_bytes = effective.len() as u64
             + site
                 .raw
-                .as_deref()
-                .filter(|raw| *raw != effective.as_ref())
+                .filter(|raw| *raw != effective)
                 .map_or(0, |raw| raw.len() as u64);
         let vector = if site.kind.is_precomposed_vector()
         {
@@ -317,11 +318,11 @@ fn prepare_reserved(
             {
                 return Err(BookNavigationSyntaxError::mismatch());
             }
-            let prepaid = match (site.raw.as_deref(), vector.language()) {
+            let prepaid = match (site.raw, vector.language()) {
                 (None, None) => 0,
                 (Some(raw), Some(language))
                     if raw == language.raw()
-                        && effective.as_ref() == language.canonical()
+                        && effective == language.canonical()
                         && language.charged_bytes() == language_bytes =>
                 {
                     language.charged_bytes()
@@ -342,6 +343,13 @@ fn prepare_reserved(
             charge(&mut total, language_bytes, &site.pointer, limits)?;
             None
         };
+        // Neither an owned canonical spelling nor an intern-pool entry is
+        // created until the complete logical language charge is accepted.
+        let explicit = canonical
+            .map(|value| intern_language(&mut pool, value.as_str().to_owned()));
+        let effective = explicit.clone()
+            .or_else(|| parent.map(|r| r.effective.clone()))
+            .ok_or_else(BookNavigationSyntaxError::mismatch)?;
         records.push(PreparedBookV2Language {
             page_region: site.page_region.map(NodeId::new),
             node: NodeId::new(site.node_id),
@@ -395,7 +403,7 @@ fn prepare_reserved(
     }
     let internal_links =
         collect_internal_links(wire.document(), &anchors, LanguageRegistryGeneration::V2)?;
-    let outline = validate_outline_entries(
+    let outline = validate_outline_entries_charged(
         &wire.outline().entries,
         &owners,
         &raw_anchors,
@@ -406,15 +414,11 @@ fn prepare_reserved(
                 .map(|i| records[i].effective.clone())
         },
         limits,
+        &mut |index, label| charge(
+            &mut total, label.len() as u64,
+            &format!("/outline/entries/{index}/label"), limits,
+        ),
     )?;
-    for (index, entry) in outline.iter().enumerate() {
-        charge(
-            &mut total,
-            entry.label.len() as u64,
-            &format!("/outline/entries/{index}/label"),
-            limits,
-        )?;
-    }
     let references = collect_references(wire.document(), &anchors)?;
     Ok(PreparedBookV2Navigation {
         body,

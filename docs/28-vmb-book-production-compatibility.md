@@ -5792,3 +5792,29 @@ CLIは301成功と保存先重複5件の回復実行を同じbinaryで照合し�
 保存済みVMB表2出力・旧21成果物のbyte一致が成功した。capacity／tree bytes／Unicode一時領域、admission、
 完全なcommand byte／spool／work・同時保持graphと、公開Book /2・全巻・管理host・
 性能・著者／人手受入の要件は継続する。
+
+### 14.272 navigationの文字列を課金受理後に複製する（実装追補）
+
+Book /2で既存のlogical text ledgerへ計上するmetadata、言語、number bindingのanchorと
+outline labelは、上限を確認してから保持用の文字列を複製する。metadataは元fieldを
+借用して検査・合算後に複製する。言語siteは元spellingを借用し、255-byte固定領域で
+正規化する。元grammar、grandfathered spelling、case、extension順序、重複拒否と
+buffer上限の優先順を保ち、公開canonicalization APIは従来のStringを返す。
+
+元の親言語・span・vector overrideを照合し、effective spellingと異なるraw spellingの
+既存課金を正確に受理してからowned canonical／intern entryを作る。vectorの前払いは
+既存のexact factsに一致した量だけを引く。number anchorは借用identifierと元sourceを
+検査してから課金・複製する。outlineは各entryの検査後、labelを複製する前に課金する。
+quota拒否はそのentryで停止し、後続entryのsourceエラーより先に返す。失敗時も初期の
+record予約を保持し、driverへ戻す。retained textの量・pointer、source ownerと公開identityは維持する。
+
+[ADR-0135](../adr/ADR-0135-book-2-navigation-text-admission.md)と
+[実装台帳§272](28-vmb-book-production-progress.md#navigation-text-admission-design-14272)を参照。
+syntax 79／155 tests、workspace型検査、layout 70 tests、Book /2 CLI全308件が成功した。
+言語正規化の旧コードとの63,945比較と7成功ケースのcore heap確保0、実APIの5万byte
+carrier拒否時のsource-sized確保0を検査した。独立検証と759 PDF・保存済みVMB表2出力・
+旧21成果物のbyte一致も成功した。
+
+これはlogical textの構築前検査であり、全String／path・capacity・tree／intern bytesや
+完全なcommand byte／spool／work、admission・同時保持graphの証明ではない。公開Book /2、
+全巻・管理host・制御性能・著者／人手受入と、Speech／SemanticRef未作成の要件は継続する。

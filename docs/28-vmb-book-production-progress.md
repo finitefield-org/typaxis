@@ -16675,3 +16675,28 @@ compiled inputの最終catalogは202件であり、初期203件から更新文�
 全759 PDFと保存済みVMB表2出力は§270とbyte一致し、名前変更0だった。table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02である。旧独立verifierの21検査と元73 resource台帳が成功し、旧21成果物も保存old binary出力とbyte一致した。run-source-correspondence.jsonは全202固定入力・全17変更・原入力・CLI success union／binary・18成功command・全PDF／旧成果物対応を結ぶ。検証後の文書3件を別hashで記録する。allocator計測、制御された性能、外部host受入、元全巻成功を今回の結果として扱わない。
 
 §271の局所検証待ちを解消した。logical navigation recordの予約をbyte／capacityの完全な予算と扱わず、全command byte／spool／work、他owner／codec、Unicode／backend／font一時領域、admission・同時保持graph、名前付きページ・段組と元の公開／全巻・管理host・性能・著者／人手受入要件を継続する。Speech／SemanticRef未作成と固定veraPDF hostの未受入も維持する。
+
+<a id="navigation-text-admission-design-14272"></a>
+## 272. navigationの文字列を課金受理後に複製する（design §14.272）
+
+直前のcommit／push確認は追加実装を伴わないno progressだった。621ec49とクリーンな作業ツリー・実リモートSHAを再確認し、初期navigationが上限検査前にmetadata／raw language／number anchor／outline labelを複製する経路へ進んだ。[ADR-0135](../adr/ADR-0135-book-2-navigation-text-admission.md)に従い、metadataの借用検査・課金と保持複製を分け、言語siteのraw spellingを元wireから借用する。255-byte output、最大128 borrowed subtags、36 singleton slotsで正規化し、従来のgrammar・case・grandfathered spelling・extension順序・重複拒否・buffer limitの優先順を維持する。公開APIのowned Stringとalgorithm identityは変更しない。
+
+Book /2は固定領域のcanonicalと元親・span・vector factsを検査し、effective＋異なるraw spellingの正確な既存課金とvector前払いを受理後にowned canonical／intern entryを作る。number anchorは借用identifierとowner／label／span等を検証してから課金・複製する。outlineはentryの検査後、labelを複製する前に課金する。label quota拒否はそのentryで停止し、後続entryのsource invalidより先に返す。intrinsic retained textとrecord予約、型付きdiagnostic／pointer、immutable owner照合と旧公開schema／profileを保持する。driverの失敗／再試行計上も継続する。
+
+証跡はworkspace/target/vmb-design/20261006/initial-navigation-text-admission/。初回のnavigation関連32 testsは成功した。新testは各chargeのexact／one-below境界に整理し、重複する全byte値でのdecodeを省いた。新モジュールの整形stdoutへ子test moduleのheader／内容が混入したdraftはcompile exit 101となり、ソース・catalog・runner・logをregression-draft-01へ保全した。混入出力を除去してから最終667ソースを固定した。source／testの全8変更をcatalogに含む。
+
+最終run-regression-01.pyは旧syntax 79 tests＋doc-test 6件、新syntax 155 tests＋doc-test 12件、layout 70 tests＋doc-test 1件、workspace --all-features --tests check、Book /2関連CLI全308 testsを成功させた。新syntaxは9.88秒、workspace checkは55.09秒、CLIは383.02秒だった。CLIの失敗／ignoredは0、419 filtered outを別に保持し、binary全727件を実行したとは扱わない。原Harano／Arialと保存済みVMB 10 jobsを使用した。TT／原Haranoの新2 testsはtext quotaの型付きnavigation失敗、再試行record履歴と行処理前のwork／spool／output／candidate／reshapeすべて0を検証した。旧precomposedは4成功／外部host 1 ignoredであり、V19 host受入へ転用しない。時間は観測値で、制御された性能比較ではない。
+
+変更前の621ec49の言語正規化コードを保存し、実新canonicalizer sourceと63,945 input／limit比較を行った。成功9,774件を含め全結果が一致した。tracked testsは全26 grandfathered tags、6 extension groupsの720順列、255-byteとconfigured exact／short、invalid grammarとerror優先順を検査する。ignored standalone allocator probeの7成功ケースで新coreのheap calls／requested bytesはすべて0だった。255-byte private tagは旧136 calls／7,487 requested bytes、35 extension groupsは旧166 calls／21,511 bytesから0へ減った。旧error stubはkindだけを保持し、invalid-path allocationを比較していない。公開APIの最終Stringやintern保持までheap不要という意味ではない。
+
+実counted navigation APIの別probeは5万byteのmetadata／virtual number anchor／outline labelについて、quota拒否時の同サイズ以上の確保が0回、exact受入では各1／3／1回と確認した。拒否時にもsource record予約を保持し、precise T2101 pointerを検査した。初期dependency draftは新cached flate2のsandbox外展開で止まり、workspace lockを引き継いだ。no-deps metadataは新probeのlock更新を行わず、full metadataはhostで未使用のLinux crate展開で失敗した。各draftを保全し、更新された同version lockを使ったmacOS hostのlocked／offline runで成功した。package-cache installationや権限緩和は行っていない。input構築／output整形は観測窓外、unsafeはignored probeの標準System allocator forwardsだけである。小さい診断・graph確保は残り、全commandのpeak memory／RSSの測定ではない。anchorの受入3コピーはlogical課金を物理保持bytesと同一視できない証拠でもある。
+
+5独立Book /2 validatorsと§271とのsource-bound byte比較、旧独立verifierが成功した。
+
+- 共通独立検証は759 source PDFs／360 actual driver callbacks／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否だった。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変拒否が成功した。
+
+全759 PDFと保存済みVMB表2出力は§271とbyte一致し、名前変更0だった。旧独立verifierの21 checks、固定73 resource台帳と、保存old binary出力への旧21成果物のbyte一致も成功した。verify-correspondence.pyは全667開始／終了source hashes・全8変更・原入力、6回帰commands／logs・CLI binaryと308 unique successes、独立commands、2 diagnostic probesのsource／lock／測定、全artifact対をrun-source-correspondence.jsonへ結ぶ。検証後の文書3件は別hashへ記録する。font全suite、外部host、元全巻・著者／人手の受入は今回の結果として扱わない。
+
+logical textの構築前検査を全physical bytesの予算と扱わず、他source strings／paths・capacity／tree／intern storage、Unicode／backend／font一時領域、完全なcommand byte／spool／work、admission・同時保持graph、名前付きページ・段組と公開Book /2・元全巻・管理host・制御性能・著者／人手受入を継続する。Speech／SemanticRef未作成、固定veraPDF／V19 hostの未受入も維持し、設計全体の完了とは扱わない。

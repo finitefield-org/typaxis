@@ -807,7 +807,7 @@ impl LanguageRegistryGeneration {
 }
 
 #[derive(Clone, Debug)]
-struct LanguageSite<L = StagingLanguageNodeKind> {
+struct LanguageSite<'a, L = StagingLanguageNodeKind> {
     // The legacy consumer shares collection but has no region-aware PDF owner.
     #[cfg_attr(not(feature = "book-v2-staging"), allow(dead_code))]
     page_region: Option<u32>,
@@ -815,7 +815,7 @@ struct LanguageSite<L = StagingLanguageNodeKind> {
     kind: L,
     parent: Option<u32>,
     span: Option<WireStagingSourceSpan>,
-    raw: Option<String>,
+    raw: Option<&'a str>,
     pointer: String,
 }
 
@@ -862,7 +862,7 @@ fn validate_staging_book_navigation_inner(
     )?;
     let language_charges = sites
         .iter()
-        .map(|site| (site.raw.clone(), site.pointer.clone()))
+        .map(|site| (site.raw.map(str::to_owned), site.pointer.clone()))
         .collect::<Vec<_>>();
     let languages = validate_languages(sites, package_sha256, limits_sha256, wire, limits)?;
     let outline = validate_outline(
@@ -1172,6 +1172,14 @@ fn validate_metadata_fields(
     wire: &WireDocumentMetadata,
     limits: &ValidatedResourceLimits,
 ) -> Result<StagingDocumentMetadata, BookNavigationSyntaxError> {
+    validate_metadata_fields_borrowed(wire, limits)?;
+    Ok(copy_metadata_fields(wire))
+}
+
+fn validate_metadata_fields_borrowed(
+    wire: &WireDocumentMetadata,
+    limits: &ValidatedResourceLimits,
+) -> Result<(), BookNavigationSyntaxError> {
     if let Some(author) = &wire.author {
         validate_metadata_string(author, "/metadata/author", limits)?;
     }
@@ -1210,7 +1218,11 @@ fn validate_metadata_fields(
     if let Some(title) = &wire.title {
         validate_metadata_string(title, "/metadata/title", limits)?;
     }
-    Ok(StagingDocumentMetadata {
+    Ok(())
+}
+
+fn copy_metadata_fields(wire: &WireDocumentMetadata) -> StagingDocumentMetadata {
+    StagingDocumentMetadata {
         author: wire.author.clone(),
         created: wire.created.clone(),
         identifier: wire.identifier.clone(),
@@ -1218,7 +1230,7 @@ fn validate_metadata_fields(
         modified: wire.modified.clone(),
         subject: wire.subject.clone(),
         title: wire.title.clone(),
-    })
+    }
 }
 
 fn validate_metadata_string(
@@ -1308,11 +1320,11 @@ fn validate_timestamp(
     Ok(())
 }
 
-fn collect_document<K: NavigationSemanticKind>(
-    document: &WireSemanticDocument<K>,
-    page_masters: &WireAdvancedPageMasterSet,
+fn collect_document<'a, K: NavigationSemanticKind>(
+    document: &'a WireSemanticDocument<K>,
+    page_masters: &'a WireAdvancedPageMasterSet,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite<K::LanguageKind>>,
+    sites: &mut Vec<LanguageSite<'a, K::LanguageKind>>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
@@ -1322,7 +1334,7 @@ fn collect_document<K: NavigationSemanticKind>(
         kind: StagingLanguageNodeKind::Document.into(),
         parent: None,
         span: None,
-        raw: Some(document.language.clone()),
+        raw: Some(document.language.as_str()),
         pointer: "/document/language".to_owned(),
     });
     collect_blocks(
@@ -1357,10 +1369,10 @@ fn collect_document<K: NavigationSemanticKind>(
     Ok(())
 }
 
-fn collect_page_regions<L: NavigationLanguageKind>(
-    page_masters: &WireAdvancedPageMasterSet,
+fn collect_page_regions<'a, L: NavigationLanguageKind>(
+    page_masters: &'a WireAdvancedPageMasterSet,
     document_node_id: u32,
-    sites: &mut Vec<LanguageSite<L>>,
+    sites: &mut Vec<LanguageSite<'a, L>>,
 ) -> Result<(), BookNavigationSyntaxError> {
     for (master_index, master) in page_masters.masters.iter().enumerate() {
         for (name, region) in [
@@ -1380,11 +1392,11 @@ fn collect_page_regions<L: NavigationLanguageKind>(
     Ok(())
 }
 
-fn collect_page_region<L: NavigationLanguageKind>(
-    region: &WirePageRegion,
+fn collect_page_region<'a, L: NavigationLanguageKind>(
+    region: &'a WirePageRegion,
     document_node_id: u32,
     pointer: &str,
-    sites: &mut Vec<LanguageSite<L>>,
+    sites: &mut Vec<LanguageSite<'a, L>>,
 ) -> Result<(), BookNavigationSyntaxError> {
     for (block_index, block) in region.blocks.iter().enumerate() {
         let block_pointer = format!("{pointer}/blocks/{block_index}");
@@ -1446,12 +1458,12 @@ fn staging_span(value: WireSourceSpan) -> WireStagingSourceSpan {
     }
 }
 
-fn collect_footnote<K: NavigationSemanticKind>(
-    footnote: &WireSemanticFootnote<K>,
+fn collect_footnote<'a, K: NavigationSemanticKind>(
+    footnote: &'a WireSemanticFootnote<K>,
     parent: u32,
     pointer: &str,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite<K::LanguageKind>>,
+    sites: &mut Vec<LanguageSite<'a, K::LanguageKind>>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
@@ -1461,7 +1473,7 @@ fn collect_footnote<K: NavigationSemanticKind>(
         kind: StagingLanguageNodeKind::FootnoteDefinition.into(),
         parent: Some(parent),
         span: Some(footnote.span),
-        raw: footnote.language.clone(),
+        raw: footnote.language.as_deref(),
         pointer: format!("{pointer}/language"),
     });
     collect_blocks(
@@ -1477,13 +1489,13 @@ fn collect_footnote<K: NavigationSemanticKind>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn collect_blocks<K: NavigationSemanticKind>(
-    blocks: &[WireSemanticBlock<K>],
+fn collect_blocks<'a, K: NavigationSemanticKind>(
+    blocks: &'a [WireSemanticBlock<K>],
     parent: u32,
     pointer: &str,
     outline_eligible: bool,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite<K::LanguageKind>>,
+    sites: &mut Vec<LanguageSite<'a, K::LanguageKind>>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
@@ -1496,15 +1508,15 @@ fn collect_blocks<K: NavigationSemanticKind>(
                 .ok_or_else(|| BookNavigationSyntaxError::producer(
                     BookNavigationSyntaxErrorKind::DescriptionListStaging, &base))?;
             sites.push(LanguageSite { page_region: None, node_id, kind: list_kind, parent: Some(parent),
-                span: Some(span), raw: language.clone(), pointer: format!("{base}/language") });
+                span: Some(span), raw: language.as_deref(), pointer: format!("{base}/language") });
             for (index, item) in items.iter().enumerate() {
                 let at = format!("{base}/items/{index}");
                 sites.push(LanguageSite { page_region: None, node_id: item.node_id, kind: item_kind,
-                    parent: Some(node_id), span: Some(item.span), raw: item.language.clone(),
+                    parent: Some(node_id), span: Some(item.span), raw: item.language.as_deref(),
                     pointer: format!("{at}/language") });
                 let term = &item.term;
                 sites.push(LanguageSite { page_region: None, node_id: term.node_id, kind: term_kind,
-                    parent: Some(item.node_id), span: Some(term.span), raw: term.language.clone(),
+                    parent: Some(item.node_id), span: Some(term.span), raw: term.language.as_deref(),
                     pointer: format!("{at}/term/language") });
                 collect_inlines(&term.children, term.node_id, &format!("{at}/term/children"),
                     generation, sites, anchors)?;
@@ -1608,7 +1620,7 @@ fn collect_blocks<K: NavigationSemanticKind>(
                 kind: kind.into(),
                 parent: Some(parent),
                 span: Some(span),
-                raw: raw.clone(),
+                raw: raw.as_deref(),
                 pointer: format!("{base}/language"),
             });
         }
@@ -1635,7 +1647,7 @@ fn collect_blocks<K: NavigationSemanticKind>(
                         kind: StagingLanguageNodeKind::ListItem.into(),
                         parent: Some(node_id),
                         span: Some(item.span),
-                        raw: item.language.clone(),
+                        raw: item.language.as_deref(),
                         pointer: format!("{item_pointer}/language"),
                     });
                     collect_blocks(
@@ -1714,13 +1726,13 @@ fn collect_blocks<K: NavigationSemanticKind>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn collect_rows<K: NavigationSemanticKind>(
-    rows: &[WireSemanticTableRow<K>],
+fn collect_rows<'a, K: NavigationSemanticKind>(
+    rows: &'a [WireSemanticTableRow<K>],
     parent: u32,
     pointer: &str,
     outline_eligible: bool,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite<K::LanguageKind>>,
+    sites: &mut Vec<LanguageSite<'a, K::LanguageKind>>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
@@ -1732,7 +1744,7 @@ fn collect_rows<K: NavigationSemanticKind>(
             kind: StagingLanguageNodeKind::TableRow.into(),
             parent: Some(parent),
             span: Some(row.span),
-            raw: row.language.clone(),
+            raw: row.language.as_deref(),
             pointer: format!("{row_pointer}/language"),
         });
         for (cell_index, cell) in row.cells.iter().enumerate() {
@@ -1743,7 +1755,7 @@ fn collect_rows<K: NavigationSemanticKind>(
                 kind: StagingLanguageNodeKind::TableCell.into(),
                 parent: Some(row.node_id),
                 span: Some(cell.span),
-                raw: cell.language.clone(),
+                raw: cell.language.as_deref(),
                 pointer: format!("{cell_pointer}/language"),
             });
             collect_blocks(
@@ -1761,12 +1773,12 @@ fn collect_rows<K: NavigationSemanticKind>(
     Ok(())
 }
 
-fn collect_inlines<L: NavigationLanguageKind>(
-    inlines: &[WireStagingM4Inline],
+fn collect_inlines<'a, L: NavigationLanguageKind>(
+    inlines: &'a [WireStagingM4Inline],
     parent: u32,
     pointer: &str,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite<L>>,
+    sites: &mut Vec<LanguageSite<'a, L>>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
     for (index, inline) in inlines.iter().enumerate() {
@@ -1813,7 +1825,7 @@ fn collect_inlines<L: NavigationLanguageKind>(
                 kind: kind.into(),
                 parent: Some(parent),
                 span: Some(inline.span()),
-                raw: inline.language().map(str::to_owned),
+                raw: inline.language(),
                 pointer: format!("{base}/language"),
             });
         }
@@ -1869,7 +1881,7 @@ fn insert_anchor(
 }
 
 fn validate_languages(
-    sites: Vec<LanguageSite>,
+    sites: Vec<LanguageSite<'_>>,
     package_sha256: [u8; 32],
     limits_sha256: [u8; 32],
     _wire: &typaxis_document_package::WireStagingM4DocumentPackage,
@@ -1929,7 +1941,7 @@ fn validate_languages(
 }
 
 fn validate_languages_v2(
-    sites: Vec<LanguageSite>,
+    sites: Vec<LanguageSite<'_>>,
     package: &ValidatedStagingSemanticPackage,
     package_sha256: [u8; 32],
     semantic_sha256: [u8; 32],
@@ -2176,154 +2188,23 @@ fn canonicalize_language_with_limit(
     pointer: &str,
     max_text_buffer_bytes: u64,
 ) -> Result<String, BookNavigationSyntaxError> {
-    let invalid = || {
-        BookNavigationSyntaxError::producer(BookNavigationSyntaxErrorKind::InvalidLanguage, pointer)
-    };
-    let exceeds_text_limit =
-        u64::try_from(value.len()).map_or(true, |length| length > max_text_buffer_bytes);
-    if value.is_empty()
-        || value.len() > 255
-        || !value.is_ascii()
-        || value
-            .bytes()
-            .any(|byte| !(byte.is_ascii_alphanumeric() || byte == b'-'))
-        || value.starts_with('-')
-        || value.ends_with('-')
-        || value.contains("--")
-    {
-        return Err(invalid());
+    bcp47::canonicalize(value, max_text_buffer_bytes)
+        .map(|canonical| canonical.as_str().to_owned())
+        .map_err(|error| language_canonicalization_error(error, pointer))
+}
+
+#[path = "bcp47_language.rs"]
+mod bcp47;
+
+fn language_canonicalization_error(error: bcp47::Error, pointer: &str) -> BookNavigationSyntaxError {
+    match error {
+        bcp47::Error::Invalid => BookNavigationSyntaxError::producer(
+            BookNavigationSyntaxErrorKind::InvalidLanguage, pointer,
+        ),
+        bcp47::Error::TextLimit => BookNavigationSyntaxError::limit(
+            BookNavigationSyntaxErrorKind::TextBufferLimit, "T2100", pointer,
+        ),
     }
-    if exceeds_text_limit {
-        return Err(BookNavigationSyntaxError::limit(
-            BookNavigationSyntaxErrorKind::TextBufferLimit,
-            "T2100",
-            pointer,
-        ));
-    }
-    if let Some(canonical) = GRANDFATHERED
-        .iter()
-        .find(|canonical| canonical.eq_ignore_ascii_case(value))
-    {
-        return Ok((*canonical).to_owned());
-    }
-    let parts: Vec<&str> = value.split('-').collect();
-    if parts[0].eq_ignore_ascii_case("x") {
-        if parts.len() < 2
-            || parts[1..]
-                .iter()
-                .any(|part| part.is_empty() || part.len() > 8 || !is_alnum(part))
-        {
-            return Err(invalid());
-        }
-        return Ok(parts
-            .iter()
-            .map(|part| part.to_ascii_lowercase())
-            .collect::<Vec<_>>()
-            .join("-"));
-    }
-    let primary = parts[0];
-    if !is_alpha(primary) || !(2..=8).contains(&primary.len()) {
-        return Err(invalid());
-    }
-    let mut index = 1usize;
-    let mut core = vec![primary.to_ascii_lowercase()];
-    if primary.len() <= 3 {
-        let mut extlang_count = 0;
-        while index < parts.len()
-            && extlang_count < 3
-            && parts[index].len() == 3
-            && is_alpha(parts[index])
-        {
-            core.push(parts[index].to_ascii_lowercase());
-            index += 1;
-            extlang_count += 1;
-        }
-    }
-    if index < parts.len() && parts[index].len() == 4 && is_alpha(parts[index]) {
-        let lower = parts[index].to_ascii_lowercase();
-        let mut chars = lower.chars();
-        let first = chars.next().ok_or_else(invalid)?.to_ascii_uppercase();
-        core.push(format!("{first}{}", chars.as_str()));
-        index += 1;
-    }
-    if index < parts.len()
-        && ((parts[index].len() == 2 && is_alpha(parts[index]))
-            || (parts[index].len() == 3 && is_digit(parts[index])))
-    {
-        core.push(if is_alpha(parts[index]) {
-            parts[index].to_ascii_uppercase()
-        } else {
-            parts[index].to_owned()
-        });
-        index += 1;
-    }
-    let mut variants = BTreeSet::new();
-    while index < parts.len() && is_variant(parts[index]) {
-        let variant = parts[index].to_ascii_lowercase();
-        if !variants.insert(variant.clone()) {
-            return Err(invalid());
-        }
-        core.push(variant);
-        index += 1;
-    }
-    let mut extensions: Vec<(String, Vec<String>)> = Vec::new();
-    let mut singletons = BTreeSet::new();
-    while index < parts.len()
-        && is_singleton(parts[index])
-        && !parts[index].eq_ignore_ascii_case("x")
-    {
-        let singleton = parts[index].to_ascii_lowercase();
-        if !singletons.insert(singleton.clone()) {
-            return Err(invalid());
-        }
-        index += 1;
-        let start = index;
-        let mut subtags = Vec::new();
-        while index < parts.len() && (2..=8).contains(&parts[index].len()) && is_alnum(parts[index])
-        {
-            subtags.push(parts[index].to_ascii_lowercase());
-            index += 1;
-        }
-        if index == start {
-            return Err(invalid());
-        }
-        extensions.push((singleton, subtags));
-    }
-    let private_use = if index < parts.len() && parts[index].eq_ignore_ascii_case("x") {
-        index += 1;
-        if index == parts.len()
-            || parts[index..]
-                .iter()
-                .any(|part| part.is_empty() || part.len() > 8 || !is_alnum(part))
-        {
-            return Err(invalid());
-        }
-        Some(
-            parts[index..]
-                .iter()
-                .map(|part| part.to_ascii_lowercase())
-                .collect::<Vec<_>>(),
-        )
-    } else {
-        None
-    };
-    if private_use.is_none() && index != parts.len() {
-        return Err(invalid());
-    }
-    extensions.sort_by(|left, right| left.0.cmp(&right.0));
-    for (singleton, subtags) in extensions {
-        core.push(singleton);
-        core.extend(subtags);
-    }
-    if let Some(private) = private_use {
-        core.push("x".to_owned());
-        core.extend(private);
-    }
-    let canonical = core.join("-");
-    if canonical.len() > 255 {
-        return Err(invalid());
-    }
-    Ok(canonical)
 }
 
 fn is_alpha(value: &str) -> bool {
@@ -2412,6 +2293,19 @@ fn validate_outline_entries(
     anchors: &BTreeMap<String, (u32, String)>,
     language_for: &impl Fn(NodeId) -> Option<Arc<str>>,
     limits: &ValidatedResourceLimits,
+) -> Result<Vec<StagingOutlineEntry>, BookNavigationSyntaxError> {
+    validate_outline_entries_charged(
+        entries, owners, anchors, language_for, limits, &mut |_, _| Ok(()),
+    )
+}
+
+fn validate_outline_entries_charged(
+    entries: &[typaxis_document_package::WireOutlineEntry],
+    owners: &BTreeMap<u32, OutlineOwner>,
+    anchors: &BTreeMap<String, (u32, String)>,
+    language_for: &impl Fn(NodeId) -> Option<Arc<str>>,
+    limits: &ValidatedResourceLimits,
+    before_label_copy: &mut impl FnMut(usize, &str) -> Result<(), BookNavigationSyntaxError>,
 ) -> Result<Vec<StagingOutlineEntry>, BookNavigationSyntaxError> {
     let mut output = Vec::new();
     output.try_reserve_exact(entries.len()).map_err(|_| {
@@ -2539,6 +2433,7 @@ fn validate_outline_entries(
         })?;
         let language = language_for(NodeId::new(owner.node_id))
             .ok_or_else(BookNavigationSyntaxError::mismatch)?;
+        before_label_copy(index, &entry.label)?;
         output.push(StagingOutlineEntry {
             outline_id: entry.outline_id,
             parent_outline_id: entry.parent_outline_id,
@@ -3809,7 +3704,7 @@ mod tests {
         .unwrap();
         let language_charges = sites
             .iter()
-            .map(|site| (site.raw.clone(), site.pointer.clone()))
+            .map(|site| (site.raw.map(str::to_owned), site.pointer.clone()))
             .collect::<Vec<_>>();
         let metadata = wire.metadata();
         let metadata_bytes = [

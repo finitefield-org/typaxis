@@ -65,6 +65,9 @@ fn outline_input() -> Value {
 
 #[path = "book_v2_navigation_record_tests.rs"]
 mod record_tests;
+
+#[path = "book_v2_navigation_text_tests.rs"]
+mod text_tests;
 #[test]
 fn every_successor_kind_keeps_outline_source_anchor_and_typed_kind() {
     for kind in WireBookV2SemanticContainerKind::ALL {
