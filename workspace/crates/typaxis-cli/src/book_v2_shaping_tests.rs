@@ -5,6 +5,8 @@ mod source_flow_records;
 mod source_verification;
 #[path = "book_v2_caller_output_budget_tests.rs"]
 mod caller_output;
+#[path = "book_v2_text_fingerprint_tests.rs"]
+mod text_fingerprints;
 #[path = "book_v2_table_constructor_budget_tests.rs"]
 mod table_constructor_budget;
 #[path = "book_v2_body_line_budget_tests.rs"]
