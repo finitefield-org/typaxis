@@ -16726,3 +16726,29 @@ logical textの構築前検査を全physical bytesの予算と扱わず、他sou
 全759既存PDFは§272とbyte一致し、名前変更0だった。保存済みVMB table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§272と一致した。旧独立verifierの21 checksと固定73 resource台帳が成功し、旧21成果物も保存old binary出力とbyte一致した。run-source-correspondence.jsonは全670開始／終了input hashes・73 verifier hashes・全15 source／test／tool変更、原入力・VMB jobs、6回帰commands／logs・pagination結果・CLI binaryと311 unique successes、独立commandsと全artifact対応を結ぶ。paginationの保存logはtoolで観測した結果の要約である。検証後の文書3件は別hashへ記録する。
 
 局所的な合法table遷移の検証待ちを解消した。完全なcommand byte／spool／work、他owner／codec・capacity・Unicode／backend／font一時領域、admission・同時保持graph、名前付き脚注定義・段組と公開Book /2、元全巻・管理host・制御性能・著者／人手受入は継続する。Speech／SemanticRef未作成、固定veraPDF／V19 hostの未受入も維持し、設計全体の完了とは扱わない。
+
+<a id="book-2-named-footnote-definitions-design-14274"></a>
+## 274. 脚注定義の元要求から名前付きページを選ぶ（design §14.274）
+
+c6a38deを基準として継続した。[ADR-0137](../adr/ADR-0137-book-2-named-footnote-definitions.md)に従い、page planの走査を脚注定義まで進め、名前を指定する定義内容の一律拒否を除いた。本文の要求を保持し、定義内の明示された要求を元ownerと元itemへ結び付ける。名前を指定しない定義内容は選択した物理ページに従い、本文のunnamed指定は従来どおり保持する。
+
+直列item、caption・並列セル・入れ子表の実cursorから要求を求め、一つのfragmentを名前の境界で止める。本文が残る間は本文の要求を優先し、開始済みの別名carryは待てる。本文終了後はpending queueの実次内容へ切り替える。必要なら本文cursorを保持したままcarryの名前で脚注専用ページを試す。新規定義は参照と同じページに最初の実fragmentを必要とし、依存関係の閉包も免除しない。容量に収まらない開始済みcarryは、別の定義が進むページで待てる。
+
+元keepが名前境界を越える場合と新規定義の要求が本文と衝突する場合は、元owner付きの型付き診断を返す。元item・番号・改ページ・空の子表・rowspanのbandを一度ずつ保持し、反復headerはArtifactとして後続masterへ描画する。文字を持たないrowspan継続ページを残し、脚注の描画fragmentがないページでは区切り線を出さない。名前metadataは定義を含む全itemについて確保前に既存recordへ計上し、実cursor照会・境界走査を累積search workへ接続する。失敗時も子searchの台帳を戻し、再試行で消費済み台帳を返金しない。
+
+証跡はworkspace/target/vmb-design/20261007/named-footnote-definitions/。focused検証で、表の全体インデックスを本文だけの配列へ渡したReceiptMismatch、testの全体／定義内インデックスの混同、非描画band上の区切り線、原Haranoで複数carryの最小行が同時に収まらない場合を修正した。空の子表fixtureのclass順序をcanonicalにし、table keepの拒否fixtureには実際の後続内容を追加した。相対pathでCargo crate配下へ保存したdraft成果物はfocused-relocations.jsonで元保存先と保全先を結んだ。元フォントとkeep規則を変更していない。
+
+最終674 compilation／source入力と全tools/*.pyの74 hashesを固定し、全22 source／test／tool変更をcatalogへ含めた。run-regression-01.pyは旧syntax 79 tests＋doc-test 6件、Book /2 syntax 155 tests＋doc-test 12件、layout 70 tests＋doc-test 1件、pagination 104 tests、workspace --all-features --tests check、Book /2 CLI全314 testsに成功した。CLIは416.52秒、失敗／ignored 0、419 filtered outであり、binary全733件を実行したとは扱わない。原Harano／Arialと保存済みVMB 10 jobsを使った。旧precomposedは4成功／外部host 1 ignoredを維持する。時間は観測値で、制御された性能比較ではない。
+
+新しいdriver testsは合成／原Haranoの各13種類（同名・直列遷移・scope復帰・semantic scope・改ページ・平坦表・入れ子・header・rowspan・caption・空の子表・幅変更・複数定義）について、元itemと番号の一回消費、元要求と実masterの一致、driver work exact／1不足を確認した。表を含む定義のsource constructor record exact／1不足、元owner付きの名前／keep拒否と2回の失敗後のrecord／work累積も検査した。新モジュールだけを整形し、旧経路の広域整形を行っていない。
+
+- 共通独立検証は863 source PDFs／412 actual driver callbacks／3,300 pages／39,244 structure nodes／1,095 annotations／13 explicit unsupported inputs／7,600改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／118改変PDF拒否が成功した。
+- 柱3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、均一な表16 PDFs／60 pages／112改変拒否、名前遷移する表26 driver PDFs／108 pages／130改変拒否が成功した。
+- 新しい名前付き脚注26 driver PDFs／94 pagesと156改変拒否が成功した。期待ページ列・元文字数・番号は元fixture、宣言ruleと固定font metricsから求め、実配置recordsを期待座標へ流用していない。実PDFの物理frame内配置、MediaBox・TrimBoxと反復headerの文字を照合した。
+
+共通checkerは元定義の明示された名前も検査し、名前を指定しない定義と反復Artifactを別に扱う。追加のrun-definition-carry-tamper-01.pyは、新26 component PDFsと26 driver PDFsの各々で、本文のpaintがない継続ページだけの名前を改変した。全52件がdefinition page nameの検査で拒否され、本文の要求の検査が先に拒否することで脚注検査の欠落を隠していない。
+
+全811既存PDFは§273とbyte一致し、名前変更0だった。保存済みVMB table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§273と一致した。旧独立verifierの21 checksと、保存old binary出力への旧21成果物のbyte一致も成功した。run-source-correspondence.jsonは全674開始／終了input hashes・74 verifier hashes・全22変更、原入力・10 VMB jobs、7回帰commands／logs・CLI binaryと314 unique successes、8独立commands・旧検証・継続ページ専用改変検査と全artifact対応を結ぶ。継続ページ専用検査のcommand情報はtoolで観測した終了結果の要約である。検証後の文書3件は別hashへ記録する。
+
+名前付き脚注定義の局所検証待ちを解消した。完全なcommand byte／spool／work、他owner／codec・capacity・Unicode／backend／font一時領域、admission・同時保持graph、段組、公開Book /2、元全巻・管理host・制御性能・著者／人手受入は継続する。Speech／SemanticRef未作成、固定veraPDF／V19 hostの未受入も維持し、設計全体の完了とは扱わない。

@@ -119,7 +119,7 @@ impl Collection {
                 .filter(|t| t.owner() == owner)
                 .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
             if source.page_name().is_some()
-                && (!lines.has_named_page_plan() || definition.is_some())
+                && !lines.has_named_page_plan()
             {
                 return Err(error(owner, E::PendingNamedPage));
             }

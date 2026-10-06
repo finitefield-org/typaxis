@@ -1,7 +1,7 @@
 use super::*;
 use table_caption_breaks::renumber;
 
-fn transition_data(text: &str, mode: &str) -> Value {
+pub(super) fn transition_data(text: &str, mode: &str) -> Value {
     let (mut data, _) = names_data(text, "table");
     let table = &mut data["document"]["blocks"][0];
     table["classes"] = json!(["appendix", format!("transition-{mode}")]);

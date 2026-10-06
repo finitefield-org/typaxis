@@ -123,7 +123,10 @@ pub(super) struct DefinitionSearch<'r, 'b, 'f, 's, 'p, 'a> {
     pub(super) tables: &'r mut BookV2DefinitionTableContext<'b, 'f, 's, 'p, 'a>,
     pub(super) definition: usize,
     pub(super) available: Length,
+    pub(super) fragment_name: Option<Option<usize>>,
 }
+#[path = "book_v2_definition_page_names.rs"]
+mod page_names;
 pub fn prepare_book_v2_definition_mixed_search<'b, 'f, 's, 'p, 'a>(
     measurements: &'b BookV2TableMeasurements<'f, 's, 'p, 'a>,
     definition: usize,
@@ -253,6 +256,18 @@ impl<'b, 'f, 's, 'p, 'a> DefinitionSearch<'_, 'b, 'f, 's, 'p, 'a> {
         Option<BookV2DefinitionMixedCandidate<'b, 'f, 's, 'p, 'a>>,
         ProductionBodyPaginationError,
     > {
+        let previous = self.fragment_name;
+        self.bind_fragment_name(state)?;
+        let result = self.evaluate_in_name(state, requests, available);
+        self.fragment_name = previous;
+        result
+    }
+    fn evaluate_in_name(
+        &mut self,
+        state: &BookV2DefinitionSourceState<'b, 'f, 's, 'p, 'a>,
+        requests: &[BookV2DefinitionCandidatePart<'b, 'f, 's, 'p, 'a>],
+        available: Length,
+    ) -> Result<Option<BookV2DefinitionMixedCandidate<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError> {
         self.notes.verify_state(&state.demand)?;
         let root = NodeId::new(0);
         if state.definition != self.definition || state.is_complete() || requests.is_empty() {
@@ -293,6 +308,11 @@ impl<'b, 'f, 's, 'p, 'a> DefinitionSearch<'_, 'b, 'f, 's, 'p, 'a> {
             mut demanded,
             forced,
         } = selected;
+        if let Some(owner) = forced {
+            let name = self.notes.content.flow.lines().frames().and_then(|f| f.page_plan())
+                .and_then(|plan| plan.source_name_index(owner));
+            if !self.accept_name(owner, name) { return Ok(None); }
+        }
         let next_table = next_table.expect("definition source ordinal");
         let Some(DemandValue::Pending {
             first_reference,
@@ -405,6 +425,15 @@ impl<'b, 'f, 's, 'p, 'a> SourceSearch<'b> for DefinitionSearch<'_, 'b, 'f, 's, '
         state: &mut Self::State,
         range: Range<usize>,
     ) -> Result<bool, ProductionBodyPaginationError> {
+        if self.notes.content.flow.has_named_definitions() {
+            for item in range.clone() {
+                let owner = self.items()[item].owner;
+                self.notes.content.step(owner)?;
+                if !self.accept_name(owner, self.notes.content.flow.definition_page_name_index(self.definition, item)) {
+                    return Ok(false);
+                }
+            }
+        }
         self.notes.query_work()?;
         let references = self
             .notes
@@ -533,6 +562,13 @@ impl<'b, 'f, 's, 'p, 'a> SourceSearch<'b> for DefinitionSearch<'_, 'b, 'f, 's, '
         cursor: &Self::Cursor,
         capacity: Length,
     ) -> Result<Option<Self::TableFragment>, ProductionBodyPaginationError> {
+        if self.notes.content.flow.has_named_definitions() {
+            let name = self.tables.page_name(cursor.table_index(), Some(cursor),
+                Some(self.effective_name()), &mut self.notes.content.charge,
+                &mut self.notes.content.steps)?;
+            let owner = self.tables.table(cursor.table_index()).owner();
+            if !self.accept_name(owner, name) { return Ok(None); }
+        }
         self.tables.evaluate(
             cursor,
             capacity,
@@ -541,6 +577,7 @@ impl<'b, 'f, 's, 'p, 'a> SourceSearch<'b> for DefinitionSearch<'_, 'b, 'f, 's, '
                 .active_page_frames
                 .and_then(|f| f.footnote())
                 .map(|r| r.width()),
+            self.effective_name(),
             &mut self.notes.content.charge,
             &mut self.notes.content.steps,
         )
@@ -572,6 +609,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2DefinitionMixedSearch<'b, 'f, 's, 'p, 'a> {
             tables: &mut self.tables,
             definition: self.definition,
             available,
+            fragment_name: None,
         }
     }
     pub fn record_charge(&self) -> u64 {

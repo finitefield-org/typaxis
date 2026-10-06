@@ -171,6 +171,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                     )?;
                 }
             }
+            let body_fragment_count = fragments.len();
             if let Some(region) = candidate.footnotes() {
                 for selected in region.fragments() {
                     self.content.step(root)?;
@@ -242,7 +243,9 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             }
             let separator = self
                 .content_placement()
-                .place_separator(candidate.footnote_bounds())?;
+                .place_separator(candidate.footnote_bounds().filter(|_| {
+                    fragments.len() > body_fragment_count
+                }))?;
             let repetitions =
                 roles_with_repetition(&cells, &repeated_captions).map(|(_, repeated)| repeated);
             let (mut lists, mut notes) = if variants.is_empty() {

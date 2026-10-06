@@ -172,7 +172,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         Option<BookV2FootnoteRegionSelection<'b, 'f, 's, 'p, 'a>>,
         ProductionBodyPaginationError,
     > {
-        if self.definition_tables.is_some() {
+        if self.definition_tables.is_some() || self.content.flow.has_named_definitions() {
             return self.select_definition_reservation(state, available, false);
         }
         Ok(

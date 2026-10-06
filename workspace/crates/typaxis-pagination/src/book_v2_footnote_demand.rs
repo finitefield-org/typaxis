@@ -97,6 +97,7 @@ pub struct BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     terminal_spool: u64,
     active_page_frames: Option<typaxis_syntax::book_v2::BookV2PageFrames>,
     active_page_name: Option<usize>,
+    named_mismatch: Option<NodeId>,
     headers: Option<&'b crate::book_v2::BookV2TableHeaderCatalog<'b, 'f, 's, 'p, 'a>>,
     definition_tables: Option<Vec<Option<crate::production_body::body_flow::table_measurements::BookV2DefinitionTableContext<'b, 'f, 's, 'p, 'a>>>>,
     tables: Option<
@@ -487,6 +488,7 @@ fn finish_book_v2_demand_search_counted<'b, 'f, 's, 'p, 'a>(
         terminal_spool: 0,
         active_page_frames: None,
         active_page_name: None,
+        named_mismatch: None,
         headers: None,
         definition_tables: None,
         tables: None,
@@ -608,6 +610,8 @@ pub use definition_mixed::{BookV2DefinitionCandidates, BookV2RankedDefinitionCan
 
 #[path = "book_v2_definition_queue.rs"]
 mod definition_queue;
+#[path = "book_v2_named_footnote_pages.rs"]
+mod named_footnotes;
 pub use definition_queue::{prepare_book_v2_mixed_footnote_demand_search, prepare_book_v2_mixed_footnote_demand_search_counted};
 
 

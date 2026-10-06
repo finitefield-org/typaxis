@@ -92,6 +92,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 tables: &mut context,
                 definition,
                 available,
+                fragment_name: None,
             };
             let source = view.resume(state)?;
             view.enumerate(&source, available)

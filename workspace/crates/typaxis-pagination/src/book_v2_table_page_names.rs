@@ -47,7 +47,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
         self.named_transitions = source
             .items
             .clone()
-            .any(|i| flow.body_page_name_index(i) != initial);
+            .any(|i| flow.source_page_name_index(i) != initial);
         if self.named_transitions {
             return Ok(());
         }
@@ -187,7 +187,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
         match source {
             ProductionTableContentSource::FlowItem(item) => {
                 let flow = self.measurements.flow();
-                let original = flow.body_items().get(item).ok_or_else(|| {
+                let original = flow.collected.items.get(item).ok_or_else(|| {
                     error(
                         self.measurements.tables()[self.table_index].owner,
                         E::ReceiptMismatch,
@@ -197,7 +197,10 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
                 if before.is_some() {
                     return Err(error(original.owner, E::ReceiptMismatch));
                 }
-                Ok(flow.body_page_name_index(item))
+                let name = flow.source_page_name_index(item);
+                Ok(if flow.collected.tables.tables[self.table_index].definition.is_some() {
+                    name.or(preferred.flatten())
+                } else { name })
             }
             ProductionTableContentSource::Table(index) => {
                 let owner = self.measurements.tables()[self.table_index].owner;

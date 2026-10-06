@@ -3,6 +3,8 @@ use super::*;
 mod uniform_tables;
 #[path = "book_v2_table_name_transition_tests.rs"]
 mod table_transitions;
+#[path = "book_v2_named_footnote_tests.rs"]
+mod named_footnotes;
 fn page_rule(data: &mut Value, id: &str, selector: &str, name: &str) {
     let rules = data["style_sheet"]["rules"].as_array_mut().unwrap();
     rules.push(json!({"style_id":id,"selector":selector,"source_order":rules.len(),"extends":null,"declarations":[{"name":"page","important":false,"value":{"kind":"string","value":name}}]}));

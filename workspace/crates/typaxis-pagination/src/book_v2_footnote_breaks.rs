@@ -24,6 +24,10 @@ impl BookV2FootnoteCursor<'_, '_, '_, '_, '_> {
     pub const fn next_item(&self) -> usize {
         self.next_item
     }
+    /// Authored request of the next original serial item; no physical assignment.
+    pub fn page_name_index(&self) -> Option<usize> {
+        self.flow.definition_page_name_index(self.definition_index, self.next_item)
+    }
 }
 
 /// A bounded selection of measured content, not a page or footnote paint receipt.
@@ -292,13 +296,40 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteBreakSearch<'b, 'f, 's, 'p, 'a> {
             .flow
             .definition_items(cursor.definition_index)
             .ok_or_else(|| error(NodeId::new(0), E::ReceiptMismatch))?;
+        let end = self.named_content_end(&cursor, None)?;
         let mut kernel = self.kernel();
-        let Some(result) = kernel.evaluate(items, cursor.next_item, available_height)? else {
+        let Some(mut result) = kernel.evaluate(&items[..end], cursor.next_item, available_height)? else {
             return Ok(None);
         };
+        if end < items.len() && result.reason == ProductionBodyBreakReason::End {
+            result.reason = ProductionBodyBreakReason::Overflow;
+        }
         Ok(Some(BookV2FootnoteFragmentSelection::from_projection(
             cursor, result,
         )))
+    }
+    pub(in crate::production_body::body_flow) fn named_content_end(
+        &mut self,
+        cursor: &BookV2FootnoteCursor<'_, '_, '_, '_, '_>,
+        selected: Option<Option<usize>>,
+    ) -> Result<usize, ProductionBodyPaginationError> {
+        if !std::ptr::eq(cursor.flow, self.flow) {
+            return Err(error(NodeId::new(0), E::ReceiptMismatch));
+        }
+        let items = self.flow.definition_items(cursor.definition_index)
+            .ok_or_else(|| error(NodeId::new(0), E::ReceiptMismatch))?;
+        if !self.flow.has_named_definitions() { return Ok(items.len()); }
+        let name = selected.unwrap_or_else(|| cursor.page_name_index());
+        for (item, original) in items.iter().enumerate().skip(cursor.next_item) {
+            visit(&mut self.steps, self.maximum_steps, original.owner)?;
+            if self.flow.definition_page_name_index(cursor.definition_index, item)
+                .is_some_and(|request| Some(request) != name) {
+                if item == cursor.next_item { return Err(error(original.owner, E::PendingNamedPage)); }
+                if items[item - 1].keep { return Err(error(items[item - 1].owner, E::KeepAcrossForcedBreak)); }
+                return Ok(item);
+            }
+        }
+        Ok(items.len())
     }
 }
 

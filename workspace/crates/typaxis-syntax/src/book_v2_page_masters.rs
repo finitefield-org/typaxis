@@ -343,7 +343,8 @@ fn prepare_frames_for_name<'a>(
 
 /// Resolve the used page name of each body region using source nesting. An auto
 /// child remains in its enclosing named region; a nested explicit name overrides
-/// that region until its End event. Footnote definitions do not select body pages.
+/// that region until its End event. Definition requests are retained separately
+/// by their original owners; they do not replace a body's authored request.
 pub fn prepare_book_v2_page_frame_plan_for_flow<'a>(
     flow: &super::PreparedBookV2TextFlow<'a>,
     work: &mut u64,
@@ -438,16 +439,10 @@ fn prepare_flow_frames<'a>(
     for event in flow.events() {
         step(work, 1)?;
         match *event {
-            Event::Begin {
-                kind: Region::Footnote,
-                ..
-            } => {
-                if !stack.is_empty() {
+            Event::Begin { owner, kind } => {
+                if kind == Region::Footnote && !stack.is_empty() {
                     return Err(E::Identity);
                 }
-                break;
-            }
-            Event::Begin { owner, kind } => {
                 let local = match kind {
                     Region::Paragraph | Region::Heading | Region::DescriptionTerm => flow
                         .paragraphs()

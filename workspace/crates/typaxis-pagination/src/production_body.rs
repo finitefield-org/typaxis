@@ -772,7 +772,7 @@ fn collect_items_shared(
                         let source = flow.description_lists().get(description_cursor)
                             .filter(|l| l.owner() == owner)
                             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                        if source.page_name().is_some() && (!named_page_frames || definition_start.is_some()) {
+                        if source.page_name().is_some() && !named_page_frames {
                             return Err(error(owner, E::PendingNamedPage));
                         }
                         frame.container = Some(source.style().block_style());
@@ -790,7 +790,7 @@ fn collect_items_shared(
                         if frames.lists().get(list_cursor).map(|l| l.owner()) != Some(owner) {
                             return Err(error(owner, E::ReceiptMismatch));
                         }
-                        if source.page_name().is_some() && (!named_page_frames || definition_start.is_some()) {
+                        if source.page_name().is_some() && !named_page_frames {
                             return Err(error(owner, E::PendingNamedPage));
                         }
                         frame.container = Some(source.style().block_style());
@@ -823,7 +823,7 @@ fn collect_items_shared(
                             .get(figure_cursor)
                             .filter(|f| f.owner() == owner)
                             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                        if figure.source().page_name().is_some() && (!named_page_frames || definition_start.is_some()) {
+                        if figure.source().page_name().is_some() && !named_page_frames {
                             return Err(error(owner, E::PendingNamedPage));
                         }
                         let style = figure.source().style().block_style();
@@ -863,7 +863,7 @@ fn collect_items_shared(
                         let (style, has_named_page) = flow
                             .container(owner)
                             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                        if has_named_page && (!named_page_frames || definition_start.is_some()) {
+                        if has_named_page && !named_page_frames {
                             return Err(error(owner, E::PendingNamedPage));
                         }
                         if (style.start_indent().get() != Length::ZERO
@@ -880,7 +880,7 @@ fn collect_items_shared(
                             .get(native_math_cursor)
                             .filter(|b| b.owner() == owner)
                             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                        if block.has_named_page() && (!named_page_frames || definition_start.is_some()) {
+                        if block.has_named_page() && !named_page_frames {
                             return Err(error(owner, E::PendingNamedPage));
                         }
                         let style = block.style();
@@ -930,7 +930,7 @@ fn collect_items_shared(
                             .get(block_cursor)
                             .filter(|b| b.owner() == owner)
                             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                        if block.has_named_page() && (!named_page_frames || definition_start.is_some()) {
+                        if block.has_named_page() && !named_page_frames {
                             return Err(error(owner, E::PendingNamedPage));
                         }
                         let (block_left, block_width, viewport_left) =
@@ -958,7 +958,7 @@ fn collect_items_shared(
                         block_cursor += 1;
                     }
                     Region::PageBreak => {
-                        if flow.has_named_page_break(owner) && (!named_page_frames || definition_start.is_some()) {
+                        if flow.has_named_page_break(owner) && !named_page_frames {
                             return Err(error(owner, E::PendingNamedPage));
                         }
                         push(
@@ -1001,7 +1001,7 @@ fn collect_items_shared(
                 if selected.owner() != owner {
                     return Err(error(owner, E::ReceiptMismatch));
                 }
-                if p.page_name().is_some() && (!named_page_frames || definition_start.is_some()) {
+                if p.page_name().is_some() && !named_page_frames {
                     return Err(error(owner, E::PendingNamedPage));
                 }
                 let style = p.style().block_style();

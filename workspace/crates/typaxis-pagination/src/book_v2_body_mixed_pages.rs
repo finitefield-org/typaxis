@@ -239,9 +239,12 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             return Ok(None);
         }
         let frames = self.content.flow.lines().frames().expect("bound frames");
-        let name = self.current_source_page_name(state.source.item, state.source.next_table,
-                state.source.continuation, state.source.continuation.map(|_| state.name))?
-            .unwrap_or(state.name);
+        let body_name = self.current_source_page_name(state.source.item, state.source.next_table,
+                state.source.continuation, state.source.continuation.map(|_| state.name))?;
+        let name = match body_name {
+            Some(name) => name,
+            None => self.next_pending_page_name(&state.source.demand, state.name)?,
+        };
         let selected = frames
             .page_plan()
             .map(|plan| plan.named_page(state.page, name))
@@ -249,9 +252,29 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             .map_err(|_| error(NodeId::new(0), E::PageLimit))?;
         self.active_page_frames = selected;
         self.active_page_name = name;
-        let result = self.select_mixed_page_in_frames(state);
+        let previous_mismatch = self.named_mismatch.take();
+        let result = (|| {
+            let result = self.select_mixed_page_in_frames(state)?;
+            if result.is_some() { return Ok(result); }
+            if !state.source.demand.pending.is_empty() {
+                let next_name = self.next_pending_page_name(&state.source.demand, state.name)?;
+                if next_name != name {
+                    self.active_page_frames = frames.page_plan().map(|plan| plan.named_page(state.page, next_name))
+                        .transpose().map_err(|_| error(NodeId::new(0), E::PageLimit))?;
+                    self.active_page_name = next_name;
+                    if let Some(selected) = self.select_mixed_page_in_frames(state)? {
+                        return Ok(Some(selected));
+                    }
+                }
+            }
+            if let Some(owner) = self.named_mismatch {
+                return Err(error(owner, E::PendingNamedPage));
+            }
+            Ok(None)
+        })();
         self.active_page_frames = None;
         self.active_page_name = None;
+        self.named_mismatch = previous_mismatch;
         result
     }
     fn select_mixed_page_in_frames(

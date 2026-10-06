@@ -40,6 +40,15 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                     state.status(index) == Some(ProductionFootnoteDemandStatus::Pending)
                 })
             {
+                if self.content.flow.has_named_definitions() && self.active_page_frames.is_some() {
+                    let cursor = state.definition_cursor(index)
+                        .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+                    let (owner, name) = self.pending_definition_name(&state, index, self.active_page_name)?;
+                    if name != self.active_page_name {
+                        if cursor.definition_started() { continue; }
+                        self.named_mismatch.get_or_insert(owner);
+                    }
+                }
                 next = Some((position, index));
                 break;
             }
@@ -67,6 +76,14 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         };
         frame.cursor = Some(cursor);
         frame.position = position;
+        if self.content.flow.has_named_definitions() && self.active_page_frames.is_some() {
+            let (owner, name) = self.pending_definition_name(&frame.state, index, self.active_page_name)?;
+            if name != self.active_page_name {
+                self.named_mismatch.get_or_insert(owner);
+                frame.exhausted = true;
+                return Ok(frame);
+            }
+        }
         if forced.is_some() {
             frame.exhausted = true;
             return Ok(frame);
@@ -107,9 +124,11 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             return Ok(frame);
         }
         if paint {
+            let end = self.content.named_content_end(&cursor,
+                self.active_page_frames.map(|_| self.active_page_name))?;
             let content = self.content.kernel();
             frame.choice = match page_breaks::all_boundaries(
-                items,
+                &items[..end],
                 cursor.next_item(),
                 frame.capacity,
                 content.paragraph_lengths,
@@ -190,6 +209,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         )?);
         while !stack.is_empty() {
             self.content.step(root)?;
+            let prior_fragment = stack.len() > 1;
             let frame = stack
                 .last_mut()
                 .ok_or_else(|| error(root, E::ReceiptMismatch))?;
@@ -279,6 +299,16 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 }
             }
             if frame.exhausted {
+                // A started carry may wait after another definition advances.
+                // New definitions still need their first real fragment, and an
+                // empty region cannot defer every carry without source progress.
+                if self.content.flow.has_named_definitions()
+                    && prior_fragment
+                    && cursor.definition_started()
+                {
+                    frame.cursor = None;
+                    continue;
+                }
                 let failed = stack.pop().ok_or_else(|| error(root, E::ReceiptMismatch))?;
                 if let Some(arrived) = failed.arrived {
                     visited[arrived.fragment().definition_index()] = false;

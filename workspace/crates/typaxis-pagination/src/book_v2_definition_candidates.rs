@@ -83,7 +83,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2DefinitionCandidates<'b, 'f, 's, 'p, 'a> {
 }
 impl<'b, 'f, 's, 'p, 'a> DefinitionSearch<'_, 'b, 'f, 's, 'p, 'a> {
     fn boundary_key(
-        &self,
+        &mut self,
         end: usize,
         next_table: usize,
         continuation: Option<BookV2TableCursor<'b, 'f, 's, 'p, 'a>>,
@@ -92,7 +92,7 @@ impl<'b, 'f, 's, 'p, 'a> DefinitionSearch<'_, 'b, 'f, 's, 'p, 'a> {
         available: Length,
         forced: bool,
     ) -> Result<Key, ProductionBodyPaginationError> {
-        let terminal = forced
+        let terminal = forced || self.name_boundary(end, next_table, continuation)?
             || (continuation.is_none()
                 && end == self.items().len()
                 && next_table == self.tables.end());
@@ -145,6 +145,8 @@ impl<'b, 'f, 's, 'p, 'a> DefinitionSearch<'_, 'b, 'f, 's, 'p, 'a> {
                 .items()
                 .get(item)
                 .is_some_and(|item| item.source.is_none())
+            && self.notes.content.flow.definition_page_name_index(self.definition, item)
+                .is_none_or(|name| Some(name) == self.effective_name())
     }
     fn push_request(
         &mut self,
@@ -162,6 +164,17 @@ impl<'b, 'f, 's, 'p, 'a> DefinitionSearch<'_, 'b, 'f, 's, 'p, 'a> {
     /// Enumerate every ordinary boundary and legal final table cut under the
     /// requested capacity. Retain all feasible branches for later reservation.
     pub fn enumerate(
+        &mut self,
+        state: &BookV2DefinitionSourceState<'b, 'f, 's, 'p, 'a>,
+        available: Length,
+    ) -> Result<BookV2DefinitionCandidates<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+        let previous = self.fragment_name;
+        self.bind_fragment_name(state)?;
+        let result = self.enumerate_in_name(state, available);
+        self.fragment_name = previous;
+        result
+    }
+    fn enumerate_in_name(
         &mut self,
         state: &BookV2DefinitionSourceState<'b, 'f, 's, 'p, 'a>,
         available: Length,
@@ -208,6 +221,22 @@ impl<'b, 'f, 's, 'p, 'a> DefinitionSearch<'_, 'b, 'f, 's, 'p, 'a> {
             .expect("bound definition");
         loop {
             self.notes.content.step(root)?;
+            if self.notes.content.flow.has_named_definitions() {
+                let continuation = state.continuation.filter(|_| next_table == state.next_table);
+                if let Some((owner, name)) = self.current_name(item, next_table, continuation,
+                    Some(self.effective_name()))? {
+                    if !self.accept_name(owner, name) {
+                        if !requests.is_empty() && self.source_keep_before(item, Some(next_table))? {
+                            let origin = self.tables.previous_root(next_table)
+                                .filter(|&i| self.tables.range(i).is_some_and(|r| r.end == item))
+                                .map(|i| self.tables.table(i).owner())
+                                .unwrap_or_else(|| items[item - 1].owner);
+                            return Err(error(origin, E::KeepAcrossForcedBreak));
+                        }
+                        break;
+                    }
+                }
+            }
             if let Some(range) = self
                 .tables
                 .range(next_table)
@@ -251,6 +280,7 @@ impl<'b, 'f, 's, 'p, 'a> DefinitionSearch<'_, 'b, 'f, 's, 'p, 'a> {
                             .active_page_frames
                             .and_then(|f| f.footnote())
                             .map(|r| r.width()),
+                        self.effective_name(),
                         &mut self.notes.content.charge,
                         &mut self.notes.content.steps,
                     )?
@@ -264,6 +294,9 @@ impl<'b, 'f, 's, 'p, 'a> DefinitionSearch<'_, 'b, 'f, 's, 'p, 'a> {
                     )?;
                     let terminal = selected.after().is_terminal();
                     let forced = selected.forced_break_owner().is_some();
+                    if terminal && keep && self.name_boundary(range.end, successor, None)? {
+                        return Err(error(owner, E::KeepAcrossForcedBreak));
+                    }
                     if terminal {
                         complete = Some((capacity, selected.used_height(), forced));
                     }

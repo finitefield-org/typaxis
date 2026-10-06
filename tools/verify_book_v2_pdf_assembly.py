@@ -72,8 +72,8 @@ def selected_master(masters, page, name=None):
     return next(m for m in masters['masters'] if m['master_id']==chosen)
 
 
-def source_page_owner_names(wire):
-    """Resolve original body-owner requests from authored scopes and cascade."""
+def source_page_owner_names(wire, definitions=False):
+    """Resolve original owner requests from authored scopes and cascade."""
     sheet={r['style_id']:r for r in wire['style_sheet']['rules']}
     def declarations(rule,seen=()):
         assert rule['style_id'] not in seen
@@ -104,13 +104,15 @@ def source_page_owner_names(wire):
             if 'node_id' in value:owners[value['node_id']]=used
             for field in ('blocks','children','items','term','caption','head','body','cells','equation_number'):
                 if field in value:visit(value[field],used)
-    visit(wire['document']['blocks'])
+    visit(wire['document']['footnotes'] if definitions else wire['document']['blocks'])
     return owners
 
 
 def source_page_names(probe):
-    """Check original body requests; definition and repeated artifact paint has no request."""
+    """Check body and explicit definition requests; repeated Artifact copies are exempt."""
     owners=source_page_owner_names(probe['wire'])
+    definitions={owner:name for owner,name in source_page_owner_names(probe['wire'],True).items()
+                 if name is not None}
     nav=probe['relations']['navigation']
     names=nav['assembly'].get('page_names',[None]*nav['raw_page_count'])
     assert len(names)==nav['raw_page_count']
@@ -122,6 +124,7 @@ def source_page_names(probe):
             continue
         assert index in bindings
         if group['owner'] in owners:assert names[group['page']]==owners[group['owner']],('source page name',group['owner'],names[group['page']],owners[group['owner']])
+        if group['owner'] in definitions:assert names[group['page']]==definitions[group['owner']],('definition page name',group['owner'],names[group['page']],definitions[group['owner']])
     return names
 
 
@@ -488,6 +491,21 @@ def tamper_checks(data, probe):
             page_name_rejections = 1
         else:
             raise AssertionError('tampered original page request accepted')
+    definitions = {owner:name for owner,name in source_page_owner_names(probe['wire'],True).items()
+                   if name is not None}
+    definition_group = next((probe['groups'][b['group']] for b in probe['bindings']
+                             if probe['groups'][b['group']]['owner'] in definitions), None)
+    if definition_group is not None:
+        changed = copy.deepcopy(probe)
+        names = changed['relations']['navigation']['assembly'].setdefault(
+            'page_names', [None] * changed['relations']['navigation']['raw_page_count'])
+        names[definition_group['page']] = '__invalid_definition_page_name__'
+        try:
+            source_page_names(changed)
+        except AssertionError:
+            page_name_rejections += 1
+        else:
+            raise AssertionError('tampered original definition page request accepted')
     return len(actions) + len(changes) + len(reference_changes) + page_name_rejections
 
 

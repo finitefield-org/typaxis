@@ -17,7 +17,8 @@ pub struct BookV2PreparedBodyFlow<'f, 's, 'p, 'a> {
     record_charge: u64,
     prior_records: u64,
     limits_fingerprint: [u8; 32],
-    body_page_names: Vec<Option<usize>>,
+    source_page_names: Vec<Option<usize>>,
+    named_definitions: bool,
     table_page_names: Vec<TablePageName>,
 }
 #[derive(Clone, Copy)]
@@ -27,8 +28,17 @@ struct TablePageName {
 }
 impl<'f, 's, 'p, 'a> BookV2PreparedBodyFlow<'f, 's, 'p, 'a> {
     pub fn body_page_name_index(&self, item: usize) -> Option<usize> {
-        self.body_page_names.get(item).copied().flatten()
+        (item < self.collected.body_end).then(|| self.source_page_name_index(item)).flatten()
     }
+    pub(super) fn source_page_name_index(&self, item: usize) -> Option<usize> {
+        self.source_page_names.get(item).copied().flatten()
+    }
+    /// The original request at this local definition item, before page selection.
+    pub fn definition_page_name_index(&self, definition: usize, item: usize) -> Option<usize> {
+        let range = self.collected.definitions.get(definition)?;
+        (item < range.len()).then(|| self.source_page_name_index(range.start + item)).flatten()
+    }
+    pub(super) fn has_named_definitions(&self) -> bool { self.named_definitions }
     /// Initial physical name of table content, or its own name when empty.
     /// The source plan retains the table owner's original enclosing name.
     pub fn table_page_name_index(&self, table: usize) -> Option<usize> {
@@ -178,33 +188,33 @@ pub fn prepare_book_v2_body_flow_counted<'f, 's, 'p, 'a>(
             &mut charge,
             true,
         )?;
-        let mut body_page_names = Vec::new();
+        let mut source_page_names = Vec::new();
         let mut table_page_names = Vec::new();
         if let Some(plan) = frames.page_plan().filter(|p| p.has_source_names()) {
             charge.take(
                 collected
-                    .body_end
+                    .items.len()
                     .checked_add(collected.tables.tables.len())
                     .and_then(|n| n.checked_add(2))
                     .ok_or_else(|| error(root, E::FragmentLimit))?,
                 root,
             )?;
-            body_page_names
-                .try_reserve_exact(collected.body_end)
+            source_page_names
+                .try_reserve_exact(collected.items.len())
                 .map_err(|_| error(root, E::AllocationFailure))?;
             table_page_names
                 .try_reserve_exact(collected.tables.tables.len())
                 .map_err(|_| error(root, E::AllocationFailure))?;
-            body_page_names.extend(
-                collected.items[..collected.body_end]
+            source_page_names.extend(
+                collected.items
                     .iter()
                     .map(|i| plan.source_name_index(i.owner)),
             );
             for table in &collected.tables.tables {
                 let mut name = plan.source_name_index(table.owner);
                 let mut transitions = false;
-                if table.definition.is_none() {
-                    let names = body_page_names
+                {
+                    let names = source_page_names
                         .get(table.items.clone())
                         .ok_or_else(|| error(table.owner, E::ReceiptMismatch))?;
                     // A nonempty table starts with its first original content.
@@ -222,7 +232,7 @@ pub fn prepare_book_v2_body_flow_counted<'f, 's, 'p, 'a>(
             // Empty descendants have no leaf name in a root's range. Their own
             // authored scope still participates in physical page selection.
             for (index, table) in collected.tables.tables.iter().enumerate() {
-                if table.definition.is_some() || !table.items.is_empty() {
+                if !table.items.is_empty() {
                     continue;
                 }
                 let name = table_page_names[index].initial;
@@ -240,6 +250,12 @@ pub fn prepare_book_v2_body_flow_counted<'f, 's, 'p, 'a>(
                 }
             }
         }
+        let named_definitions = source_page_names.get(collected.body_end..)
+            .is_some_and(|names| names.iter().any(Option::is_some))
+            || collected.tables.tables.iter().enumerate().any(|(index, table)| {
+                table.definition.is_some()
+                    && table_page_names.get(index).is_some_and(|name| name.initial.is_some())
+            });
         let (definition_markers, references) = finish_collection(
             view,
             block_view,
@@ -258,7 +274,8 @@ pub fn prepare_book_v2_body_flow_counted<'f, 's, 'p, 'a>(
             record_charge: limits.base().get().max_fragments - charge.remaining,
             prior_records,
             limits_fingerprint: limits.fingerprint(),
-            body_page_names,
+            source_page_names,
+            named_definitions,
             table_page_names,
         })
     })();

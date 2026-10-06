@@ -5841,3 +5841,27 @@ Book /2 CLI全311件が成功した。合成／原Haranoの13種類ずつ、26�
 
 完全なcommand byte／spool／work・同時保持graph、名前付き脚注定義・段組、公開Book /2、
 元全巻・管理host・制御性能・著者／人手受入とSpeech／SemanticRef未作成の要件は継続する。
+
+### 14.274 脚注定義の元要求から名前付きページを選ぶ（実装追補）
+
+元脚注定義までpage planを走査し、定義内の明示された名前を元ownerへ結び付ける。
+本文の要求を保持し、その物理ページと同じ名前の元内容を選ぶ。名前を指定しない
+定義内容は選択したページに従う。本文終了後は直列・caption・セル・入れ子表の実
+cursorから次の継続名を求める。開始済みcarryは名前や容量が合わなければ待てるが、
+新規定義の最初の実fragmentと依存関係の閉包は参照と同じページで必要とする。
+
+keepを越える境界と新規定義の名前の衝突は元owner付きで拒否する。元item・番号・
+改ページ・空の子表・rowspanの未配置bandを保持し、反復headerはArtifactとして
+後続masterへ配置する。描画fragmentがない継続ページには脚注区切り線を出さない。
+全元itemの名前metadataを確保前にrecordへ計上し、実cursor照会と境界走査を累積
+search workへ接続する。失敗・再試行時も消費済み台帳を保持する。
+
+[ADR-0137](../adr/ADR-0137-book-2-named-footnote-definitions.md)と
+[実装台帳§274](28-vmb-book-production-progress.md#book-2-named-footnote-definitions-design-14274)を参照。
+旧／Book syntax 79／155 tests、layout 70 tests、pagination 104 tests、workspace型検査と
+Book /2 CLI全314件が成功した。合成／原Haranoの26実driver PDFs／94 pagesを元入力から
+独立検査し、156改変を拒否した。共通検査は863 PDF／3,300 pagesに成功し、脚注だけの
+継続ページの名前改変52件も拒否した。既存811 PDF・保存済みVMB表2出力・旧21成果物は
+byte一致した。
+完全なcommand byte／spool／work・同時保持graph、段組、公開Book /2、元全巻・
+管理host・制御性能・著者／人手受入とSpeech／SemanticRef未作成の要件は継続する。
