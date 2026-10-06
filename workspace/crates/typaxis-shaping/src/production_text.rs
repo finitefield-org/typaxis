@@ -4,7 +4,7 @@
 //! Canonical list and footnote labels use the generated text namespace.
 //! Footnote placement remains pending even after its inline marker is shaped.
 use super::*;
-use typaxis_core::M4EffectiveResourceLimits;
+use typaxis_core::{M4EffectiveResourceLimits, Sha256};
 use typaxis_syntax::{
     ProductionInlineContent, ProductionTextFlow, ProductionTextParagraph,
     ValidatedStagingBookNavigationV2,
@@ -413,9 +413,9 @@ fn shape_document_with_record_limit_counted<'a>(
     }
     let list_markers = list_markers::shape_markers(flow, admitted, limits, output_records, maximum_records)?;
     let footnote_markers = footnote_markers::shape_markers(flow, admitted, limits, output_records, maximum_records)?;
-    // Fixed-size paragraph digests bound the document receipt allocation even for
-    // books with millions of glyphs. Each paragraph owns a separate glyph digest.
-    let capacity = paragraphs
+    // Preserve the checked size arithmetic, then stream the already sealed
+    // paragraph and marker digests without retaining another document buffer.
+    let _capacity = paragraphs
         .len()
         .checked_add(list_markers.len())
         .and_then(|n| n.checked_add(footnote_markers.len()))
@@ -423,29 +423,26 @@ fn shape_document_with_record_limit_counted<'a>(
         .checked_mul(32)
         .and_then(|n| n.checked_add(256))
         .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
-    let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(capacity)
-        .map_err(|_| error(root, E::AllocationFailure))?;
-    bytes.extend_from_slice(&sha256(algorithm.as_bytes()));
-    bytes.extend_from_slice(&flow_call!(flow, fingerprint()));
-    bytes.extend_from_slice(&admitted.fingerprint());
-    bytes.extend_from_slice(&limits.fingerprint());
-    bytes.extend_from_slice(&epoch);
+    let mut bytes = Sha256::new();
+    bytes.update(&sha256(algorithm.as_bytes()));
+    bytes.update(&flow_call!(flow, fingerprint()));
+    bytes.update(&admitted.fingerprint());
+    bytes.update(&limits.fingerprint());
+    bytes.update(&epoch);
     let shaper = ShaperIdentity::linked_reference();
-    bytes.extend_from_slice(&sha256(shaper.backend().as_bytes()));
-    bytes.extend_from_slice(&sha256(shaper.version().as_bytes()));
-    bytes.extend_from_slice(&output_records.to_be_bytes());
+    bytes.update(&sha256(shaper.backend().as_bytes()));
+    bytes.update(&sha256(shaper.version().as_bytes()));
+    bytes.update(&output_records.to_be_bytes());
     for paragraph in &paragraphs {
-        bytes.extend_from_slice(&paragraph.fingerprint);
+        bytes.update(&paragraph.fingerprint);
     }
     for marker in &list_markers {
-        bytes.extend_from_slice(&marker.fingerprint());
+        bytes.update(&marker.fingerprint());
     }
     for marker in &footnote_markers {
-        bytes.extend_from_slice(&marker.fingerprint());
+        bytes.update(&marker.fingerprint());
     }
-    let mut fingerprint = sha256(&bytes);
+    let mut fingerprint = bytes.finish();
     if let Some(context) = line_context_fingerprint {
         let mut record = [0u8; 64];
         record[..32].copy_from_slice(&fingerprint);
@@ -837,80 +834,80 @@ fn paragraph_fingerprint(
             .and_then(|n| n.checked_add(records))
             .ok_or_else(|| error(p.owner, E::ArithmeticOverflow))?;
     }
-    let mut b = Vec::new();
-    b.try_reserve_exact(records)
-        .map_err(|_| error(p.owner, E::AllocationFailure))?;
-    b.extend_from_slice(&p.owner.get().to_be_bytes());
-    b.push(p.paragraph_level.get());
-    b.push(u8::from(p.font.is_some()));
+    // Keep the overflow guard even though the encoded bytes are no longer stored.
+    let _capacity = records;
+    let mut b = Sha256::new();
+    b.update(&p.owner.get().to_be_bytes());
+    b.update(&[p.paragraph_level.get()]);
+    b.update(&[u8::from(p.font.is_some())]);
     if let Some(font) = &p.font {
-        b.extend_from_slice(&font.face_id.get().to_be_bytes());
-        b.extend_from_slice(&font.content_hash);
-        b.extend_from_slice(&font.face_index.to_be_bytes());
+        b.update(&font.face_id.get().to_be_bytes());
+        b.update(&font.content_hash);
+        b.update(&font.face_index.to_be_bytes());
         for metric in [
             font.size.get(),
             font.ascender,
             font.descender,
             font.line_gap,
         ] {
-            b.extend_from_slice(&metric.raw().to_be_bytes());
+            b.update(&metric.raw().to_be_bytes());
         }
     }
-    b.extend_from_slice(&(p.pending_references.len() as u64).to_be_bytes());
+    b.update(&(p.pending_references.len() as u64).to_be_bytes());
     for owner in &p.pending_references {
-        b.extend_from_slice(&owner.get().to_be_bytes());
+        b.update(&owner.get().to_be_bytes());
     }
-    b.extend_from_slice(&(p.runs.len() as u64).to_be_bytes());
+    b.update(&(p.runs.len() as u64).to_be_bytes());
     for r in &p.runs {
-        b.extend_from_slice(&r.site_index.to_be_bytes());
-        b.extend_from_slice(&r.owner.get().to_be_bytes());
-        b.extend_from_slice(&sha256(r.language.as_bytes()));
-        b.extend_from_slice(&r.script.bytes());
-        b.extend_from_slice(&r.run.run_id.get().to_be_bytes());
-        b.extend_from_slice(&r.run.font.get().to_be_bytes());
-        b.push(r.run.bidi_level.get());
-        let span_bytes = |b: &mut Vec<u8>, source| -> Result<(), ProductionTextShapeError> {
+        b.update(&r.site_index.to_be_bytes());
+        b.update(&r.owner.get().to_be_bytes());
+        b.update(&sha256(r.language.as_bytes()));
+        b.update(&r.script.bytes());
+        b.update(&r.run.run_id.get().to_be_bytes());
+        b.update(&r.run.font.get().to_be_bytes());
+        b.update(&[r.run.bidi_level.get()]);
+        let span_bytes = |b: &mut Sha256, source| -> Result<(), ProductionTextShapeError> {
             match source {
                 ShapeSourceSpan::Parsed(span) => {
-                    b.push(0);
-                    b.extend_from_slice(&span.text_id().get().to_be_bytes());
-                    b.extend_from_slice(&span.start_byte().get().to_be_bytes());
-                    b.extend_from_slice(&span.end_byte().get().to_be_bytes());
+                    b.update(&[0]);
+                    b.update(&span.text_id().get().to_be_bytes());
+                    b.update(&span.start_byte().get().to_be_bytes());
+                    b.update(&span.end_byte().get().to_be_bytes());
                 }
                 ShapeSourceSpan::Generated(provenance) => {
                     let key = provenance.buffer_key();
-                    b.push(match key.generation_kind() {
+                    b.update(&[match key.generation_kind() {
                         typaxis_core::GenerationKind::FootnoteMarker => 1,
                         typaxis_core::GenerationKind::PageReference => 2,
                         typaxis_core::GenerationKind::Counter => 3,
                         _ => return Err(error(r.owner, E::ReceiptMismatch)),
-                    });
-                    b.extend_from_slice(&key.owner().get().to_be_bytes());
-                    b.extend_from_slice(&key.owner_local_ordinal().to_be_bytes());
+                    }]);
+                    b.update(&key.owner().get().to_be_bytes());
+                    b.update(&key.owner_local_ordinal().to_be_bytes());
                     let span = provenance.text_span();
-                    b.extend_from_slice(&span.text_id().get().to_be_bytes());
-                    b.extend_from_slice(&span.range().start_byte().get().to_be_bytes());
-                    b.extend_from_slice(&span.range().end_byte().get().to_be_bytes());
+                    b.update(&span.text_id().get().to_be_bytes());
+                    b.update(&span.range().start_byte().get().to_be_bytes());
+                    b.update(&span.range().end_byte().get().to_be_bytes());
                 }
             }
             Ok(())
         };
         span_bytes(&mut b, r.run.source_span)?;
-        b.extend_from_slice(&(r.run.glyphs.len() as u64).to_be_bytes());
+        b.update(&(r.run.glyphs.len() as u64).to_be_bytes());
         for g in &r.run.glyphs {
-            b.extend_from_slice(&g.original_gid.get().to_be_bytes());
+            b.update(&g.original_gid.get().to_be_bytes());
             for metric in [g.advance_x, g.advance_y, g.offset_x, g.offset_y] {
-                b.extend_from_slice(&metric.raw().to_be_bytes());
+                b.update(&metric.raw().to_be_bytes());
             }
         }
-        b.extend_from_slice(&(r.run.clusters.len() as u64).to_be_bytes());
+        b.update(&(r.run.clusters.len() as u64).to_be_bytes());
         for c in &r.run.clusters {
             span_bytes(&mut b, c.source_span)?;
-            b.extend_from_slice(&c.glyph_start.to_be_bytes());
-            b.extend_from_slice(&c.glyph_end.to_be_bytes());
+            b.update(&c.glyph_start.to_be_bytes());
+            b.update(&c.glyph_end.to_be_bytes());
         }
     }
-    Ok(sha256(&b))
+    Ok(b.finish())
 }
 
 /// Resolve actual horizontal metrics for a sealed, producer-authored number.

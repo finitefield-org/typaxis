@@ -1,6 +1,9 @@
 //! Production candidate selection. Source/glyph authorization belongs to the
 //! layout bridge; this kernel never turns scalar metrics into PDF text.
 use super::*;
+use typaxis_core::Sha256;
+#[path = "production_inline_fingerprint.rs"]
+mod fingerprint;
 #[path = "production_native_math.rs"]
 mod native_math;
 pub use native_math::ProductionNativeMathInlineItem;
@@ -248,58 +251,23 @@ impl ProductionInlineParagraph {
         {
             return Err(AtomicVectorInlineError::InvalidBinding);
         }
-        let mut canonical = String::from(PRODUCTION_INLINE_BREAK_ALGORITHM);
-        canonical.push_str(match japanese_mode {
-            JapaneseLineBreakMode::Loose => "/loose/",
-            JapaneseLineBreakMode::Normal => "/normal/",
-            JapaneseLineBreakMode::Strict => "/strict/",
-        });
-        canonical.push_str(&format!("/{}/", owner.get()));
-        for (index, unit) in units.iter().enumerate() {
-            match unit {
-                U::Text(t) => canonical.push_str(&format!(
-                    "/text/{}/{}/{}/{}",
-                    t.scalar() as u32,
-                    t.advance().get().raw(),
-                    t.ascent().get().raw(),
-                    t.descent().get().raw()
-                )),
-                U::Vector(v) => {
-                    canonical.push_str("/vector/");
-                    push_hash(&mut canonical, v.fingerprint());
-                }
-                U::Math(m) => {
-                    canonical.push_str("/native_math/");
-                    push_hash(&mut canonical, m.fingerprint());
-                }
-                U::Break(b) => {
-                    canonical.push_str(&format!(
-                        "/break/{}/{}/{}/",
-                        index,
-                        b.owner.get(),
-                        break_kind_str(b.kind)
-                    ));
-                    push_source_span(&mut canonical, b.source_span);
-                }
-            }
-        }
-        for b in &boundaries {
-            canonical.push_str(&format!(
-                "/boundary/{}/{}",
-                break_kind_str(b.kind()),
-                b.penalty()
-            ));
-        }
-        for range in &clusters {
-            canonical.push_str(&format!("/{},{}", range.start_unit, range.end_unit));
-        }
+        let mut canonical = Sha256::new();
+        fingerprint::write_paragraph(
+            &mut canonical,
+            owner,
+            &units,
+            &boundaries,
+            &clusters,
+            japanese_mode,
+        )
+        .expect("SHA-256 formatting is infallible");
         Ok(Self {
             owner,
             units,
             boundaries,
             previous_content,
             clusters,
-            fingerprint: sha256(canonical.as_bytes()),
+            fingerprint: canonical.finish(),
         })
     }
     pub const fn paragraph_node(&self) -> NodeId {

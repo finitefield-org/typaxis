@@ -233,32 +233,29 @@ pub(super) fn shape_generated_marker<'a>(
             .filter(|n| *n <= limits.base().get().max_fragments)
             .ok_or_else(|| error(owner, E::OutputLimit))?;
     }
-    let capacity = run
+    let _capacity = run
         .glyphs
         .len()
         .checked_mul(34)
         .and_then(|n| n.checked_add(run.clusters.len().checked_mul(16)?))
         .and_then(|n| n.checked_add(224))
         .ok_or_else(|| error(owner, E::OutputLimit))?;
-    let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(capacity)
-        .map_err(|_| error(owner, E::AllocationFailure))?;
-    bytes.extend_from_slice(&owner.get().to_be_bytes());
-    bytes.extend_from_slice(&sha256(
+    let mut bytes = Sha256::new();
+    bytes.update(&owner.get().to_be_bytes());
+    bytes.update(&sha256(
         typaxis_core::generation_kind_wire_name(provenance.buffer_key().generation_kind())
             .as_bytes(),
     ));
-    bytes.extend_from_slice(&provenance.buffer_key().owner_local_ordinal().to_be_bytes());
-    bytes.extend_from_slice(&sha256(text.as_bytes()));
-    bytes.extend_from_slice(&sha256(language.as_bytes()));
-    bytes.extend_from_slice(&metrics.content_hash);
+    bytes.update(&provenance.buffer_key().owner_local_ordinal().to_be_bytes());
+    bytes.update(&sha256(text.as_bytes()));
+    bytes.update(&sha256(language.as_bytes()));
+    bytes.update(&metrics.content_hash);
     for n in [
         face_id.get(),
         font.face_index(),
         provenance.text_span().text_id().get(),
     ] {
-        bytes.extend_from_slice(&n.to_be_bytes());
+        bytes.update(&n.to_be_bytes());
     }
     for n in [
         metrics.size.get(),
@@ -266,14 +263,14 @@ pub(super) fn shape_generated_marker<'a>(
         metrics.descender,
         metrics.line_gap,
     ] {
-        bytes.extend_from_slice(&n.raw().to_be_bytes());
+        bytes.update(&n.raw().to_be_bytes());
     }
-    bytes.extend_from_slice(&(run.glyphs.len() as u64).to_be_bytes());
-    bytes.extend_from_slice(&(run.clusters.len() as u64).to_be_bytes());
+    bytes.update(&(run.glyphs.len() as u64).to_be_bytes());
+    bytes.update(&(run.clusters.len() as u64).to_be_bytes());
     for g in &run.glyphs {
-        bytes.extend_from_slice(&g.original_gid.get().to_be_bytes());
+        bytes.update(&g.original_gid.get().to_be_bytes());
         for n in [g.advance_x, g.advance_y, g.offset_x, g.offset_y] {
-            bytes.extend_from_slice(&n.raw().to_be_bytes());
+            bytes.update(&n.raw().to_be_bytes());
         }
     }
     for c in &run.clusters {
@@ -286,7 +283,7 @@ pub(super) fn shape_generated_marker<'a>(
             c.glyph_start,
             c.glyph_end,
         ] {
-            bytes.extend_from_slice(&n.to_be_bytes());
+            bytes.update(&n.to_be_bytes());
         }
     }
     Ok(GeneratedMarkerGlyphs {
@@ -295,6 +292,6 @@ pub(super) fn shape_generated_marker<'a>(
         font: metrics,
         run,
         advance,
-        fingerprint: sha256(&bytes),
+        fingerprint: bytes.finish(),
     })
 }

@@ -5719,3 +5719,24 @@ layout 70 tests＋doc-test 1件とBook /2関連CLI 300 testsが成功した。�
 未課金owner／capacity、backend temporary allocation、完全なbyte／spool／workと
 同時保持graph、navigation／admission、名前付きページ・段組、公開Book /2、
 元全巻・管理ホスト・制御された性能・著者／人手受入は継続する。
+
+### 14.268 本文・inlineのfingerprint用一時保存を除去（実装追補）
+
+共通本文の文書・段落・生成list／footnoteマーカーのbinary preimageを、既存の
+field順序・整数幅・source discriminant・overflow検査でSHA-256へ逐次投入する。
+準備済みinline段落とnative math inlineも、decimal／quoted hash／source-span
+JCSをprivate writerから直接投入する。保持unit／clusterと全source／owner検査を
+維持し、ハッシュ用のVec／Stringだけを除く。intrinsic課金とdomain、選択行の
+公開canonical_jcsとempty段落の表現を維持する。
+
+[ADR-0131](../adr/ADR-0131-book-2-text-fingerprint-streaming.md)と
+[実装台帳§268](28-vmb-book-production-progress.md#text-fingerprint-streaming-design-14268)を参照。
+変更前の実binary・原フォントで保存した18公開projectionと、旧／現libraryの36公開
+constructor比較が成功した。Core／math、両syntax、旧／staging shaper、linebreak
+52 testsとUnicode 16 conformance、workspace型検査、layout 70 testsとCLI 302 tests、
+5独立検証が成功した。759 PDF／2,896 pagesと58 font subsetsを検査し、全759組と
+保存済みVMB表2出力が§267とbyte一致した。191ソース・全8変更・13 runner／client・
+3原入力・16成功ログ、原source archive／binary・公開projection・割当観測・実コマンドの
+対応を確認し、検証後の文書3件を別hashで記録した。完全なcommand予算・全巻受入は
+継続し、未課金owner／capacity・他codec・backend／font・同時保持graphと既存全体要件を
+完了したとは扱わない。

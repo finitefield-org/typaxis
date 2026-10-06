@@ -16590,3 +16590,33 @@ run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成�
 - 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件（0.431秒）、表ページ指定16 PDFs／60 pages／112改変の拒否（0.375秒）が成功した。
 
 §267の検証待ちを解消した。検証後の文書更新3件はpost-verification-documentation-hashes.jsonで区別する。既存logical保持出力の予約をcaller残量へ接続したが、未課金owner／capacity、backend temporary allocation、完全なcommand byte／spool／workと同時保持graph、初期navigation／admission、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・制御された性能・著者／人手受入は継続する。Speech／SemanticRef未作成を維持し、設計全体の受入成功とは扱わない。
+
+
+<a id="text-fingerprint-streaming-design-14268"></a>
+## 268. 本文・inline fingerprintのハッシュ専用一時保存を除く（design §14.268）
+
+前ターンはprogressである。本文／inlineの公開projectionを固定する2 testsを36d92cdとしてcommit・pushし、リモートSHAとクリーンな作業ツリーを確認した。通常比較モードでTrueType／原Haranoの18ケースが成功した状態から継続した。
+
+[ADR-0131](../adr/ADR-0131-book-2-text-fingerprint-streaming.md)に従い、共有本文の文書・段落・生成list／footnote markerのハッシュ用Vecと、準備済みinline段落・native math inlineのハッシュ用Stringを除去した。coreの固定SHA-256状態へ既存preimageを逐次書き込む。field順序、整数幅、source discriminant、decimalとquoted hash、source-span JCS、overflow検査、全owner／source／geometry検査、intrinsic recordsとdomainを維持する。選択結果の公開canonical_jcsは保持する。
+
+証跡はworkspace/target/vmb-design/20261006/text-fingerprint-streaming/。変更前のproduction 83fedd4の実test binary、ソースhash、TrueType／原Haranoの完全な9ケースずつの公開shape／inline projectionを保存した。最初の大段落fixtureはTTのbackend context boundを超え、失敗draftを保全した。受理可能な大段落と、一つ超過する型付き負例を別々に固定した。変更後のfingerprint-comparison-01.jsonはcaptureモードを無効にし、既存18 projectionの完全なfield群を再計算して保存hashと比較した。2 testsは8.13秒で成功、失敗／ignored 0、719 filtered outだった（build 23.21秒）。
+
+直前36d92cdのlinebreak RustソースをGit archiveで固定し、manifest identityだけを比較用に分けたclientで旧／現公開APIを同じprocess・debug build・workspace依存versionで比較した。実math fontからparse／compute／verifyしたreceiptを使用し、input構築とoutputの整形はconstructor観測窓の外で行う。最初の依存draftは新しいcached flate2のsandbox外展開で失敗し、実workspace lockから依存versionを引き継いで解消した。private MathFontFace importのcompile失敗draftも保全し、公開typaxis_font ownerへ訂正した。allocation-command-02.jsonはlocked／offlineで成功した。
+
+36比較は31成功と5型付き拒否で、3 Japanese modes、1／64／4,096／65,536 unitのtext／vector／native／明示改行混在、cluster欠落・重複break・異なるparagraph ownerを含む。公開fingerprintと全unit／cluster projectionが一致し、成功時の確保回数・要求bytesは全件減少した。native math inlineは6 calls／591 requested bytesから0へ減った。normalの65,536 text unitsは367,662 calls／24,985,904 bytesから12 calls／10,420,251 bytes、入力後のRust保持bytes peakは8,847,343から7,798,851へ減った。mixedは367,703 callsから39へ減った。これは外国allocator・全巻RSS・制御された製品性能の測定ではない。unsafeは独立probeの標準System allocator forwardsに限定する。
+
+共有shaper／linebreakと旧経路の回帰、workspace型検査、layout／Book /2関連CLI、原フォントと保存済みVMBの独立PDF／font／region／table検証、§267との759 byte比較と全ソース／変更／runner／logの対応表は、この初期記録時点では検証中である。未課金owner／capacity・他codec、Unicode／backend／font temporary allocation、完全なcommand byte／spool／workと同時保持graph、初期navigation／admission、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・制御された性能・著者／人手受入を継続する。Speech／SemanticRef未作成を維持する。
+
+最終191ソースを固定し、run-final-01.pyの6 focused commandsと3 regression commandsが成功した。Core 21／math 8 tests、legacy syntax 76 tests＋doc-test 6件、Book /2 syntax 147 tests＋doc-test 12件、legacy shaper 27 tests＋doc-test 1件、Book /2 shaper 28 tests＋doc-test 1件が成功した。両shaperは原Haranoの2件を明示実行した。linebreakは全52 testsとUnicode 16 UAX14 conformance 1件（各0.06秒、doc-test 0件）が成功した。
+
+workspace --all-features --tests checkは20.60秒、layout全70 testsは0.30秒とdoc-test 1件1.86秒、Book /2関連CLI全302 testsは251.70秒で成功した（layout／CLI buildは5.44秒／17.61秒）。失敗／ignoredはすべて0、CLIの419 filtered outを区別し、binary全721 casesを実行したとは扱わない。原HaranoとArial、保存済みVMB 10 jobsを使い、通常比較モードの新TT／Harano fingerprint testsも両方成功した。時間は制御された性能比較ではない。観測timeoutから長時間jobを再起動していない。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成功した。全191固定ソース・全8変更・13 runner／client artifact・3原入力・16成功ログを、コマンド／環境／終了コード、保存済み旧binaryと測定client binary、18旧公開projection、36旧／現割当比較と759 PDF対応表へ結び付けた。対応検査の最初のdraftは、旧source catalogにproduction_inline.rsも含まれるとの想定でKeyErrorとなった。draftを保全し、実83fedd4のGit archiveを取得して保存済み6 production source hashesすべてと照合した。production／test sourceは変更せず、この証跡対応だけを修正した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した（75.830秒）。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否（1.268秒）と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否（7.549秒）が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件（0.432秒）、表ページ指定16 PDFs／60 pages／112改変の拒否（0.356秒）が成功した。
+
+全759組は§267とbyte一致し、名前変更0だった。table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、両方§267と一致した。検証後の文書更新3件をpost-verification-documentation-hashes.jsonで区別する。
+
+§268の検証待ちを解消した。次の未課金hash scratchはBook /2 vector bindingの4096-byte String予約とatomic-vector item codecなどに残る。Unicode／backend／font temporary allocationと保持capacity、完全なcommand byte／spool／work・同時保持graph・初期navigation／admission、名前付きページ・段組、公開Book /2、元全巻と管理ホスト・制御された性能・著者／人手受入も継続する。Speech／SemanticRef未作成を維持し、設計全体の受入成功とは扱わない。

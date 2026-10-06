@@ -1,5 +1,6 @@
 //! Native math is an atomic source occurrence, not a producer SVG binding.
 use super::*;
+use std::fmt::Write;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProductionNativeMathInlineItem {
@@ -40,14 +41,20 @@ impl ProductionNativeMathInlineItem {
         if left > right {
             return Err(AtomicVectorInlineError::InvalidBinding);
         }
-        let mut canonical = format!(
+        let mut canonical = Sha256::new();
+        write!(
+            canonical,
             "typaxis.production-native-math-inline/1/{}/{}/",
             owner.get(),
             paragraph.get()
-        );
-        push_source_span(&mut canonical, source_span);
-        push_hash(&mut canonical, receipt_sha256);
-        push_hash(&mut canonical, computation.fingerprint());
+        )
+        .expect("SHA-256 formatting is infallible");
+        fingerprint::write_source_span(&mut canonical, source_span)
+            .expect("SHA-256 formatting is infallible");
+        fingerprint::write_hash(&mut canonical, receipt_sha256)
+            .expect("SHA-256 formatting is infallible");
+        fingerprint::write_hash(&mut canonical, computation.fingerprint())
+            .expect("SHA-256 formatting is infallible");
         Ok(Self {
             owner,
             paragraph,
@@ -59,7 +66,7 @@ impl ProductionNativeMathInlineItem {
             descent: nonnegative(atom.descent())?,
             left: length(left)?,
             right: length(right)?,
-            fingerprint: sha256(canonical.as_bytes()),
+            fingerprint: canonical.finish(),
         })
     }
     pub const fn owner(self) -> NodeId {
