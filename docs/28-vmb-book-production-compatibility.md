@@ -5696,3 +5696,26 @@ layout 70 tests＋doc-test 1件とCLI 298 testsが成功した。原フォント
 局所出力のcaller残量による事前制限、完全なcommand byte／spool／work、
 rules／style・同時保持graph・navigation・admission・backend／font内部、
 名前付きページ・段組、公開Book /2、元全巻と管理ホスト・性能・著者／人手受入は継続する。
+
+### 14.267 本文の保持出力をcaller残量で構築前に制限（実装追補）
+
+全source再検証後のcaller履歴から、intrinsic出力の上限を別に導出する。
+元effective limitsとfingerprintを変更せず、前払いしたreplay graphの範囲だけを
+再使用する。組版の実glyph／cluster数はbackend出力を借用して数え、保持vectorの
+確保前に予約する。line contextと生成list／footnote labelにも同じ上限を渡す。
+inline／figureの予約と、同じimmutable ownerからのframe／line／context／脚注投影を
+残量内に制限し、受理済みprefixを失敗時にも保持する。後段absolute caller ledger用の
+元文書上限は局所残量と別に保持する。旧局所入口の課金を維持する。
+
+[ADR-0130](../adr/ADR-0130-book-2-caller-output-record-budget.md)と
+[実装台帳§267](28-vmb-book-production-progress.md#caller-output-record-budget-design-14267)を参照。
+Core 21／math 8 tests、legacy syntax 76 tests＋doc-test 6件、Book /2 syntax
+147 tests＋doc-test 12件、shared shaper 28 tests＋doc-test 1件、workspace型検査、
+layout 70 tests＋doc-test 1件とBook /2関連CLI 300 testsが成功した。原フォントと
+保存済みVMB入力を使い、759 PDF／2,896 pagesと58 font subsetsの独立検証、
+全759組と保存済みVMB表2出力の§266とのbyte一致も成功した。184ソース・全24変更・
+8 client／runner・3原入力・13成功ログ、実コマンド／終了コード／環境と測定binaryを
+照合し、検証後の文書3件を別hashで記録した。
+未課金owner／capacity、backend temporary allocation、完全なbyte／spool／workと
+同時保持graph、navigation／admission、名前付きページ・段組、公開Book /2、
+元全巻・管理ホスト・制御された性能・著者／人手受入は継続する。

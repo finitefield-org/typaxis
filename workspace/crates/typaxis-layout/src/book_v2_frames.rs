@@ -129,7 +129,7 @@ pub fn prepare_book_v2_body_inline_frames_counted<'p, 'a>(
         InlineFlow::BookV2(prepared.flow),
         prepared.shaped.list_markers(),
         prepared.shaped.footnote_markers(),
-        prepared.max_fragments,
+        prepared.output_record_limit,
         prepared.fingerprint(),
         body,
         BOOK_V2_BODY_FRAMES_ALGORITHM,
@@ -220,7 +220,7 @@ pub(super) fn layout_body_lines_counted_with_records<'p, 'a>(
                 InlineFlow::BookV2(prepared.flow),
                 prepared.shaped.list_markers(),
                 prepared.shaped.footnote_markers(),
-                prepared.max_fragments,
+                prepared.output_record_limit,
                 prepared.fingerprint(),
                 body,
                 plan.measurement_footnote(),
@@ -352,7 +352,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
                 .projection
                 .record_charge
                 .checked_add(widths.len() as u64)
-                .filter(|n| *n <= self.prepared.max_fragments)
+                .filter(|n| *n <= self.prepared.output_record_limit)
                 .ok_or_else(|| error(root, E::UnitLimit))?;
             self.block_measurements
                 .try_reserve_exact(widths.len())

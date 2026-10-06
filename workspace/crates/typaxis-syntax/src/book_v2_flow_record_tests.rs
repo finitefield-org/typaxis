@@ -24,6 +24,30 @@ fn expected_records(flow: &PreparedBookV2TextFlow<'_>) -> u64 {
 }
 
 #[test]
+fn successor_output_room_excludes_history_and_preserves_prepaid_graphs() {
+    let mut budget = BookV2SourceVerificationBudget::new(7, 20);
+    assert_eq!(budget.output_record_limit(100), Some(13));
+    assert_eq!(budget.output_record_limit(10), Some(3));
+    assert_eq!(budget.output_record_limit(6), None);
+    budget.include_retained_records(9);
+    assert_eq!(budget.output_record_limit(20), Some(13));
+    assert_eq!(budget.output_record_limit(15), None);
+    let mut prepaid = BookV2SourceVerificationBudget::new_with_prepaid_records(20, 25, 12);
+    assert_eq!(prepaid.output_record_limit(100), Some(17));
+    prepaid.include_retained_records(17);
+    assert_eq!(prepaid.output_record_limit(25), Some(17));
+    prepaid.include_retained_records(18);
+    assert_eq!(prepaid.output_record_limit(25), None);
+    let prepaid = BookV2SourceVerificationBudget::new_with_prepaid_records(7, 20, u64::MAX);
+    assert_eq!(prepaid.output_record_limit(100), Some(20));
+    let overflow = BookV2SourceVerificationBudget::new_with_prepaid_records(1, u64::MAX, 1);
+    assert_eq!(overflow.output_record_limit(u64::MAX), Some(u64::MAX));
+    let exhausted = BookV2SourceVerificationBudget::new(u64::MAX, u64::MAX);
+    assert_eq!(exhausted.output_record_limit(u64::MAX), Some(0));
+    assert_eq!(exhausted.output_record_limit(u64::MAX - 1), None);
+}
+
+#[test]
 fn successor_source_records_bound_every_prefix_and_retain_all_carriers() {
     for case in ["combined", "pages", "text", "number", "named-break"] {
         let mut data = input();

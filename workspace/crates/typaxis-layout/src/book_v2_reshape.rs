@@ -354,6 +354,7 @@ pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
                 let footnotes =
                     prepare_book_v2_footnote_lines_counted(&selected, limits, &mut records);
                 allowance.records = allowance.records.max(records);
+                allowance.source_records.include_retained_records(allowance.records);
                 return Ok(use_stable(BookV2ConvergedBodyLines {
                     lines: &selected,
                     footnotes: footnotes?,

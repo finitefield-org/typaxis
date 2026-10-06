@@ -16558,3 +16558,35 @@ run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成�
 証跡固定時に旧想定176件へassertしたため、実際の全変更union 177件との不一致で失敗した。直後のwrapperはhashファイル欠落で止まり、Cargoは起動していない。final-preflight-failed-01.jsonと原因を保全し、正しい177件を固定した後の最終runは成功した。ドラフトの20失敗を含む過去ログも成功証跡へ置き換えていない。
 
 §266の検証待ちを解消した。検証後の文書更新3件はpost-verification-documentation-hashes.jsonで区別する。局所outputのcaller残量による構築前制限と全失敗prefix、完全なcommand byte／spool／work、style／capacity・同時保持graph・初期navigation・admission・backend／font内部、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・制御された性能・著者／人手受入を継続する。Speech／SemanticRef未作成を維持し、設計全体の受入成功とは扱わない。
+
+
+<a id="caller-output-record-budget-design-14267"></a>
+## 267. 本文の保持出力へcaller残量の上限を渡す（design §14.267）
+
+前ターンはprogressである。§266の全24変更をa36dc6dとしてcommitし、origin/codex/vmb-book-productionへpushした。リモートSHAとクリーンな作業ツリーを確認した状態から継続する。
+
+[ADR-0130](../adr/ADR-0130-book-2-caller-output-record-budget.md)に従い、BookV2SourceVerificationBudgetからsource履歴後の出力上限を導出する。retained観測と前払いgraph creditを保ち、元effective limitsを差し替えずに共有shaperへ渡す。backendの借用glyph／cluster列の長さと順序を検査して実数を予約し、受理後に保持vectorを確保する。backend内部のtemporary allowanceをlogical出力上限と混同しない。line context、本文run、list／footnote生成runのintrinsic fingerprintと成功課金を維持する。
+
+budgeted inlineは同じ残量をunit／cluster・vector／native／control／anchor・figure準備へ渡す。prepared ownerがframe、source width、line、context capture、脚注投影の上限を保持する。後段でabsolute caller履歴を受け取るAPIには元の文書全体の上限を別に保持し、局所残量から履歴を二度引かない。body feedbackは脚注の成功／失敗の局所high-waterもsource予算へ戻す。旧局所API、legacyと柱の課金へcommand source履歴を混ぜない。
+
+証跡はworkspace/target/vmb-design/20261006/caller-output-record-budget/。最初のworkspace --all-features --tests checkは38.92秒で成功した。この実行は脚注接続と新test追加前のソースであり、追補後の成功とは扱わない。新syntaxの残量／前払い算術、shared shaperのLTR／RTL実数gate、新CLIのTT／原Haranoの各prefix・exact／short・retry・line context・生成label・脚注・実driverを検査する。この時点では全回帰と独立検証は未受入だった。
+
+未課金owner／capacity、backend temporary allocation、完全なcommand byte／spool／workと同時保持graph、初期navigation／admission、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・制御された性能・著者／人手受入を継続する。Speech／SemanticRef未作成を維持する。
+
+共有shaperのドラフトは26 tests＋doc-test 1件成功、原Haranoの2件はまだignoredだった。syntaxは147 tests＋doc-test 12件成功。新CLIは不足importと補助関数への誤ったscope参照で初回compile exit 101となり、ログを保全した。修正後のcaller-output-tests-draft-02.logはTT／原Harano 2 testsが6.96秒で成功した（build 22.45秒、失敗／ignored 0）。独立した実run・glyph・cluster数からprefixを導出し、context付きshape・生成label・inline control・脚注投影と実driverを検証する。最終shaperでは原Haranoの2件も明示実行し、追加した予約後metric失敗の観測と全回帰を確認する。
+
+最初の最終shaper実行は予約後metric失敗の期待型に誤りがあり、正しいLengthConversion(OutOfRange)へ訂正した。次の実行は原Haranoの2件を含むshared shaper全28 tests＋doc-test 1件、workspace型検査、layout全70 tests＋doc-test 1件が成功した。CLIは283成功／17失敗／ignored 0、234.27秒だった。15件は局所残量を後段absolute caller ledgerの上限へ流用した不具合、2件は累積source予約前の局所shape prefixをfeedbackに期待した試験だった。失敗をfinal-draft-01／final-draft-02へ保全し、元文書上限と局所出力上限を分離した。feedback試験は独立した新budgeted入口の累積予約と比較し、旧局所APIのexact／one-below境界を保持する。修正後、以前失敗した17件の個別再実行と新TT／原Harano 2件がすべて成功した。
+
+最終ソースを固定したrun-focused-01.pyとrun-final-01.pyが成功した。Core 21／math 8 tests（doc-test各0件）、legacy syntax 76 tests＋doc-test 6件、Book /2 syntax 147 tests＋doc-test 12件、shared shaper 28 tests＋doc-test 1件が成功した。shaperは原Haranoの2件と、LTR／RTL実数予約・予約後metric失敗の観測を含む。Core／math buildは0.03秒、tests各0.01秒、legacy syntax build 0.05秒／tests 0.90秒／doc-test 4.84秒、Book /2 syntax build 0.04秒／tests 3.29秒／doc-test 8.54秒、shaper build 0.04秒／tests 3.89秒／doc-test 1.57秒だった。
+
+workspace --all-features --tests checkは22.92秒、layout全70 testsは0.33秒とdoc-test 1件1.38秒、Book /2関連CLI全300 testsは275.89秒で成功した。layout／CLI buildは3.40秒／0.05秒だった。最終実行の失敗／ignoredはすべて0。CLIの419 filtered outも記録し、binary全719 testsを実行したという意味ではない。原HaranoとArial、保存済みVMB 10 jobsを使った。pagination／font全体や公開／旧CFF診断の別試験、全巻再監査は今回は繰り返さず、以前の結果を今回の実行として扱わない。時間は観測値であり、制御された性能比較ではない。同じ実handleを待ち、長時間試験を観測timeoutから再起動していない。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成功した。固定時・開始時・文書更新前の184ソースが一致し、全24変更を含むことを確認した。8 evidence client／runner、原フォント2件と保存済み元全巻package、13成功ログのhash／結果行、実コマンド・環境・終了コード、public結果と測定binary、759 PDF対応表をrun-source-correspondence.jsonへ保存した。public clientの17 flow successes／7 typed rejections、38通常prepare／verify割当観測は§266と一致した。36 source予約拒否と40全再検証拒否は追加heap calls／bytesが0で、各20 exact／one-below境界も成功した。これらをpeak memoryや制御された性能比較として扱わない。
+
+全759組の実PDFは§266とbyte一致し、記録hash・名前変更0も確認した。table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§266と一致した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した（73.138秒）。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否（1.236秒）と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否（7.876秒）が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件（0.431秒）、表ページ指定16 PDFs／60 pages／112改変の拒否（0.375秒）が成功した。
+
+§267の検証待ちを解消した。検証後の文書更新3件はpost-verification-documentation-hashes.jsonで区別する。既存logical保持出力の予約をcaller残量へ接続したが、未課金owner／capacity、backend temporary allocation、完全なcommand byte／spool／workと同時保持graph、初期navigation／admission、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・制御された性能・著者／人手受入は継続する。Speech／SemanticRef未作成を維持し、設計全体の受入成功とは扱わない。

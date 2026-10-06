@@ -39,6 +39,7 @@ pub(super) fn shape_markers<'a>(
     admitted: BodyFonts<'_>,
     limits: &M4EffectiveResourceLimits,
     output_records: &mut u64,
+    maximum_records: Option<u64>,
 ) -> Result<Vec<ProductionFootnoteMarkerShape<'a>>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let mut result = Vec::new();
@@ -65,6 +66,7 @@ pub(super) fn shape_markers<'a>(
             admitted,
             limits,
             output_records,
+            maximum_records,
         )?;
         result
             .try_reserve(1)

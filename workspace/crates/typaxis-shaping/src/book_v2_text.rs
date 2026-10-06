@@ -89,9 +89,9 @@ pub fn shape_book_v2_authored_text_counted<'a>(
     lines: Option<&[ProductionParagraphLineContext<'_>]>,
     observed_records: &mut u64,
 ) -> Result<BookV2AuthoredTextShape<'a>, ProductionTextShapeError> {
-    shape_book_v2_authored_text_with_source_budget_counted(
+    shape_book_v2_authored_text_inner_counted(
         policy, flow, admitted, limits, epoch, lines,
-        &mut BookV2SourceVerificationBudget::new(0, limits.base().get().max_fragments),
+        None,
         observed_records,
     )
 }
@@ -109,13 +109,34 @@ pub fn shape_book_v2_authored_text_with_source_budget_counted<'a>(
     source_budget: &mut BookV2SourceVerificationBudget,
     observed_records: &mut u64,
 ) -> Result<BookV2AuthoredTextShape<'a>, ProductionTextShapeError> {
+    shape_book_v2_authored_text_inner_counted(
+        policy, flow, admitted, limits, epoch, lines, Some(source_budget), observed_records,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn shape_book_v2_authored_text_inner_counted<'a>(
+    policy: &BookV2ResourcePolicy<'_>,
+    flow: &'a PreparedBookV2TextFlow<'a>,
+    admitted: &'a AdmittedProductionResourceLedgerV3,
+    limits: &M4EffectiveResourceLimits,
+    epoch: [u8; 32],
+    lines: Option<&[ProductionParagraphLineContext<'_>]>,
+    mut source_budget: Option<&mut BookV2SourceVerificationBudget>,
+    observed_records: &mut u64,
+) -> Result<BookV2AuthoredTextShape<'a>, ProductionTextShapeError> {
     *observed_records = 0;
     use ProductionTextShapeErrorKind as E;
     let mismatch = || error(NodeId::new(0), E::ReceiptMismatch);
     policy
         .verify_for(policy.body(), limits)
         .map_err(|_| mismatch())?;
-    source_budget.verify(flow, policy.body().styled(), flow.navigation())
+    let verification = if let Some(budget) = source_budget.as_deref_mut() {
+        budget.verify(flow, policy.body().styled(), flow.navigation())
+    } else {
+        flow.verify_for(policy.body().styled(), flow.navigation())
+    };
+    verification
         .map_err(|e| match e.kind {
             typaxis_syntax::ProductionFlowErrorKind::NodeLimit => error(e.owner, E::OutputLimit),
             typaxis_syntax::ProductionFlowErrorKind::AllocationFailure => error(e.owner, E::AllocationFailure),
@@ -136,16 +157,23 @@ pub fn shape_book_v2_authored_text_with_source_budget_counted<'a>(
         admitted.fonts().iter().map(|f| f.font_face_id()),
     )
     .map_err(|_| mismatch())?;
-    let output = shape_document_counted(
+    let maximum_records = source_budget.as_deref()
+        .map(|b| b.output_record_limit(limits.base().get().max_fragments)
+            .ok_or_else(|| error(NodeId::new(0), E::OutputLimit)))
+        .transpose()?;
+    let output = shape_document_with_record_limit_counted(
         BodyFlow::BookV2(flow),
         BodyFonts::BookV2(&instances, admitted),
         limits,
         epoch,
         lines,
         BOOK_V2_AUTHORED_TEXT_SHAPE_ALGORITHM,
+        maximum_records,
         observed_records,
     );
-    source_budget.include_retained_records(*observed_records);
+    if let Some(budget) = source_budget {
+        budget.include_retained_records(*observed_records);
+    }
     let output = output?;
     Ok(BookV2AuthoredTextShape {
         flow,

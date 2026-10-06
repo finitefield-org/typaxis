@@ -189,6 +189,9 @@ impl<'p, 'a> BookV2BodyInlineFrames<'p, 'a> {
                 E::Atomic(typaxis_linebreak::AtomicVectorInlineError::CandidateLimit),
             ));
         }
+        // This caller supplies an absolute ledger, including the retained frame
+        // graph. Its ceiling is the original document limit; the preparation's
+        // local residual allowance has already bounded that graph's construction.
         let records = prior_records
             .checked_add(additional)
             .filter(|n| *n <= self.prepared.max_fragments && prior_records >= self.record_charge())

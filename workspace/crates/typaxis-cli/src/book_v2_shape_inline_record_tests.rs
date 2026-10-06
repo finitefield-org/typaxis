@@ -2,8 +2,13 @@ use super::*;
 use typaxis_layout::book_v2::{
     prepare_book_v2_inline_items_with_native_context,
     prepare_book_v2_inline_items_with_native_context_counted,
+    prepare_book_v2_inline_items_with_source_budget_counted,
 };
-use typaxis_shaping::book_v2::shape_book_v2_authored_text_counted;
+use typaxis_shaping::book_v2::{
+    shape_book_v2_authored_text_counted,
+    shape_book_v2_authored_text_with_source_budget_counted,
+};
+use typaxis_syntax::book_v2::BookV2SourceVerificationBudget;
 
 #[test]
 fn book_v2_shape_inline_records_preserve_partial_source_preparation() {
@@ -116,7 +121,7 @@ fn check(font: Option<&[u8]>) {
             bindings.epoch(),
             None,
         );
-        let preparation_records = if mode == "missing-glyph" || mode == "shape-limit" {
+        if mode == "missing-glyph" || mode == "shape-limit" {
             assert_eq!(shape.err().unwrap(), legacy.err().unwrap());
             assert_eq!(records, per_paragraph, "{mode}");
             records
@@ -231,6 +236,27 @@ fn check(font: Option<&[u8]>) {
             let mut budget =
                 BookV2BodyLineBudget::new(1_000_000, limits.base().get().max_line_reshape_passes);
             for _ in 0..2 {
+                // The old local APIs above still have exact intrinsic ceilings.
+                // Feedback now reserves full source history before each local
+                // constructor. Reproduce those entries independently, including
+                // the accepted high-water prefix carried into a retry.
+                let mut source = BookV2SourceVerificationBudget::new(
+                    budget.source_record_charge(), limits.base().get().max_fragments,
+                );
+                source.include_retained_records(budget.record_charge());
+                let mut observed = 0;
+                let shape = shape_book_v2_authored_text_with_source_budget_counted(
+                    &policy, &flow, input.resources(), &limits, bindings.epoch(),
+                    None, &mut source, &mut observed,
+                );
+                let mut expected = budget.record_charge().max(observed);
+                if let Ok(shape) = shape {
+                    assert!(prepare_book_v2_inline_items_with_source_budget_counted(
+                        &flow, &shape, input.resources(), &bindings, &limits,
+                        MODE, None, &mut source, &mut observed,
+                    ).is_err());
+                    expected = expected.max(observed);
+                }
                 assert!(budgeted(
                     &policy,
                     &flow,
@@ -246,10 +272,8 @@ fn check(font: Option<&[u8]>) {
                     |_| panic!("failed source preparation must not enter the callback")
                 )
                 .is_err());
-                assert_eq!(
-                    budget.record_charge(),
-                    shape_records.max(preparation_records)
-                );
+                assert_eq!(budget.record_charge(), expected);
+                assert_eq!(budget.source_record_charge(), source.record_charge());
                 assert_eq!((budget.candidate_steps(), budget.reshape_passes()), (0, 0));
             }
             let mut seed_budget = typaxis_layout::book_v2::BookV2LineVariantBudget::new(

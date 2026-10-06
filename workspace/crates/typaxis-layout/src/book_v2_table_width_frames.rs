@@ -39,7 +39,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
                 .ok_or_else(|| error(root, E::UnitLimit))?;
             let remaining_records = self
                 .prepared
-                .max_fragments
+                .output_record_limit
                 .checked_sub(retained)
                 .filter(|remaining| *remaining >= projected)
                 .ok_or_else(|| error(root, E::UnitLimit))?;
@@ -93,7 +93,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
             rebound.record_charge = rebound
                 .record_charge
                 .checked_add(retained)
-                .filter(|n| *n <= self.prepared.max_fragments)
+                .filter(|n| *n <= self.prepared.output_record_limit)
                 .ok_or_else(|| error(root, E::UnitLimit))?;
             self.table_measurements = Some(std::mem::replace(&mut self.projection, rebound));
             Ok(work)

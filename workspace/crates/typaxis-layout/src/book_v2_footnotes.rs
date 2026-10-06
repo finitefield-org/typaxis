@@ -50,11 +50,12 @@ pub fn prepare_book_v2_footnote_lines_counted<'s, 'p, 'a>(
             ProductionInlinePreparationErrorKind::ReceiptMismatch,
         ));
     }
-    let projection = footnotes::project_footnote_lines_counted(
+    let projection = footnotes::project_footnote_lines_with_record_limit_counted(
         InlineFlow::BookV2(lines.prepared().source_flow()),
         lines.paragraphs(),
         lines.output_records(),
         limits,
+        lines.prepared().output_record_limit,
         observed_records,
     )?;
     Ok(BookV2FootnoteLines {

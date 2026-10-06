@@ -55,7 +55,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
                 .record_charge()
                 .checked_add(starts.len() as u64)
                 .and_then(|n| n.checked_add(1))
-                .filter(|n| *n <= self.prepared.max_fragments)
+                .filter(|n| *n <= self.prepared.output_record_limit)
                 .ok_or_else(|| error(root, E::UnitLimit))?;
             *observed_records = records;
             for (index, (p, values)) in self.prepared.paragraphs.iter().zip(starts).enumerate() {
@@ -75,7 +75,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
                     }
                     records = records
                         .checked_add(count as u64)
-                        .filter(|n| *n <= self.prepared.max_fragments)
+                        .filter(|n| *n <= self.prepared.output_record_limit)
                         .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
                     *observed_records = records;
                 }

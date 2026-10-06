@@ -80,7 +80,10 @@ pub struct BookV2PreparedInlines<'a> {
     native_math: Option<PreparedBookV2Math<'a>>,
     paragraphs: Vec<ProductionPreparedInlineParagraph>,
     figures: Vec<ProductionPreparedFigure<'a>>,
+    // Absolute caller-ledger APIs retain the declared document ceiling. Local
+    // projections share the residual allowance used to construct this owner.
     max_fragments: u64,
+    output_record_limit: u64,
     limits_fingerprint: [u8; 32],
     fingerprint: [u8; 32],
 }
@@ -144,7 +147,7 @@ pub fn prepare_book_v2_text_inlines<'a>(
         None,
         None,
         &mut 0,
-        &mut BookV2SourceVerificationBudget::new(0, limits.base().get().max_fragments),
+        None,
     )
 }
 /// Join actual source-bound vector placements with the shared authored text.
@@ -193,7 +196,7 @@ pub fn prepare_book_v2_inline_items_counted<'a>(
         Some(bindings),
         native.map(PreparedBookV2Math::Owned),
         observed_records,
-        &mut BookV2SourceVerificationBudget::new(0, limits.base().get().max_fragments),
+        None,
     )
 }
 /// Reuse the same immutable native computations across actual line/page passes.
@@ -231,10 +234,9 @@ pub fn prepare_book_v2_inline_items_with_native_context_counted<'a>(
     native: Option<&'a BookV2NativeMath<'a>>,
     observed_records: &mut u64,
 ) -> Result<BookV2PreparedInlines<'a>, ProductionInlinePreparationError> {
-    prepare_book_v2_inline_items_with_source_budget_counted(
-        flow, shaped, admitted, bindings, limits, japanese_mode, native,
-        &mut BookV2SourceVerificationBudget::new(0, limits.base().get().max_fragments),
-        observed_records,
+    prepare_inlines(
+        flow, shaped, admitted, limits, bindings.epoch(), japanese_mode,
+        Some(bindings), native.map(PreparedBookV2Math::Borrowed), observed_records, None,
     )
 }
 
@@ -253,6 +255,7 @@ pub fn prepare_book_v2_inline_items_with_source_budget_counted<'a>(
     observed_records: &mut u64,
 ) -> Result<BookV2PreparedInlines<'a>, ProductionInlinePreparationError> {
     source_budget.include_retained_records(native.map_or(0, |n| n.record_charge()));
+    source_budget.include_retained_records(shaped.output_records());
     let result = prepare_inlines(
         flow,
         shaped,
@@ -263,7 +266,7 @@ pub fn prepare_book_v2_inline_items_with_source_budget_counted<'a>(
         Some(bindings),
         native.map(PreparedBookV2Math::Borrowed),
         observed_records,
-        source_budget,
+        Some(&mut *source_budget),
     );
     source_budget.include_retained_records(*observed_records);
     result
@@ -279,7 +282,7 @@ fn prepare_inlines<'a>(
     bindings: Option<&'a BookV2VectorBindings<'a>>,
     native_math: Option<PreparedBookV2Math<'a>>,
     charge: &mut u64,
-    source_budget: &mut BookV2SourceVerificationBudget,
+    mut source_budget: Option<&mut BookV2SourceVerificationBudget>,
 ) -> Result<BookV2PreparedInlines<'a>, ProductionInlinePreparationError> {
     *charge = native_math.as_ref().map_or(0, |n| n.record_charge());
     if let Some(bindings) = bindings {
@@ -292,9 +295,13 @@ fn prepare_inlines<'a>(
                 )
             })?;
     }
-    source_budget.verify(
-        flow, bindings.map_or(flow.body(), |b| b.body().styled()), flow.navigation(),
-    ).map_err(|e| {
+    let body = bindings.map_or(flow.body(), |b| b.body().styled());
+    let verification = if let Some(budget) = source_budget.as_deref_mut() {
+        budget.verify(flow, body, flow.navigation())
+    } else {
+        flow.verify_for(body, flow.navigation())
+    };
+    verification.map_err(|e| {
         let kind = match e.kind {
             typaxis_syntax::ProductionFlowErrorKind::NodeLimit => ProductionInlinePreparationErrorKind::UnitLimit,
             typaxis_syntax::ProductionFlowErrorKind::AllocationFailure => ProductionInlinePreparationErrorKind::AllocationFailure,
@@ -324,7 +331,11 @@ fn prepare_inlines<'a>(
             ProductionInlinePreparationErrorKind::ReceiptMismatch,
         )
     })?;
-    let paragraphs = prepare_paragraphs(
+    let maximum_records = source_budget.as_deref()
+        .map(|b| b.output_record_limit(limits.base().get().max_fragments)
+            .ok_or_else(|| error(NodeId::new(0), ProductionInlinePreparationErrorKind::UnitLimit)))
+        .transpose()?.unwrap_or(limits.base().get().max_fragments);
+    let paragraphs = prepare_paragraphs_with_record_limit(
         InlineFlow::BookV2(flow),
         shaped.paragraphs(),
         bindings.map(InlineVectors::BookV2),
@@ -332,12 +343,13 @@ fn prepare_inlines<'a>(
         limits,
         japanese_mode,
         charge,
+        maximum_records,
     )?;
     let figures = figure::prepare_figures(
         InlineFlow::BookV2(flow),
         InlineImages::BookV2(admitted),
         charge,
-        limits.base().get().max_fragments,
+        maximum_records,
     )?;
     let mut fingerprint = sha256(BOOK_V2_TEXT_INLINE_ALGORITHM.as_bytes());
     for digest in [
@@ -376,6 +388,7 @@ fn prepare_inlines<'a>(
         paragraphs,
         figures,
         max_fragments: limits.base().get().max_fragments,
+        output_record_limit: maximum_records,
         limits_fingerprint: limits.fingerprint(),
         fingerprint,
     })
@@ -430,7 +443,7 @@ impl<'p, 'a> BookV2InlineLineLayout<'p, 'a> {
         line_context::selected_contexts_counted(
             self.paragraphs(),
             self.output_records(),
-            self.prepared.max_fragments,
+            self.prepared.output_record_limit,
             self.fingerprint(),
             observed_records,
         )
@@ -519,7 +532,7 @@ fn layout_with_source_widths_counted<'p, 'a>(
 ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
     let projection = selected::project_lines_counted_with_records(
         selected::LineInputs {
-            max_fragments: prepared.max_fragments,
+            max_fragments: prepared.output_record_limit,
             flow: InlineFlow::BookV2(prepared.flow),
             shaped: prepared.shaped.paragraphs(),
             paragraphs: &prepared.paragraphs,

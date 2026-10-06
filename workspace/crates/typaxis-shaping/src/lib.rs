@@ -1981,6 +1981,14 @@ fn shape_linked(
     input: LinkedBackendInput<'_>,
     budget: &mut ShapeOutputBudget,
 ) -> Result<GlyphRun, LinkedShaperError> {
+    shape_linked_with_output_reservation(input, budget, |_, _| Ok(()))
+}
+
+fn shape_linked_with_output_reservation(
+    input: LinkedBackendInput<'_>,
+    budget: &mut ShapeOutputBudget,
+    reserve_output: impl FnOnce(u32, u32) -> Result<(), LinkedShaperError>,
+) -> Result<GlyphRun, LinkedShaperError> {
     let face = harfrust::FontRef::from_index(input.font_bytes, input.face_index)
         .map_err(|_| LinkedShaperError::InvalidFontOrFace)?;
     let head = face
@@ -2063,6 +2071,39 @@ fn shape_linked(
     if glyph_count > input.max_output_records {
         return Err(LinkedShaperError::OutputBudget(ShapeWorkError::GlyphLimit));
     }
+
+    // Count and validate the backend's borrowed output before allocating any
+    // retained glyph/cluster vectors. The backend's temporary allowance above
+    // remains independent of the caller's exact retained-output reservation.
+    let mut cluster_count = 0u32;
+    let mut previous = None;
+    for info in infos {
+        if info.cluster >= text_len || !input.utf8.is_char_boundary(info.cluster as usize) {
+            return Err(LinkedShaperError::InvalidBackendCluster);
+        }
+        if previous != Some(info.cluster) {
+            if previous.is_some_and(|start| {
+                if input.bidi_level.is_rtl() { start <= info.cluster } else { start >= info.cluster }
+            }) {
+                return Err(LinkedShaperError::NonMonotoneBackendClusters);
+            }
+            cluster_count = cluster_count.checked_add(1)
+                .ok_or(LinkedShaperError::ArithmeticOverflow)?;
+            previous = Some(info.cluster);
+        }
+    }
+    let first_source = if input.bidi_level.is_rtl() {
+        infos.last().map(|info| info.cluster)
+    } else {
+        infos.first().map(|info| info.cluster)
+    };
+    if first_source != Some(0) {
+        return Err(LinkedShaperError::InvalidBackendCluster);
+    }
+    if cluster_count > input.max_output_records {
+        return Err(LinkedShaperError::OutputBudget(ShapeWorkError::ClusterLimit));
+    }
+    reserve_output(glyph_count, cluster_count)?;
 
     let mut visual_clusters: Vec<BackendCluster> = Vec::new();
     visual_clusters
@@ -3611,6 +3652,57 @@ mod tests {
         );
         assert!(budget.matches_output(&run));
         assert_eq!(validate_glyph_run(&expected, &run), Ok(()));
+    }
+
+    #[test]
+    fn linked_shaper_reserves_actual_output_before_retained_vectors() {
+        let font = test_font();
+        for (text, level, script) in [("ab", 0, *b"Latn"), ("אב", 1, *b"Hebr")] {
+            let input = || linked_input(&font, text, 11, level, script, HARFRUST_MAX_LEN_MIN);
+            let plain = shape_linked(input(), &mut ShapeOutputBudget::new(HARFRUST_MAX_LEN_MIN)).unwrap();
+            let actual = (plain.glyphs.len() as u32, plain.clusters.len() as u32);
+            let mut seen = None;
+            let rejected = shape_linked_with_output_reservation(
+                input(), &mut ShapeOutputBudget::new(HARFRUST_MAX_LEN_MIN), |glyphs, clusters| {
+                    seen = Some((glyphs, clusters));
+                    Err(LinkedShaperError::OutputBudget(ShapeWorkError::ClusterLimit))
+                },
+            );
+            assert_eq!(seen, Some(actual));
+            assert_eq!(rejected, Err(LinkedShaperError::OutputBudget(ShapeWorkError::ClusterLimit)));
+            let accepted = shape_linked_with_output_reservation(
+                input(), &mut ShapeOutputBudget::new(HARFRUST_MAX_LEN_MIN), |glyphs, clusters| {
+                    assert_eq!((glyphs, clusters), actual);
+                    Ok(())
+                },
+            ).unwrap();
+            assert_eq!(accepted, plain);
+        }
+        let mut entered = false;
+        assert!(shape_linked_with_output_reservation(
+            linked_input(&font, "a", 0, 0, *b"Latn", HARFRUST_MAX_LEN_MIN),
+            &mut ShapeOutputBudget::new(HARFRUST_MAX_LEN_MIN - 1),
+            |_, _| { entered = true; Ok(()) },
+        ).is_err());
+        assert!(!entered, "backend rejection must precede the retained-output reservation");
+        // A later metric conversion failure cannot refund the accepted run.
+        let mut font = test_font();
+        let tables = u16::from_be_bytes(font[4..6].try_into().unwrap()) as usize;
+        let hmtx = (0..tables).map(|i| 12 + 16 * i)
+            .find(|i| &font[*i..*i + 4] == b"hmtx").unwrap();
+        let offset = u32::from_be_bytes(font[hmtx + 8..hmtx + 12].try_into().unwrap()) as usize;
+        font[offset + 4..offset + 6].copy_from_slice(&6000u16.to_be_bytes());
+        let mut input = linked_input(&font, "a", 0, 0, *b"Latn", HARFRUST_MAX_LEN_MIN);
+        input.font_size = Length::from_raw(9_007_199_254_740_991).unwrap();
+        let mut observed = 0;
+        let failed = shape_linked_with_output_reservation(
+            input, &mut ShapeOutputBudget::new(HARFRUST_MAX_LEN_MIN), |glyphs, clusters| {
+                observed = 1 + u64::from(glyphs) + u64::from(clusters);
+                Ok(())
+            },
+        );
+        assert_eq!(failed, Err(LinkedShaperError::LengthConversion(LengthError::OutOfRange)));
+        assert_eq!(observed, 3);
     }
 
     #[test]

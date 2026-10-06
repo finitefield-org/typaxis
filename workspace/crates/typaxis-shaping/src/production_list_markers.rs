@@ -44,6 +44,7 @@ pub(super) fn shape_markers<'a>(
     admitted: BodyFonts<'_>,
     limits: &M4EffectiveResourceLimits,
     output_records: &mut u64,
+    maximum_records: Option<u64>,
 ) -> Result<Vec<ProductionListMarkerShape<'a>>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let mut output = Vec::new();
@@ -74,6 +75,7 @@ pub(super) fn shape_markers<'a>(
             admitted,
             limits,
             output_records,
+            maximum_records,
         )?;
         output
             .try_reserve(1)
@@ -114,6 +116,7 @@ pub(super) fn shape_generated_marker<'a>(
     admitted: BodyFonts<'_>,
     limits: &M4EffectiveResourceLimits,
     output_records: &mut u64,
+    maximum_records: Option<u64>,
 ) -> Result<GeneratedMarkerGlyphs<'a>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let GeneratedMarkerInput {
@@ -168,10 +171,7 @@ pub(super) fn shape_generated_marker<'a>(
     };
     let source = ShapeSourceSpan::Generated(provenance);
     let run_id = GlyphRunId::new(u32::try_from(index).map_err(|_| error(owner, E::OutputLimit))?);
-    limits
-        .base()
-        .get()
-        .max_fragments
+    maximum_records.unwrap_or(limits.base().get().max_fragments)
         .checked_sub(*output_records)
         .and_then(|n| n.checked_sub(1))
         .filter(|n| *n > 0)
@@ -184,7 +184,7 @@ pub(super) fn shape_generated_marker<'a>(
     let mut budget = ShapeOutputBudget::new(record_maximum);
     // Canonical list and footnote numbers/bullets are separate LTR labels,
     // with no fabricated body context or inserted trailing space.
-    let run = shape_linked(
+    let run = shape_linked_with_record_limit(
         LinkedBackendInput {
             run_id,
             font: font.instance_id(),
@@ -203,8 +203,8 @@ pub(super) fn shape_generated_marker<'a>(
             max_output_records: record_maximum,
         },
         &mut budget,
-    )
-    .map_err(|e| error(owner, E::Backend(e)))?;
+        owner, output_records, maximum_records,
+    )?;
     let expected = ExpectedGlyphRun {
         run_id,
         font: font.instance_id(),
@@ -227,10 +227,12 @@ pub(super) fn shape_generated_marker<'a>(
         .try_fold(Length::ZERO, |n, g| n.checked_add(g.advance_x))
         .and_then(PositiveLength::new)
         .ok_or_else(|| error(owner, E::InvalidFontMetrics))?;
-    *output_records = output_records
-        .checked_add(1 + run.glyphs.len() as u64 + run.clusters.len() as u64)
-        .filter(|n| *n <= limits.base().get().max_fragments)
-        .ok_or_else(|| error(owner, E::OutputLimit))?;
+    if maximum_records.is_none() {
+        *output_records = output_records
+            .checked_add(1 + run.glyphs.len() as u64 + run.clusters.len() as u64)
+            .filter(|n| *n <= limits.base().get().max_fragments)
+            .ok_or_else(|| error(owner, E::OutputLimit))?;
+    }
     let capacity = run
         .glyphs
         .len()

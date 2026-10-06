@@ -348,6 +348,22 @@ fn shape_document_counted<'a>(
     algorithm: &str,
     output_records: &mut u64,
 ) -> Result<BodyShapeOutput<'a>, ProductionTextShapeError> {
+    shape_document_with_record_limit_counted(
+        flow, admitted, limits, epoch, lines, algorithm, None, output_records,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn shape_document_with_record_limit_counted<'a>(
+    flow: BodyFlow<'a>,
+    admitted: BodyFonts<'_>,
+    limits: &M4EffectiveResourceLimits,
+    epoch: [u8; 32],
+    lines: Option<&[ProductionParagraphLineContext<'_>]>,
+    algorithm: &str,
+    maximum_records: Option<u64>,
+    output_records: &mut u64,
+) -> Result<BodyShapeOutput<'a>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let root = NodeId::new(0);
     *output_records = 0;
@@ -364,7 +380,7 @@ fn shape_document_counted<'a>(
             *output_records = output_records
                 .checked_add(context.ends.len() as u64)
                 .and_then(|n| n.checked_add(1))
-                .filter(|n| *n <= limits.base().get().max_fragments)
+                .filter(|n| *n <= maximum_records.unwrap_or(limits.base().get().max_fragments))
                 .ok_or_else(|| error(context.owner, E::OutputLimit))?;
             let mut record = [0u8; 44];
             record[..32].copy_from_slice(&hash);
@@ -392,10 +408,11 @@ fn shape_document_counted<'a>(
             limits,
             output_records,
             lines.map(|contexts| contexts[index].ends),
+            maximum_records,
         )?);
     }
-    let list_markers = list_markers::shape_markers(flow, admitted, limits, output_records)?;
-    let footnote_markers = footnote_markers::shape_markers(flow, admitted, limits, output_records)?;
+    let list_markers = list_markers::shape_markers(flow, admitted, limits, output_records, maximum_records)?;
+    let footnote_markers = footnote_markers::shape_markers(flow, admitted, limits, output_records, maximum_records)?;
     // Fixed-size paragraph digests bound the document receipt allocation even for
     // books with millions of glyphs. Each paragraph owns a separate glyph digest.
     let capacity = paragraphs
@@ -452,6 +469,7 @@ fn shape_paragraph<'a>(
     limits: &M4EffectiveResourceLimits,
     output_records: &mut u64,
     line_ends: Option<&[u32]>,
+    maximum_records: Option<u64>,
 ) -> Result<ProductionBodyParagraphShape<'a>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let owner = paragraph.owner();
@@ -600,7 +618,7 @@ fn shape_paragraph<'a>(
                     font.run_coverage(run_text, &context[run_end..context_end])
                         .map_err(|kind| error(site.owner(), kind))?;
                     let mut budget = ShapeOutputBudget::new(maximum);
-                    let run = shape_linked(
+                    let run = shape_linked_with_record_limit(
                         LinkedBackendInput {
                             run_id,
                             font: font.instance_id(),
@@ -621,8 +639,8 @@ fn shape_paragraph<'a>(
                             max_output_records: maximum,
                         },
                         &mut budget,
-                    )
-                    .map_err(|e| error(site.owner(), E::Backend(e)))?;
+                        site.owner(), output_records, maximum_records,
+                    )?;
                     let expected = ExpectedGlyphRun {
                         run_id,
                         font: font.instance_id(),
@@ -640,11 +658,13 @@ fn shape_paragraph<'a>(
                     validate_body_glyph_coverage(&run).map_err(|kind| error(site.owner(), kind))?;
                     // Bound retained output across the complete document, in addition
                     // to the backend's per-request allocation ceiling.
-                    let charge = 1 + run.glyphs.len() as u64 + run.clusters.len() as u64;
-                    *output_records = output_records
-                        .checked_add(charge)
-                        .filter(|n| *n <= limits.base().get().max_fragments)
-                        .ok_or_else(|| error(site.owner(), E::OutputLimit))?;
+                    if maximum_records.is_none() {
+                        let charge = 1 + run.glyphs.len() as u64 + run.clusters.len() as u64;
+                        *output_records = output_records
+                            .checked_add(charge)
+                            .filter(|n| *n <= limits.base().get().max_fragments)
+                            .ok_or_else(|| error(site.owner(), E::OutputLimit))?;
+                    }
                     result
                         .runs
                         .try_reserve(1)
@@ -663,6 +683,35 @@ fn shape_paragraph<'a>(
     }
     result.fingerprint = paragraph_fingerprint(&result)?;
     Ok(result)
+}
+
+fn shape_linked_with_record_limit(
+    input: LinkedBackendInput<'_>,
+    budget: &mut ShapeOutputBudget,
+    owner: NodeId,
+    records: &mut u64,
+    maximum: Option<u64>,
+) -> Result<GlyphRun, ProductionTextShapeError> {
+    let Some(maximum) = maximum else {
+        return shape_linked(input, budget)
+            .map_err(|e| error(owner, ProductionTextShapeErrorKind::Backend(e)));
+    };
+    let mut rejected = false;
+    let result = shape_linked_with_output_reservation(input, budget, |glyphs, clusters| {
+        match records.checked_add(1 + u64::from(glyphs) + u64::from(clusters))
+            .filter(|n| *n <= maximum) {
+            Some(next) => { *records = next; Ok(()) }
+            None => {
+                rejected = true;
+                Err(LinkedShaperError::OutputBudget(ShapeWorkError::GlyphLimit))
+            }
+        }
+    });
+    result.map_err(|e| error(owner, if rejected {
+        ProductionTextShapeErrorKind::OutputLimit
+    } else {
+        ProductionTextShapeErrorKind::Backend(e)
+    }))
 }
 
 fn validate_body_glyph_coverage(run: &GlyphRun) -> Result<(), ProductionTextShapeErrorKind> {

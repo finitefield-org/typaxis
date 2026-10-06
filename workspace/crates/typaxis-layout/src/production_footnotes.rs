@@ -150,6 +150,20 @@ pub(super) fn project_footnote_lines_counted<'a>(
     limits: &M4EffectiveResourceLimits,
     observed_records: &mut u64,
 ) -> Result<FootnoteLineProjection<'a>, ProductionInlinePreparationError> {
+    project_footnote_lines_with_record_limit_counted(
+        flow, paragraphs, prior_records, limits, limits.base().get().max_fragments,
+        observed_records,
+    )
+}
+
+pub(super) fn project_footnote_lines_with_record_limit_counted<'a>(
+    flow: InlineFlow<'a>,
+    paragraphs: &[ProductionInlineParagraphLineLayout<'_, 'a>],
+    prior_records: u64,
+    limits: &M4EffectiveResourceLimits,
+    maximum_records: u64,
+    observed_records: &mut u64,
+) -> Result<FootnoteLineProjection<'a>, ProductionInlinePreparationError> {
     *observed_records = prior_records;
     use ProductionInlinePreparationErrorKind as E;
     let root = NodeId::new(0);
@@ -177,7 +191,7 @@ pub(super) fn project_footnote_lines_counted<'a>(
             })
         })
         .and_then(|n| n.checked_add((reference_count as u64).checked_mul(2)?))
-        .filter(|n| *n <= limits.base().get().max_fragments)
+        .filter(|n| *n <= maximum_records.min(limits.base().get().max_fragments))
         .ok_or_else(|| error(root, E::UnitLimit))?;
     *observed_records = record_charge;
     let definition_order = if definitions_sorted {

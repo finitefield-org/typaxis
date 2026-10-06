@@ -42,6 +42,16 @@ impl BookV2SourceVerificationBudget {
     pub fn record_charge(&self) -> u64 {
         self.records
     }
+    /// Intrinsic output may reuse a prepaid graph bound, but it cannot consume
+    /// room already used by caller/source history. This does not replace the
+    /// body's validated limits or grant output authority.
+    pub fn output_record_limit(&self, body_maximum: u64) -> Option<u64> {
+        let remaining = self.maximum.min(body_maximum).checked_sub(self.records)?;
+        if self.retained_records > remaining {
+            return None;
+        }
+        Some(remaining.saturating_add(self.prepaid_records).min(body_maximum))
+    }
     /// Keep already observed intrinsic output out of the room available for a
     /// new reconstruction. It is accounted separately from source history.
     pub fn include_retained_records(&mut self, records: u64) {

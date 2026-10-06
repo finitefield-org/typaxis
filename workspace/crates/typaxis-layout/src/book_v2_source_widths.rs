@@ -226,12 +226,12 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
         // Check their capacity before allocating the temporary binding vector.
         let mut records = prior_records
             .checked_add(prepared.native_math().map_or(0, |m| m.record_charge()))
-            .filter(|n| *n <= prepared.max_fragments)
+            .filter(|n| *n <= prepared.output_record_limit)
             .ok_or_else(|| error(root, E::UnitLimit))?;
         *observed_records = records;
         records = records
             .checked_add(assignments.widths.len() as u64)
-            .filter(|n| *n <= prepared.max_fragments)
+            .filter(|n| *n <= prepared.output_record_limit)
             .ok_or_else(|| error(root, E::UnitLimit))?;
         *observed_records = records;
         let step = |remaining: &mut u64, owner| {
@@ -256,7 +256,7 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
                 }
                 records = records
                     .checked_add(ends.len() as u64)
-                    .filter(|n| *n <= prepared.max_fragments)
+                    .filter(|n| *n <= prepared.output_record_limit)
                     .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
                 *observed_records = records;
             }
@@ -269,7 +269,7 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
                 }
                 records = records
                     .checked_add(widths.len() as u64)
-                    .filter(|n| *n <= prepared.max_fragments)
+                    .filter(|n| *n <= prepared.output_record_limit)
                     .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
                 *observed_records = records;
             }

@@ -374,7 +374,25 @@ fn prepare_paragraphs<'a>(
     japanese_mode: JapaneseLineBreakMode,
     charge: &mut u64,
 ) -> Result<Vec<ProductionPreparedInlineParagraph>, ProductionInlinePreparationError> {
+    prepare_paragraphs_with_record_limit(
+        flow, shaped, bindings, native_math, limits, japanese_mode, charge,
+        limits.base().get().max_fragments,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_paragraphs_with_record_limit<'a>(
+    flow: InlineFlow<'a>,
+    shaped: &[typaxis_shaping::ProductionBodyParagraphShape<'a>],
+    bindings: Option<InlineVectors<'_>>,
+    native_math: Option<InlineNativeMath<'_>>,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: JapaneseLineBreakMode,
+    charge: &mut u64,
+    maximum_records: u64,
+) -> Result<Vec<ProductionPreparedInlineParagraph>, ProductionInlinePreparationError> {
     use ProductionInlinePreparationErrorKind as E;
+    let maximum_records = maximum_records.min(limits.base().get().max_fragments);
     let root = NodeId::new(0);
     if flow_call!(flow, paragraphs()).len() != shaped.len() {
         return Err(error(root, E::ReceiptMismatch));
@@ -453,7 +471,7 @@ fn prepare_paragraphs<'a>(
                             let scalar_count = text.chars().count();
                             *charge = charge
                                 .checked_add(scalar_count as u64 + 1)
-                                .filter(|n| *n <= limits.base().get().max_fragments)
+                                .filter(|n| *n <= maximum_records)
                                 .ok_or_else(|| error(owner, E::UnitLimit))?;
                             units
                                 .try_reserve(scalar_count)
@@ -536,7 +554,7 @@ fn prepare_paragraphs<'a>(
                     .map_err(|e| error(owner, E::Atomic(e)))?;
                     *charge = charge
                         .checked_add(1)
-                        .filter(|n| *n <= limits.base().get().max_fragments)
+                        .filter(|n| *n <= maximum_records)
                         .ok_or_else(|| error(owner, E::UnitLimit))?;
                     units
                         .try_reserve(1)
@@ -563,7 +581,7 @@ fn prepare_paragraphs<'a>(
                     .map_err(|e| error(owner, E::Atomic(e)))?;
                     *charge = charge
                         .checked_add(1)
-                        .filter(|n| *n <= limits.base().get().max_fragments)
+                        .filter(|n| *n <= maximum_records)
                         .ok_or_else(|| error(owner, E::UnitLimit))?;
                     units
                         .try_reserve(1)
@@ -580,7 +598,7 @@ fn prepare_paragraphs<'a>(
                         .map_err(|e| error(owner, E::Atomic(e)))?;
                     *charge = charge
                         .checked_add(1)
-                        .filter(|n| *n <= limits.base().get().max_fragments)
+                        .filter(|n| *n <= maximum_records)
                         .ok_or_else(|| error(owner, E::UnitLimit))?;
                     units
                         .try_reserve(1)
@@ -590,7 +608,7 @@ fn prepare_paragraphs<'a>(
                 ProductionInlineContent::Anchor => {
                     *charge = charge
                         .checked_add(1)
-                        .filter(|n| *n <= limits.base().get().max_fragments)
+                        .filter(|n| *n <= maximum_records)
                         .ok_or_else(|| error(owner, E::UnitLimit))?;
                     anchors
                         .try_reserve(1)
