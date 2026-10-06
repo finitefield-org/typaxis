@@ -78,6 +78,41 @@ fn successor_common_flow_retains_body_tables_lists_footnotes_and_source_text() {
 }
 
 #[test]
+fn successor_streamed_flow_preserves_recorded_before_change_fingerprints() {
+    // Captured by a separately built public client before the streaming change.
+    for (case, expected) in [
+        ("combined", "32e92705abdc106b6b4dfe24b12aaf19dd9503a84f32b428b84ff891ee77010e"),
+        ("page-12", "5ae91783cab9885fe4b970dc4931abd5c6efc54a075ed92cf4cc5a9b26e7cf6a"),
+        ("languages", "c4f23665032e533dc3120684ad2aabfd94717ac580bb3beb5e2c2f6f4869b260"),
+        ("empty-footnote", "c18f09986beb6cf9c667236ddff553ddbe4ed3c1cade2186ac1ecff4c0187dce"),
+        ("named-break", "e64869577e475e21a757853d065e103d7c5505b44ffac224c024be1bf52f5e4a"),
+    ] {
+        let mut data = input();
+        match case {
+            "languages" => {
+                data["document"]["blocks"][0]["language"] = "ja-jp".into();
+                data["document"]["blocks"][0]["children"][0]["language"] = "en-us".into();
+                data["document"]["footnotes"][0]["language"] = "de-de".into();
+            }
+            "empty-footnote" => data["document"]["footnotes"][0]["blocks"] = serde_json::json!([]),
+            "named-break" => data["style_sheet"]["rules"][3]["declarations"][0]["value"] =
+                serde_json::json!({"kind":"string", "value":"basic-combined"}),
+            _ => {}
+        }
+        let body = styled(&data, &limits());
+        let nav = prepare_book_v2_navigation(&body).unwrap();
+        let flow = if case == "page-12" {
+            prepare_book_v2_text_flow_with_page_references(&body, &nav, &[(NodeId::new(7), 12)]).unwrap()
+        } else {
+            prepare_book_v2_text_flow(&body, &nav).unwrap()
+        };
+        let actual: String = flow.fingerprint().iter().map(|n| format!("{n:02x}")).collect();
+        assert_eq!(actual, expected, "case {case}");
+        flow.verify_for(&body, &nav).unwrap();
+    }
+}
+
+#[test]
 fn successor_flow_rejects_reparsed_body_and_separately_prepared_navigation() {
     let body = styled(&input(), &limits());
     let nav = prepare_book_v2_navigation(&body).unwrap();

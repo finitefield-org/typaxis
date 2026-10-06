@@ -1,4 +1,4 @@
-use super::{sha256, write_jcs_string};
+use super::{sha256, write_jcs_string, Sha256};
 use std::fmt::{self, Write};
 
 #[test]
@@ -47,6 +47,42 @@ fn sha256_borrowed_blocks_preserve_padding_boundary_vectors() {
             .collect();
         let actual: String = sha256(&bytes).iter().map(|n| format!("{n:02x}")).collect();
         assert_eq!(actual, expected, "input length {length}");
+        for split in 0..=length {
+            let mut state = Sha256::new();
+            state.update(&bytes[..split]);
+            state.update(&[]);
+            state.update(&bytes[split..]);
+            state.update(&[]);
+            let actual: String = state.finish().iter().map(|n| format!("{n:02x}")).collect();
+            assert_eq!(actual, expected, "input length {length}, split {split}");
+        }
+    }
+}
+
+#[test]
+fn sha256_streamed_writer_preserves_known_empty_and_text_vectors() {
+    for (text, expected) in [
+        (
+            "",
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        ),
+        (
+            "abc",
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        ),
+        (
+            "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+            "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+        ),
+    ] {
+        let mut state = Sha256::default();
+        state.write_str("").unwrap();
+        for character in text.chars() {
+            state.write_char(character).unwrap();
+            state.write_str("").unwrap();
+        }
+        let actual: String = state.finish().iter().map(|n| format!("{n:02x}")).collect();
+        assert_eq!(actual, expected);
     }
 }
 

@@ -16477,3 +16477,29 @@ run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成�
 §263の検証待ちを解消した。次のsource／command経路と全体要件をremaining-paths.mdへ記録した。検証後の文書更新3件はpost-verification-documentation-hashes.jsonで区別する。
 
 完全なcommand allocation／spool／work、元source flowのcollection／再検証、source／admission／navigation・policy・vectors／shaping・backend内部と同時保持graph、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入を継続する。Speech／SemanticRef未作成を維持する。
+
+
+<a id="source-flow-canonical-streaming-design-14264"></a>
+## 264. source flow canonicalを固定長hash sinkへ接続（design §14.264）
+
+[ADR-0127](../adr/ADR-0127-source-flow-canonical-streaming.md)に従い、CoreのSha256はprivateなstate／64-byte途中bufferと消費するfinishを持ち、既存one-shot sha256も委譲する。fmt::Writeで直接canonical bytesを受ける。legacy／Book /2の共通production_flow_canonical.rsは既存の全field・optional named break・JCS escaping・hash／数値・TextSpan・style・本文を同じ順序で書く。全canonical Stringとmemberのformat一時Stringをなくし、Book /2言語一覧と既存5-field limits projectionもhashへ直接書く。元body／navigationのidentityと全collection／fieldの再検証、公開profile／schema／receipt authorityを維持する。
+
+証跡はworkspace/target/vmb-design/20261006/source-flow-streaming/。run-client-01.pyで実public libraryを変更前後に構築し、17 flow successes／7 typed rejectionsのfingerprint・公開内容projection・原因が一致した。名前付き改ページ、Page 12／最大候補、Text reference、言語継承、空脚注、quote／slash／改行／tab・日本語・Greek・emojiを含む1／128／1,024段落を検査する。legacyの大規模fixture 3件のInvalidNestingも既存のまま保持し、Book /2の同3件は成功した。初回client fixtureは置換した元nodeへのoutline参照を残し、named pageをkeywordで記述したためrunner assertionが失敗した。baseline-fixture-attempt-01/へ全出力とclient／runnerを保全し、実装変更前にfixtureを訂正して成功baselineを記録した。
+
+prepare／verifyの38操作を観測し、成功操作の要求割当calls／bytesはすべて減った。Book /2 combinedは5,167 calls／641,006 bytesから4,581／605,586へ、1,024段落は116,996／22,850,481から101,537／15,775,637へ減った。観測の合計差は49,974 calls／16,879,846要求bytesである。peak memoryや制御された時間比較を主張しない。ignored standalone clientの標準allocator forwards以外へunsafeを追加していない。
+
+run-hash-01.pyは271 input lengthsと13 chunk sizes＋one-shot、empty updates、4 writer cases、原フォント2件と保存済み元全巻packageの3,801 hash observationsをPython hashlibと照合し、全観測のheap割当0を確認した。client測定後のcanonical visitor差分はcfg(test)登録のみで、他4実装ソースとともに正確な対応・binary hashを記録した。局所core／math・legacy／Book /2 syntax試験、最終workspace／layout／CLI回帰と独立PDF検証を実行する。
+
+source collectionのrules／段落／inline／表／generated text、verifyで同時保持する元flowと再構築flow、byte／AST／hash work、構築前のcommand全予約と失敗保持、admission／shaping・backend／font内部、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入を継続する。Speech／SemanticRef未作成を維持する。
+
+run-focused-01.pyはCore 21 tests／math 8 tests（doc-test各0件）、legacy syntax 76 tests＋doc-test 6件、Book /2 syntax 140 tests＋doc-test 12件に成功した。既存Core padding試験へ各境界の全splitとempty updatesを追加し、新Core 1件でwriterの既知vectorsを検証した。新syntax 2件は変更前のlegacy／Book /2 fingerprintと全canonical sink capacityの失敗伝播を検証する。元owner／改変拒否の既存coverageも成功した。Core／math buildは1.72秒、tests各0.01秒、legacy syntax build 24.48秒／tests 1.17秒／doc-test 3.71秒、Book /2 syntax build 11.41秒／tests 1.28秒／doc-test 8.24秒だった。
+
+最終ソースを固定したworkspace --all-features --tests checkは48.37秒で成功した。layout全70 testsは0.31秒、doc-test 1件は0.71秒で成功し、buildは14.57秒だった。Book /2関連CLI全294 testsは293.80秒で成功し、buildは48.53秒だった。すべて失敗／ignored 0。CLIフィルタの419 filtered outも記録し、binary全713 testsの実行とは扱わない。shaping／pagination／font全体、公開／旧CFF診断とcurrent VMB全巻再監査は今回は繰り返していない。時間は観測値であり、制御された性能比較ではない。長時間試験は同じ実handleを待ち、再起動しなかった。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成功した。固定時・開始時・文書更新前の166ソースが一致し、8追跡済み変更＋4新規ファイルの全12件を含むことも照合した。9 evidence client／runner、原フォント2件と保存済み元全巻package、12成功ログのhash／結果行、実コマンド・環境・終了コード、source-flow clientの前後出力／測定binary、hash clientとcanonical visitorのcfg(test)登録差分、759 PDF対応表をrun-source-correspondence.jsonへ保存した。全759組について実ファイルのbyte一致・記録hash・名前変更0を確認した。table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§263と一致した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+
+§264の検証待ちを解消した。次のsource collection／revalidationからcommandへの接続と全体要件をremaining-paths.mdへ記録した。検証後の文書更新3件はpost-verification-documentation-hashes.jsonで区別する。設計全体の実装は継続中である。

@@ -4,6 +4,10 @@ use super::*;
 use crate::ValidatedStagingBookNavigationV2;
 use typaxis_document_package::WireStagingM4ReferenceFormat;
 
+#[path = "production_flow_canonical.rs"]
+mod canonical;
+use canonical::fingerprint_source_flow;
+
 #[path = "production_table.rs"]
 mod table;
 pub use table::{ProductionTable, ProductionTableRow, ProductionTableCell, ProductionTableSection};
@@ -650,7 +654,13 @@ fn prepare_production_text_flow_inner<'a>(
         limits.base(),
         values,
     )?;
-    result.fingerprint = sha256(encode_flow(&result).as_bytes());
+    result.fingerprint = fingerprint_source_flow(
+        &result,
+        PRODUCTION_TEXT_FLOW_ALGORITHM,
+        result.navigation.languages().fingerprint(),
+        result.navigation.limits().fingerprint(),
+        result.package.canonical_jcs_sha256(),
+    );
     Ok(result)
 }
 
@@ -1368,145 +1378,6 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         }
         Ok(())
     }
-}
-
-fn encode_flow(flow: &ProductionTextFlow<'_>) -> String {
-    encode_source_flow(
-        flow,
-        PRODUCTION_TEXT_FLOW_ALGORITHM,
-        flow.navigation.languages().fingerprint(),
-        flow.navigation.limits().fingerprint(),
-        flow.package.canonical_jcs_sha256(),
-    )
-}
-fn encode_source_flow<P, N>(
-    flow: &SourceTextFlow<'_, P, N>,
-    algorithm: &str,
-    language_sha256: [u8; 32],
-    limits_sha256: [u8; 32],
-    package_sha256: [u8; 32],
-) -> String {
-    let mut s = String::from("{\"algorithm\":");
-    push_jcs_string(&mut s, algorithm);
-    s.push_str(",\"events\":[");
-    for (i, event) in flow.events.iter().enumerate() {
-        if i != 0 {
-            s.push(',');
-        }
-        match event {
-            ProductionFlowEvent::Begin { owner, kind } => {
-                s.push_str("[\"begin\",");
-                push_jcs_string(&mut s, kind.as_str());
-                s.push_str(&format!(",{}]", owner.get()));
-            }
-            ProductionFlowEvent::Paragraph { index } => {
-                s.push_str(&format!("[\"paragraph\",{index}]"))
-            }
-            ProductionFlowEvent::End { owner } => s.push_str(&format!("[\"end\",{}]", owner.get())),
-        }
-    }
-    #[cfg(feature = "book-v2-staging")]
-    if !flow.named_page_breaks.is_empty() {
-        s.push_str("],\"explicit_page_break_names\":[");
-        for (index, (owner, name)) in flow.named_page_breaks.iter().enumerate() {
-            if index != 0 { s.push(','); }
-            s.push_str(&format!("[{},", owner.get()));
-            push_jcs_string(&mut s, name.as_str());
-            s.push(']');
-        }
-    }
-    s.push_str("],\"footnote_definitions\":[");
-    for (index, definition) in flow.footnote_definitions.iter().enumerate() {
-        if index != 0 {
-            s.push(',');
-        }
-        s.push_str(&format!("[{},", definition.owner.get()));
-        push_jcs_string(&mut s, definition.id);
-        s.push(',');
-        push_jcs_string(&mut s, definition.language);
-        s.push(',');
-        match definition.style_paragraph {
-            Some(index) => s.push_str(&index.to_string()),
-            None => s.push_str("null"),
-        }
-        s.push(']');
-    }
-    s.push_str("],\"generated_text_sha256\":");
-    push_jcs_string(&mut s, &hex(flow.generated.reference_fingerprint().bytes()));
-    s.push_str(",\"language_sha256\":");
-    push_jcs_string(&mut s, &hex(language_sha256));
-    s.push_str(",\"limits_sha256\":");
-    push_jcs_string(&mut s, &hex(limits_sha256));
-    s.push_str(",\"package_sha256\":");
-    push_jcs_string(&mut s, &hex(package_sha256));
-    s.push_str(",\"paragraphs\":[");
-    for (i, paragraph) in flow.paragraphs.iter().enumerate() {
-        if i != 0 {
-            s.push(',');
-        }
-        s.push_str("{\"font_families\":[");
-        for (j, family) in paragraph
-            .style
-            .font_families()
-            .unwrap_or(&[])
-            .iter()
-            .enumerate()
-        {
-            if j != 0 {
-                s.push(',');
-            }
-            push_jcs_string(&mut s, family);
-        }
-        s.push_str("],\"font_size\":");
-        s.push_str(
-            &paragraph
-                .style
-                .font_size()
-                .map_or(0, |v| v.get().raw())
-                .to_string(),
-        );
-        s.push_str(",\"items\":[");
-        for (j, item) in paragraph.items.iter().enumerate() {
-            if j != 0 {
-                s.push(',');
-            }
-            s.push('[');
-            push_jcs_string(&mut s, item.content.as_str());
-            s.push_str(&format!(",{},", item.owner.get()));
-            push_jcs_string(&mut s, item.language);
-            if let ProductionInlineContent::Text { span, utf8 } = item.content {
-                s.push(',');
-                push_vector_text_span_jcs(&mut s, span);
-                s.push(',');
-                push_jcs_string(&mut s, utf8);
-            }
-            s.push(']');
-        }
-        s.push_str("],\"line_height\":");
-        s.push_str(
-            &paragraph
-                .style
-                .line_height()
-                .map_or(0, |v| v.get().raw())
-                .to_string(),
-        );
-        s.push_str(&format!(",\"owner\":{},\"page\":", paragraph.owner.get()));
-        if let Some(page) = &paragraph.page_name {
-            push_jcs_string(&mut s, page.as_str());
-        } else {
-            s.push_str("null");
-        }
-        s.push('}');
-    }
-    s.push_str(&format!("],\"text_bytes\":{}}}", flow.text_bytes));
-    // Remaining block/source fields are bound by package_sha256. verify()
-    // independently recomputes all styles and events, not just this hash.
-    s
-}
-
-
-fn hex(bytes: [u8; 32]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[cfg(test)]

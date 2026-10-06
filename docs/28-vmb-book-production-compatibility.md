@@ -5626,3 +5626,26 @@ Book /2 CLI 294 testsが成功した。759 PDF／2,896 pagesと58 font subsets�
 別hashで記録し、実装ソースと他6 client／runnerの固定を確認した。
 完全なcommand allocation／spool／work、source／admission／backend内部、名前付きページ・段組、
 公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。
+
+
+### 14.264 source flow canonicalの直接hash（実装追補）
+
+Coreの固定長SHA-256をincremental状態とfmt::Write sinkへ接続し、既存one-shot入口も
+同じcompressionへ委譲する。legacy／Book /2 source flowは共通writerを使い、全体の
+canonical Stringと各memberのformat一時Stringを保持せずhashする。Book /2の言語一覧と
+既存5-field limits projectionも直接hashする。field順、optional named break、JCS escaping、
+hash・数値・source span・style・本文と既存algorithm／fingerprintを維持する。
+元ownerのidentityと全collection／fieldの再検証を省略しない。
+
+[ADR-0127](../adr/ADR-0127-source-flow-canonical-streaming.md)と
+[実装台帳§264](28-vmb-book-production-progress.md#source-flow-canonical-streaming-design-14264)を参照。
+変更前後の実public clientで17成功例と7型付き拒否が一致し、38操作の割当観測を記録した。
+3,801 streamed／one-shot／writer／原入力hashもPython oracleに一致し、hash中のheap割当は0だった。
+Core 21 tests／math 8 tests、legacy syntax 76 tests＋doc-test 6件、Book /2 syntax
+140 tests＋doc-test 12件、workspace型検査、layout 70 tests＋doc-test 1件とCLI 294 testsが
+成功した。759 PDF／2,896 pagesと58 font subsetsの独立検証、全759組と保存済みVMB表
+2出力の§263とのbyte一致も成功した。166ソース・9 client／runner・3原入力・12成功ログ、
+実コマンド／終了コード／環境と測定binary／public結果を照合し、検証後の文書3件の更新を
+別hashで記録した。
+source collection／再構築と完全なcommand予算、名前付きページ・段組、公開Book /2、
+元全巻・管理ホスト・性能・著者／人手受入は継続する。

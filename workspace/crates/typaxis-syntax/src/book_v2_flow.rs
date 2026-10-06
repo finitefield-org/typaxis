@@ -2,6 +2,8 @@
 //! generated labels, but grants no host, font, layout, profile or PDF authority.
 use super::*;
 use crate::book_v2::{PreparedBookV2Navigation, StyledBookV2Body};
+use std::fmt::Write as _;
+use typaxis_core::{write_jcs_string, Sha256};
 use typaxis_style::book_v2::BookV2SemanticContainerComputedStyle;
 
 pub const BOOK_V2_TEXT_FLOW_ALGORITHM: &str = "typaxis.book-2-source-text-flow/1";
@@ -161,30 +163,39 @@ fn prepare_inner<'a>(
     // Only the limits used by this source-flow stage enter this projection.
     // Full source-body limits remain owned and compared by the immutable body.
     let bound = limits.get();
-    let limits_jcs = format!(
+    let mut limits_jcs = Sha256::new();
+    write!(
+        limits_jcs,
         "[\"typaxis.book-2-source-flow-limits/1\",{},{},{},{},{}]",
         bound.max_ast_nodes,
         bound.max_fragments,
         bound.max_pages,
         bound.max_text_buffer_bytes,
         bound.max_text_bytes,
-    );
-    let mut languages = String::from("[\"typaxis.book-2-source-flow-languages/1\"");
+    )
+    .expect("writing source-flow limits to SHA-256 cannot fail");
+    let mut languages = Sha256::new();
+    languages
+        .write_str("[\"typaxis.book-2-source-flow-languages/1\"")
+        .expect("writing source-flow languages to SHA-256 cannot fail");
     for record in navigation.languages() {
-        languages.push_str(&format!(",[{},", record.node_id().get()));
-        push_jcs_string(&mut languages, record.effective_language());
-        languages.push(']');
+        write!(languages, ",[{},", record.node_id().get())
+            .expect("writing a language owner to SHA-256 cannot fail");
+        write_jcs_string(&mut languages, record.effective_language())
+            .expect("writing a canonical language to SHA-256 cannot fail");
+        languages
+            .write_char(']')
+            .expect("writing to SHA-256 cannot fail");
     }
-    languages.push(']');
-    flow.fingerprint = sha256(
-        encode_source_flow(
-            &flow,
-            BOOK_V2_TEXT_FLOW_ALGORITHM,
-            sha256(languages.as_bytes()),
-            sha256(limits_jcs.as_bytes()),
-            body.body().canonical_jcs_sha256(),
-        )
-        .as_bytes(),
+    languages
+        .write_char(']')
+        .expect("writing to SHA-256 cannot fail");
+    flow.fingerprint = fingerprint_source_flow(
+        &flow,
+        BOOK_V2_TEXT_FLOW_ALGORITHM,
+        languages.finish(),
+        limits_jcs.finish(),
+        body.body().canonical_jcs_sha256(),
     );
     Ok(flow)
 }
@@ -197,6 +208,5 @@ mod tests;
 mod page_regions;
 pub use page_regions::{
     prepare_book_v2_page_region_text_flow, prepare_book_v2_page_region_text_flow_counted,
-    BookV2PageRegionKind, BookV2PageRegionTextFlow,
-    BOOK_V2_PAGE_REGION_FLOW_ALGORITHM,
+    BookV2PageRegionKind, BookV2PageRegionTextFlow, BOOK_V2_PAGE_REGION_FLOW_ALGORITHM,
 };
