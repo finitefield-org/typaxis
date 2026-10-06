@@ -9,6 +9,7 @@ pub(super) struct Checkpoint<'m, 'f, 's, 'p, 'a> {
     semantic: usize,
     breaks: usize,
     progress: bool,
+    named_boundary: bool,
     forced_end: Option<Length>,
 }
 impl<'m, 'f, 's, 'p, 'a> Checkpoint<'m, 'f, 's, 'p, 'a> {
@@ -25,6 +26,7 @@ impl<'m, 'f, 's, 'p, 'a> Checkpoint<'m, 'f, 's, 'p, 'a> {
             semantic: trial.projection.semantic.len(),
             breaks: trial.breaks.len(),
             progress: trial.progress,
+            named_boundary: trial.named_boundary,
             forced_end,
         }
     }
@@ -39,6 +41,7 @@ impl<'m, 'f, 's, 'p, 'a> Checkpoint<'m, 'f, 's, 'p, 'a> {
         trial.projection.semantic.truncate(self.semantic);
         trial.breaks.truncate(self.breaks);
         trial.progress = self.progress;
+        trial.named_boundary = self.named_boundary;
         *forced_end = self.forced_end;
     }
 }

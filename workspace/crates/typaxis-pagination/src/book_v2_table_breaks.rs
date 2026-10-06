@@ -302,6 +302,8 @@ pub struct BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
     header_measurements: Vec<&'m BookV2TableMeasurements<'f, 's, 'p, 'a>>,
     frame_catalog: Option<&'m crate::book_v2::BookV2TableHeaderCatalog<'m, 'f, 's, 'p, 'a>>,
     frame_width: Option<PositiveLength>,
+    named_transitions: bool,
+    frame_page_name: Option<Option<usize>>,
 }
 impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
     pub fn header_height(&self) -> Length {
@@ -372,7 +374,13 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
             ));
         }
         if self.nested.is_some() {
-            return self.evaluate_nested(cursor, available);
+            let previous = self.frame_page_name;
+            if self.named_transitions && previous.is_none() {
+                self.frame_page_name = Some(self.cursor_page_name(Some(cursor), None)?);
+            }
+            let result = self.evaluate_nested(cursor, available);
+            self.frame_page_name = previous;
+            return result;
         }
         let Some(projection) = self.kernel.evaluate(&cursor.position, available)? else {
             return Ok(None);
@@ -567,12 +575,27 @@ fn prepare_book_v2_table_search_charged_counted<'m, 'f, 's, 'p, 'a>(
         header_measurements: Vec::new(),
         frame_catalog: None,
         frame_width: None,
+        named_transitions: flow.table_has_page_name_transitions(table_index),
+        frame_page_name: None,
     };
-    let nested = if search.kernel.nested_body {
-        search.prepare_nested(limits)
-    } else {
-        Ok(())
-    };
+    let nested = (|| {
+        search.prepare_named_transition_scope()?;
+        if search.named_transitions {
+            if table.keep_together {
+                return Err(error(table.owner, E::KeepAcrossForcedBreak));
+            }
+            let cells = flow.lines().prepared().source_flow().tables()[table_index].cells();
+            search.kernel.work.take(cells.len() as u64, table.owner)?;
+            search.kernel.spanning_breaks = cells.iter().any(|c| c.rowspan().get() != 1);
+            search.kernel.cell_breaks = true;
+            search.kernel.nested_body = true;
+        }
+        if search.kernel.nested_body {
+            search.prepare_nested(limits)
+        } else {
+            Ok(())
+        }
+    })();
     *observed_records = search.record_charge();
     *observed_work = search.work_charge();
     nested?;

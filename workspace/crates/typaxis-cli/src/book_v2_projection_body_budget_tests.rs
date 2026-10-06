@@ -129,14 +129,6 @@ fn check(font: Option<&[u8]>) {
                 };
                 let mut records = 0;
                 let result = body(initial, &mut records);
-                if mode == "conflict" {
-                    let error = result.err().unwrap();
-                    assert_eq!(error.kind, P::PendingNamedPage);
-                    assert_eq!(error, legacy(initial).err().unwrap());
-                    assert!(records > initial);
-                    assert_driver_failure(&input, &limits, "body flow", error, records);
-                    return;
-                }
                 let full_body = result.unwrap();
                 let body_records = full_body.record_charge();
                 assert_eq!(records, body_records);
@@ -203,6 +195,22 @@ fn check(font: Option<&[u8]>) {
                     );
                     assert_eq!(records, before);
                 }
+                if mode == "conflict" {
+                    // Named content is now admitted by body/measurement owners.
+                    // The incompatible active parallel cells are rejected only
+                    // after their real continuation positions are available.
+                    let mut search = typaxis_pagination::book_v2::prepare_book_v2_table_body_search(
+                        &measured, &limits, maximum, measured.record_charge(),
+                    ).unwrap();
+                    let mut passes = 0;
+                    let error = search.select_stable_mixed_pages_counted(
+                        limits.base().get().max_layout_passes, &mut passes,
+                    ).err().unwrap();
+                    assert_eq!(error.kind, P::PendingNamedPage);
+                    assert_eq!(passes, 1);
+                    assert!(search.record_charge() > measured.record_charge());
+                    assert_driver_failure(&input, &limits, "page stability", error, search.record_charge());
+                }
             },
         )
         .unwrap_or_else(|e| panic!("{mode}: {e:?}"));
@@ -234,7 +242,7 @@ fn assert_driver_failure(
     let retained = budget.observation();
     assert_eq!(retained.record_charge(), records);
     assert_eq!(retained.output_charge(), 0);
-    assert_eq!(retained.page_passes(), 0);
+    assert_eq!(retained.page_passes(), u16::from(expected_stage == "page stability"));
     assert_eq!(retained.candidate_passes(), 0);
     assert!(with_budgeted_book_v2_pdf(input, limits, MODE, &mut budget, |_, _| ()).is_err());
     assert!(budget.observation().record_charge() >= retained.record_charge());

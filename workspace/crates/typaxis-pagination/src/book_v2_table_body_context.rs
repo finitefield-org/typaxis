@@ -206,6 +206,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2TableBodyContext<'b, 'f, 's, 'p, 'a> {
         capacity: Length,
         headers: Option<&'b crate::book_v2::BookV2TableHeaderCatalog<'b, 'f, 's, 'p, 'a>>,
         region_width: Option<PositiveLength>,
+        page_name: Option<usize>,
         charge: &mut Charge,
         steps: &mut u64,
     ) -> Result<
@@ -218,7 +219,24 @@ impl<'b, 'f, 's, 'p, 'a> BookV2TableBodyContext<'b, 'f, 's, 'p, 'a> {
             .ok_or_else(|| error(NodeId::new(0), E::ReceiptMismatch))?;
         std::mem::swap(&mut search.kernel.charge, charge);
         std::mem::swap(&mut search.kernel.work.used, steps);
-        let result = search.evaluate_in_frame(cursor, capacity, headers, region_width);
+        let result = search.evaluate_named_in_frame(cursor, capacity, headers, region_width, page_name);
+        std::mem::swap(&mut search.kernel.charge, charge);
+        std::mem::swap(&mut search.kernel.work.used, steps);
+        result
+    }
+    pub fn page_name(
+        &mut self,
+        index: usize,
+        cursor: Option<&BookV2TableCursor<'b, 'f, 's, 'p, 'a>>,
+        preferred: Option<Option<usize>>,
+        charge: &mut Charge,
+        steps: &mut u64,
+    ) -> Result<Option<usize>, ProductionBodyPaginationError> {
+        let search = self.searches.get_mut(index)
+            .ok_or_else(|| error(NodeId::new(0), E::ReceiptMismatch))?;
+        std::mem::swap(&mut search.kernel.charge, charge);
+        std::mem::swap(&mut search.kernel.work.used, steps);
+        let result = search.cursor_page_name(cursor, preferred);
         std::mem::swap(&mut search.kernel.charge, charge);
         std::mem::swap(&mut search.kernel.work.used, steps);
         result

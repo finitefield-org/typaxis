@@ -72,9 +72,8 @@ def selected_master(masters, page, name=None):
     return next(m for m in masters['masters'] if m['master_id']==chosen)
 
 
-def source_page_names(probe):
-    """Check page names against original body owners, excluding definition paint."""
-    wire=probe['wire']
+def source_page_owner_names(wire):
+    """Resolve original body-owner requests from authored scopes and cascade."""
     sheet={r['style_id']:r for r in wire['style_sheet']['rules']}
     def declarations(rule,seen=()):
         assert rule['style_id'] not in seen
@@ -106,10 +105,22 @@ def source_page_names(probe):
             for field in ('blocks','children','items','term','caption','head','body','cells','equation_number'):
                 if field in value:visit(value[field],used)
     visit(wire['document']['blocks'])
+    return owners
+
+
+def source_page_names(probe):
+    """Check original body requests; definition and repeated artifact paint has no request."""
+    owners=source_page_owner_names(probe['wire'])
     nav=probe['relations']['navigation']
     names=nav['assembly'].get('page_names',[None]*nav['raw_page_count'])
     assert len(names)==nav['raw_page_count']
-    for group in probe['groups']:
+    bindings={b['group'] for b in probe['bindings']}
+    assert len(nav['raw_groups'])==len(probe['groups'])
+    for index,group in enumerate(probe['groups']):
+        if nav['raw_groups'][index]['artifact']:
+            assert index not in bindings
+            continue
+        assert index in bindings
         if group['owner'] in owners:assert names[group['page']]==owners[group['owner']],('source page name',group['owner'],names[group['page']],owners[group['owner']])
     return names
 
@@ -460,7 +471,24 @@ def tamper_checks(data, probe):
         except (AssertionError, KeyError, IndexError, TypeError, ValueError):
             continue
         raise AssertionError('tampered page-reference feedback accepted')
-    return len(actions) + len(changes) + len(reference_changes)
+    # A repetition can use a different physical master, but changing the
+    # original semantic paint's authored request must still be rejected.
+    page_name_rejections = 0
+    owners = source_page_owner_names(probe['wire'])
+    original_group = next((probe['groups'][b['group']] for b in probe['bindings']
+                           if probe['groups'][b['group']]['owner'] in owners), None)
+    if original_group is not None:
+        changed = copy.deepcopy(probe)
+        names = changed['relations']['navigation']['assembly'].setdefault(
+            'page_names', [None] * changed['relations']['navigation']['raw_page_count'])
+        names[original_group['page']] = None if owners[original_group['owner']] is not None else '__invalid_source_page_name__'
+        try:
+            source_page_names(changed)
+        except AssertionError:
+            page_name_rejections = 1
+        else:
+            raise AssertionError('tampered original page request accepted')
+    return len(actions) + len(changes) + len(reference_changes) + page_name_rejections
 
 
 def main():

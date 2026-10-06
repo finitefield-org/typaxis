@@ -18,16 +18,24 @@ pub struct BookV2PreparedBodyFlow<'f, 's, 'p, 'a> {
     prior_records: u64,
     limits_fingerprint: [u8; 32],
     body_page_names: Vec<Option<usize>>,
-    table_page_names: Vec<Option<usize>>,
+    table_page_names: Vec<TablePageName>,
+}
+#[derive(Clone, Copy)]
+struct TablePageName {
+    initial: Option<usize>,
+    transitions: bool,
 }
 impl<'f, 's, 'p, 'a> BookV2PreparedBodyFlow<'f, 's, 'p, 'a> {
     pub fn body_page_name_index(&self, item: usize) -> Option<usize> {
         self.body_page_names.get(item).copied().flatten()
     }
-    /// Common physical name of table content, or its own name when empty.
+    /// Initial physical name of table content, or its own name when empty.
     /// The source plan retains the table owner's original enclosing name.
     pub fn table_page_name_index(&self, table: usize) -> Option<usize> {
-        self.table_page_names.get(table).copied().flatten()
+        self.table_page_names.get(table).and_then(|n| n.initial)
+    }
+    pub(super) fn table_has_page_name_transitions(&self, table: usize) -> bool {
+        self.table_page_names.get(table).is_some_and(|n| n.transitions)
     }
     pub fn body_items(&self) -> &[ProductionBodyFlowItem] {
         &self.collected.items[..self.collected.body_end]
@@ -194,31 +202,42 @@ pub fn prepare_book_v2_body_flow_counted<'f, 's, 'p, 'a>(
             );
             for table in &collected.tables.tables {
                 let mut name = plan.source_name_index(table.owner);
+                let mut transitions = false;
                 if table.definition.is_none() {
                     let names = body_page_names
                         .get(table.items.clone())
                         .ok_or_else(|| error(table.owner, E::ReceiptMismatch))?;
-                    // A nonempty parallel table uses the common name of its actual
-                    // content, including captions and nested leaves. Empty tables
-                    // retain their own scope. Only roots scan the whole range:
-                    // nested ranges are subsets already checked by their root.
+                    // A nonempty table starts with its first original content.
+                    // Actual parallel-cell positions resolve subsequent names.
+                    // Roots scan once; children share the root's transition path.
                     if let Some(first) = names.first() {
                         name = *first;
                     }
-                    if let Some(parent) = table.parent {
-                        if table_page_names.get(parent).copied() != Some(name) {
-                            return Err(error(table.owner, E::PendingNamedPage));
-                        }
-                    } else {
-                        if let Some(i) = names.iter().position(|n| *n != name) {
-                            return Err(error(
-                                collected.items[table.items.start + i].owner,
-                                E::PendingNamedPage,
-                            ));
-                        }
+                    if table.parent.is_none() {
+                        transitions = names.iter().any(|n| *n != name);
                     }
                 }
-                table_page_names.push(name);
+                table_page_names.push(TablePageName { initial: name, transitions });
+            }
+            // Empty descendants have no leaf name in a root's range. Their own
+            // authored scope still participates in physical page selection.
+            for (index, table) in collected.tables.tables.iter().enumerate() {
+                if table.definition.is_some() || !table.items.is_empty() {
+                    continue;
+                }
+                let name = table_page_names[index].initial;
+                let mut parent = table.parent;
+                while let Some(index) = parent {
+                    if table_page_names[index].initial != name {
+                        table_page_names[index].transitions = true;
+                    }
+                    parent = collected.tables.tables[index].parent;
+                }
+            }
+            for (index, table) in collected.tables.tables.iter().enumerate() {
+                if let Some(parent) = table.parent {
+                    table_page_names[index].transitions |= table_page_names[parent].transitions;
+                }
             }
         }
         let (definition_markers, references) = finish_collection(

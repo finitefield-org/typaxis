@@ -5818,3 +5818,26 @@ carrier拒否時のsource-sized確保0を検査した。独立検証と759 PDF�
 これはlogical textの構築前検査であり、全String／path・capacity・tree／intern bytesや
 完全なcommand byte／spool／work、admission・同時保持graphの証明ではない。公開Book /2、
 全巻・管理host・制御性能・著者／人手受入と、Speech／SemanticRef未作成の要件は継続する。
+
+### 14.273 表の実セル位置から名前付きページを切り替える（実装追補）
+
+名前が変わる表は、caption・並列セル・入れ子表の実継続位置から次の物理ページ名を
+選ぶ。現在の名前の元内容が残っている間、次の名前へ到達したセルは内容を消費せず
+待つ。現在の名前が完了した後、残るセルの共通要求へ切り替える。同時に異なる名前を
+要求する場合は元owner付きPendingNamedPage、keepを越える場合はKeepAcrossForcedBreakを
+返す。unnamed・空の子表のscope・元改ページ・rowspanの未配置bandも保持する。
+
+元headerは一度消費し、反復headerは既存Artifactとして後続masterへ配置する。名前照会と
+実subtreeの遷移判定をsearch workへ接続し、caller／子searchの課金を失敗時も戻す。
+均一な子表のkernel／keep policyとencodingは維持する。遷移する表の位置fingerprintに
+実選択名を追加し、17 bytesの追加encodingを既存spool guardへ含める。
+
+[ADR-0136](../adr/ADR-0136-book-2-table-page-name-transitions.md)と
+[実装台帳§273](28-vmb-book-production-progress.md#book-2-table-page-name-transitions-design-14273)を参照。
+旧／Book syntax 79／155 tests、layout 70 tests、pagination 104 tests、workspace型検査と
+Book /2 CLI全311件が成功した。合成／原Haranoの13種類ずつ、26実driver PDFs／108 pagesを
+元入力から独立検査し、130改変を拒否した。共通検査は811 PDF／3,112 pagesに成功し、
+既存759 PDFと保存済みVMB表2出力・旧21成果物はbyte一致した。
+
+完全なcommand byte／spool／work・同時保持graph、名前付き脚注定義・段組、公開Book /2、
+元全巻・管理host・制御性能・著者／人手受入とSpeech／SemanticRef未作成の要件は継続する。

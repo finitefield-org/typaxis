@@ -8,6 +8,8 @@ mod headers;
 mod keeps;
 #[path = "book_v2_nested_table_spans.rs"]
 mod spans;
+#[path = "book_v2_table_page_names.rs"]
+mod page_names;
 use keeps::Checkpoint;
 
 #[derive(Clone, Copy)]
@@ -19,6 +21,7 @@ struct State<'m, 'f, 's, 'p, 'a> {
     cells: Vec<Cell<'m, 'f, 's, 'p, 'a>>,
     fingerprint: [u8; 32],
     remaining: Option<Length>,
+    page_name: Option<usize>,
 }
 pub(super) struct Search<'m, 'f, 's, 'p, 'a> {
     children: Vec<BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a>>,
@@ -49,6 +52,7 @@ struct Trial<'m, 'f, 's, 'p, 'a> {
     retry: Option<Length>,
     started_rows: bool,
     remaining: Option<Length>,
+    named_boundary: bool,
 }
 impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
     pub(super) fn prepare_nested(
@@ -178,6 +182,8 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
         std::mem::swap(&mut self.kernel.charge, &mut child.kernel.charge);
         std::mem::swap(&mut self.kernel.work.used, &mut child.kernel.work.used);
+        let previous_name = child.frame_page_name;
+        child.frame_page_name = self.frame_page_name;
         let result = (|| {
             let cursor = match before {
                 Some(c) => c,
@@ -185,6 +191,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
             };
             child.evaluate_in_frame(&cursor, capacity, self.frame_catalog, self.frame_width)
         })();
+        child.frame_page_name = previous_name;
         std::mem::swap(&mut self.kernel.charge, &mut child.kernel.charge);
         std::mem::swap(&mut self.kernel.work.used, &mut child.kernel.work.used);
         result
@@ -269,6 +276,23 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
                 self.kernel.work.take(1, owner)?;
                 let next = trial.cells[i].next;
                 let content = contents[next];
+                if self.named_transitions {
+                    let name = self.content_page_name(content.source, trial.cells[i].child,
+                        self.frame_page_name)?;
+                    if Some(name) != self.frame_page_name {
+                        if keep_pending {
+                            let origin = match contents[next - 1].source {
+                                ProductionTableContentSource::FlowItem(i) =>
+                                    self.measurements.flow().collected.items[i].owner,
+                                ProductionTableContentSource::Table(i) =>
+                                    self.measurements.tables()[i].owner,
+                            };
+                            return Err(error(origin, E::KeepAcrossForcedBreak));
+                        }
+                        trial.named_boundary = true;
+                        break;
+                    }
+                }
                 let before = next
                     .checked_sub(1)
                     .map_or(Length::ZERO, |n| contents[n].end);
@@ -422,6 +446,11 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
                             end = add(end, trailing, owner)?;
                         } else {
                             trial.cells[i].child = Some(selected.after());
+                            if self.named_transitions && Some(self.content_page_name(
+                                content.source, Some(selected.after()), self.frame_page_name
+                            )?) != self.frame_page_name {
+                                trial.named_boundary = true;
+                            }
                         }
                         top = end;
                         keep_pending =
@@ -502,6 +531,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
             retry: None,
             started_rows: cursor.header_seen
                 || (table.caption.is_none() && self.kernel.header_rows == 0),
+            named_boundary: false,
         };
         let mut caption_keep = None;
         if let Some(caption) = &table.caption {
@@ -626,7 +656,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
                 }
             }
         }
-        if !header_forced {
+        if !header_forced && !trial.named_boundary {
             if let Some(start) = header_start {
                 let body_height = table
                     .height
@@ -643,6 +673,15 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
         }
         if let Some((before_body, caption_end)) = caption_keep {
             if trial.projection.semantic.len() == before_body {
+                if trial.named_boundary {
+                    let last = table.caption.as_ref().unwrap().content.last().unwrap();
+                    let origin = match last.source {
+                        ProductionTableContentSource::FlowItem(i) =>
+                            self.measurements.flow().collected.items[i].owner,
+                        ProductionTableContentSource::Table(i) => self.measurements.tables()[i].owner,
+                    };
+                    return Err(error(origin, E::KeepAcrossForcedBreak));
+                }
                 // Empty row geometry cannot satisfy a kept final caption item.
                 // Revisit the original caption cursor at a strictly earlier cut.
                 trial.retry =
@@ -664,6 +703,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
             .len()
             .checked_mul(112)
             .and_then(|n| n.checked_add(if remaining.is_some() { 32 } else { 16 }))
+            .and_then(|n| n.checked_add(if self.named_transitions { 17 } else { 0 }))
             .ok_or_else(|| error(owner, E::FragmentLimit))?;
         if size as u64 > self.nested.as_ref().unwrap().max_spool_bytes {
             return Err(error(owner, E::SpoolLimit));
@@ -697,6 +737,12 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
             bytes.extend_from_slice(b"NESTROW1");
             bytes.extend_from_slice(&remaining.raw().to_be_bytes());
         }
+        if self.named_transitions {
+            bytes.extend_from_slice(b"NESTNAM1");
+            let name = self.frame_page_name.flatten();
+            bytes.push(u8::from(name.is_some()));
+            bytes.extend_from_slice(&(name.unwrap_or(0) as u64).to_be_bytes());
+        }
         let fingerprint = sha256(&bytes);
         let states = &mut self.nested.as_mut().unwrap().states;
         let index = states.len();
@@ -707,6 +753,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
             cells,
             fingerprint,
             remaining,
+            page_name: self.frame_page_name.flatten(),
         });
         Ok((index, fingerprint))
     }

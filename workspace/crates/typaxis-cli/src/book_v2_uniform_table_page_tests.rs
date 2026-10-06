@@ -140,11 +140,14 @@ fn book_v2_uniform_table_pages_reject_caption_and_empty_child_conflicts() {
         let owner;
         if mode == "caption" {
             let mut paragraph = table["body"][0]["cells"][0]["blocks"][0].clone();
-            paragraph["classes"] = json!([]);
+            paragraph["classes"] = json!(["caption-keep"]);
             table["caption"] = json!([paragraph]);
+            let rules = data["style_sheet"]["rules"].as_array_mut().unwrap();
+            rules.push(json!({"style_id":"caption-keep","selector":"paragraph.caption-keep","source_order":rules.len(),"extends":null,
+                "declarations":[{"name":"keep_with_next","important":false,"value":{"kind":"boolean","value":true}}]}));
             renumber(&mut data["document"], &mut 0);
-            // The inherited caption selects appendix, so the first short leaf conflicts.
-            owner = data["document"]["blocks"][0]["body"][0]["cells"][0]["blocks"][0]["node_id"]
+            // A kept appendix caption cannot share a physical page with short body.
+            owner = data["document"]["blocks"][0]["caption"][0]["node_id"]
                 .as_u64()
                 .unwrap();
         } else {
@@ -155,9 +158,9 @@ fn book_v2_uniform_table_pages_reject_caption_and_empty_child_conflicts() {
             table["body"][0]["cells"][0]["blocks"]
                 .as_array_mut()
                 .unwrap()
-                .push(child);
+                .insert(0, child);
             renumber(&mut data["document"], &mut 0);
-            owner = data["document"]["blocks"][0]["body"][0]["cells"][0]["blocks"][4]["node_id"]
+            owner = data["document"]["blocks"][0]["body"][0]["cells"][1]["blocks"][0]["node_id"]
                 .as_u64()
                 .unwrap();
         }
@@ -176,7 +179,8 @@ fn book_v2_uniform_table_pages_reject_caption_and_empty_child_conflicts() {
         assert!(
             matches!(error, CE::Stage { ref source, .. }
             if source.downcast_ref::<typaxis_pagination::ProductionBodyPaginationError>().is_some_and(|e|
-                e.kind == typaxis_pagination::ProductionBodyPaginationErrorKind::PendingNamedPage
+                e.kind == if mode == "caption" { typaxis_pagination::ProductionBodyPaginationErrorKind::KeepAcrossForcedBreak }
+                    else { typaxis_pagination::ProductionBodyPaginationErrorKind::PendingNamedPage }
                 && u64::from(e.owner.get()) == owner)),
             "{mode}: {error:?}"
         );

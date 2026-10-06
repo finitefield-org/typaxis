@@ -9,6 +9,7 @@ pub(super) struct HeaderStart<'m, 'f, 's, 'p, 'a> {
     leaves: usize,
     breaks: usize,
     progress: bool,
+    named_boundary: bool,
     started: bool,
     remaining: Option<Length>,
 }
@@ -21,6 +22,7 @@ impl<'m, 'f, 's, 'p, 'a> HeaderStart<'m, 'f, 's, 'p, 'a> {
         trial.projection.leaves.truncate(self.leaves);
         trial.breaks.truncate(self.breaks);
         trial.progress = self.progress;
+        trial.named_boundary = self.named_boundary;
         trial.started_rows = self.started;
         trial.remaining = self.remaining;
     }
@@ -46,6 +48,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
             leaves: trial.projection.leaves.len(),
             breaks: trial.breaks.len(),
             progress: trial.progress,
+            named_boundary: trial.named_boundary,
             started: trial.started_rows,
             remaining: trial.remaining,
         })

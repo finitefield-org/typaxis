@@ -92,6 +92,19 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             None
         }
     }
+    fn current_source_page_name(
+        &mut self,
+        item: usize,
+        table: usize,
+        continuation: Option<BookV2TableCursor<'b, 'f, 's, 'p, 'a>>,
+        preferred: Option<Option<usize>>,
+    ) -> Result<Option<Option<usize>>, ProductionBodyPaginationError> {
+        if let Some(index) = self.tables.as_ref().and_then(|t| t.at(item, table)) {
+            return self.tables.as_mut().unwrap().page_name(index, continuation.as_ref(), preferred,
+                &mut self.content.charge, &mut self.content.steps).map(Some);
+        }
+        Ok(self.source_page_name(item, table))
+    }
 
     pub fn begin_mixed_pages(
         &mut self,
@@ -118,6 +131,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                     ));
                 }
                 if context.table(table).keep_with_next()
+                    && !self.content.flow.table_has_page_name_transitions(table)
                     && self
                         .source_page_name(end, context.successor(table))
                         .is_some_and(|n| Some(n) != self.source_page_name(index, table_index))
@@ -160,7 +174,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         })
     }
     fn mixed_boundary_key(
-        &self,
+        &mut self,
         end: usize,
         next_table: usize,
         continuation: Option<BookV2TableCursor<'b, 'f, 's, 'p, 'a>>,
@@ -168,11 +182,11 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         used: Length,
         forced: bool,
     ) -> Result<(i64, usize, usize, i64, usize), ProductionBodyPaginationError> {
+        let next_name = self.current_source_page_name(end, next_table, continuation,
+            continuation.map(|_| self.active_page_name))?;
         let items = self.content.flow.body_items();
         let terminal = forced
-            || self
-                .source_page_name(end, next_table)
-                .is_some_and(|name| name != self.active_page_name)
+            || next_name.is_some_and(|name| name != self.active_page_name)
             || (continuation.is_none()
                 && self.tables.as_ref().unwrap().at(end, next_table).is_none()
                 && items.get(end).is_none_or(|i| i.source.is_none()));
@@ -225,8 +239,8 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             return Ok(None);
         }
         let frames = self.content.flow.lines().frames().expect("bound frames");
-        let name = self
-            .source_page_name(state.source.item, state.source.next_table)
+        let name = self.current_source_page_name(state.source.item, state.source.next_table,
+                state.source.continuation, state.source.continuation.map(|_| state.name))?
             .unwrap_or(state.name);
         let selected = frames
             .page_plan()
@@ -271,8 +285,10 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         loop {
             self.content.step(root)?;
             self.content.step(NodeId::new(0))?;
-            if self
-                .source_page_name(index, table_index)
+            if self.current_source_page_name(index, table_index,
+                    state.source.continuation.filter(|_| table_index == state.source.next_table),
+                    (table_index == state.source.next_table && state.source.continuation.is_some())
+                        .then_some(self.active_page_name))?
                 .is_some_and(|name| name != self.active_page_name)
             {
                 break;
@@ -322,6 +338,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                         capacity,
                         self.headers,
                         self.active_page_frames.map(|f| f.body()).map(|r| r.width()),
+                        self.active_page_name,
                         &mut self.content.charge,
                         &mut self.content.steps,
                     )?;
@@ -334,6 +351,16 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                         &mut self.content.steps,
                     )?;
                     let terminal = selected.after().is_terminal();
+                    if terminal && self.tables.as_ref().unwrap().table(table_index).keep_with_next() {
+                        let context = self.tables.as_ref().unwrap();
+                        let end = context.range(table_index).expect("bound table").end;
+                        let successor = context.successor(table_index);
+                        let owner = context.table(table_index).owner();
+                        if self.current_source_page_name(end, successor, None, None)?
+                            .is_some_and(|name| name != self.active_page_name) {
+                            return Err(error(owner, E::KeepAcrossForcedBreak));
+                        }
+                    }
                     if terminal {
                         complete = Some((capacity, selected.used_height()));
                     }

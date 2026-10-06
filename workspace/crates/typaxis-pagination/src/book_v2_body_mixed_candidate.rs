@@ -267,6 +267,7 @@ impl<'b, 'f, 's, 'p, 'a> mixed_kernel::MixedSearch<'b>
             capacity,
             self.headers,
             self.active_page_frames.map(|f| f.body()).map(|r| r.width()),
+            self.active_page_name,
             &mut self.content.charge,
             &mut self.content.steps,
         )

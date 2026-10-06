@@ -16700,3 +16700,29 @@ Book /2は固定領域のcanonicalと元親・span・vector factsを検査し、
 全759 PDFと保存済みVMB表2出力は§271とbyte一致し、名前変更0だった。旧独立verifierの21 checks、固定73 resource台帳と、保存old binary出力への旧21成果物のbyte一致も成功した。verify-correspondence.pyは全667開始／終了source hashes・全8変更・原入力、6回帰commands／logs・CLI binaryと308 unique successes、独立commands、2 diagnostic probesのsource／lock／測定、全artifact対をrun-source-correspondence.jsonへ結ぶ。検証後の文書3件は別hashへ記録する。font全suite、外部host、元全巻・著者／人手の受入は今回の結果として扱わない。
 
 logical textの構築前検査を全physical bytesの予算と扱わず、他source strings／paths・capacity／tree／intern storage、Unicode／backend／font一時領域、完全なcommand byte／spool／work、admission・同時保持graph、名前付きページ・段組と公開Book /2・元全巻・管理host・制御性能・著者／人手受入を継続する。Speech／SemanticRef未作成、固定veraPDF／V19 hostの未受入も維持し、設計全体の完了とは扱わない。
+
+<a id="book-2-table-page-name-transitions-design-14273"></a>
+## 273. 表の実セル位置から名前付きページを切り替える（design §14.273）
+
+直前のcommit／push確認は追加実装を伴わないno progressだった。67c8b85とクリーンな作業ツリー・実リモートSHAを再確認してから継続した。[ADR-0136](../adr/ADR-0136-book-2-table-page-name-transitions.md)に従い、root tableの全leafを一つの名前へ制限する事前拒否を除いた。名前が変わる表は既存の独立セル／入れ子カーソルを使い、caption、各活動セルの次の元内容、子表の実継続位置から物理ページ名を求める。共通offsetを元セル位置へ読み替えない。
+
+現在の名前の内容が残る間、次の名前へ到達したセルは待ち、元内容を消費しない。現在の名前が完了すれば残るセルの共通要求へ切り替える。別々の名前を同時に要求する場合は元owner付きPendingNamedPage、keepを越える場合はKeepAcrossForcedBreakを返す。unnamedを実source指定として扱い、空の子表のscopeと元改ページも保持する。元headerは一度消費し、反復headerはArtifactとして後続masterへ置く。rowspanの元band高を縮めず、本文paintが完了しても残るbandの継続ページを保持する。
+
+親の遷移候補flagとは別に実subtreeを課金走査し、均一な子表自身のkernel／keep policyを維持する。名前照会・子search照会・遷移判定は既存search workを使い、callerと子searchのledgerを交換し、失敗時にも戻す。実セル位置と元measurementsに結び付く継続fingerprintへ実選択名を加え、追加17 encoding bytesをspool guardに含める。均一な表の既存encodingと旧経路は維持する。body metadataの全走査やcommand全体のwork／physical allocationをこの局所課金だけで証明したとは扱わない。
+
+証跡はworkspace/target/vmb-design/20261006/named-table-continuations/。新実driver testsは合成／原Haranoの各13種類（平坦・非対称・入れ子・均一な子表の連続・行・header・rowspan・caption・空の子表・改ページ・scope復帰・unnamed・幅変更）について、元itemの一回消費、元要求と実masterの一致、driver work exact／1不足を検査する。非対称fixtureのpublic component searchはrecord／work exact／1不足と選択hashを照合する。keepと同時に異なる名前を要求するセルも診断する。元Haranoを変更していない。
+
+初回compileは新context引数の接続漏れで失敗した。focused draftでは入れ子fixtureの文字幅、headerと本文が収まらない高さ、captionを含まないrenumber helperの使用を修正した。focused保存先の相対pathがCargo crate配下へ解決されたため、成果物を移動してfocused-relocation.jsonへ元参照との対応を記録した。最初の全CLIは309成功／2失敗で、旧constructor budget testsがbody構築時のPendingNamedPageを期待していた。bodyと表計測のexact／1不足検査を保持し、実セル位置が得られるpage stabilityでの拒否、元owner・失敗record／workとretry保持へ更新した。合成／原Haranoの2 focused recoveryが成功した。初回全回帰のsource・runner・ログ・成果物はregression-draft-01へ保全した。
+
+最終670 compilation／source入力を固定したrun-regression-01.pyは、旧syntax 79 tests＋doc-test 6件、Book /2 syntax 155 tests＋doc-test 12件、layout 70 tests＋doc-test 1件、workspace --all-features --tests check、Book /2関連CLI全311 testsに成功した。別実行のpagination全104 testsも成功した。CLIは432.64秒、失敗／ignored 0、419 filtered outであり、binary全730件を実行したとは扱わない。原Harano／Arialと保存済みVMB 10 jobsを使った。旧precomposedは4成功／外部host 1 ignoredを維持する。長時間試験は同じ実handleの終了を待ち、timeoutから再起動していない。時間は観測値で、制御された性能比較ではない。
+
+初回の共通独立PDF検査は、反復header Artifactへ元本文のpage要求を適用して失敗した。元semantic bindingと反復Artifactを区別するよう修正し、元本文のpage要求改変を拒否するself-testを加えた。失敗時のverifier catalog・runner・ログをindependent-draft-01へ保全した。Rust compilation入力は変更せず、全tools/*.pyの73 hashesを別catalogで固定して再検査した。配置期待は元fixture、宣言ruleと固定font metricsから求め、実配置recordsを期待座標に流用していない。
+
+- 共通独立検証は811 source PDFs／386 actual driver callbacks／3,112 pages／37,640 structure nodes／983 annotations／13 explicit unsupported inputs／7,024改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、均一な表16 PDFs／60 pages／112改変拒否が成功した。
+- 新しい名前遷移26実driver PDFs／108 pagesと130改変拒否が成功した。反復headerの実glyph、ToUnicode、Artifact区分と物理座標も検査した。
+
+全759既存PDFは§272とbyte一致し、名前変更0だった。保存済みVMB table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§272と一致した。旧独立verifierの21 checksと固定73 resource台帳が成功し、旧21成果物も保存old binary出力とbyte一致した。run-source-correspondence.jsonは全670開始／終了input hashes・73 verifier hashes・全15 source／test／tool変更、原入力・VMB jobs、6回帰commands／logs・pagination結果・CLI binaryと311 unique successes、独立commandsと全artifact対応を結ぶ。paginationの保存logはtoolで観測した結果の要約である。検証後の文書3件は別hashへ記録する。
+
+局所的な合法table遷移の検証待ちを解消した。完全なcommand byte／spool／work、他owner／codec・capacity・Unicode／backend／font一時領域、admission・同時保持graph、名前付き脚注定義・段組と公開Book /2、元全巻・管理host・制御性能・著者／人手受入は継続する。Speech／SemanticRef未作成、固定veraPDF／V19 hostの未受入も維持し、設計全体の完了とは扱わない。
