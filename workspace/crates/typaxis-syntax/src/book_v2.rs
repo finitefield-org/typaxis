@@ -334,7 +334,8 @@ impl AsRef<StagingM4MathNode> for PreparedBookMath {
 }
 
 pub use crate::book_navigation::book_v2::{
-    prepare_book_v2_navigation, BookV2LanguageNodeKind, BookV2ReferenceTarget,
+    prepare_book_v2_navigation, prepare_book_v2_navigation_counted,
+    BookV2NavigationPreparationError, BookV2LanguageNodeKind, BookV2ReferenceTarget,
     PreparedBookV2Language, PreparedBookV2LanguageChild, PreparedBookV2Navigation,
 };
 

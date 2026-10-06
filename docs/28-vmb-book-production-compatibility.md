@@ -5770,3 +5770,25 @@ binding JCSをSHA-256へ直接投入する。4096-byte String予約とdecimalの
 専用directoryへ移し、旧公開resource集合を元の73件へ戻した。旧V19外部host検証は、
 固定veraPDF payloadとの不一致により未受入を維持する。完全なcommand予算・公開Book /2・
 全巻と既存の管理host／性能／著者・人手受入要件は継続する。
+
+### 14.271 初期navigationをcommandのレコード予算へ接続（実装追補）
+
+Book /2の初期navigationで、sourceのString複製とregistry構築より先に、元のstyled
+bodyを借用してlogical recordの上界を予約する。metadata・言語site／prepared record／
+intern候補・stable-sort scratch・アンカー・outline owner／entry・式番号child・
+内部link・reference・footnote lookup・number bindingのwanted／found／seen／outputと
+virtual anchorを含む。list／description term／table caption・row・cell／figure caption／
+footnote／全header・footer masterを走査し、未選択masterも検査対象とする。
+
+caller／bodyの小さい上限、加算overflow、失敗prefixと再試行履歴を保持する。
+受理後は既存の全source検査を実行し、上界をsource_record_chargeとしてcaller履歴や
+fingerprintと分離する。driverはnavigationの成功／失敗計上値を最初のsource構築より
+前にcommand台帳へ戻す。旧経路と公開schema／profileは変更しない。
+
+[ADR-0134](../adr/ADR-0134-book-2-initial-navigation-record-budget.md)と
+[実装台帳§271](28-vmb-book-production-progress.md#initial-navigation-record-budget-design-14271)を参照。
+syntax 76／150 tests、workspace型検査、layout 70 testsとBook /2全306ケースが成功した。
+CLIは301成功と保存先重複5件の回復実行を同じbinaryで照合した。独立検証と759 PDF・
+保存済みVMB表2出力・旧21成果物のbyte一致が成功した。capacity／tree bytes／Unicode一時領域、admission、
+完全なcommand byte／spool／work・同時保持graphと、公開Book /2・全巻・管理host・
+性能・著者／人手受入の要件は継続する。

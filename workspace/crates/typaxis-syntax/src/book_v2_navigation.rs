@@ -97,6 +97,7 @@ pub struct PreparedBookV2Navigation<'a> {
     outline: Vec<StagingOutlineEntry>,
     retained_text_bytes: u64,
     ast_node_count: u64,
+    source_record_charge: u64,
     number_bindings: Vec<PreparedBookV2NumberBinding<'a>>,
 }
 impl<'a> PreparedBookV2Navigation<'a> {
@@ -147,6 +148,12 @@ impl<'a> PreparedBookV2Navigation<'a> {
     pub const fn retained_text_bytes(&self) -> u64 {
         self.retained_text_bytes
     }
+    /// Intrinsic reservation for retained navigation and its temporary record
+    /// collections, including stable-sort scratch. This is an upper bound,
+    /// excludes caller history, and does not measure allocated bytes/capacity.
+    pub const fn source_record_charge(&self) -> u64 {
+        self.source_record_charge
+    }
     pub fn semantic_kind(&self, node: NodeId) -> Option<BookV2SemanticContainerStyleKind> {
         self.body.container_style(node).map(|s| s.semantic_kind())
     }
@@ -163,6 +170,35 @@ impl<'a> PreparedBookV2Navigation<'a> {
 /// body budget. The borrowed owner prevents substituting a same-hash reparse.
 pub fn prepare_book_v2_navigation(
     body: &StyledBookV2Body,
+) -> Result<PreparedBookV2Navigation<'_>, BookNavigationSyntaxError> {
+    prepare_book_v2_navigation_counted(
+        body, 0, body.body().limits().get().max_fragments, &mut 0,
+    ).map_err(|error| match error {
+        BookV2NavigationPreparationError::Syntax(error) => error,
+        BookV2NavigationPreparationError::RecordLimit { .. } => BookNavigationSyntaxError::limit(
+            BookNavigationSyntaxErrorKind::NavigationRecordLimit, "P1120", "/document",
+        ),
+    })
+}
+
+/// Reserve every navigation record collection before cloning source strings or
+/// building registries. Both rejected prefixes and later syntax failures leave
+/// their reservations in `observed_records`; retries must retain that history.
+pub fn prepare_book_v2_navigation_counted<'a>(
+    body: &'a StyledBookV2Body,
+    prior_records: u64,
+    maximum_records: u64,
+    observed_records: &mut u64,
+) -> Result<PreparedBookV2Navigation<'a>, BookV2NavigationPreparationError> {
+    *observed_records = prior_records;
+    records::reserve(body, maximum_records, observed_records)?;
+    let charge = *observed_records - prior_records;
+    prepare_reserved(body, charge).map_err(BookV2NavigationPreparationError::Syntax)
+}
+
+fn prepare_reserved(
+    body: &StyledBookV2Body,
+    source_record_charge: u64,
 ) -> Result<PreparedBookV2Navigation<'_>, BookNavigationSyntaxError> {
     let prepared = body.body();
     let wire = prepared.wire();
@@ -391,6 +427,7 @@ pub fn prepare_book_v2_navigation(
         outline,
         retained_text_bytes: total,
         ast_node_count: nodes,
+        source_record_charge,
         number_bindings,
     })
 }
@@ -599,3 +636,7 @@ fn book_language_kind_for_vector(kind: crate::PrecomposedVectorKind) -> BookV2La
 #[path = "book_v2_number_bindings.rs"]
 mod number_bindings;
 pub use number_bindings::PreparedBookV2NumberBinding;
+
+#[path = "book_v2_navigation_records.rs"]
+mod records;
+pub use records::BookV2NavigationPreparationError;

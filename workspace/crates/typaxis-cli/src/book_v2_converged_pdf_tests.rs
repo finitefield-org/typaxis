@@ -1,4 +1,6 @@
 use super::*;
+#[path = "book_v2_navigation_constructor_budget_tests.rs"]
+mod navigation_budget;
 #[path = "book_v2_block_width_pdf_tests.rs"]
 mod block_widths;
 use crate::book_v2_resources::{with_converged_book_v2_pdf, BookV2ConvergenceError as CE};

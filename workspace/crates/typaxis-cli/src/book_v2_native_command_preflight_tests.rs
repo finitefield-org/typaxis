@@ -1,5 +1,7 @@
 use super::*;
-use crate::book_v2_resources::converged_pdf::with_reserved_book_v2_native_math;
+use crate::book_v2_resources::converged_pdf::{
+    prepare_reserved_book_v2_navigation, with_reserved_book_v2_native_math,
+};
 use crate::book_v2_resources::BookV2PdfConvergenceObservation;
 use std::cell::Cell;
 use typaxis_layout::book_v2::{
@@ -138,6 +140,8 @@ fn check_command_bounds(font: &[u8], media: &str) {
         );
         let work = observed.reserved_layout_units();
         let records = observed.record_charge();
+        let navigation_records = prepare_book_v2_navigation(input.body().styled())
+            .unwrap().source_record_charge();
         let spool = observed.spool_charge();
         for mode in [
             "fresh work",
@@ -155,7 +159,7 @@ fn check_command_bounds(font: &[u8], media: &str) {
                 _ => 100_000_000,
             };
             if matches!(mode, "records" | "records and spool" | "all") {
-                caps.max_fragments = 2 * records - 1;
+                caps.max_fragments = 2 * (navigation_records + records) - 1;
             }
             if matches!(mode, "spool" | "records and spool" | "all") {
                 caps.max_spool_bytes = 2 * spool - 1;
@@ -175,6 +179,9 @@ fn check_command_bounds(font: &[u8], media: &str) {
             let mut history = BookV2PdfConvergenceObservation::default();
             let mut command = BookV2PdfConvergenceBudget::new(&bounded, maximum_work);
             for attempt in 1..=3 {
+                let _navigation = prepare_reserved_book_v2_navigation(
+                    input.body().styled(), &bounded, &mut history,
+                ).unwrap();
                 let local = with_reserved_book_v2_native_math(
                     &bindings,
                     input.resources(),
@@ -224,9 +231,9 @@ fn check_command_bounds(font: &[u8], media: &str) {
                 assert_eq!(
                     history.record_charge(),
                     if matches!(mode, "records" | "records and spool" | "all") {
-                        records
+                        records + attempt * navigation_records
                     } else {
-                        attempt * records
+                        attempt * (navigation_records + records)
                     }
                 );
                 assert_eq!(

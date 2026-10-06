@@ -16648,3 +16648,30 @@ Book /2 vector bindingの4096-byte String予約、他digest codecs、未課金ow
 Book /2の5独立検証と§269とのbyte比較が成功した。759 PDF／2,896 pages、58 variant font subsets／embedded PDFs、柱3 PDFsと表ページ指定16 PDFsを検査した。全759組と保存済みVMB表2出力がbyte一致し、名前変更0だった。run-source-correspondence.jsonは198 frozen sources、全現変更と旧fixture削除／移動、旧source／binary／8 projection、原入力、15成功gate、コマンド・環境・終了コード・ログ、旧21成果物と全759 PDFの対応を照合する。後続文書3件を別hashで記録する。最初の旧artifact比較／veraPDF観測はroot targetとworkspace targetを取り違えたため実行前に失敗し、正しい実生成先で再検査した。allocator・制御された性能や全巻受入の証明とは扱わない。
 
 他digest codecs、未課金owner／capacity、Unicode／backend／font temporary allocation、完全なcommand byte／spool／work・同時保持graph・初期navigation／admission、名前付きページ・段組、公開Book /2、元全巻と管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成を維持し、設計全体の完了とは扱わない。
+
+<a id="initial-navigation-record-budget-design-14271"></a>
+## 271. 初期navigationをcommandのレコード予算へ接続（design §14.271）
+
+直前のcommit／push確認は追加の変更を伴わないno progressだった。bad0234とクリーンな作業ツリーを再確認し、未計上だった初期navigationのコードを再検査してから実装を進めた。[ADR-0134](../adr/ADR-0134-book-2-initial-navigation-record-budget.md)に従い、source複製とregistry構築より前に元のstyled bodyを借用してlogical record上界を予約する。保持記録だけでなくlanguage／linkのstable-sort scratch、intern候補、outline owner／validation stack・sets、number wanted／found／seenとvirtual anchorも含む。list、description term、table caption／row／cell、figure caption、footnoteと未選択のheader／footer masterも走査する。
+
+counted staging APIはcaller／bodyの小さい上限を使い、overflowを検出し、RecordLimitのownerをallocation不要な型で保持する。default APIにもbody上限を適用する。受理後に既存の全source検査を実行し、失敗prefix・後段syntax失敗・再試行の計上をdriver台帳へ戻す。intrinsic source_record_chargeをcaller履歴とfingerprintから分離し、immutable owner照合、旧公開経路とschema／profileは維持する。
+
+証跡はworkspace/target/vmb-design/20261006/initial-navigation-record-budget/。最初のsyntax draftは3件の旧source単独の予算fixtureと新label期待値1件で失敗した。元sourceの実選択bytesへ期待値を直し、table／descriptionのfixtureをnavigation＋sourceの合算exact／short境界へ更新した。次の全syntaxは150 tests＋doc-test 12件成功した。新driver testsはTrueType／原Haranoの両方でquota境界、行処理前の停止、metadata失敗後の履歴保持を検証した。
+
+最初のnative draftはcommand observationからnavigation分が漏れた旧期待値で失敗した。native局所検査は維持し、command検査は合算予約と枯渇時の先行navigation rejectionへ更新した。修正後のnative budget 3 testsとcommand preflight 3 testsは原Haranoを含め成功した。source verificationのTT／原Harano 2 testsも合算境界で成功した。最終203ソースを固定し、default／staging syntax、workspace --all-features --tests、layout、旧precomposed経路とBook /2関連CLIの最終回帰を実行中である。この時点では最終回帰と独立PDF検証・byte比較の受入は未完了である。
+
+ここで予約するのはlogical record上界であり、capacityやtree-node bytes、Unicode／string一時領域と完全なcommand byte／spool／workの証明ではない。他未計上owner／codec、admission、同時保持graph、名前付きページ・段組、公開Book /2、元全巻と管理host・制御性能・著者／人手受入は継続する。Speech／SemanticRef未作成、固定veraPDF payloadと旧V19 host受入の未確認も維持する。
+
+最初の全回帰は旧syntax 76 tests＋doc-test 6件、staging syntax 150 tests＋doc-test 12件、workspace型検査、layout 70 tests＋doc-test 1件と旧precomposed経路4 testsが成功した。Book /2は302成功／4失敗で終了し、navigationより小さい旧source-only allowanceの前提を追加で検出した。shape出力のexact／short値を保持し、navigation・保持source・再検査sourceを合算したcaller予算へ接続した。原Haranoの局所shape fixtureはslackを足さず実glyphを増やした。初期／candidate source testsはnavigationの合算prefixと枯渇時の先行拒否を検査し、全4件のfocused recoveryが成功した。最初の全回帰のsource／runner／ログはregression-draft-01へ保全した。
+
+次の全CLIは301成功／5失敗で283.02秒で終了した。5件は既存のregion／VMB表出力をcreate_newで再作成したAlreadyExistsであり、同じbinaryで新しい保存先へ個別回復した5件がすべて成功した。cli-success-union.jsonで301＋5の重複しない全306成功を照合し、CLI binary SHA-256が全回帰から変わっていないことを確認した。Book /2のignoredは0、419 filtered outを別に保持し、binary全725件を実行したとは扱わない。通常旧経路は4成功／外部host 1 ignoredである。保存先を分離せず再利用したrunner draftもregression-draft-02へ保全する。
+
+compiled inputの最終catalogは202件であり、初期203件から更新文書2件を別扱いにし、漏れていたnavigation owner moduleを追加した。補完後のworkspace --all-features --tests checkとnavigation record 3 testsが成功した。再実行前後の202 hashesと同一CLI binaryを照合し、17変更すべてをcatalogに含める。CLI fixtureだけを変更した後に、入力が不変のsyntax／layout全suiteを不要に再実行していない。原Harano／Arialと保存済みVMB 10 jobsを使った。最終validator、byte比較、旧independent verifierとverify-correspondence.pyがすべて成功した。
+
+- 共通独立検証は759 source PDFs／360 actual driver callbacks／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 回復出力の柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変拒否が成功した。
+
+全759 PDFと保存済みVMB表2出力は§270とbyte一致し、名前変更0だった。table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02である。旧独立verifierの21検査と元73 resource台帳が成功し、旧21成果物も保存old binary出力とbyte一致した。run-source-correspondence.jsonは全202固定入力・全17変更・原入力・CLI success union／binary・18成功command・全PDF／旧成果物対応を結ぶ。検証後の文書3件を別hashで記録する。allocator計測、制御された性能、外部host受入、元全巻成功を今回の結果として扱わない。
+
+§271の局所検証待ちを解消した。logical navigation recordの予約をbyte／capacityの完全な予算と扱わず、全command byte／spool／work、他owner／codec、Unicode／backend／font一時領域、admission・同時保持graph、名前付きページ・段組と元の公開／全巻・管理host・性能・著者／人手受入要件を継続する。Speech／SemanticRef未作成と固定veraPDF hostの未受入も維持する。

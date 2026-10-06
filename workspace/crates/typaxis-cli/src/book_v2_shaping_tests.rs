@@ -24,7 +24,7 @@ use typaxis_shaping::{
     ProductionTextShapeErrorKind, ShapeSourceSpan,
 };
 const EPOCH: [u8; 32] = [19; 32];
-// Independently build both source owners that precede a driver's first line
+// Independently build navigation and both source owners before the first line
 // attempt. Downstream test constructors must inherit these reservations too.
 fn command_source_record_charge(flow: &typaxis_syntax::book_v2::PreparedBookV2TextFlow<'_>) -> u64 {
     let mut values: Vec<_> = flow.paragraphs().iter().flat_map(|p| p.items())
@@ -33,7 +33,8 @@ fn command_source_record_charge(flow: &typaxis_syntax::book_v2::PreparedBookV2Te
         })))
         .map(|site| (site.owner(), 1)).collect();
     values.sort_unstable_by_key(|v| v.0);
-    flow.source_record_charge() + typaxis_syntax::book_v2::prepare_book_v2_text_flow_with_page_references(
+    flow.navigation().source_record_charge() + flow.source_record_charge()
+        + typaxis_syntax::book_v2::prepare_book_v2_text_flow_with_page_references(
         flow.body(), flow.navigation(), &values).unwrap().source_record_charge()
 }
 fn source_data(text: &str) -> Value {
@@ -176,7 +177,10 @@ fn book_v2_body_reshape_checks_grapheme_boundaries_and_shared_record_limits() {
         (initial.output_records() - 1, false),
     ] {
         let mut base = ResourceLimits::default();
-        base.max_fragments = max;
+        // Keep the shaping output boundary exact after the navigation, retained
+        // source and independently reconstructed source reservations.
+        let source_history = nav.source_record_charge() + 2 * flow.source_record_charge();
+        base.max_fragments = source_history + max;
         let limited = M4EffectiveResourceLimits::new(
             ValidatedResourceLimits::new(base).unwrap(),
             M4ResourceLimits::default(),
@@ -187,7 +191,14 @@ fn book_v2_body_reshape_checks_grapheme_boundaries_and_shared_record_limits() {
         let n = prepare_book_v2_navigation(i.body().styled()).unwrap();
         let f = prepare_book_v2_text_flow(i.body().styled(), &n).unwrap();
         let p = prepare_book_v2_resource_policy(i.body(), &limited).unwrap();
-        let result = shape_book_v2_authored_text(&p, &f, i.resources(), &limited, EPOCH, None);
+        let mut verification = typaxis_syntax::book_v2::BookV2SourceVerificationBudget::new(
+            n.source_record_charge() + f.source_record_charge(), limited.base().get().max_fragments,
+        );
+        let mut output = 0;
+        let result = typaxis_shaping::book_v2::shape_book_v2_authored_text_with_source_budget_counted(
+            &p, &f, i.resources(), &limited, EPOCH, None, &mut verification, &mut output,
+        );
+        assert_eq!(verification.record_charge(), source_history);
         assert_eq!(result.is_ok(), success);
         if !success {
             assert_eq!(

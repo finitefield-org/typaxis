@@ -41,6 +41,21 @@ fn stage<T: std::error::Error + 'static>(stage: &'static str, source: T) -> E {
         source: Box::new(source),
     }
 }
+pub(super) fn prepare_reserved_book_v2_navigation<'a>(
+    body: &'a StyledBookV2Body,
+    limits: &M4EffectiveResourceLimits,
+    total: &mut BookV2PdfConvergenceObservation,
+) -> Result<PreparedBookV2Navigation<'a>, E> {
+    let mut observed = total.records;
+    let navigation = prepare_book_v2_navigation_counted(
+        body, total.records, limits.base().get().max_fragments, &mut observed,
+    );
+    total.records = observed;
+    navigation.map_err(|error| match error {
+        BookV2NavigationPreparationError::RecordLimit { .. } => E::Limit("records"),
+        BookV2NavigationPreparationError::Syntax(error) => stage("navigation", error),
+    })
+}
 fn add(a: u64, b: u64, ceiling: u64, name: &'static str) -> Result<u64, E> {
     a.checked_add(b)
         .filter(|n| *n <= ceiling)
@@ -261,8 +276,7 @@ pub fn with_budgeted_book_v2_pdf<R>(
     let mut total = &mut budget.observation;
     let caps = limits.base().get();
     let body = input.body();
-    let navigation =
-        prepare_book_v2_navigation(body.styled()).map_err(|e| stage("navigation", e))?;
+    let navigation = prepare_reserved_book_v2_navigation(body.styled(), limits, total)?;
     let policy = prepare_book_v2_resource_policy(body, limits).map_err(|e| stage("policy", e))?;
     let admitted = input.resources();
     let bindings =

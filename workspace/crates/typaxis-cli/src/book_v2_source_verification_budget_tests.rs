@@ -311,7 +311,7 @@ fn check_driver(font: Option<&[u8]>, text: &str, running_regions: bool, charge: 
         0,
     )
     .unwrap();
-    let initial = 2 * charge + plan.record_charge();
+    let initial = nav.source_record_charge() + 2 * charge + plan.record_charge();
     for available in 0..charge {
         let mut base = original.base().get().clone();
         base.max_fragments = initial + available;

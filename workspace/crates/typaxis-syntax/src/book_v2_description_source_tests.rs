@@ -229,7 +229,8 @@ fn description_topology_and_inherited_languages_share_the_actual_source_limits()
     let styled = style_book_v2_body(prepare(&input).unwrap()).unwrap();
     let nav = prepare_book_v2_navigation(&styled).unwrap();
     let retained = nav.retained_text_bytes();
-    let records = prepare_book_v2_text_flow(&styled, &nav).unwrap().source_record_charge();
+    let records = nav.source_record_charge()
+        + prepare_book_v2_text_flow(&styled, &nav).unwrap().source_record_charge();
     for (max_fragments, max_text_bytes, expected) in [(records, retained, true), (records - 1, retained, false)] {
         let configured = ValidatedResourceLimits::new(ResourceLimits {
             max_fragments,
@@ -244,7 +245,11 @@ fn description_topology_and_inherited_languages_share_the_actual_source_limits()
         )
         .unwrap();
         let nav = prepare_book_v2_navigation(&body).unwrap();
-        let result = prepare_book_v2_text_flow(&body, &nav);
+        let mut observed = nav.source_record_charge();
+        let result = crate::book_v2::prepare_book_v2_text_flow_counted(
+            &body, &nav, nav.source_record_charge(), max_fragments, &mut observed,
+        );
+        assert!(observed <= max_fragments);
         if expected {
             result.unwrap().verify_for(&body, &nav).unwrap();
         } else {

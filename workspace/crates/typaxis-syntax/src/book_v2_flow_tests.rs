@@ -278,7 +278,8 @@ fn successor_flow_requires_authored_text_style() {
 fn successor_flow_precharges_table_topology_with_the_common_bound() {
     let default_body = styled(&input(), &limits());
     let default_nav = prepare_book_v2_navigation(&default_body).unwrap();
-    let total = prepare_book_v2_text_flow(&default_body, &default_nav).unwrap().source_record_charge();
+    let total = default_nav.source_record_charge()
+        + prepare_book_v2_text_flow(&default_body, &default_nav).unwrap().source_record_charge();
     for maximum in [total, total - 1] {
         let configured = ValidatedResourceLimits::new(ResourceLimits {
             max_fragments: maximum,
@@ -287,7 +288,11 @@ fn successor_flow_precharges_table_topology_with_the_common_bound() {
         .unwrap();
         let body = styled(&input(), &configured);
         let nav = prepare_book_v2_navigation(&body).unwrap();
-        let result = prepare_book_v2_text_flow(&body, &nav);
+        let mut observed = nav.source_record_charge();
+        let result = prepare_book_v2_text_flow_counted(
+            &body, &nav, nav.source_record_charge(), maximum, &mut observed,
+        );
+        assert!(observed <= maximum);
         if maximum == total {
             assert_eq!(result.unwrap().table_record_charge(), 23);
         } else {
@@ -511,7 +516,8 @@ fn table_caption_metadata_consumes_the_shared_table_budget() {
     refresh_caption_fixture_outline(&mut data);
     let default_body = styled(&data, &limits());
     let default_nav = prepare_book_v2_navigation(&default_body).unwrap();
-    let total = prepare_book_v2_text_flow(&default_body, &default_nav).unwrap().source_record_charge();
+    let total = default_nav.source_record_charge()
+        + prepare_book_v2_text_flow(&default_body, &default_nav).unwrap().source_record_charge();
     for maximum in [total, total - 1] {
         let configured = ValidatedResourceLimits::new(ResourceLimits {
             max_fragments: maximum,
@@ -520,7 +526,11 @@ fn table_caption_metadata_consumes_the_shared_table_budget() {
         .unwrap();
         let body = styled(&data, &configured);
         let nav = prepare_book_v2_navigation(&body).unwrap();
-        let result = prepare_book_v2_text_flow(&body, &nav);
+        let mut observed = nav.source_record_charge();
+        let result = prepare_book_v2_text_flow_counted(
+            &body, &nav, nav.source_record_charge(), maximum, &mut observed,
+        );
+        assert!(observed <= maximum);
         if maximum == total {
             assert_eq!(result.unwrap().table_record_charge(), 24);
         } else {

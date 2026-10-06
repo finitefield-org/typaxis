@@ -78,9 +78,13 @@ fn assert_source_failure(
 
 fn check_source_records(font: Option<&[u8]>, text: &str) {
     let original = limits();
+    let baseline_root = Root::new();
+    let baseline = source_input(&baseline_root, &original, font, text, true);
+    let navigation_records = prepare_book_v2_navigation(baseline.body().styled())
+        .unwrap().source_record_charge();
     // Flow owner, enclosing begin, first paragraph's five carriers, then the
     // failing paragraph's begin/paragraph/inline: ten accepted reservations.
-    for maximum in [19, 1000] {
+    for maximum in [2 * navigation_records + 19, 1000] {
         let limits = bounded_records(&original, maximum);
         let root = Root::new();
         let input = source_input(&root, &limits, font, text, true);
@@ -96,27 +100,16 @@ fn check_source_records(font: Option<&[u8]>, text: &str) {
             .err()
             .unwrap();
             let missing = maximum == 1000 || attempt == 1;
-            let owner = assert_source_failure(
-                error,
-                "source",
-                if missing {
+            if maximum != 1000 && attempt == 3 {
+                assert!(matches!(error, BookV2ConvergenceError::Limit("records")));
+            } else {
+                let owner = assert_source_failure(error, "source", if missing {
                     ProductionFlowErrorKind::MissingTextStyle
-                } else {
-                    ProductionFlowErrorKind::NodeLimit
-                },
-            );
-            assert_eq!(
-                owner,
-                NodeId::new(if missing {
-                    4
-                } else if attempt == 2 {
-                    5
-                } else {
-                    0
-                })
-            );
+                } else { ProductionFlowErrorKind::NodeLimit });
+                assert_eq!(owner, NodeId::new(if missing { 4 } else { 5 }));
+            }
             let history = budget.observation();
-            assert_eq!(history.record_charge(), (10 * attempt).min(maximum));
+            assert_eq!(history.record_charge(), ((navigation_records + 10) * attempt).min(maximum));
             assert_eq!(
                 (
                     history.work_steps(),
@@ -143,7 +136,7 @@ fn check_source_records(font: Option<&[u8]>, text: &str) {
         0,
     )
     .unwrap();
-    let initial = 13 + frames.record_charge();
+    let initial = nav.source_record_charge() + 13 + frames.record_charge();
     // Every rejected position within the actual candidate-label constructor.
     for available in 0..13 {
         let maximum = initial + available;
@@ -182,7 +175,7 @@ fn check_source_records(font: Option<&[u8]>, text: &str) {
         )
         .err()
         .unwrap();
-        assert_source_failure(error, "source", ProductionFlowErrorKind::NodeLimit);
+        assert!(matches!(error, BookV2ConvergenceError::Limit("records")));
         assert_eq!(budget.observation(), history);
     }
 }

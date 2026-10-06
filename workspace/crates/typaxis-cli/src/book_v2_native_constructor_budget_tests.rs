@@ -412,7 +412,8 @@ fn check_missing_font(font: &[u8], media: &str) {
         // Exact remaining record/spool room for two failed computations, but
         // only one work reservation fits. Further retries may not reset history.
         let mut caps = limits.base().get().clone();
-        caps.max_fragments = 2 * initial.record_charge();
+        let navigation_records = nav.source_record_charge();
+        caps.max_fragments = 2 * (navigation_records + initial.record_charge());
         caps.max_spool_bytes = 2 * initial.spool_charge();
         let mut extension = limits.extension().get().clone();
         extension.max_font_subset_bytes = extension.max_font_subset_bytes.min(caps.max_spool_bytes);
@@ -435,14 +436,18 @@ fn check_missing_font(font: &[u8], media: &str) {
             .unwrap();
             if attempt == 1 {
                 assert_native_error(failure, &cause);
-            } else {
+            } else if attempt == 2 {
                 assert_command_limit(failure, "work");
+            } else {
+                // Navigation runs first, so an exhausted record ledger stops
+                // this retry before native work can be reserved again.
+                assert_command_limit(failure, "records");
             }
             let history = command.observation();
             assert_eq!(history.work_steps(), initial.reserved_layout_units());
             assert_eq!(
                 history.record_charge(),
-                initial.record_charge() * attempt.min(2)
+                (navigation_records + initial.record_charge()) * attempt.min(2)
             );
             assert_eq!(
                 history.spool_charge(),
@@ -517,6 +522,8 @@ fn check_driver(
     cause: &ProductionNativeMathComputationError,
     native: Observation,
 ) {
+    let navigation_records = prepare_book_v2_navigation(input.body().styled())
+        .unwrap().source_record_charge();
     for maximum in [
         100_000_000,
         native.reserved_layout_units().saturating_sub(1),
@@ -550,11 +557,7 @@ fn check_driver(
             );
             assert_eq!(
                 kept.record_charge(),
-                if attempt * native.record_charge() <= limits.base().get().max_fragments {
-                    attempt * native.record_charge()
-                } else {
-                    native.record_charge()
-                }
+                attempt * (navigation_records + native.record_charge())
             );
             assert_eq!(
                 kept.spool_charge(),

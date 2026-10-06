@@ -96,6 +96,8 @@ const GRANDFATHERED: &[&str] = &[
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BookNavigationSyntaxErrorKind {
     #[cfg(feature = "book-v2-staging")]
+    NavigationRecordLimit,
+    #[cfg(feature = "book-v2-staging")]
     InvalidNumberBinding,
     #[cfg(feature = "book-v2-staging")]
     InvalidSourceSpan,

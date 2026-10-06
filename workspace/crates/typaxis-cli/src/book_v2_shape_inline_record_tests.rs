@@ -30,10 +30,10 @@ fn check(font: Option<&[u8]>) {
     ] {
         let root = Root::new();
         let word = if font.is_some() && mode != "figure-width" {
-            // These two local shaping boundaries must exceed the thirteen
-            // source-flow slots now required before shaping can start. Keep
+            // These local shaping boundaries must also admit the initial
+            // navigation and thirteen source-flow slots. Keep
             // the shaping ceiling exact; add glyphs rather than slack to it.
-            if mode.starts_with("shape-") { "本文本文" } else { "本文" }
+            if mode.starts_with("shape-") { "本文本文本文" } else { "本文" }
         } else {
             "Result"
         };
