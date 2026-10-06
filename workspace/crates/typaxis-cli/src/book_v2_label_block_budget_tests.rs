@@ -356,6 +356,9 @@ fn driver_failure(
     records: u64,
     number: Option<BookV2EquationNumberError>,
 ) {
+    let nav = prepare_book_v2_navigation(input.body().styled()).unwrap();
+    let flow = prepare_book_v2_text_flow(input.body().styled(), &nav).unwrap();
+    let records = records + command_source_record_charge(&flow);
     let mut budget = BookV2PdfConvergenceBudget::new(limits, 100_000_000);
     let error = with_budgeted_book_v2_pdf(
         input,

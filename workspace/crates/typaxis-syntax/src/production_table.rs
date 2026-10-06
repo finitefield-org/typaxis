@@ -139,6 +139,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
             .and_then(|n| n.checked_add(cell_count as u64))
             .and_then(|n| n.checked_add(1))
             .ok_or_else(|| failure(E::NodeLimit, owner))?;
+        self.source.reserve_records(owner, charge)?;
         self.table_record_charge = self
             .table_record_charge
             .checked_add(charge)

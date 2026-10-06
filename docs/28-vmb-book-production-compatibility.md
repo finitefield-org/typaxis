@@ -5649,3 +5649,26 @@ Core 21 tests／math 8 tests、legacy syntax 76 tests＋doc-test 6件、Book /2 
 別hashで記録した。
 source collection／再構築と完全なcommand予算、名前付きページ・段組、公開Book /2、
 元全巻・管理ホスト・性能・著者／人手受入は継続する。
+
+
+### 14.265 本文source flowの構築前レコード予約と失敗保持（実装追補）
+
+Book /2本文の初回flowと候補Page label flowへcallerの累積レコード履歴を渡す。
+本文／callerの小さい方の上限を各source carrierの構築前に検査し、受理済みprefixを
+後続の本文・style・allocation・limit失敗後も保持する。PDF driverは型付き原因を
+返す前に履歴を回収し、再試行へ引き継ぐ。通常入口も同じ本文全体の課金を使う。
+元identityと全flow再構築検査を維持し、局所課金を独立に再導出する。既存canonical／
+fingerprint domain、legacyと柱専用の既存課金は維持する。
+
+[ADR-0128](../adr/ADR-0128-book-2-source-flow-record-budget.md)と
+[実装台帳§265](28-vmb-book-production-progress.md#source-flow-record-budget-design-14265)を参照。
+実public clientの17成功例／7型付き拒否は§264と一致し、36予算拒否で追加heap割当0、
+10 fixturesのexact／one-belowも成功した。Core 21／math 8 tests、legacy syntax
+76 tests＋doc-test 6件、Book /2 syntax 144 tests＋doc-test 12件、workspace型検査、
+layout 70 tests＋doc-test 1件とCLI 296 testsが成功した。759 PDF／2,896 pagesと58
+font subsetsの独立検証、全759組と保存済みVMB表2出力の§264とのbyte一致も成功した。
+174ソース・全24変更・8 client／runner・3原入力・12成功ログ、実コマンド／終了コード／
+環境と測定binaryを照合し、検証後の文書3件の更新を別hashで記録した。
+完全なcommand allocation／spool／work、rules／style内部と同時保持再検証graph、
+navigation構築・admission・shaping／backend／font内部、名前付きページ・段組、
+公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。

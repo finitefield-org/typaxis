@@ -137,7 +137,8 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
     let rules = lower_semantic_style_rules_version(body.body().wire().style_sheet(), limits, true)
         .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
     let mut collector = Collector {
-        source: BookV2FlowSource { body, navigation },
+        // Region slots have already been reserved by the region preflight.
+        source: BookV2FlowSource { body, navigation, records: None },
         rules,
         buffers: body.body().wire().text_buffers(),
         events: Vec::new(),
@@ -288,6 +289,7 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
         named_page_breaks: Vec::new(),
         tables: Vec::new(),
         table_record_charge: 0,
+        source_record_charge: 0,
         lists: Vec::new(),
         list_items: Vec::new(),
         description_lists: Vec::new(),

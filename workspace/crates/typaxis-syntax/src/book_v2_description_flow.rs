@@ -71,6 +71,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         parent: Option<&SemanticContainerInheritanceStyle>,
     ) -> Result<(), ProductionFlowError> {
         use ProductionFlowRegionKind as Kind;
+        self.source.reserve_records(owner, 1)?;
         let (list_rules, _) = self
             .rules
             .descriptions
@@ -116,6 +117,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
             let source_span = lower_span(item.span)
                 .map_err(|_| failure(ProductionFlowErrorKind::ReceiptMismatch, item_owner))?;
             let language = self.language(item_owner)?;
+            self.source.reserve_records(item_owner, 1)?;
             self.description_items
                 .try_reserve(1)
                 .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, item_owner))?;
@@ -140,6 +142,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         parent: &SemanticContainerInheritanceStyle,
     ) -> Result<(), ProductionFlowError> {
         let owner = NodeId::new(term.node_id);
+        self.source.reserve_records(owner, 1)?;
         let (_, rules) = self
             .rules
             .descriptions

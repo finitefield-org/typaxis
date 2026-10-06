@@ -16503,3 +16503,29 @@ run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成�
 - 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
 
 §264の検証待ちを解消した。次のsource collection／revalidationからcommandへの接続と全体要件をremaining-paths.mdへ記録した。検証後の文書更新3件はpost-verification-documentation-hashes.jsonで区別する。設計全体の実装は継続中である。
+
+
+<a id="source-flow-record-budget-design-14265"></a>
+## 265. 本文source flowのレコード予約をcommandへ接続（design §14.265）
+
+[ADR-0128](../adr/ADR-0128-book-2-source-flow-record-budget.md)に従い、Book /2初回／候補Page label source flowのcounted入口はcaller履歴をidentity検査前に復元し、本文とcallerの小さい方の上限へ各logical carrierを構築前に予約する。受理済みprefixを本文・style・allocation・limit失敗後も保持し、拒否した予約は進めない。通常入口も同じ課金を使う。PDF driverの両構築経路は型付き原因を返す前に観測を回収する。局所source_record_chargeはcaller履歴を除き、全flow再構築で独立に比較する。canonical／fingerprint／公開authorityは変えない。共通collectorのlegacy adapterは従来のまま、柱専用adapterは既存事前予約との二重課金を避ける。
+
+flow owner、脚注ordinal／definition、events、段落／inline closing、list／item／marker、description／item／term、figure、named break、表topology／occupancyの既存上限、生成入力／overlay出力carrierと保持Page valuesを含む。表occupancyは保守的logical chargeであり実memory量ではない。rules／style内部、Vec余剰capacity、全byte／spool／AST・hash workと同時保持再検証graphは今回の課金で証明しない。navigation.verify_forは元bodyのpointer identity検査のみでありnavigation再構築ではない。初期navigation構築も継続課題である。
+
+証跡はworkspace/target/vmb-design/20261006/source-flow-record-budget/。source carrierを独立集計し、全不足prefix・exact／one-below・caller／本文ceiling・overflow・identity・後段style失敗・retryと、hashを変えない課金改変の拒否を検査する。description term／definitionにも全prefixを検査する。表／descriptionの既存境界試験は本文全体の予約へ更新し元topology／text検査を保持した。実driverで初期source後段失敗と全13候補境界・retryをTT／元Haranoの双方で検査する。下流独立constructorのline／shape／body／table／page／label／display／PDF履歴へ初回／候補source予約を先行させる。元Haranoの小さなshape境界fixtureは、必須source 13 slotsを許容するglyph数へ拡張し、shape ceilingのexact／one-belowは維持する。
+
+run-client-01.pyは実public libraryを構築し、17 flow successes／7 typed rejectionsのfingerprint・全公開projectionを§264と照合した。38通常prepare／verifyの割当観測も全て同じだった。12 Book fixturesそれぞれの不足・使い切り・overflow、計36操作はcaller履歴を保持し、追加heap calls／bytesが0だった。10成功fixturesでexact／one-belowの20観測も成功した。combinedは250 logical records、Page候補は253、Text referenceは252、named breakは251、1,024 escaped paragraphsは5,121で、caller 7 recordsを除いた局所課金を照合した。ignored standalone clientの標準allocator forwards以外へunsafeを追加していない。heap／record観測をpeak memoryや制御された性能比較として扱わない。
+
+ドラフトを保全した。最初のsyntax試験は既存descriptionの局所2 records上限と新しいparagraph fixtureのheading専用fieldで3件失敗した。本文全体の上限と正しいparagraph carrierへ訂正後、後段style fixtureがextends先を削除したため1件失敗し、style registryを保ちながらfont宣言だけを除いた。CLI初回compileは新試験のNodeId／JapaneseLineBreakMode import欠落で失敗した。修正後syntax 144 tests＋doc-test 12件と、新実driver TT／元Harano 2 testsが成功した。初回全CLIは284成功／12失敗で、下流独立試験に従来のsource未課金の履歴が残っていた。両source予約を各constructorへ先行させ、shapeのexact ceilingを保つfixture拡張を含め、全最終試験が成功した。これらの失敗ログを最終成功や検証ソースへの対応と混同しない。
+
+run-focused-01.pyはCore 21 tests／math 8 tests（doc-test各0件）、legacy syntax 76 tests＋doc-test 6件、Book /2 syntax 144 tests＋doc-test 12件に成功した。新syntax 4件が全carrier／prefix・description・caller／overflow／identity・後段style失敗・retry・局所課金の改変拒否を検査する。Core／math buildは0.02秒、tests各0.01秒、legacy syntax build 3.50秒／tests 0.84秒／doc-test 5.32秒、Book /2 syntax build 2.61秒／tests 2.77秒／doc-test 7.99秒だった。
+
+最終ソースを固定したworkspace --all-features --tests checkは26.71秒で成功した。layout全70 testsは0.30秒、doc-test 1件は1.90秒、buildは8.33秒で成功した。Book /2関連CLI全296 testsは246.60秒、buildは25.79秒で成功した。全実行の失敗／ignoredは0。CLIフィルタの419 filtered outも記録し、binary全715 testsを実行したとは扱わない。長時間試験は同じ実handleを待ち、観測timeoutから再起動しなかった。shaping／pagination／font全体、公開／旧CFF診断とcurrent VMB全巻再監査は今回は繰り返していない。時間は観測値であり制御された性能比較ではない。
+
+run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成功した。固定時・開始時・文書更新前の174ソースが一致し、追跡済み変更21件と新規3件の全24件を含むことを照合した。8 evidence client／runner、原フォント2件と保存済み元全巻package、12成功ログのhash／結果行、実コマンド・環境・終了コード、public clientのソース／測定binary／出力と§264の前出力、全759 PDF対応表をrun-source-correspondence.jsonへ保存した。全759組で実ファイルのbyte一致と記録hash、名前変更0を確認した。table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§264と一致した。
+
+- 共通独立検証は759 source PDFs（360 actual driver callbacks）／2,896 pages／36,016 structure nodes／983 annotations／13 explicit unsupported inputs／5,795改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱専用3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、表ページ指定16 PDFs／60 pages／112改変の拒否が成功した。
+
+§265の検証待ちを解消した。次のsource再構築検査からcommandへの課金接続と全体要件をremaining-paths.mdへ記録した。検証後の文書更新3件はpost-verification-documentation-hashes.jsonで区別する。完全なcommand allocation／spool／work、rules／style内部・同時保持graph・navigation構築・admission・shaping／backend／font内部、名前付きページ・段組、公開Book /2、元全巻・管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成を維持する。

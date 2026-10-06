@@ -1,4 +1,6 @@
 use super::*;
+#[path = "book_v2_source_flow_record_tests.rs"]
+mod source_flow_records;
 #[path = "book_v2_table_constructor_budget_tests.rs"]
 mod table_constructor_budget;
 #[path = "book_v2_body_line_budget_tests.rs"]
@@ -16,6 +18,18 @@ use typaxis_shaping::{
     ProductionTextShapeErrorKind, ShapeSourceSpan,
 };
 const EPOCH: [u8; 32] = [19; 32];
+// Independently build both source owners that precede a driver's first line
+// attempt. Downstream test constructors must inherit these reservations too.
+fn command_source_record_charge(flow: &typaxis_syntax::book_v2::PreparedBookV2TextFlow<'_>) -> u64 {
+    let mut values: Vec<_> = flow.paragraphs().iter().flat_map(|p| p.items())
+        .filter(|site| matches!(site.reference(), Some(typaxis_syntax::ProductionInlineReference::Anchor {
+            format: typaxis_syntax::ProductionReferenceFormat::Page, ..
+        })))
+        .map(|site| (site.owner(), 1)).collect();
+    values.sort_unstable_by_key(|v| v.0);
+    flow.source_record_charge() + typaxis_syntax::book_v2::prepare_book_v2_text_flow_with_page_references(
+        flow.body(), flow.navigation(), &values).unwrap().source_record_charge()
+}
 fn source_data(text: &str) -> Value {
     let mut data = data();
     let end = text.len();

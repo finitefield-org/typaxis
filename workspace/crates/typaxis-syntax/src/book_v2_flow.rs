@@ -19,11 +19,27 @@ pub const BOOK_V2_TEXT_FLOW_ALGORITHM: &str = "typaxis.book-2-source-text-flow/1
 pub type PreparedBookV2TextFlow<'a> =
     SourceTextFlow<'a, StyledBookV2Body, PreparedBookV2Navigation<'a>>;
 
-struct BookV2FlowSource<'a> {
+struct BookV2FlowSource<'a, 'b> {
     body: &'a StyledBookV2Body,
     navigation: &'a PreparedBookV2Navigation<'a>,
+    records: Option<BookV2SourceRecordBudget<'b>>,
 }
-impl<'a> FlowSource<'a> for BookV2FlowSource<'a> {
+struct BookV2SourceRecordBudget<'a> {
+    prior: u64,
+    maximum: u64,
+    observed: &'a mut u64,
+}
+impl BookV2SourceRecordBudget<'_> {
+    fn reserve(&mut self, owner: NodeId, count: u64) -> Result<(), ProductionFlowError> {
+        let next = self.observed
+            .checked_add(count)
+            .filter(|n| *n <= self.maximum)
+            .ok_or_else(|| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
+        *self.observed = next;
+        Ok(())
+    }
+}
+impl<'a> FlowSource<'a> for BookV2FlowSource<'a, '_> {
     type Kind = typaxis_document_package::book_v2::WireBookV2SemanticContainerKind;
     fn limits(&self) -> &'a ValidatedResourceLimits {
         self.body.body().limits()
@@ -62,6 +78,15 @@ impl<'a> FlowSource<'a> for BookV2FlowSource<'a> {
             .language(target)
             .is_some_and(|r| r.kind() == typaxis_document::book_v2::BookV2LanguageNodeKind::Heading)
     }
+    fn reserve_records(&mut self, owner: NodeId, count: u64) -> Result<(), ProductionFlowError> {
+        if let Some(records) = &mut self.records {
+            records.reserve(owner, count)?;
+        }
+        Ok(())
+    }
+    fn source_record_charge(&self) -> u64 {
+        self.records.as_ref().map_or(0, |r| *r.observed - r.prior)
+    }
 }
 
 impl<'a> PreparedBookV2TextFlow<'a> {
@@ -84,6 +109,12 @@ impl<'a> PreparedBookV2TextFlow<'a> {
     pub const fn package_sha256(&self) -> [u8; 32] {
         self.package.body().canonical_jcs_sha256()
     }
+    /// Logical source reservations, excluding the caller's earlier history.
+    /// Includes temporary ordinal/generated slots and the table occupancy bound;
+    /// this is neither a byte allocation measurement nor a layout receipt.
+    pub const fn source_record_charge(&self) -> u64 {
+        self.source_record_charge
+    }
     /// Recomputes the shared collection from the exact immutable source owners.
     /// Equal canonical input hashes do not authorize substituting another body
     /// or another navigation owner.
@@ -103,6 +134,7 @@ impl<'a> PreparedBookV2TextFlow<'a> {
             || self.figures != observed.figures
             || self.tables != observed.tables
             || self.table_record_charge != observed.table_record_charge
+            || self.source_record_charge != observed.source_record_charge
             || self.lists != observed.lists
             || self.list_items != observed.list_items
             || self.description_lists != observed.description_lists
@@ -141,16 +173,71 @@ fn prepare_inner<'a>(
     navigation: &'a PreparedBookV2Navigation<'a>,
     values: Option<&[(NodeId, u32)]>,
 ) -> Result<PreparedBookV2TextFlow<'a>, ProductionFlowError> {
+    prepare_inner_counted(
+        body, navigation, values, 0, body.body().limits().get().max_fragments, &mut 0,
+    )
+}
+
+/// Reserve source slots against both the body and caller ceilings before their
+/// construction. Observations always start with caller history, and retain each
+/// accepted prefix on a later source/style/allocation failure. A rejected
+/// reservation does not advance the observation.
+pub fn prepare_book_v2_text_flow_counted<'a>(
+    body: &'a StyledBookV2Body,
+    navigation: &'a PreparedBookV2Navigation<'a>,
+    prior_records: u64,
+    maximum_records: u64,
+    observed_records: &mut u64,
+) -> Result<PreparedBookV2TextFlow<'a>, ProductionFlowError> {
+    prepare_inner_counted(
+        body, navigation, None, prior_records, maximum_records, observed_records,
+    )
+}
+
+/// Candidate labels have the same reservation/failure history as an initial
+/// source flow. Every retained value and both generated-record carriers count.
+pub fn prepare_book_v2_text_flow_with_page_references_counted<'a>(
+    body: &'a StyledBookV2Body,
+    navigation: &'a PreparedBookV2Navigation<'a>,
+    values: &[(NodeId, u32)],
+    prior_records: u64,
+    maximum_records: u64,
+    observed_records: &mut u64,
+) -> Result<PreparedBookV2TextFlow<'a>, ProductionFlowError> {
+    prepare_inner_counted(
+        body, navigation, Some(values), prior_records, maximum_records, observed_records,
+    )
+}
+
+fn prepare_inner_counted<'a>(
+    body: &'a StyledBookV2Body,
+    navigation: &'a PreparedBookV2Navigation<'a>,
+    values: Option<&[(NodeId, u32)]>,
+    prior_records: u64,
+    maximum_records: u64,
+    observed_records: &mut u64,
+) -> Result<PreparedBookV2TextFlow<'a>, ProductionFlowError> {
+    *observed_records = prior_records;
     let root = NodeId::new(0);
     navigation
         .verify_for(body)
         .map_err(|_| failure(ProductionFlowErrorKind::ReceiptMismatch, root))?;
     let wire = body.body().wire();
     let limits = body.body().limits();
+    let mut source = BookV2FlowSource {
+        body,
+        navigation,
+        records: Some(BookV2SourceRecordBudget {
+            prior: prior_records,
+            maximum: maximum_records.min(limits.get().max_fragments),
+            observed: observed_records,
+        }),
+    };
+    source.reserve_records(root, 1)?;
     let rules = lower_semantic_style_rules_version(wire.style_sheet(), limits, true)
         .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, root))?;
     let mut flow = collect_source_flow(
-        BookV2FlowSource { body, navigation },
+        source,
         body,
         navigation,
         wire.document(),

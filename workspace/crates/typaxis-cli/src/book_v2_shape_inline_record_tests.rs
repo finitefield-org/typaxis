@@ -25,7 +25,10 @@ fn check(font: Option<&[u8]>) {
     ] {
         let root = Root::new();
         let word = if font.is_some() && mode != "figure-width" {
-            "本文"
+            // These two local shaping boundaries must exceed the thirteen
+            // source-flow slots now required before shaping can start. Keep
+            // the shaping ceiling exact; add glyphs rather than slack to it.
+            if mode.starts_with("shape-") { "本文本文" } else { "本文" }
         } else {
             "Result"
         };
@@ -310,7 +313,7 @@ fn check(font: Option<&[u8]>) {
                     );
                     assert_eq!(
                         driver.observation().record_charge(),
-                        attempt * (plan.record_charge() + budget.record_charge())
+                        attempt * (command_source_record_charge(&flow) + plan.record_charge() + budget.record_charge())
                     );
                     assert_eq!(driver.observation().work_steps(), attempt * prefix_work);
                     assert_eq!(driver.observation().line_reshape_passes(), 0);

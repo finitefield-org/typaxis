@@ -229,7 +229,8 @@ fn description_topology_and_inherited_languages_share_the_actual_source_limits()
     let styled = style_book_v2_body(prepare(&input).unwrap()).unwrap();
     let nav = prepare_book_v2_navigation(&styled).unwrap();
     let retained = nav.retained_text_bytes();
-    for (max_fragments, max_text_bytes, expected) in [(2, retained, true), (1, retained, false)] {
+    let records = prepare_book_v2_text_flow(&styled, &nav).unwrap().source_record_charge();
+    for (max_fragments, max_text_bytes, expected) in [(records, retained, true), (records - 1, retained, false)] {
         let configured = ValidatedResourceLimits::new(ResourceLimits {
             max_fragments,
             max_text_bytes,
@@ -264,4 +265,25 @@ fn description_topology_and_inherited_languages_share_the_actual_source_limits()
         style_book_v2_body(prepare_book_v2_body(decode(&input, &configured), &configured).unwrap())
             .unwrap();
     assert!(prepare_book_v2_navigation(&body).is_err());
+}
+
+#[test]
+fn description_source_records_cover_terms_and_definitions_at_each_prefix() {
+    let body = style_book_v2_body(prepare(&styled_input()).unwrap()).unwrap();
+    let nav = prepare_book_v2_navigation(&body).unwrap();
+    let flow = prepare_book_v2_text_flow(&body, &nav).unwrap();
+    let expected = 1 + flow.events().len() as u64 + flow.paragraphs().len() as u64
+        + flow.paragraphs().iter().map(|p| p.items().len() as u64).sum::<u64>()
+        + flow.description_lists().len() as u64 + flow.description_items().len() as u64;
+    assert_eq!(flow.source_record_charge(), expected);
+    for maximum in 0..=expected {
+        let mut observed = u64::MAX;
+        let result = crate::book_v2::prepare_book_v2_text_flow_counted(&body, &nav, 0, maximum, &mut observed);
+        assert_eq!(observed, maximum);
+        if maximum == expected {
+            assert_eq!(result.unwrap().fingerprint(), flow.fingerprint());
+        } else {
+            assert_eq!(result.err().unwrap().kind, crate::ProductionFlowErrorKind::NodeLimit);
+        }
+    }
 }

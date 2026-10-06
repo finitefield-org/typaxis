@@ -60,6 +60,7 @@ pub(super) fn add_page_reference_values<'a, S: FlowSource<'a>>(
         if collector.generated_records.len() as u64 >= limits.get().max_fragments {
             return Err(failure(ProductionFlowErrorKind::NodeLimit, owner));
         }
+        collector.source.reserve_records(owner, 1)?;
         collector
             .generated_records
             .try_reserve(1)
@@ -72,6 +73,7 @@ pub(super) fn add_page_reference_values<'a, S: FlowSource<'a>>(
         return Err(mismatch(root));
     }
     let mut retained = Vec::new();
+    collector.source.reserve_records(root, values.len() as u64)?;
     retained
         .try_reserve_exact(values.len())
         .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, root))?;

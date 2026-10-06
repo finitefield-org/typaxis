@@ -54,7 +54,8 @@ fn check(text: &str, font: Option<&[u8]>) {
             // Construct the downstream owners independently of the command
             // driver, so a lost failure counter cannot hide in a self-comparison.
             let prefix = pre_work + lines.candidate_steps();
-            let records = plan.record_charge() + lines.footnotes().record_charge();
+            let records = command_source_record_charge(&flow)
+                + plan.record_charge() + lines.footnotes().record_charge();
             let measured = prepare_book_v2_table_measurements(
                 prepare_book_v2_body_flow(lines.lines(), None, lines.footnotes(), &limits, records).unwrap(),
                 &limits,

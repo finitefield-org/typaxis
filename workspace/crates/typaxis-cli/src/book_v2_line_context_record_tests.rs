@@ -209,7 +209,7 @@ fn check(font: Option<&[u8]>) {
         );
         assert_eq!(
             driver.observation().record_charge(),
-            plan.record_charge() + local.record_charge()
+            command_source_record_charge(&flow) + plan.record_charge() + local.record_charge()
         );
         assert_eq!(
             driver.observation().work_steps(),

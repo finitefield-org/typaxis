@@ -97,6 +97,7 @@ pub(super) fn add_source_text_references<'a, S: FlowSource<'a>>(
             }
             // Reserve and copy only after the complete generated length and
             // shared text budget are known; authored buffers remain untouched.
+            collector.source.reserve_records(owner, 1)?;
             let mut text = String::new();
             text.try_reserve_exact(length)
                 .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;

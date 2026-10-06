@@ -201,3 +201,4 @@
 - [ADR-0125: Reserve command bounds before native math construction](ADR-0125-book-2-native-command-preflight.md)
 - [ADR-0126: Compare math canonicals without rebuilding temporary strings](ADR-0126-math-canonical-streaming.md)
 - [ADR-0127: Hash source-flow canonicals without retaining temporary strings](ADR-0127-source-flow-canonical-streaming.md)
+- [ADR-0128: Retain main source-flow reservations across command failures](ADR-0128-book-2-source-flow-record-budget.md)

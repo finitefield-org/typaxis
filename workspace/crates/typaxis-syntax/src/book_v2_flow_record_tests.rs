@@ -1,0 +1,188 @@
+use super::*;
+
+// Independently count the constructed carriers; include the temporary ordinal
+// registry and both generated registries rather than treating retained output
+// length as a complete allocation history.
+fn expected_records(flow: &PreparedBookV2TextFlow<'_>) -> u64 {
+    1 + 2 * flow.footnote_definitions().len() as u64
+        + flow.events().len() as u64
+        + flow.paragraphs().len() as u64
+        + flow
+            .paragraphs()
+            .iter()
+            .map(|p| p.items().len() as u64)
+            .sum::<u64>()
+        + flow.lists().len() as u64
+        + flow.list_items().len() as u64
+        + flow.description_lists().len() as u64
+        + flow.description_items().len() as u64
+        + flow.figures().len() as u64
+        + flow.named_page_breaks().len() as u64
+        + flow.table_record_charge()
+        + 2 * flow.generated.buffers().len() as u64
+        + flow.page_reference_values().map_or(0, |v| v.len() as u64)
+}
+
+#[test]
+fn successor_source_records_bound_every_prefix_and_retain_all_carriers() {
+    for case in ["combined", "pages", "text", "number", "named-break"] {
+        let mut data = input();
+        match case {
+            "text" | "number" => {
+                data["document"]["blocks"][1]["children"][1]["format"] = case.into();
+                if case == "number" {
+                    data["document"]["number_bindings"] = serde_json::json!([{
+                        "anchor_id":"top", "owner_node_id":1, "label_node_id":2,
+                        "text_span":{"text_id":0,"start_byte":0,"end_byte":5}
+                    }]);
+                }
+            }
+            "named-break" => {
+                data["style_sheet"]["rules"][3]["declarations"][0]["value"] =
+                    serde_json::json!({"kind":"string", "value":"basic-combined"})
+            }
+            _ => {}
+        }
+        let body = styled(&data, &limits());
+        let nav = prepare_book_v2_navigation(&body).unwrap();
+        let values = [(NodeId::new(7), 12)];
+        let values = (case == "pages").then_some(values.as_slice());
+        let reference = prepare_inner(&body, &nav, values).unwrap();
+        let charge = expected_records(&reference);
+        assert_eq!(reference.source_record_charge(), charge, "{case}");
+        let prior = 7;
+        let mut last = prior;
+        for available in 0..=charge {
+            let maximum = prior + available;
+            let mut observed = u64::MAX;
+            let result = prepare_inner_counted(&body, &nav, values, prior, maximum, &mut observed);
+            assert!(
+                observed >= last && observed <= maximum,
+                "{case}/{available}"
+            );
+            last = observed;
+            if available == charge {
+                let flow = result.unwrap();
+                assert_eq!(observed, maximum);
+                assert_eq!(flow.source_record_charge(), charge);
+                assert_eq!(flow.fingerprint(), reference.fingerprint());
+                flow.verify_for(&body, &nav).unwrap();
+            } else {
+                assert_eq!(
+                    result.err().unwrap().kind,
+                    ProductionFlowErrorKind::NodeLimit
+                );
+                let retry_prior = observed;
+                assert!(prepare_inner_counted(
+                    &body,
+                    &nav,
+                    values,
+                    retry_prior,
+                    maximum,
+                    &mut observed
+                )
+                .is_err());
+                assert!(observed >= retry_prior && observed <= maximum);
+            }
+        }
+        let cap = body.body().limits().get().max_fragments;
+        let mut observed = 0;
+        let exact =
+            prepare_inner_counted(&body, &nav, values, cap - charge, u64::MAX, &mut observed)
+                .unwrap();
+        assert_eq!(observed, cap);
+        assert_eq!(exact.source_record_charge(), charge);
+        assert!(prepare_inner_counted(
+            &body,
+            &nav,
+            values,
+            cap - charge + 1,
+            u64::MAX,
+            &mut observed
+        )
+        .is_err());
+        assert!(observed <= cap);
+        assert!(
+            prepare_inner_counted(&body, &nav, values, u64::MAX, u64::MAX, &mut observed).is_err()
+        );
+        assert_eq!(observed, u64::MAX);
+    }
+}
+
+fn two_paragraphs() -> Value {
+    let mut data = input();
+    let mut paragraph = data["document"]["blocks"][1].clone();
+    paragraph["children"] =
+        serde_json::json!([data["document"]["blocks"][0]["children"][0].clone()]);
+    let mut second = paragraph.clone();
+    paragraph["node_id"] = 1.into();
+    paragraph["children"][0]["node_id"] = 2.into();
+    second["node_id"] = 3.into();
+    second["children"][0]["node_id"] = 4.into();
+    second["classes"] = serde_json::json!(["missing"]);
+    data["document"]["blocks"] = serde_json::json!([paragraph, second]);
+    data["document"]["footnotes"] = serde_json::json!([]);
+    data["outline"]["entries"] = serde_json::json!([]);
+    data
+}
+
+#[test]
+fn successor_source_records_keep_history_on_identity_and_late_style_failures() {
+    let mut data = two_paragraphs();
+    // Keep the style registry/extends targets valid while removing the font
+    // family required by the later paragraph's actual text.
+    for rule in data["style_sheet"]["rules"].as_array_mut().unwrap() {
+        if rule["selector"] == "paragraph" {
+            rule["declarations"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|d| d["name"] != "font_family");
+        }
+    }
+    data["document"]["blocks"][0]["kind"] = "heading".into();
+    data["document"]["blocks"][0]["level"] = 1.into();
+    data["document"]["blocks"][0]["anchor_id"] = Value::Null;
+    let body = styled(&data, &limits());
+    let nav = prepare_book_v2_navigation(&body).unwrap();
+    let mut observed = u64::MAX;
+    let cause = prepare_book_v2_text_flow_counted(&body, &nav, 17, 1000, &mut observed)
+        .err()
+        .unwrap();
+    assert_eq!(
+        cause,
+        ProductionFlowError {
+            owner: NodeId::new(3),
+            kind: ProductionFlowErrorKind::MissingTextStyle
+        }
+    );
+    assert_eq!(observed, 17 + 9);
+    let cause2 = prepare_book_v2_text_flow_counted(&body, &nav, observed, 1000, &mut observed)
+        .err()
+        .unwrap();
+    assert_eq!(cause2, cause);
+    assert_eq!(observed, 17 + 18);
+    let other = styled(&data, &limits());
+    assert_eq!(
+        prepare_book_v2_text_flow_counted(&other, &nav, 29, 0, &mut observed)
+            .err()
+            .unwrap()
+            .kind,
+        ProductionFlowErrorKind::ReceiptMismatch
+    );
+    assert_eq!(observed, 29);
+}
+
+#[test]
+fn successor_source_record_accounting_is_revalidated_independently_of_fingerprint() {
+    let body = styled(&two_paragraphs(), &limits());
+    let nav = prepare_book_v2_navigation(&body).unwrap();
+    let mut flow = prepare_book_v2_text_flow(&body, &nav).unwrap();
+    assert_eq!(flow.source_record_charge(), 11);
+    let original = flow.fingerprint();
+    flow.source_record_charge -= 1;
+    assert_eq!(flow.fingerprint(), original);
+    assert_eq!(
+        flow.verify_for(&body, &nav).unwrap_err().kind,
+        ProductionFlowErrorKind::ReceiptMismatch
+    );
+}

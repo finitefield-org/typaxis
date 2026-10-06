@@ -276,7 +276,10 @@ fn successor_flow_requires_authored_text_style() {
 
 #[test]
 fn successor_flow_precharges_table_topology_with_the_common_bound() {
-    for maximum in [23, 22] {
+    let default_body = styled(&input(), &limits());
+    let default_nav = prepare_book_v2_navigation(&default_body).unwrap();
+    let total = prepare_book_v2_text_flow(&default_body, &default_nav).unwrap().source_record_charge();
+    for maximum in [total, total - 1] {
         let configured = ValidatedResourceLimits::new(ResourceLimits {
             max_fragments: maximum,
             ..ResourceLimits::default()
@@ -285,16 +288,10 @@ fn successor_flow_precharges_table_topology_with_the_common_bound() {
         let body = styled(&input(), &configured);
         let nav = prepare_book_v2_navigation(&body).unwrap();
         let result = prepare_book_v2_text_flow(&body, &nav);
-        if maximum == 23 {
-            assert_eq!(result.unwrap().table_record_charge(), maximum);
+        if maximum == total {
+            assert_eq!(result.unwrap().table_record_charge(), 23);
         } else {
-            assert_eq!(
-                result.err().unwrap(),
-                ProductionFlowError {
-                    owner: NodeId::new(23),
-                    kind: ProductionFlowErrorKind::NodeLimit,
-                }
-            );
+            assert_eq!(result.err().unwrap().kind, ProductionFlowErrorKind::NodeLimit);
         }
     }
 }
@@ -512,7 +509,10 @@ fn table_caption_metadata_consumes_the_shared_table_budget() {
     }
     renumber(&mut data["document"], &mut 0);
     refresh_caption_fixture_outline(&mut data);
-    for maximum in [24, 23] {
+    let default_body = styled(&data, &limits());
+    let default_nav = prepare_book_v2_navigation(&default_body).unwrap();
+    let total = prepare_book_v2_text_flow(&default_body, &default_nav).unwrap().source_record_charge();
+    for maximum in [total, total - 1] {
         let configured = ValidatedResourceLimits::new(ResourceLimits {
             max_fragments: maximum,
             ..ResourceLimits::default()
@@ -521,7 +521,7 @@ fn table_caption_metadata_consumes_the_shared_table_budget() {
         let body = styled(&data, &configured);
         let nav = prepare_book_v2_navigation(&body).unwrap();
         let result = prepare_book_v2_text_flow(&body, &nav);
-        if maximum == 24 {
+        if maximum == total {
             assert_eq!(result.unwrap().table_record_charge(), 24);
         } else {
             assert_eq!(
@@ -531,6 +531,9 @@ fn table_caption_metadata_consumes_the_shared_table_budget() {
         }
     }
 }
+
+#[path = "book_v2_flow_record_tests.rs"]
+mod record_budget;
 
 fn refresh_caption_fixture_outline(data: &mut Value) {
     fn owner(value: &Value, anchor: &str) -> Option<Value> {

@@ -389,6 +389,8 @@ pub struct SourceTextFlow<'a, P, N> {
     named_page_breaks: Vec<(NodeId, typaxis_core::PageName)>,
     tables: Vec<ProductionTable>,
     table_record_charge: u64,
+    #[cfg(feature = "book-v2-staging")]
+    source_record_charge: u64,
     lists: Vec<ProductionList>,
     list_items: Vec<ProductionListItem<'a>>,
     #[cfg(feature = "book-v2-staging")]
@@ -665,7 +667,7 @@ fn prepare_production_text_flow_inner<'a>(
 }
 
 fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
-    source: S,
+    mut source: S,
     package: &'a P,
     navigation: &'a N,
     document: &'a WireSemanticDocument<S::Kind>,
@@ -680,6 +682,7 @@ fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
     if document.footnotes.len() as u64 > limits.get().max_fragments {
         return Err(failure(ProductionFlowErrorKind::NodeLimit, root));
     }
+    source.reserve_records(root, document.footnotes.len() as u64)?;
     footnote_ordinals
         .try_reserve_exact(document.footnotes.len())
         .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, root))?;
@@ -722,6 +725,7 @@ fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
     };
     collector.blocks(&document.blocks, None)?;
     let mut footnote_definitions = Vec::new();
+    collector.source.reserve_records(root, document.footnotes.len() as u64)?;
     footnote_definitions
         .try_reserve_exact(document.footnotes.len())
         .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, root))?;
@@ -759,6 +763,10 @@ fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
     collector.named_page_breaks.sort_unstable_by_key(|p| p.0);
     add_source_text_references(&mut collector, limits)?;
     let page_reference_values = add_page_reference_values(&mut collector, values, limits)?;
+    // The overlay builds a new buffer carrier while the input records are held.
+    collector.source.reserve_records(root, collector.generated_records.len() as u64)?;
+    #[cfg(feature = "book-v2-staging")]
+    let source_record_charge = collector.source.source_record_charge();
     let generated = typaxis_text::GeneratedTextOverlay::new(
         collector.generated_records,
         limits,
@@ -775,6 +783,8 @@ fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
         named_page_breaks: collector.named_page_breaks,
         tables: collector.tables,
         table_record_charge: collector.table_record_charge,
+        #[cfg(feature = "book-v2-staging")]
+        source_record_charge,
         lists: collector.lists,
         list_items: collector.list_items,
         #[cfg(feature = "book-v2-staging")]
@@ -798,6 +808,13 @@ trait FlowSource<'a> {
         -> Option<&'a SemanticContainerInheritanceStyle>;
     fn language(&self, owner: NodeId) -> Option<&'a str>;
     fn anchors(&self) -> &'a [(AnchorId, NodeId)];
+    fn reserve_records(&mut self, _owner: NodeId, _count: u64) -> Result<(), ProductionFlowError> {
+        Ok(())
+    }
+    #[cfg(feature = "book-v2-staging")]
+    fn source_record_charge(&self) -> u64 {
+        0
+    }
     fn source_text_references(&self) -> bool {
         false
     }
@@ -937,6 +954,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         if self.generated_records.len() as u64 >= self.source.limits().get().max_fragments {
             return Err(failure(ProductionFlowErrorKind::NodeLimit, owner));
         }
+        self.source.reserve_records(owner, 1)?;
         self.generated_records
             .try_reserve(1)
             .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
@@ -958,6 +976,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         event: ProductionFlowEvent,
         owner: NodeId,
     ) -> Result<(), ProductionFlowError> {
+        self.source.reserve_records(owner, 1)?;
         self.events
             .try_reserve(1)
             .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
@@ -1017,6 +1036,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
             match block {
                 WireSemanticBlock::Paragraph { children, .. }
                 | WireSemanticBlock::Heading { children, .. } => {
+                    self.source.reserve_records(owner, 1)?;
                     let style = self.ordinary(owner, kind.as_str(), block.classes(), parent)?;
                     let mut items = Vec::new();
                     let language = self.language(owner)?;
@@ -1072,6 +1092,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                     items,
                     ..
                 } => {
+                    self.source.reserve_records(owner, 1)?;
                     let style = self.ordinary(owner, "list", block.classes(), parent)?;
                     let list_index = u32::try_from(self.lists.len())
                         .map_err(|_| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
@@ -1129,6 +1150,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                             .ok_or_else(|| {
                                 failure(ProductionFlowErrorKind::TextLimit, item_owner)
                             })?;
+                        self.source.reserve_records(item_owner, 1)?;
                         self.list_items.try_reserve(1).map_err(|_| {
                             failure(ProductionFlowErrorKind::AllocationFailure, item_owner)
                         })?;
@@ -1137,6 +1159,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                         {
                             return Err(failure(ProductionFlowErrorKind::NodeLimit, item_owner));
                         }
+                        self.source.reserve_records(item_owner, 1)?;
                         self.generated_records.try_reserve(1).map_err(|_| {
                             failure(ProductionFlowErrorKind::AllocationFailure, item_owner)
                         })?;
@@ -1166,6 +1189,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                     let index = self.tables.len();
                     self.table(block, style.clone())?;
                     if let Some(caption) = caption {
+                        self.source.reserve_records(owner, 1)?;
                         self.table_record_charge = self.table_record_charge.checked_add(1)
                             .filter(|n| *n <= self.source.limits().get().max_fragments)
                             .ok_or_else(|| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
@@ -1202,6 +1226,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                     caption,
                     ..
                 } => {
+                    self.source.reserve_records(owner, 1)?;
                     let style = self.ordinary(owner, "figure", block.classes(), parent)?;
                     let page_name = self
                         .rules.cascade_ordinary("figure", block.classes())
@@ -1236,6 +1261,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                             self.retained_text_bytes = self.retained_text_bytes.checked_add(name.as_str().len() as u64)
                                 .filter(|n| *n <= self.source.limits().get().max_text_bytes)
                                 .ok_or_else(|| failure(ProductionFlowErrorKind::TextLimit, owner))?;
+                            self.source.reserve_records(owner, 1)?;
                             self.named_page_breaks.try_reserve(1)
                                 .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
                             self.named_page_breaks.push((owner, name));
@@ -1356,6 +1382,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                     _ => None,
                 },
             };
+            self.source.reserve_records(owner, 1)?;
             output
                 .try_reserve(1)
                 .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
@@ -1365,6 +1392,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
             | WireStagingM4Inline::Link { children, .. } = inline
             {
                 self.inlines(children, language, output)?;
+                self.source.reserve_records(owner, 1)?;
                 output
                     .try_reserve(1)
                     .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;

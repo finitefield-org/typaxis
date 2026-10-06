@@ -282,8 +282,12 @@ pub fn with_budgeted_book_v2_pdf<R>(
     let page_plan;
     {
         // Collect every authored Page reference, including unplaced definitions.
-        let source = prepare_book_v2_text_flow(body.styled(), &navigation)
-            .map_err(|e| stage("source", e))?;
+        let mut observed_records = total.records;
+        let source = prepare_book_v2_text_flow_counted(
+            body.styled(), &navigation, total.records, caps.max_fragments, &mut observed_records,
+        );
+        total.records = observed_records;
+        let source = source.map_err(|e| stage("source", e))?;
         page_plan = prepare_book_v2_page_frame_plan_with_regions(
             &source,
             &mut total.work,
@@ -369,9 +373,12 @@ pub fn with_budgeted_book_v2_pdf<R>(
             .checked_sub(total.line_passes)
             .filter(|n| *n > 0)
             .ok_or(E::Limit("line passes"))?;
-        let flow =
-            prepare_book_v2_text_flow_with_page_references(body.styled(), &navigation, &values)
-                .map_err(|e| stage("source labels", e))?;
+        let mut observed_records = total.records;
+        let flow = prepare_book_v2_text_flow_with_page_references_counted(
+            body.styled(), &navigation, &values, total.records, caps.max_fragments, &mut observed_records,
+        );
+        total.records = observed_records;
+        let flow = flow.map_err(|e| stage("source labels", e))?;
         if width_feedback
             .as_ref()
             .is_some_and(|f| !f.matches_source_flow(&flow))
