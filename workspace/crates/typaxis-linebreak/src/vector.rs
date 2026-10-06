@@ -10,6 +10,9 @@ use typaxis_layout_contract::{
     PrecomposedVectorInlinePlacementInput,
 };
 
+#[path = "vector_fingerprint.rs"]
+mod atomic_fingerprint;
+
 #[path = "production_inline.rs"]
 mod production_inline;
 pub use production_inline::{
@@ -111,7 +114,7 @@ impl AtomicVectorInlineItem {
             placement,
             fingerprint: [0; 32],
         };
-        item.fingerprint = sha256(encode_atomic_item(&item).as_bytes());
+        item.fingerprint = atomic_fingerprint::item(&item);
         Ok(item)
     }
 
@@ -163,7 +166,7 @@ impl AtomicVectorInlineItem {
     ) -> bool {
         self.binding_fingerprint == binding_fingerprint
             && self.placement == placement
-            && self.fingerprint == sha256(encode_atomic_item(&self).as_bytes())
+            && self.fingerprint == atomic_fingerprint::item(&self)
     }
 }
 
@@ -482,7 +485,7 @@ impl AtomicVectorInlineParagraph {
             vector_count,
             fingerprint: [0; 32],
         };
-        paragraph.fingerprint = sha256(encode_itemization(&paragraph).as_bytes());
+        paragraph.fingerprint = atomic_fingerprint::paragraph(&paragraph);
         Ok(paragraph)
     }
 
@@ -1107,90 +1110,6 @@ fn positive_from_raw(value: i64) -> Result<PositiveLength, AtomicVectorInlineErr
         .ok_or(AtomicVectorInlineError::ArithmeticOverflow)
 }
 
-fn encode_atomic_item(value: &AtomicVectorInlineItem) -> String {
-    let metrics = value.metrics();
-    let mut output = String::from("{\"algorithm\":");
-    push_jcs_string(&mut output, ATOMIC_VECTOR_INLINE_ALGORITHM);
-    output.push_str(",\"bidi\":\"ltr_isolate\",\"binding_fingerprint\":");
-    push_hash(&mut output, value.binding_fingerprint.bytes());
-    output.push_str(",\"kind\":");
-    push_jcs_string(&mut output, value.kind.as_str());
-    output.push_str(",\"line_break_class\":\"AL\",\"metrics\":");
-    push_metrics(&mut output, metrics);
-    output.push_str(",\"node_id\":");
-    output.push_str(&value.node_id.get().to_string());
-    output.push_str(",\"paint\":{\"blue\":");
-    output.push_str(&value.placement.paint().blue().to_string());
-    output.push_str(",\"green\":");
-    output.push_str(&value.placement.paint().green().to_string());
-    output.push_str(",\"red\":");
-    output.push_str(&value.placement.paint().red().to_string());
-    output.push_str("},\"paragraph_node\":");
-    output.push_str(&value.paragraph_node.get().to_string());
-    output.push_str(",\"record\":\"item\",\"scale\":");
-    output.push_str(&value.placement.scale().get().raw().to_string());
-    output.push_str(",\"source_span\":");
-    push_source_span(&mut output, value.source_span);
-    output.push_str(",\"spacing\":{\"after\":");
-    output.push_str(&value.placement.spacing_after().get().raw().to_string());
-    output.push_str(",\"before\":");
-    output.push_str(&value.placement.spacing_before().get().raw().to_string());
-    output.push_str("}}");
-    output
-}
-
-fn encode_itemization(value: &AtomicVectorInlineParagraph) -> String {
-    let mut output = String::from("{\"algorithm\":");
-    push_jcs_string(&mut output, ATOMIC_VECTOR_INLINE_ALGORITHM);
-    output.push_str(",\"boundaries\":[");
-    for (index, boundary) in value.boundaries.iter().copied().enumerate() {
-        if index > 0 {
-            output.push(',');
-        }
-        output.push_str("{\"kind\":");
-        push_jcs_string(&mut output, break_kind_str(boundary.kind()));
-        output.push_str(",\"logical_boundary\":");
-        output.push_str(&(index + 1).to_string());
-        output.push_str(",\"penalty\":");
-        output.push_str(&boundary.penalty().to_string());
-        output.push_str(",\"same_line_width\":");
-        output.push_str(&boundary.same_line_width().get().raw().to_string());
-        output.push('}');
-    }
-    output.push_str("],\"paragraph_node\":");
-    output.push_str(&value.paragraph_node.get().to_string());
-    output.push_str(",\"record\":\"itemization\",\"units\":[");
-    for (index, unit) in value.units.iter().copied().enumerate() {
-        if index > 0 {
-            output.push(',');
-        }
-        match unit {
-            AtomicVectorInlineLogicalUnit::Text(text) => {
-                output.push_str("{\"advance\":");
-                output.push_str(&text.advance().get().raw().to_string());
-                output.push_str(",\"ascent\":");
-                output.push_str(&text.ascent().get().raw().to_string());
-                output.push_str(",\"descent\":");
-                output.push_str(&text.descent().get().raw().to_string());
-                output.push_str(",\"kind\":\"text\",\"scalar\":");
-                push_jcs_string(&mut output, &text.scalar().to_string());
-                output.push('}');
-            }
-            AtomicVectorInlineLogicalUnit::Vector(item) => {
-                output.push_str("{\"atomic_fingerprint\":");
-                push_hash(&mut output, item.fingerprint());
-                output.push_str(",\"kind\":\"vector\",\"node_id\":");
-                output.push_str(&item.node_id().get().to_string());
-                output.push('}');
-            }
-        }
-    }
-    output.push_str("],\"vector_count\":");
-    output.push_str(&value.vector_count.to_string());
-    output.push('}');
-    output
-}
-
 fn encode_selected_break(
     itemization_fingerprint: [u8; 32],
     inline_size: PositiveLength,
@@ -1232,34 +1151,6 @@ fn encode_selected_break(
     }
     output.push_str("],\"record\":\"line_selection\"}");
     output
-}
-
-fn push_metrics(output: &mut String, value: BoundPrecomposedVectorMetrics) {
-    output.push_str("{\"advance\":");
-    output.push_str(&value.advance().get().raw().to_string());
-    output.push_str(",\"ascent\":");
-    output.push_str(&value.ascent().get().raw().to_string());
-    output.push_str(",\"baseline\":");
-    output.push_str(&value.baseline().get().raw().to_string());
-    output.push_str(",\"descent\":");
-    output.push_str(&value.descent().get().raw().to_string());
-    output.push_str(",\"origin_x\":");
-    output.push_str(&value.origin_x().raw().to_string());
-    output.push_str(",\"viewport\":{\"height\":");
-    output.push_str(&value.viewport_height().get().raw().to_string());
-    output.push_str(",\"width\":");
-    output.push_str(&value.viewport_width().get().raw().to_string());
-    output.push_str("}}");
-}
-
-fn push_source_span(output: &mut String, value: SourceSpan) {
-    output.push_str("{\"end_byte\":");
-    output.push_str(&value.end_byte().get().to_string());
-    output.push_str(",\"source_id\":");
-    output.push_str(&value.source_id().get().to_string());
-    output.push_str(",\"start_byte\":");
-    output.push_str(&value.start_byte().get().to_string());
-    output.push('}');
 }
 
 fn push_hash(output: &mut String, value: [u8; 32]) {

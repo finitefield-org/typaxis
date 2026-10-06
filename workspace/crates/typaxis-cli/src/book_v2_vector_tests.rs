@@ -1,4 +1,6 @@
 use super::*;
+#[path = "book_v2_vector_fingerprint_tests.rs"]
+mod fingerprints;
 use typaxis_core::{ImageResourceId, Length, NodeId, PositiveLength};
 use typaxis_layout::book_v2::{
     bind_book_v2_vectors, layout_book_v2_inline_lines, prepare_book_v2_inline_items,

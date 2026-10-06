@@ -1,0 +1,18 @@
+{
+  "cases": {
+    "harano": {
+      "base": "08fc2d7ecff14b146599ad9e2f39796ec1905affa45977dda3b1b649f05cef41",
+      "geometry": "edd607235bc425c0c3bc750d6dba48b04ed8f99f04575d1bfc14f7dd6be62241",
+      "occurrences": "67e5cfc66b96497c055441529124cf1741f9afd913c9af77a837ad3ba014dcae",
+      "provenance": "85e83f11a945e7a7fd9f3fdb3a2d3372fa95527120adfd70eea83e1760401caf"
+    },
+    "tt": {
+      "base": "bf6dbb16f82b5ccf7148ff05a4043ca4c99b6e87533a21b3cf8fdc1606586542",
+      "geometry": "7761a2e75e435f566f373b2bb1b2977ce1874fd35663d0baa48a371f68411f8f",
+      "occurrences": "d45e030b7244f5f377378a6d3e75622e22a524c91b35765cebaba979476c5b27",
+      "provenance": "f9bd642976aee8a3ba020c56b2e8742b3596e4c94a4ec850175684929bd859d1"
+    }
+  },
+  "comparison": "SHA-256 of each complete public vector binding and mixed inline projection",
+  "production_commit": "526f08cf7d44ebf8b7005b930456145eab18b5af"
+}

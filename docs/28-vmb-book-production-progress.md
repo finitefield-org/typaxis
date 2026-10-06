@@ -16620,3 +16620,16 @@ run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成�
 全759組は§267とbyte一致し、名前変更0だった。table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、両方§267と一致した。検証後の文書更新3件をpost-verification-documentation-hashes.jsonで区別する。
 
 §268の検証待ちを解消した。次の未課金hash scratchはBook /2 vector bindingの4096-byte String予約とatomic-vector item codecなどに残る。Unicode／backend／font temporary allocationと保持capacity、完全なcommand byte／spool／work・同時保持graph・初期navigation／admission、名前付きページ・段組、公開Book /2、元全巻と管理ホスト・制御された性能・著者／人手受入も継続する。Speech／SemanticRef未作成を維持し、設計全体の受入成功とは扱わない。
+
+<a id="atomic-vector-fingerprint-streaming-design-14269"></a>
+## 269. atomic-vectorのハッシュ専用一時文字列を除く（design §14.269）
+
+[ADR-0132](../adr/ADR-0132-atomic-vector-fingerprint-streaming.md)に従い、item生成・再検査と旧paragraphのJCSをSHA-256へ直接投入する。binding fingerprintと全placementの照合、paragraphの全validation・owner・予算検査、保持units／boundaries、公開selected canonical_jcsを維持する。scalarの一時Stringは4-byte stack bufferへ置き換える。公開contract／schema／profileを変更していない。
+
+証跡はworkspace/target/vmb-design/20261006/vector-fingerprint-streaming/。production変更前の526f08cでTrueType／原Harano各4ケースを捕捉した。全4 binding種類、provenance・geometry変更、256 occurrencesと別owner拒否の公開projectionを保存し、原production archiveの3 source hashes・保存binary・8 frozen hashesを照合した。baseline初期2回の無効なstyle carrier／式番号node順序の失敗はbaseline-draft-01／02へ保全した。最終captureは2 tests成功であり、変更後の通常比較でも8ケースが一致した。最終runnerはvector／textのcapture環境変数を両方除いている。
+
+固定した196ソースでlinebreak全52 tests、Unicode 16 conformance 1件、workspace --all-features --tests check、layout全70 tests＋doc-test 1件とBook /2関連CLI全304 testsが成功した。原Harano／Arialと保存済みVMB 10 jobsを使い、最終失敗／ignoredは0。CLIの419 filtered casesを実行済みとは扱わない。core／syntax／shaper等の単独全試験や元全巻再監査は今回繰り返していない。
+
+5独立検証と§268とのbyte比較が成功した。全759 PDF／2,896 pages、58 variant font subsets／embedded PDFs、柱専用3 PDFsと表ページ指定16 PDFsを検査した。全759組と保存済みVMB表2出力がbyte一致し、名前変更0だった。run-source-correspondence.jsonで全5 production／test変更、196 frozen sources、旧archive／binary／8 projection、原入力、実コマンド・環境・終了コード・成功ログとPDF対応を照合する。検証後の文書3件を別hashで記録する。allocator計測や制御された性能改善・全巻受入を今回の結果として扱わない。
+
+Book /2 vector bindingの4096-byte String予約、他digest codecs、未課金owner／capacity、Unicode／backend／font temporary allocation、完全なcommand byte／spool／work・同時保持graph・初期navigation／admission、名前付きページ・段組、公開Book /2、元全巻と管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成を維持し、設計全体の完了とは扱わない。

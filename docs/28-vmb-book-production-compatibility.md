@@ -5740,3 +5740,17 @@ constructor比較が成功した。Core／math、両syntax、旧／staging shape
 対応を確認し、検証後の文書3件を別hashで記録した。完全なcommand予算・全巻受入は
 継続し、未課金owner／capacity・他codec・backend／font・同時保持graphと既存全体要件を
 完了したとは扱わない。
+
+### 14.269 atomic-vectorのfingerprint用一時文字列を除去（実装追補）
+
+atomic-vector itemの生成・再検査と旧paragraphのfingerprint JCSを、private writerから
+SHA-256へ直接投入する。field順序・整数・hash・source span・metrics・paint・spacing・
+境界とUnicode scalar escapingを維持する。binding／placementの全比較、paragraphの
+owner／予算検査、保持unit／boundaryと選択行の公開canonical_jcsを保持する。
+
+[ADR-0132](../adr/ADR-0132-atomic-vector-fingerprint-streaming.md)と
+[実装台帳§269](28-vmb-book-production-progress.md#atomic-vector-fingerprint-streaming-design-14269)を参照。
+変更前のTrueType／原Haranoの8公開projectionが一致した。linebreak 52 testsと
+Unicode 16 conformance、workspace型検査、layout 70 tests＋doc-test 1件、Book /2関連
+CLI 304 testsと5独立検証が成功し、759 PDFと保存済みVMB表2出力が§268とbyte一致した。
+Book /2 bindingの一時String、他codecと既存のcommand予算・全巻受入要件は継続する。
