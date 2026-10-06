@@ -16633,3 +16633,18 @@ run-independent-01.py、compare-accepted-01.py、verify-correspondence.pyが成�
 5独立検証と§268とのbyte比較が成功した。全759 PDF／2,896 pages、58 variant font subsets／embedded PDFs、柱専用3 PDFsと表ページ指定16 PDFsを検査した。全759組と保存済みVMB表2出力がbyte一致し、名前変更0だった。run-source-correspondence.jsonで全5 production／test変更、196 frozen sources、旧archive／binary／8 projection、原入力、実コマンド・環境・終了コード・成功ログとPDF対応を照合する。検証後の文書3件を別hashで記録する。allocator計測や制御された性能改善・全巻受入を今回の結果として扱わない。
 
 Book /2 vector bindingの4096-byte String予約、他digest codecs、未課金owner／capacity、Unicode／backend／font temporary allocation、完全なcommand byte／spool／work・同時保持graph・初期navigation／admission、名前付きページ・段組、公開Book /2、元全巻と管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成を維持し、設計全体の完了とは扱わない。
+
+<a id="vector-binding-fingerprint-streaming-design-14270"></a>
+## 270. Book /2 vector bindingのハッシュ専用一時文字列を除く（design §14.270）
+
+前ターンはprogressである。028a12dをcommit・pushし、リモートSHAとクリーンな作業ツリーを確認してから継続した。[ADR-0133](../adr/ADR-0133-book-2-vector-binding-fingerprint-streaming.md)に従い、既存の全検査後にbinding JCSをSHA-256へ直接投入する。4096-byte scratchとdecimalの一時Stringを除去し、receipt予約・上限・epoch・domain・source借用・immutable owner照合を維持する。旧公開canonical_jcsは同じprivate field writersから保持Stringへ書き込む。
+
+証跡はworkspace/target/vmb-design/20261006/vector-binding-fingerprint-streaming/。526f08cの原source archive・保存binary・8 frozen projectionへの対応を確認し、TrueType／原Haranoの8ケースが一致した。default layout 70 tests＋doc-test 1件が成功した。最終固定198ソースでworkspace --all-features --tests check、staging layout 70 tests＋doc-test 1件、Book /2関連CLI全304 testsが成功した。CLIは331.86秒、失敗／ignored 0、419 filtered outであり、binary全723件を実行したとは扱わない。原Harano／Arialと保存済みVMB 10 jobsを使った。fontは65通常testsと11原Harano testsの別実行で全76件成功した。
+
+旧経路の最初のrunnerは3成功／2失敗だった。1件はBook /2 probe環境変数を旧公開config parserへ渡した誤りで、旧経路の環境を分離した。もう1件は診断用CFF fixtureが公開resource globへ混入し、固定73件の集合が74件になった既存不整合だった。保存した旧binaryでも同じ失敗を再現し、fixtureをcff-media/diagnosticsへbyte不変で移動した。生成器とfont include pathを更新し、生成器の再実行で同じ1088 bytes／SHA-256 41680ba255150ba71882a9488093032fab4f7918a2bedb7561ee49f1b2fe016fを確認した。元73件の公開台帳・各hashとstrict verifierを変更していない。修正後、旧経路の通常4 testsと独立verifierが成功し、旧binaryと現在の21成果物すべてがbyte一致した。
+
+旧external host caseは通常suiteで1件ignoredを維持する。fixture移動後の旧binaryはreadiness receiptを生成したが、保存先から参照するcompanion executableがないため後段で停止した。公式veraPDF 1.30.2のinstaller／signature SHAを旧policyと照合し、ローカルの正式PDF/UA-1検査は172 checks／106 rules成功、失敗0だった。ただし新installationのpayloadは固定e12acf5b…と一致せず、V19 host recordや両OS受入の成功とは扱わない。以前の固定tool保存先を任意質問として確認中であり、コード実装は継続する。
+
+Book /2の5独立検証と§269とのbyte比較が成功した。759 PDF／2,896 pages、58 variant font subsets／embedded PDFs、柱3 PDFsと表ページ指定16 PDFsを検査した。全759組と保存済みVMB表2出力がbyte一致し、名前変更0だった。run-source-correspondence.jsonは198 frozen sources、全現変更と旧fixture削除／移動、旧source／binary／8 projection、原入力、15成功gate、コマンド・環境・終了コード・ログ、旧21成果物と全759 PDFの対応を照合する。後続文書3件を別hashで記録する。最初の旧artifact比較／veraPDF観測はroot targetとworkspace targetを取り違えたため実行前に失敗し、正しい実生成先で再検査した。allocator・制御された性能や全巻受入の証明とは扱わない。
+
+他digest codecs、未課金owner／capacity、Unicode／backend／font temporary allocation、完全なcommand byte／spool／work・同時保持graph・初期navigation／admission、名前付きページ・段組、公開Book /2、元全巻と管理ホスト・性能・著者／人手受入は継続する。Speech／SemanticRef未作成を維持し、設計全体の完了とは扱わない。

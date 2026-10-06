@@ -198,29 +198,19 @@ fn build_bindings<'a>(
         // language, equation numbering, style and producer assertions. Node id
         // selects this immutable source record; geometry and admitted IR are
         // serialized explicitly. No source text/provenance buffers are cloned.
-        let mut canonical = String::new();
-        canonical
-            .try_reserve_exact(4096)
-            .map_err(|_| E::AllocationFailure)?;
-        canonical.push_str("{\"algorithm\":");
-        push_jcs_string(&mut canonical, BOOK_V2_VECTOR_BINDING_ALGORITHM);
-        canonical.push_str(",\"epoch\":");
-        push_hash(&mut canonical, epoch);
-        canonical.push_str(",\"node_id\":");
-        canonical.push_str(&owner.get().to_string());
-        canonical.push_str(",\"placement\":");
-        push_precomposed_vector_placement(&mut canonical, &placement);
-        canonical.push_str(",\"resource\":");
-        push_bound_precomposed_vector_resource(&mut canonical, &resource);
-        canonical.push_str(",\"source_span\":");
-        push_source_span(&mut canonical, vector.owner_source_span());
-        canonical.push('}');
+        let binding_fingerprint = codec::book_binding(
+            epoch,
+            owner,
+            &placement,
+            &resource,
+            vector.owner_source_span(),
+        );
         let receipt = BookV2BoundVector {
             source: vector,
             resource,
             placement,
             provenance: declaration.vector_provenance.as_ref(),
-            fingerprint: sha256(canonical.as_bytes()),
+            fingerprint: binding_fingerprint,
         };
         fingerprint = fold_hash(fingerprint, receipt.fingerprint());
         receipts.push(receipt);

@@ -1,6 +1,8 @@
 #[cfg(feature = "book-v2-staging")]
 #[path = "book_v2_vectors.rs"]
 pub mod book_v2;
+#[path = "safe_vector_codec.rs"]
+mod codec;
 use std::collections::BTreeSet;
 use typaxis_core::{
     push_jcs_string, sha256, ImageResourceId, Length, M4EffectiveResourceLimits, NodeId,
@@ -879,123 +881,15 @@ fn push_bound_precomposed_vector_resource(
     output: &mut String,
     value: &BoundPrecomposedVectorResource,
 ) {
-    output.push_str("{\"admitted_media\":");
-    push_jcs_string(output, value.admitted_media.as_str());
-    output.push_str(",\"declared_media\":");
-    push_jcs_string(output, value.declared_media.as_str());
-    output.push_str(",\"image_id\":");
-    output.push_str(&value.image_id.get().to_string());
-    output.push_str(",\"intrinsic_height\":");
-    output.push_str(&value.intrinsic_height.get().raw().to_string());
-    output.push_str(",\"intrinsic_width\":");
-    output.push_str(&value.intrinsic_width.get().raw().to_string());
-    output.push_str(",\"ir_fingerprint\":");
-    push_hash(output, value.ir_fingerprint);
-    output.push_str(",\"ir_fingerprint_id\":");
-    push_jcs_string(output, value.ir_fingerprint_id);
-    output.push_str(",\"ir_id\":");
-    push_jcs_string(output, value.ir_id);
-    output.push_str(",\"limits_fingerprint\":");
-    push_hash(output, value.limits_fingerprint);
-    output.push_str(",\"parser_id\":");
-    push_jcs_string(output, value.parser_id);
-    output.push_str(",\"profile_fingerprint\":");
-    push_hash(output, value.profile_fingerprint);
-    output.push_str(",\"source_sha256\":");
-    push_hash(output, value.source_sha256);
-    output.push_str(",\"view_box\":[");
-    for (index, coordinate) in value.view_box.iter().enumerate() {
-        if index > 0 {
-            output.push(',');
-        }
-        output.push_str(&coordinate.to_string());
-    }
-    output.push_str("]}");
+    codec::write_resource(output, value).expect("String formatting is infallible");
 }
 
 fn push_precomposed_vector_placement(output: &mut String, value: &PrecomposedVectorPlacementInput) {
-    output.push('{');
-    match value {
-        PrecomposedVectorPlacementInput::Inline(value) => {
-            output.push_str("\"kind\":\"inline\",\"metrics\":");
-            push_bound_vector_metrics(output, value.metrics());
-            output.push_str(",\"paint\":");
-            push_resolved_rgb8(output, value.paint());
-            output.push_str(",\"scale\":");
-            output.push_str(&value.scale().get().raw().to_string());
-            output.push_str(",\"spacing_after\":");
-            output.push_str(&value.spacing_after().get().raw().to_string());
-            output.push_str(",\"spacing_before\":");
-            output.push_str(&value.spacing_before().get().raw().to_string());
-        }
-        PrecomposedVectorPlacementInput::VectorFigure(value) => {
-            output.push_str("\"kind\":\"vector_figure\",\"paint\":");
-            push_resolved_rgb8(output, value.paint());
-            output.push_str(",\"scale\":");
-            output.push_str(&value.scale().get().raw().to_string());
-            output.push_str(",\"style_fingerprint\":");
-            push_hash(output, value.style().fingerprint());
-            output.push_str(",\"viewport\":{\"height\":");
-            output.push_str(&value.viewport_height().get().raw().to_string());
-            output.push_str(",\"width\":");
-            output.push_str(&value.viewport_width().get().raw().to_string());
-            output.push('}');
-        }
-        PrecomposedVectorPlacementInput::MathVectorBlock(value) => {
-            output.push_str("\"kind\":\"math_vector_block\",\"metrics\":");
-            push_bound_vector_metrics(output, value.metrics());
-            output.push_str(",\"paint\":");
-            push_resolved_rgb8(output, value.paint());
-            output.push_str(",\"scale\":");
-            output.push_str(&value.scale().get().raw().to_string());
-            output.push_str(",\"style_fingerprint\":");
-            push_hash(output, value.style().fingerprint());
-        }
-    }
-    output.push('}');
-}
-
-fn push_bound_vector_metrics(
-    output: &mut String,
-    value: typaxis_layout_contract::BoundPrecomposedVectorMetrics,
-) {
-    output.push_str("{\"advance\":");
-    output.push_str(&value.advance().get().raw().to_string());
-    output.push_str(",\"ascent\":");
-    output.push_str(&value.ascent().get().raw().to_string());
-    output.push_str(",\"baseline\":");
-    output.push_str(&value.baseline().get().raw().to_string());
-    output.push_str(",\"descent\":");
-    output.push_str(&value.descent().get().raw().to_string());
-    output.push_str(",\"origin_x\":");
-    output.push_str(&value.origin_x().raw().to_string());
-    output.push_str(",\"viewport\":{\"height\":");
-    output.push_str(&value.viewport_height().get().raw().to_string());
-    output.push_str(",\"width\":");
-    output.push_str(&value.viewport_width().get().raw().to_string());
-    output.push_str("},\"viewport_right_from_pen\":");
-    output.push_str(&value.viewport_right_from_pen().raw().to_string());
-    output.push('}');
-}
-
-fn push_resolved_rgb8(output: &mut String, value: ResolvedRgb8) {
-    output.push_str("{\"blue\":");
-    output.push_str(&value.blue().to_string());
-    output.push_str(",\"green\":");
-    output.push_str(&value.green().to_string());
-    output.push_str(",\"red\":");
-    output.push_str(&value.red().to_string());
-    output.push('}');
+    codec::write_placement(output, value).expect("String formatting is infallible");
 }
 
 fn push_source_span(output: &mut String, value: SourceSpan) {
-    output.push_str("{\"end_byte\":");
-    output.push_str(&value.end_byte().get().to_string());
-    output.push_str(",\"source_id\":");
-    output.push_str(&value.source_id().get().to_string());
-    output.push_str(",\"start_byte\":");
-    output.push_str(&value.start_byte().get().to_string());
-    output.push('}');
+    codec::write_source_span(output, value).expect("String formatting is infallible");
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

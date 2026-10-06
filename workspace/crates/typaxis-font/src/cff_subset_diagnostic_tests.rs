@@ -170,7 +170,7 @@ fn legacy_cff_detailed_budgets_and_selection_do_not_invent_source_fields() {
 #[test]
 fn legacy_cff_detailed_local_and_global_subroutines_keep_original_positions() {
     let hex = include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
-        "/../../../samples/machine-package/staging/production-book-1/cff-media/typaxis-cff-subr-diagnostic-fixture.otf.hex"));
+        "/../../../samples/machine-package/staging/production-book-1/cff-media/diagnostics/typaxis-cff-subr-diagnostic-fixture.otf.hex"));
     let digits: String = hex.chars().filter(|c| !c.is_whitespace()).collect();
     let original: Vec<_> = digits
         .as_bytes()

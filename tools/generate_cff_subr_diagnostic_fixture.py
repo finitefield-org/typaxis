@@ -1,7 +1,7 @@
 """Generate a synthetic /1 subroutine fixture from the existing Typaxis font.
 
 Run with Python and FontTools (verified with 4.51.0). Only the synthetic fixture
-is rewritten; no production font is modified.
+is rewritten below cff-media/diagnostics; no publication input is modified.
 """
 import hashlib
 from io import BytesIO
@@ -35,7 +35,9 @@ def main():
         font.save(buffer)
     data = buffer.getvalue()
     encoded = data.hex()
-    (root / 'typaxis-cff-subr-diagnostic-fixture.otf.hex').write_text(
+    diagnostics = root / 'diagnostics'
+    diagnostics.mkdir(exist_ok=True)
+    (diagnostics / 'typaxis-cff-subr-diagnostic-fixture.otf.hex').write_text(
         '\n'.join(encoded[i:i + 96] for i in range(0, len(encoded), 96)) + '\n')
     print(len(data), hashlib.sha256(data).hexdigest())
 

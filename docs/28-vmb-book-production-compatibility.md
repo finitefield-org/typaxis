@@ -5754,3 +5754,19 @@ owner／予算検査、保持unit／boundaryと選択行の公開canonical_jcs�
 Unicode 16 conformance、workspace型検査、layout 70 tests＋doc-test 1件、Book /2関連
 CLI 304 testsと5独立検証が成功し、759 PDFと保存済みVMB表2出力が§268とbyte一致した。
 Book /2 bindingの一時String、他codecと既存のcommand予算・全巻受入要件は継続する。
+
+### 14.270 Book /2 vector bindingのハッシュ用一時文字列を除去（実装追補）
+
+既存policy・admission・source順序・resource・placement・数式provenanceの検査後、
+binding JCSをSHA-256へ直接投入する。4096-byte String予約とdecimalの一時Stringを
+除き、receipt vectorの予約・上限、epoch・domain・source借用とimmutable owner照合を
+保持する。resource／placement／source-spanのprivate writerを旧公開canonical_jcsとも共有する。
+
+[ADR-0133](../adr/ADR-0133-book-2-vector-binding-fingerprint-streaming.md)と
+[実装台帳§270](28-vmb-book-production-progress.md#vector-binding-fingerprint-streaming-design-14270)を参照。
+旧8公開projection、両layout 70 tests＋doc-test 1件、workspace型検査、font全76 tests、
+旧precomposed経路4 testsとBook /2関連CLI 304 testsが成功した。旧21成果物と759 PDF、
+保存済みVMB表2出力のbyte一致と独立検証も成功した。診断専用CFF fixtureを同じbytesで
+専用directoryへ移し、旧公開resource集合を元の73件へ戻した。旧V19外部host検証は、
+固定veraPDF payloadとの不一致により未受入を維持する。完全なcommand予算・公開Book /2・
+全巻と既存の管理host／性能／著者・人手受入要件は継続する。
