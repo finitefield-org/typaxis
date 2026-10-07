@@ -1,4 +1,6 @@
 use super::*;
+#[path = "book_v2_column_placement_tests.rs"]
+mod physical;
 use crate::book_v2_resources::{
     with_budgeted_book_v2_column_pages as drive, BookV2ColumnPageBudget,
 };

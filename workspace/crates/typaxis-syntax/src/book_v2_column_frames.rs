@@ -169,6 +169,9 @@ impl<'a> BookV2ColumnPageFrames<'a> {
     pub fn column_count(self) -> u16 {
         self.column_layout().map_or(1, |c| c.count)
     }
+    pub fn requires_last_page_balance(self) -> bool {
+        self.column_layout().is_some_and(|c| c.balance == typaxis_document_package::WireColumnBalance::LastPage)
+    }
     pub fn column(self, index: u16) -> Result<Rect, BookV2PageMasterError> {
         match self.frames.columns {
             Some(partition) => partition.column(self.frames.body, index),

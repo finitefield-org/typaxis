@@ -6,6 +6,12 @@ use typaxis_syntax::book_v2::{BookV2ColumnFramePlan, BookV2ColumnPageFrames};
 #[path = "book_v2_column_pages.rs"]
 mod pages;
 pub use pages::*;
+#[path = "book_v2_column_placement.rs"]
+mod placement_columns;
+pub use placement_columns::{BookV2ColumnPlacedBody, BookV2ColumnPlacedHeaderVariant, BookV2ColumnPlacedPage, BookV2ColumnPlacedSequence};
+#[path = "book_v2_column_stability.rs"]
+mod stable_columns;
+pub use stable_columns::BookV2ColumnStablePages;
 
 pub struct BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
     pub(super) inner: BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>,

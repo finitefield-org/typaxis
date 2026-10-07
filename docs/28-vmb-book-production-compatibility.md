@@ -6080,3 +6080,37 @@ last_page balance、実段の物理配置・source closure・math terminals・�
 同時保持graphを含む全command予算の監査も残る。公開Book /2と4 manifests、元全巻1 package／
 1 PDF、5,000 distinct画像の実配置・元Harano全巻・管理host・制御性能・著者／人手受入と、
 未作成のSpeech／SemanticRefを補った成果物の受入は今回の範囲に含めず、設計全体の完了とはしない。
+
+<a id="book-2-column-physical-placement-design-14283"></a>
+### 14.283 実段の物理配置と配置一致を累積予算へ接続する（実装追補）
+
+本文・表・脚注のleaf／marker配置kernelを共用し、各実段のboundsとparts、一つの元
+脚注領域を配置する。空段も元boundsと空fragment rangeを保持する。元itemとtable cursor、
+セル・rowspan・caption・反復headerを同じ処理で配置し、元sourceまたは実headerの測定
+起点から所属領域への横差分をfragment・viewport・list／脚注markerへ適用する。fragment
+boundsの包含を検査し、式番号は全ページのfragment indexを保つ。単段の配置順と課金は
+従来の入口に維持する。
+
+段組専用のBookV2ColumnPlacedSequenceとBookV2ColumnStablePagesを追加する。実選択と
+物理配置を二回以上繰り返し、段・元選択・fragment・cell・caption・実header association・
+marker・式番号・separatorの一致を課金して比較する。別searchのsequence、単段の配置型へ
+の変換を拒否する。header viewは元の実graphを借用し、単段の測定・flow認可を公開しない。
+選択したmasterがlast_page balanceを要求する場合はcolumn_balanceとして拒否する。
+
+既存with_budgeted_book_v2_column_pagesのsource選択APIは維持する。共通の幅収束driverへ
+with_budgeted_book_v2_column_placementを追加し、元unit幅・起点とblock幅が一致した後に
+実配置の安定検査とwidth feedbackの再照合を行う。callbackのpages／search／feedbackは
+同じgraphのlifetimeを明示的に共有する。追加配置・開始済みpass・失敗prefix・callback消費を
+同じcaller予算へ戻す。
+
+[ADR-0146](../adr/ADR-0146-book-2-column-physical-placement.md)と
+[実装台帳§283](28-vmb-book-production-progress.md#book-2-column-physical-placement-design-14283)を参照。
+新しい6 testsで実起点と空anchor、本文／脚注の表10ケース、vector／native式・画像の20ケース、
+原Haranoのlist／脚注、元glyph・実描画幅・baseline・marker所属と予算境界を検査する。
+単段へ変換できないことはcompile-failで確認し、既存PDFは直前実装とのbyte一致を確認する。
+
+last_page balance、source一回消費のclosure、元数式terminals、段組PDFと独立受入は継続する。
+Pageラベルの外側の収束、全commandのphysical byte／capacity／spool・同時保持graph、公開
+Book /2と4 manifests、元全巻1 package／1 PDF、5,000 distinct画像の実配置、原Harano全巻、
+管理host・制御性能・著者／人手受入も残る。元本文内数式6,343件のSpeech／SemanticRefは
+ユーザー回答どおり未作成であり、設計全体の完了とは扱わない。

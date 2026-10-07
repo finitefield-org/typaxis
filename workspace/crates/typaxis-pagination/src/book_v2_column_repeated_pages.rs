@@ -34,7 +34,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
             passes: result.passes,
         })
     }
-    fn same_column_selections(
+    pub(in crate::production_body::body_flow) fn same_column_selections(
         &mut self,
         left: &BookV2ColumnPageSequence<'b, 'f, 's, 'p, 'a>,
         right: &BookV2ColumnPageSequence<'b, 'f, 's, 'p, 'a>,

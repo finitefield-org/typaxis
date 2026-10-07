@@ -95,8 +95,18 @@ impl<'q, 'b, 'f, 's, 'p, 'a> BookV2BodyMixedPlacedSequence<'q, 'b, 'f, 's, 'p, '
         &self.pages
     }
 }
+pub(super) struct BookV2PageContent<'b, 'f, 's, 'p, 'a> {
+    pub(super) fragments: Vec<ProductionBodyFootnotePlacedFragment>,
+    pub(super) cells: Vec<Option<ProductionTablePlacedCellRole>>,
+    pub(super) variants: Vec<BookV2BodyPlacedHeaderVariant<'b, 'f, 's, 'p, 'a>>,
+    pub(super) repeated_captions: Vec<usize>,
+    pub(super) lists: Vec<ProductionBodyListMarker>,
+    pub(super) notes: Vec<ProductionBodyFootnotePlacedMarker>,
+    pub(super) separator: Option<Rect>,
+}
+
 impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
-    fn content_placement(&mut self) -> placement::ContentPlacement<'_, '_, 'p, 'a> {
+    pub(super) fn content_placement(&mut self) -> placement::ContentPlacement<'_, '_, 'p, 'a> {
         let flow = self.content.flow;
         placement::ContentPlacement {
             lines: BodyLines::BookV2(flow.lines()),
@@ -119,7 +129,6 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     {
         self.verify_mixed_sequence(sequence)?;
         let root = NodeId::new(0);
-        let flow = self.content.flow;
         self.content.charge.take(
             sequence
                 .pages()
@@ -137,123 +146,16 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             self.content.step(root)?;
             let candidate = selection.candidate();
             let page = selection.page_index();
-            let mut fragments = Vec::new();
-            let mut cells = Vec::new();
-            let mut repeated_captions = Vec::new();
-            let mut variants = Vec::new();
-            for part in candidate.parts() {
-                self.content.step(root)?;
-                let origin = add(selection.body_bounds().y(), part.top(), root)?;
-                if let Some(range) = part.items() {
-                    self.content_placement().place_content_range(
-                        &mut fragments,
-                        page,
-                        None,
-                        range,
-                        origin,
-                        part.height(),
-                    )?;
-                    self.extend_mixed_roles(&mut cells, fragments.len())?;
-                } else {
-                    let table = part
-                        .table()
-                        .ok_or_else(|| error(root, E::ReceiptMismatch))?;
-                    self.place_mixed_table_leaves(
-                        table,
-                        page,
-                        None,
-                        origin,
-                        part.height(),
-                        &mut fragments,
-                        &mut cells,
-                        &mut repeated_captions,
-                        &mut variants,
-                    )?;
-                }
-            }
-            let body_fragment_count = fragments.len();
-            if let Some(region) = candidate.footnotes() {
-                for selected in region.fragments() {
-                    self.content.step(root)?;
-                    let fragment = selected.fragment();
-                    if fragment
-                        .mixed()
-                        .is_some_and(|mixed| mixed.used_height() == Length::ZERO)
-                        || (fragment.mixed().is_none() && fragment.items()?.is_empty())
-                    {
-                        continue;
-                    }
-                    let bounds = candidate
-                        .footnote_bounds()
-                        .ok_or_else(|| error(root, E::ReceiptMismatch))?;
-                    let separator = Length::from_raw(typaxis_layout::FOOTNOTE_SEPARATOR_BAND_RAW)
-                        .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
-                    let origin = add(add(bounds.y(), separator, root)?, selected.offset(), root)?;
-                    if let Some(mixed) = fragment.mixed() {
-                        for part in mixed.parts() {
-                            self.content.step(root)?;
-                            let top = add(origin, part.top(), root)?;
-                            if let Some(range) = part.items() {
-                                let items = flow
-                                    .definition_items(fragment.definition_index())
-                                    .ok_or_else(|| error(root, E::ReceiptMismatch))?;
-                                if items
-                                    .get(range.start)
-                                    .is_some_and(|item| item.source.is_none())
-                                {
-                                    continue;
-                                }
-                                self.content_placement().place_content_range(
-                                    &mut fragments,
-                                    page,
-                                    Some(fragment.definition_index()),
-                                    range,
-                                    top,
-                                    part.height(),
-                                )?;
-                                self.extend_mixed_roles(&mut cells, fragments.len())?;
-                            }
-                            if let Some(table) = part.table() {
-                                self.place_mixed_table_leaves(
-                                    table,
-                                    page,
-                                    Some(fragment.definition_index()),
-                                    top,
-                                    part.height(),
-                                    &mut fragments,
-                                    &mut cells,
-                                    &mut repeated_captions,
-                                    &mut variants,
-                                )?;
-                            }
-                        }
-                    } else {
-                        let start = fragment.consumed_range()?.start;
-                        self.content_placement().place_content_range(
-                            &mut fragments,
-                            page,
-                            Some(fragment.definition_index()),
-                            start..start + fragment.items()?.len(),
-                            origin,
-                            fragment.used_height(),
-                        )?;
-                        self.extend_mixed_roles(&mut cells, fragments.len())?;
-                    }
-                }
-            }
-            let separator = self
-                .content_placement()
-                .place_separator(candidate.footnote_bounds().filter(|_| {
-                    fragments.len() > body_fragment_count
-                }))?;
-            let repetitions =
-                roles_with_repetition(&cells, &repeated_captions).map(|(_, repeated)| repeated);
-            let (mut lists, mut notes) = if variants.is_empty() {
-                self.content_placement()
-                    .place_page_markers_with_repetition(&fragments, repetitions)?
-            } else {
-                self.place_variant_page_markers(&fragments, &variants, repetitions)?
-            };
+            let BookV2PageContent {
+                mut fragments, cells, repeated_captions, variants,
+                mut lists, mut notes, separator,
+            } = self.place_page_regions_content(
+                page,
+                std::iter::once((selection.body_bounds(), candidate.parts())),
+                candidate.footnotes(),
+                candidate.footnote_bounds(),
+                |_, _| Ok(()),
+            )?;
             if variants.is_empty() {
                 self.translate_page_origins(selection, &mut fragments, &mut lists, &mut notes)?;
             } else {
@@ -289,6 +191,142 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         }
         Ok(BookV2BodyMixedPlacedSequence { sequence, pages })
     }
+    /// Shared leaf/marker placement, with source-specific physical regions.
+    /// Region observers retain column provenance without copying leaf arrays.
+    pub(super) fn place_page_regions_content<'r>(
+        &mut self,
+        page: u32,
+        regions: impl Iterator<Item = (Rect, &'r [BookV2BodySelectedPart<'b, 'f, 's, 'p, 'a>])>,
+        footnotes: Option<&BookV2FootnoteRegionSelection<'b, 'f, 's, 'p, 'a>>,
+        footnote_bounds: Option<Rect>,
+        mut observed: impl FnMut(Rect, std::ops::Range<usize>) -> Result<(), ProductionBodyPaginationError>,
+    ) -> Result<BookV2PageContent<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError>
+    where 'b: 'r, 'f: 'r, 's: 'r, 'p: 'r, 'a: 'r {
+        let root = NodeId::new(0);
+        let flow = self.content.flow;
+        let mut fragments = Vec::new();
+        let mut cells = Vec::new();
+        let mut repeated_captions = Vec::new();
+        let mut variants = Vec::new();
+        for (bounds, parts) in regions {
+            let first = fragments.len();
+            for part in parts {
+                self.content.step(root)?;
+                let origin = add(bounds.y(), part.top(), root)?;
+                if let Some(range) = part.items() {
+                    self.content_placement().place_content_range(
+                        &mut fragments,
+                        page,
+                        None,
+                        range,
+                        origin,
+                        part.height(),
+                    )?;
+                    self.extend_mixed_roles(&mut cells, fragments.len())?;
+                } else {
+                    let table = part
+                        .table()
+                        .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+                    self.place_mixed_table_leaves(
+                        table,
+                        page,
+                        None,
+                        origin,
+                        part.height(),
+                        &mut fragments,
+                        &mut cells,
+                        &mut repeated_captions,
+                        &mut variants,
+                    )?;
+                }
+            }
+            observed(bounds, first..fragments.len())?;
+        }
+        let body_fragment_count = fragments.len();
+        if let Some(region) = footnotes {
+            for selected in region.fragments() {
+                self.content.step(root)?;
+                let fragment = selected.fragment();
+                if fragment
+                    .mixed()
+                    .is_some_and(|mixed| mixed.used_height() == Length::ZERO)
+                    || (fragment.mixed().is_none() && fragment.items()?.is_empty())
+                {
+                    continue;
+                }
+                let bounds = footnote_bounds
+                    .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+                let separator = Length::from_raw(typaxis_layout::FOOTNOTE_SEPARATOR_BAND_RAW)
+                    .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
+                let origin = add(add(bounds.y(), separator, root)?, selected.offset(), root)?;
+                if let Some(mixed) = fragment.mixed() {
+                    for part in mixed.parts() {
+                        self.content.step(root)?;
+                        let top = add(origin, part.top(), root)?;
+                        if let Some(range) = part.items() {
+                            let items = flow
+                                .definition_items(fragment.definition_index())
+                                .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+                            if items
+                                .get(range.start)
+                                .is_some_and(|item| item.source.is_none())
+                            {
+                                continue;
+                            }
+                            self.content_placement().place_content_range(
+                                &mut fragments,
+                                page,
+                                Some(fragment.definition_index()),
+                                range,
+                                top,
+                                part.height(),
+                            )?;
+                            self.extend_mixed_roles(&mut cells, fragments.len())?;
+                        }
+                        if let Some(table) = part.table() {
+                            self.place_mixed_table_leaves(
+                                table,
+                                page,
+                                Some(fragment.definition_index()),
+                                top,
+                                part.height(),
+                                &mut fragments,
+                                &mut cells,
+                                &mut repeated_captions,
+                                &mut variants,
+                            )?;
+                        }
+                    }
+                } else {
+                    let start = fragment.consumed_range()?.start;
+                    self.content_placement().place_content_range(
+                        &mut fragments,
+                        page,
+                        Some(fragment.definition_index()),
+                        start..start + fragment.items()?.len(),
+                        origin,
+                        fragment.used_height(),
+                    )?;
+                    self.extend_mixed_roles(&mut cells, fragments.len())?;
+                }
+            }
+        }
+        let separator = self
+            .content_placement()
+            .place_separator(footnote_bounds.filter(|_| {
+                fragments.len() > body_fragment_count
+            }))?;
+        let repetitions =
+            roles_with_repetition(&cells, &repeated_captions).map(|(_, repeated)| repeated);
+        let (lists, notes) = if variants.is_empty() {
+            self.content_placement()
+                .place_page_markers_with_repetition(&fragments, repetitions)?
+        } else {
+            self.place_variant_page_markers(&fragments, &variants, repetitions)?
+        };
+        Ok(BookV2PageContent { fragments, cells, variants, repeated_captions, lists, notes, separator })
+    }
+
     pub(super) fn page_origin_delta(
         &self,
         selection: &BookV2BodyMixedPageSelection<'b, 'f, 's, 'p, 'a>,
@@ -513,7 +551,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         }
         Ok(())
     }
-    fn place_page_equation_numbers(
+    pub(super) fn place_page_equation_numbers(
         &mut self,
         fragments: &[ProductionBodyFootnotePlacedFragment],
         roles: &[Option<ProductionTablePlacedCellRole>],
@@ -601,7 +639,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
 }
 
 /// Sparse caption copies preserve old cell-only allocations and source roles.
-fn roles_with_repetition<'r>(
+pub(super) fn roles_with_repetition<'r>(
     cells: &'r [Option<ProductionTablePlacedCellRole>],
     captions: &'r [usize],
 ) -> impl Iterator<Item = (Option<ProductionTablePlacedCellRole>, bool)> + 'r {

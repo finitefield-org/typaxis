@@ -1,5 +1,7 @@
 //! Automatic source-width/column-page feedback with one retained caller ledger.
-//! Repeated source selections are not yet balanced placement or PDF receipts.
+//! Source and physical consumers share all width discovery and caller budgets.
+//! Source/formula closure, requested final-page balancing and PDF receipts are
+//! still separate from immutable physical stability.
 use super::column_catalog_driver::with_discovered_column_header_catalog;
 use super::header_catalog_driver::{reserve, HeaderCatalogBudget};
 use super::*;
@@ -20,6 +22,117 @@ impl BookV2ColumnPageBudget {
     }
 }
 
+trait ColumnDelivery<R> {
+    fn finish<'b, 'f, 's, 'p, 'a>(
+        self,
+        pages: &BookV2ColumnRepeatedPages<'b, 'f, 's, 'p, 'a>,
+        search: &mut BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a>,
+        feedback: &BookV2ColumnWidthFeedback<'p, 'a>,
+        limits: &M4EffectiveResourceLimits,
+        maximum: u64,
+        ledger: &mut HeaderCatalogBudget,
+        total: &mut BookV2PdfConvergenceObservation,
+    ) -> Result<R, E>;
+}
+struct SourceColumns<F>(F);
+struct PhysicalColumns<F>(F);
+fn column_observation(
+    search: &BookV2ColumnPageSearch<'_, '_, '_, '_, '_>,
+    ledger: &HeaderCatalogBudget,
+    total: &mut BookV2PdfConvergenceObservation,
+    maximum: u64,
+) -> Result<BookV2PdfConvergenceObservation, E> {
+    let observation = BookV2PdfConvergenceObservation {
+        candidates: total
+            .candidates
+            .checked_add(1)
+            .ok_or(E::Limit("column candidates"))?,
+        records: search.record_charge(),
+        work: add(
+            ledger.work,
+            search.work_steps(),
+            maximum,
+            "column page work",
+        )?,
+        line_passes: ledger.line_passes,
+        page_passes: ledger.page_passes,
+        ..*total
+    };
+    total.candidates = observation.candidates;
+    Ok(observation)
+}
+impl<R, F> ColumnDelivery<R> for SourceColumns<F>
+where
+    F: for<'b, 'f, 's, 'p, 'a> FnOnce(
+        &BookV2ColumnRepeatedPages<'b, 'f, 's, 'p, 'a>,
+        &mut BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a>,
+        &BookV2ColumnWidthFeedback<'p, 'a>,
+        BookV2PdfConvergenceObservation,
+    ) -> R,
+{
+    fn finish<'b, 'f, 's, 'p, 'a>(
+        self,
+        pages: &BookV2ColumnRepeatedPages<'b, 'f, 's, 'p, 'a>,
+        search: &mut BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a>,
+        feedback: &BookV2ColumnWidthFeedback<'p, 'a>,
+        _limits: &M4EffectiveResourceLimits,
+        maximum: u64,
+        ledger: &mut HeaderCatalogBudget,
+        total: &mut BookV2PdfConvergenceObservation,
+    ) -> Result<R, E> {
+        let observed = column_observation(search, ledger, total, maximum)?;
+        Ok((self.0)(pages, search, feedback, observed))
+    }
+}
+impl<R, F> ColumnDelivery<R> for PhysicalColumns<F>
+where
+    F: for<'b, 'f, 's, 'p, 'a> FnOnce(
+        &BookV2ColumnStablePages<'b, 'f, 's, 'p, 'a>,
+        &mut BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a>,
+        &BookV2ColumnWidthFeedback<'p, 'a>,
+        BookV2PdfConvergenceObservation,
+    ) -> R,
+{
+    fn finish<'b, 'f, 's, 'p, 'a>(
+        self,
+        _pages: &BookV2ColumnRepeatedPages<'b, 'f, 's, 'p, 'a>,
+        search: &mut BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a>,
+        feedback: &BookV2ColumnWidthFeedback<'p, 'a>,
+        limits: &M4EffectiveResourceLimits,
+        maximum: u64,
+        ledger: &mut HeaderCatalogBudget,
+        total: &mut BookV2PdfConvergenceObservation,
+    ) -> Result<R, E> {
+        // Initial source widths can span a full body; place only after reflow.
+        let mut begun = 0;
+        let physical = search.select_stable_column_pages_counted(
+            limits.base().get().max_layout_passes - ledger.page_passes,
+            &mut begun,
+        );
+        ledger.page_passes = ledger
+            .page_passes
+            .checked_add(begun)
+            .filter(|n| *n <= limits.base().get().max_layout_passes)
+            .ok_or(E::Limit("column physical page passes"))?;
+        let pages = physical.map_err(|e| stage("column physical stability", e))?;
+        total.width_passes = total
+            .width_passes
+            .checked_add(1)
+            .ok_or(E::Limit("column width passes"))?;
+        let physical_feedback = search
+            .paragraph_frame_feedback(pages.sequence())
+            .map_err(|e| stage("column physical width feedback", e))?;
+        if physical_feedback.assignment_fingerprint() != feedback.assignment_fingerprint()
+            || !physical_feedback.matches_selected_line_widths()
+            || !physical_feedback.matches_selected_block_widths()
+        {
+            return Err(E::Identity);
+        }
+        let observed = column_observation(search, ledger, total, maximum)?;
+        Ok((self.0)(&pages, search, &physical_feedback, observed))
+    }
+}
+
 /// Keep the exact original resources and plan across source-unit reshaping,
 /// actual header-width discovery and repeated joint column/note selection.
 pub fn with_budgeted_book_v2_column_pages<R>(
@@ -27,12 +140,45 @@ pub fn with_budgeted_book_v2_column_pages<R>(
     limits: &M4EffectiveResourceLimits,
     japanese_mode: typaxis_linebreak::JapaneseLineBreakMode,
     budget: &mut BookV2ColumnPageBudget,
-    inspect: impl FnOnce(
-        &BookV2ColumnRepeatedPages<'_, '_, '_, '_, '_>,
-        &mut BookV2ColumnPageSearch<'_, '_, '_, '_, '_>,
-        &BookV2ColumnWidthFeedback<'_, '_>,
+    inspect: impl for<'b, 'f, 's, 'p, 'a> FnOnce(
+        &BookV2ColumnRepeatedPages<'b, 'f, 's, 'p, 'a>,
+        &mut BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a>,
+        &BookV2ColumnWidthFeedback<'p, 'a>,
         BookV2PdfConvergenceObservation,
     ) -> R,
+) -> Result<R, E> {
+    with_column_pages(input, limits, japanese_mode, budget, SourceColumns(inspect))
+}
+
+/// Deliver actual repeated geometry after the common source-width convergence.
+/// Begun physical passes and callback consumption retain the same caller ledger.
+pub fn with_budgeted_book_v2_column_placement<R>(
+    input: &PreparedBookV2Resources,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: typaxis_linebreak::JapaneseLineBreakMode,
+    budget: &mut BookV2ColumnPageBudget,
+    inspect: impl for<'b, 'f, 's, 'p, 'a> FnOnce(
+        &BookV2ColumnStablePages<'b, 'f, 's, 'p, 'a>,
+        &mut BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a>,
+        &BookV2ColumnWidthFeedback<'p, 'a>,
+        BookV2PdfConvergenceObservation,
+    ) -> R,
+) -> Result<R, E> {
+    with_column_pages(
+        input,
+        limits,
+        japanese_mode,
+        budget,
+        PhysicalColumns(inspect),
+    )
+}
+
+fn with_column_pages<R>(
+    input: &PreparedBookV2Resources,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: typaxis_linebreak::JapaneseLineBreakMode,
+    budget: &mut BookV2ColumnPageBudget,
+    consumer: impl ColumnDelivery<R>,
 ) -> Result<R, E> {
     if budget.inner.limits_fingerprint != limits.fingerprint() {
         return Err(E::Identity);
@@ -89,7 +235,7 @@ pub fn with_budgeted_book_v2_column_pages<R>(
         &columns,
         maximum,
         total,
-        inspect,
+        consumer,
     )
 }
 
@@ -105,12 +251,7 @@ fn with_column_source_pages<'origin, 'source, R>(
     columns: &'origin BookV2ColumnFramePlan<'source>,
     maximum: u64,
     total: &mut BookV2PdfConvergenceObservation,
-    inspect: impl FnOnce(
-        &BookV2ColumnRepeatedPages<'_, '_, '_, '_, '_>,
-        &mut BookV2ColumnPageSearch<'_, '_, '_, '_, '_>,
-        &BookV2ColumnWidthFeedback<'_, '_>,
-        BookV2PdfConvergenceObservation,
-    ) -> R,
+    consumer: impl ColumnDelivery<R>,
 ) -> Result<R, E> {
     let caps = limits.base().get();
     total.records = add(
@@ -125,7 +266,7 @@ fn with_column_source_pages<'origin, 'source, R>(
     // Metadata alone survives width passes; every sibling graph is rebuilt and
     // source-bound to the current seed. Re-discovery never refunds its prefix.
     let mut header_requests = Vec::new();
-    let mut inspect = Some(inspect);
+    let mut consumer = Some(consumer);
     loop {
         if caps.max_layout_passes.saturating_sub(total.page_passes) < 3 {
             return Err(E::Limit("column page passes"));
@@ -298,29 +439,19 @@ fn with_column_source_pages<'origin, 'source, R>(
                         );
                         return Ok(None);
                     }
-                    let observation = BookV2PdfConvergenceObservation {
-                        candidates: total
-                            .candidates
-                            .checked_add(1)
-                            .ok_or(E::Limit("column candidates"))?,
-                        records: search.record_charge(),
-                        work: add(
-                            ledger.work,
-                            search.work_steps(),
+                    consumer
+                        .take()
+                        .ok_or(E::Identity)?
+                        .finish(
+                            &pages,
+                            &mut search,
+                            &feedback,
+                            limits,
                             maximum,
-                            "column page work",
-                        )?,
-                        line_passes: ledger.line_passes,
-                        page_passes: ledger.page_passes,
-                        ..*total
-                    };
-                    total.candidates = observation.candidates;
-                    Ok(Some(inspect.take().ok_or(E::Identity)?(
-                        &pages,
-                        &mut search,
-                        &feedback,
-                        observation,
-                    )))
+                            ledger,
+                            total,
+                        )
+                        .map(Some)
                 })();
                 ledger.records = ledger.records.max(search.record_charge());
                 ledger.work(search.work_steps(), maximum)?;

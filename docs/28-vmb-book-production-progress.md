@@ -16952,3 +16952,28 @@ BookV2ColumnRepeatedPagesは共通のpage安定比較kernelを使い、同じ不
 verify-correspondence.pyは全695開始／終了source hashes、74 verifiers、全13変更、6新tests、実binaryと保存copyのSHA-256 d7d629c6b4dae5bf05221345f3f54d45e4139596fbe22e324b36f3dc48c73760、全357登録名・成功名の一致、7回帰commands／8独立commands／旧検証、元入力・10 jobs、863 PDF対応と21旧成果物をrun-source-correspondence.jsonへ結ぶ。保存済みfocusedの成功・失敗と表／循環counter観測も対応付ける。検証後の文書3件は別hashへ記録する。
 
 次は実column boundsと一つの元脚注領域を共有配置kernelへ接続し、元item／table cursor・caption・セル・rowspan・反復headerのownerと読順を保って配置する。last_page balance、配置一致・source一回消費のclosure・元数式terminals・段組PDFと独立受入は継続する。Page参照の生成ラベルから最終PDFまでの外側の収束、physical byte／capacity／spool・同時保持graphを覆う全command予算も残る。private PDF driverの段組拒否を維持し、新しい段組PDFの受入は0件である。公開Book /2と4 manifests、元全巻1 package／1 PDF、5,000 distinct画像の実配置、元Harano全巻・管理host・制御性能・著者／人手受入も継続する。元本文内数式6,343件のSpeech／SemanticRefはユーザーが未作成と回答した状態を維持し、設計全体の完了とは扱わない。
+
+<a id="book-2-column-physical-placement-design-14283"></a>
+## 283. 実段の物理配置と配置一致を累積予算へ接続する（design §14.283）
+
+da66326a51cd19e627f65904a51f122811f81270を基準として、[ADR-0146](../adr/ADR-0146-book-2-column-physical-placement.md)に従い、実段と一つの元脚注領域の物理配置、段組専用の配置一致型とdriver入口を追加した。本文・表・脚注のleaf／marker配置をprivate kernelへ抽出し、従来の単段は一つの本文boundsと元partsを渡す。配置順と既存の課金を保つ。
+
+各段の実boundsと連続fragment rangeを保持し、空段も省略しない。元item／table cursor、セル・rowspan・caption・反復headerを同じkernelで配置する。fragmentが属する段／脚注領域と、元sourceまたは実headerの測定起点から横差分を求め、fragment・viewport・list／脚注markerへ適用する。fragment boundsの包含を検査し、式番号は全ページのfragment indexを保つ。元glyph graphをcopyしない。段組専用header viewは実linesと元ownerのassociationを借用し、単段の測定・flowの認可を公開しない。
+
+BookV2ColumnPlacedSequenceとBookV2ColumnStablePagesは単段の配置／安定型へ変換できない。共通のpage安定比較kernelで二回以上の実選択と物理配置を行い、元選択、段bounds・fragment・cell・反復caption・実header association・list／脚注marker・式番号・separatorを課金して照合する。別searchのsequenceを拒否し、短いpass上限は開始せず拒否する。選択したmasterがlast_page balanceを要求する場合はcolumn_balanceとして拒否し、失敗までに開始したpass・record・workを保持する。
+
+with_budgeted_book_v2_column_pagesの元source選択APIを維持した。共通の幅収束driverへwith_budgeted_book_v2_column_placementを追加し、元unit幅・起点とblock幅が一致した後に物理配置の安定検査とwidth feedbackの再照合を行う。callbackのpages／search／feedbackは同じgraphのlifetimeを明示的に共有する。追加配置・開始済みpass・失敗prefix・callback消費をcallerの累積予算へ戻す。元のsource APIは§282の原Haranoの実幅循環counterを維持する。
+
+新しい6 testsは非零の本文／脚注起点、空anchor、本文／脚注の入れ子・rowspan・caption・反復header10ケース、vector／native式・PNG／JPEG／SVGの表内外20ケースと無変更の原Haranoによるordered／unordered list・脚注4ケースを検査した。元glyphへの同一参照、required_inline_sizeから求める描画幅、baseline、markerのfragment所属と起点を照合する。累積record／workのexact／1不足、callbackでの追加消費・失敗後の再試行、別owner、短いpass上限、均等化要求の拒否も確認した。表10ケースはline／page上限512・work上限1,000,000,000を明示し、7〜12 width passes、最大363,463,075 workで実配置を検査した。原HaranoのSHA-256は66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717で固定した。
+
+証跡はworkspace/target/vmb-design/20261007/column-physical-placement/。初回checkのlifetime boundsとcallbackの独立lifetimeを修正した。初回focusedでは既存fixture helperがbalance指定を上書きしていたため、元source APIを維持し、物理配置fixtureはcallerのcarrierを保存するhelperへ分けた。描画幅と行の使用可能幅の取り違え、list styleのfont_family名も修正し、失敗source hashes・commands・logsを保全した。focused-draft-06は6成功／失敗・ignored 0（test観測66.07秒）。新3 modulesと前節で追加したcolumn driverを整形し、最終sourceを固定した。
+
+最終699 compilation／source入力、全12 source／test変更、74独立verifier、原Harano／Arialと元入力、保存済みVMB 10 jobsを固定した。run-regression-01.pyの7 commandsは全てexit code 0。旧syntax 79 tests＋doc-test 6件、Book /2 syntax 161 tests＋doc-test 13件、layout 70 tests＋doc-test 4件、pagination 104 tests＋doc-test 10件、workspace --all-features --tests checkが成功した。実binaryに登録された全Book CLI 363 unique testsを原font指定・include-ignoredで実行し、失敗／ignoredは0。binary全782件のうち419件はこのcommandでfilteredであり、全782件を実行したとは扱わない。旧precomposedは4成功／外部host 1 ignored。CLIのtest観測518.90秒は制御された性能受入ではない。
+
+独立検査の8 commandsは全て成功した。共通検査は863 source PDFs（実driver callbacks 412件）、3300 pages、39244構造nodes、1095 annotations、unsupported 13入力、改変拒否7600件。header resourcesは58 displays（TrueType 48／CFF 10）、793 mapped glyphs、34108 CID uses、174改変拒否、実PDFは58件／446 pages／34108 CID paintsと118改変拒否に成功した。running regionsは3 PDFs／10 pages／126 glyph paintsとresource改変9件・PDF／source改変22件、uniform tableは16 PDFs／60 pages／112改変拒否、named table transitionsは26 driver PDFs／108 pages／130改変拒否、named footnotesは26 driver PDFs／94 pages／156改変拒否に成功した。これらは既存PDF経路の回帰で、新しい段組PDFを含まない。
+
+共通PDF検査は既存のbundled Python、残りは既存Pythonとbundled pypdf／Pillowのlibrary path・既存FontToolsを使用した。installは行っていない。実行環境とmodule hashesはindependent-python.jsonへ記録する。全863 PDFは§282とbyte一致し、名前変更0。保存済みVMB table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§282と一致した。旧経路の独立21 checksと旧成果物21組のbyte一致も成功した。
+
+verify-correspondence.pyは全699開始／終了source hashes、74 verifiers、全12変更、6新tests、実binaryと保存copyのSHA-256 5a9f32118d98486f1bdfa76c4748e82a8a0178772cb82a0a0d786d7fa8994010、全363登録名・成功名の一致、7回帰commands／8独立commands／旧検証、元入力・10 jobs、863 PDF対応と21旧成果物をrun-source-correspondence.jsonへ結ぶ。保存済みfocusedの成功・失敗と実表／元source循環counterも対応付ける。検証後の文書3件は別hashへ記録する。
+
+次は実段のsource一回消費のclosureと元数式terminals、last_page balanceを接続する。段組PDFと独立受入、Pageラベルから最終PDFまでの外側の収束、全commandのphysical byte／capacity／spool・同時保持graphの監査も継続する。private PDF driverの段組拒否を維持し、新しい段組PDFの受入は0件。公開Book /2と4 manifests、元全巻1 package／1 PDF、5,000 distinct画像の実配置、原Harano全巻・管理host・制御性能・著者／人手受入も継続する。元本文内数式6,343件のSpeech／SemanticRefはユーザーが未作成と回答した状態を維持し、設計全体の完了とは扱わない。
