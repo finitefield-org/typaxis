@@ -5939,3 +5939,30 @@ source cut・名前・keepを検査し、失敗した候補のworkとrecordを�
 last_page balance、物理配置・terminal・段組PDFと独立受入は継続する。完全なcommand
 予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入と
 未作成のSpeech／SemanticRefも残る。設計全体の完了とはしない。
+
+### 14.278 段と脚注の元境界からページを自動選択する（実装追補）
+
+単段の元境界列挙と改ページ前検査を共有し、各実段の高さで普通のitemと表の実cursorの
+合法なcutを求める。sequential fillとして既存widow／orphan／headingのcost順に左から
+右へ探索する。先行段の一つのcutに続く後段の候補を全て検査してから先行段を戻し、
+未使用の末尾段は最後に試す。全段の合計cost最適化やlast_page balanceではない。
+
+段のprobeではsourceとdemandを分岐し、全段のcutが揃った後に元の全ページ脚注領域へ
+一度だけfitする。必須断片が収まらなければ先行段まで戻す。named retryを含むfit回数に
+共通reflow上限を適用し、各段の境界列挙にも元lookback上限を適用する。明示stackを使い、
+大きな段数でも段数に比例した再帰を作らない。確保前のlogical record予約と失敗・再試行の
+work／record履歴を保持する。
+
+元の外側／表内改ページで物理ページの後段を閉じる。先頭・連続・末尾の改ページによる
+必要な空ページ、本文終了後の実脚注継続、元keep診断と名前別master・段数を保持する。
+caption・セル・入れ子・rowspanの実cursorを段間とページ間へ渡し、元commandを一度だけ
+消費する。BookV2ColumnPageSequenceはsource chain・search owner・元plan・表測定へ
+結び付け、単段のページ列やpaint receiptへ変換しない。
+
+[ADR-0141](../adr/ADR-0141-book-2-automatic-column-pages.md)と
+[実装台帳§278](28-vmb-book-production-progress.md#book-2-automatic-column-pages-design-14278)を参照。
+これは初期測定に基づくsource選択であり、選択した実段幅への再組版feedback・反復headerの
+幅variant、last_page balance、安定配置・terminal・段組PDFと独立受入は継続する。
+private driver／PDF assemblyの段組拒否を維持する。完全なcommand予算・同時保持graph、
+公開Book /2、元全巻・管理host・制御性能・著者／人手受入と未作成のSpeech／SemanticRefも
+残り、設計全体の完了とはしない。

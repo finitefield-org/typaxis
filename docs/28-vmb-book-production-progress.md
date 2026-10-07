@@ -16827,3 +16827,32 @@ CLIの初回は320成功／3失敗／ignored 0、419 filtered out、648.19秒だ
 verify-correspondence.pyは全681開始／終了hashes・74 verifier hashes・全13変更、原入力・10 VMB jobs、全回帰commands／logsと初回・再試行のStorageFull、cache整理、実test binary、6新規候補tests・3既存段幅testsを含む323 unique successes、8独立commandsと旧検証、全artifact対応をrun-source-correspondence.jsonへ結ぶ。検証後の文書3件は別hashへ記録する。font全suite・外部host・元全巻・著者／人手の受入は今回の結果として扱わない。
 
 この変更はcallerが提示する候補の適合判定であり、自動候補列挙／ranking、明示改ページを含む安定ページ列、実段幅への再組版feedbackと反復header variants、last_page balance、実配置・terminal・段組PDFと独立検証は継続する。private driverとPDF assemblyによる段組拒否は維持し、新しい段組PDFの受入は0件である。完全なcommand予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入、未作成のSpeech／SemanticRefも継続し、設計全体の完了とは扱わない。
+
+<a id="book-2-automatic-column-pages-design-14278"></a>
+## 278. 段と脚注の元境界からページを自動選択する（design §14.278）
+
+2813828を基準として、[ADR-0141](../adr/ADR-0141-book-2-automatic-column-pages.md)に従い、初期測定した元本文から、元sourceに連続する段組の物理ページ列を自動選択する経路を追加した。既存単段の境界列挙と改ページ前検査を共通化し、各実段の高さでordinary itemと表の実cursorの合法なcutを列挙する。sequential fillとして元widow／orphan／headingの安定したcost順序で左から右へ探索し、一つの先行cutに続く後段の候補を検査してから先行段へ戻す。未使用の末尾段は最後に試す。全段のcost合計最適化やlast_page balanceを実装した意味にはしない。
+
+段ごとのprobeでは元sourceとdemandの分岐を進め、全段のcutを選んでから共通ページ候補で元の全ページ脚注領域へ一度だけfitする。必須断片が収まらない候補は先行段まで戻す。named retryを含む物理ページfit回数を共通reflow上限へ数え、各段の境界列挙にも元lookback上限を適用する。明示stackで探索状態を保持し、元u16段数に応じた再帰を避ける。stack・request slots・ページ列をlogical recordへ予約してから確保し、失敗・再試行のworkと受理済みrecordを返金しない。
+
+外側／表内の元改ページで後段を閉じ、外側commandを一度だけ消費する。先頭・連続・末尾の改ページによる必要な空ページ、本文終了後の実脚注継続、元owner付きkeep診断、名前別master・段数を保持する。表のcaption・cell・入れ子・rowspanの元cursorを段間とページ間へ渡す。手動候補APIも表内の物理改ページを越えて次の段へ続ける要求を拒否する。BookV2ColumnPageSequenceは元source chain・search owner・元planの参照・表測定fingerprintへ結び付け、単段のページ列やpaint receiptへ変換しない。
+
+新しい10 testsは二段と共通脚注、脚注容量による先行cutへのbacktracking、名前別の三段／二段、先頭・連続・末尾改ページ、表caption内の改ページと同じページ内の実表継続、keep拒否、本文完了後の脚注継続を検査する。元semantic leafの一回消費、別search拒否、work／record exact／1不足、lookback・reflow・page上限と失敗後の累積履歴も確認する。原HaranoのSHA-256を固定して実shapingと表cursorを検査し、専用ページ列から単段ページ列への変換拒否をcompile-failで検査する。
+
+証跡はworkspace/target/vmb-design/20261007/column-automatic-pages/。focused draftの名前付きfixtureでwire field名・選択ruleの不足とmaster IDのcanonical順序を検出し、元schemaに従ってfixtureを修正した。focused-draft-01.logとfocused-draft-02.logはそれぞれ6／7成功、9／10成功の失敗を保全する。修正・新2ファイルの整形後、focused-draft-03.logは全10件成功、失敗／ignored 0だった。既存の巨大ファイルを広域整形していない。
+
+最終683 compilation／source入力・全74 verifier hashesと§277との差分7 source／test filesを固定した。原Harano／Arialと保存済みVMB 10 jobsのbytes／SHA-256を確認して使用した。run-regression-01.pyの7 commandsは全てexit code 0だった。旧syntax 79 tests＋doc-test 6件、Book /2 syntax 161 tests＋doc-test 13件、layout 70 tests＋doc-test 2件、pagination 104 tests＋doc-test 4件、workspace --all-features --tests checkが成功した。
+
+Book /2 CLIは--test-threads=4で一時領域の同時使用を抑え、今回の新しい証跡rootへ保存した。一回のrunで全333件成功、失敗／ignored 0、419 filtered outだった。新しい自動選択10件・既存共通候補6件・段幅の再組版3件を含む。binary全752件を実行したとは扱わない。CLIのtest観測時間は1,037.35秒、command全体は1,039.346秒であり、制御された性能受入ではない。通常の旧precomposedは4成功／外部host 1 ignoredだった。
+
+8独立commandsと旧独立検証は全てexit code 0だった。
+
+- 共通独立検証は863 source PDFs／412 actual driver callbacks／3,300 pages／39,244 structure nodes／1,095 annotations／13 explicit unsupported inputs／7,600改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、均一な表16 PDFs／60 pages／112改変拒否、名前遷移する表26 driver PDFs／108 pages／130改変拒否、名前付き脚注26 driver PDFs／94 pages／156改変拒否が成功した。全て既存PDF経路の回帰であり、新しい段組PDFを含まない。
+
+全863 PDFは§277とbyte一致し、名前変更0だった。保存済みVMB table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§277と一致した。旧独立verifierの21 checksと、保存old binary出力への旧21成果物のbyte一致も成功した。
+
+verify-correspondence.pyは全683開始／終了hashes・74 verifier hashes・全7変更、原入力・10 VMB jobs、全回帰commands／logs、最終focused 10件と保存済みfixture失敗、実test binaryと全333 unique successes、8独立commands・旧検証・全artifact対応をrun-source-correspondence.jsonへ結ぶ。検証後の文書3件は別hashへ記録する。元sourceの自動選択と専用ページ列を受理し、実幅で安定した段組ページ列・段組PDFの受入とは区別する。font全suite・外部host・元全巻・著者／人手の受入は今回の結果として扱わない。
+
+この列は初期測定でのsource選択であり、選択した実段幅への再組版feedbackと反復header variants、last_page balance、安定配置・terminal・段組PDFと独立受入は継続する。private driver／PDF assemblyの段組拒否を維持し、新しい段組PDFの受入は0件である。完全なcommand予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入と未作成のSpeech／SemanticRefも継続し、設計全体の完了とは扱わない。

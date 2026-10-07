@@ -3,6 +3,9 @@
 use super::*;
 use crate::book_v2::{BookV2ColumnTableMeasurements, BookV2TableCursor};
 use typaxis_syntax::book_v2::{BookV2ColumnFramePlan, BookV2ColumnPageFrames};
+#[path = "book_v2_column_pages.rs"]
+mod pages;
+pub use pages::*;
 
 pub struct BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
     inner: BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>,
@@ -140,7 +143,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
 
     /// Requests cover every authored column in order, including unused suffix
     /// columns. Notes are selected once after all ordinary/table references.
-    /// Width feedback, automatic ranking, breaks and balancing belong to the
+    /// Width feedback, balancing and stable placement belong to the
     /// subsequent stable-page protocol; this candidate cannot authorize paint.
     pub fn evaluate_page(
         &mut self,
@@ -149,9 +152,18 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
         requests: &[&[BookV2BodyCandidatePart<'b, 'f, 's, 'p, 'a>]],
     ) -> Result<Option<BookV2ColumnPageCandidate<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError>
     {
+        self.evaluate_page_with_blank(state, name, requests, false)
+    }
+    fn evaluate_page_with_blank(
+        &mut self,
+        state: &BookV2ColumnPageState<'b, 'f, 's, 'p, 'a>,
+        name: Option<usize>,
+        requests: &[&[BookV2BodyCandidatePart<'b, 'f, 's, 'p, 'a>]],
+        allow_blank: bool,
+    ) -> Result<Option<BookV2ColumnPageCandidate<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError> {
         self.inner.verify_state(&state.source.demand)?;
         let root = NodeId::new(0);
-        if state.is_complete() {
+        if state.is_complete() && !allow_blank {
             return Ok(None);
         }
         if state.page >= self.inner.maximum_pages {
@@ -168,7 +180,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
         let saved_name = self.inner.active_page_name;
         let saved_mismatch = self.inner.named_mismatch.take();
         self.inner.active_page_name = name;
-        let result = self.evaluate_in_frames(state, frames, requests);
+        let result = self.evaluate_in_frames(state, frames, requests, allow_blank);
         self.inner.active_page_frames = saved_frames;
         self.inner.active_page_name = saved_name;
         self.inner.named_mismatch = saved_mismatch;
@@ -180,6 +192,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
         state: &BookV2ColumnPageState<'b, 'f, 's, 'p, 'a>,
         frames: BookV2ColumnPageFrames<'a>,
         requests: &[&[BookV2BodyCandidatePart<'b, 'f, 's, 'p, 'a>]],
+        allow_blank: bool,
     ) -> Result<Option<BookV2ColumnPageCandidate<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError>
     {
         let root = NodeId::new(0);
@@ -202,10 +215,11 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
             continuation: state.source.continuation,
         };
         let mut unused = false;
+        let mut closed = false;
         let mut overlapping_height = Length::ZERO;
         for (index, request) in requests.iter().enumerate() {
             self.inner.content.step(root)?;
-            if unused && !request.is_empty() {
+            if (unused || closed) && !request.is_empty() {
                 return Err(error(root, E::ReceiptMismatch));
             }
             unused |= request.is_empty();
@@ -283,6 +297,9 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
                 table_end: source.table_end,
                 continuation: selected.continuation,
             };
+            closed |= selected.parts.last().and_then(|part| part.table())
+                .is_some_and(|table| table.forced_break_owner().is_some())
+                || self.outside_source_break(&source, frames.named_page_index())?.is_some();
             columns.push(BookV2ColumnBodyCandidate {
                 bounds,
                 parts: selected.parts,
@@ -309,7 +326,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
         let note_progress = fit
             .footnotes()
             .is_some_and(|notes| !notes.fragments().is_empty());
-        if !body_progress && !note_progress {
+        if !body_progress && !note_progress && !allow_blank {
             return Ok(None);
         }
         self.inner.content.charge(2, root)?;
@@ -332,6 +349,19 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
             fit,
             next,
         }))
+    }
+    fn outside_source_break(
+        &mut self,
+        source: &BookV2BodySourceState<'b, 'f, 's, 'p, 'a>,
+        name: Option<usize>,
+    ) -> Result<Option<NodeId>, ProductionBodyPaginationError> {
+        self.inner.content.step(NodeId::new(0))?;
+        Ok((source.continuation.is_none()
+            && self.inner.tables.as_ref().unwrap().at(source.item, source.next_table).is_none()
+            && self.inner.source_page_name(source.item, source.next_table) == Some(name))
+            .then(|| self.inner.content.flow.body_items().get(source.item)
+                .filter(|item| item.source.is_none()).map(|item| item.owner))
+            .flatten())
     }
     fn verify_names(
         &mut self,

@@ -74,16 +74,16 @@ impl<'b, 'f, 's, 'p, 'a> BookV2BodyMixedPageSequence<'b, 'f, 's, 'p, 'a> {
         &self.pages
     }
 }
-type MixedBoundary<'b, 'f, 's, 'p, 'a> = page_ranking::Boundary<
+pub(super) type MixedBoundary<'b, 'f, 's, 'p, 'a> = page_ranking::Boundary<
     BookV2BodyCandidatePart<'b, 'f, 's, 'p, 'a>,
     (i64, usize, usize, i64, usize),
 >;
-struct Alternatives<'b, 'f, 's, 'p, 'a> {
-    candidates: Vec<MixedBoundary<'b, 'f, 's, 'p, 'a>>,
+pub(super) struct Alternatives<'b, 'f, 's, 'p, 'a> {
+    pub(super) candidates: Vec<MixedBoundary<'b, 'f, 's, 'p, 'a>>,
 }
 impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     // Outer None is body completion; inner None is the actual unnamed source.
-    fn source_page_name(&self, item: usize, table: usize) -> Option<Option<usize>> {
+    pub(super) fn source_page_name(&self, item: usize, table: usize) -> Option<Option<usize>> {
         if let Some(index) = self.tables.as_ref().and_then(|t| t.at(item, table)) {
             Some(self.content.flow.table_page_name_index(index))
         } else if item < self.content.flow.body_items().len() {
@@ -106,9 +106,9 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         Ok(self.source_page_name(item, table))
     }
 
-    pub fn begin_mixed_pages(
+    pub(super) fn verify_mixed_page_breaks(
         &mut self,
-    ) -> Result<BookV2BodyMixedPageState<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    ) -> Result<(), ProductionBodyPaginationError> {
         if self.tables.is_none() {
             return Err(error(NodeId::new(0), E::ReceiptMismatch));
         }
@@ -165,6 +165,12 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 index += 1;
             }
         }
+        Ok(())
+    }
+    pub fn begin_mixed_pages(
+        &mut self,
+    ) -> Result<BookV2BodyMixedPageState<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+        self.verify_mixed_page_breaks()?;
         self.content.charge.take(1, NodeId::new(0))?;
         Ok(BookV2BodyMixedPageState {
             source: self.begin_body_source()?,
@@ -173,7 +179,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             name: None,
         })
     }
-    fn mixed_boundary_key(
+    pub(super) fn mixed_boundary_key(
         &mut self,
         end: usize,
         next_table: usize,
@@ -277,21 +283,12 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         self.named_mismatch = previous_mismatch;
         result
     }
-    fn select_mixed_page_in_frames(
+    /// Shared source-bound cuts; notes are fitted by the consuming page owner.
+    pub(super) fn mixed_page_boundaries(
         &mut self,
-        state: &BookV2BodyMixedPageState<'b, 'f, 's, 'p, 'a>,
-    ) -> Result<
-        Option<BookV2BodyMixedPageSelection<'b, 'f, 's, 'p, 'a>>,
-        ProductionBodyPaginationError,
-    > {
-        self.verify_state(&state.source.demand)?;
-        if state.is_complete() {
-            return Ok(None);
-        }
+        state: &BookV2BodySourceState<'b, 'f, 's, 'p, 'a>,
+    ) -> Result<Alternatives<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
         let root = NodeId::new(0);
-        if state.page >= self.maximum_pages {
-            return Err(error(root, E::PageLimit));
-        }
         self.content.charge.take(1, root)?;
         let items = self.content.flow.body_items();
         let maximum = fit_kernel::FitSearch::body(self).height().get();
@@ -299,18 +296,18 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             candidates: Vec::new(),
         };
         let mut requests = Vec::new();
-        let mut index = state.source.item;
-        let mut table_index = state.source.next_table;
+        let mut index = state.item;
+        let mut table_index = state.next_table;
         let mut used = Length::ZERO;
         let mut after = Length::ZERO;
         let mut ordinary = false;
-        let mut ordinary_start = state.source.item;
+        let mut ordinary_start = state.item;
         loop {
             self.content.step(root)?;
             self.content.step(NodeId::new(0))?;
             if self.current_source_page_name(index, table_index,
-                    state.source.continuation.filter(|_| table_index == state.source.next_table),
-                    (table_index == state.source.next_table && state.source.continuation.is_some())
+                    state.continuation.filter(|_| table_index == state.next_table),
+                    (table_index == state.next_table && state.continuation.is_some())
                         .then_some(self.active_page_name))?
                 .is_some_and(|name| name != self.active_page_name)
             {
@@ -324,9 +321,8 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 .is_some()
             {
                 let table_cursor = match state
-                    .source
                     .continuation
-                    .filter(|_| table_index == state.source.next_table)
+                    .filter(|_| table_index == state.next_table)
                 {
                     Some(c) => c,
                     None => self.begin_table(table_index)?,
@@ -475,6 +471,26 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 self.queue_mixed(&requests, key, &mut alternatives)?;
             }
         }
+        Ok(alternatives)
+    }
+    fn select_mixed_page_in_frames(
+        &mut self,
+        state: &BookV2BodyMixedPageState<'b, 'f, 's, 'p, 'a>,
+    ) -> Result<
+        Option<BookV2BodyMixedPageSelection<'b, 'f, 's, 'p, 'a>>,
+        ProductionBodyPaginationError,
+    > {
+        self.verify_state(&state.source.demand)?;
+        if state.is_complete() {
+            return Ok(None);
+        }
+        let root = NodeId::new(0);
+        if state.page >= self.maximum_pages {
+            return Err(error(root, E::PageLimit));
+        }
+        let alternatives = self.mixed_page_boundaries(&state.source)?;
+        let items = self.content.flow.body_items();
+        let mut requests = Vec::new();
         let mut best = None;
         let mut attempts = 0u32;
         let candidate_count = alternatives.candidates.len() as u32;

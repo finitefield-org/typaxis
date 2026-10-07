@@ -1,4 +1,6 @@
 use super::*;
+#[path = "book_v2_column_auto_tests.rs"]
+mod automatic;
 use typaxis_pagination::book_v2::*;
 use typaxis_pagination::{
     ProductionBodyPaginationErrorKind as E, ProductionFootnoteDemandStatus as S,
