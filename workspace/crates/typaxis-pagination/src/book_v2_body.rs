@@ -156,6 +156,9 @@ pub fn prepare_book_v2_body_flow_counted<'f, 's, 'p, 'a>(
     frames
         .verify(lines.prepared(), frames.body())
         .map_err(|e| error(e.owner, E::ReceiptMismatch))?;
+    if frames.column_plan().is_some() {
+        return Err(error(root, E::PendingRegion("column_pages")));
+    }
     if let Some(first) = footnotes.definitions().first() {
         if frames.footnote_region().is_none() {
             return Err(error(first.owner(), E::PendingRegion("footnote_frame")));

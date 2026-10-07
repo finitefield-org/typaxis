@@ -11,6 +11,8 @@ mod text_fingerprints;
 mod table_constructor_budget;
 #[path = "book_v2_body_line_budget_tests.rs"]
 mod body_line_budget;
+#[path = "book_v2_column_line_tests.rs"]
+mod column_lines;
 #[path = "book_v2_cff_diagnostic_tests.rs"]
 mod cff_diagnostics;
 #[path = "book_v2_cid_shaping_tests.rs"]

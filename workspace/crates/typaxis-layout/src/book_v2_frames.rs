@@ -1,14 +1,42 @@
 //! Measured body frames retained by the exact book-2 inline owner.
 use super::*;
 use typaxis_core::Rect;
-use typaxis_syntax::book_v2::BookV2PageFramePlan;
+use typaxis_syntax::book_v2::{BookV2ColumnFramePlan, BookV2PageFramePlan, StyledBookV2Body};
+
+/// Measurement only. Physical page consumers must choose their own matching
+/// single-frame or column-aware selection protocol.
+#[derive(Clone, Copy)]
+pub(super) enum MeasurementPageFrames<'p, 'a> {
+    Pages(&'p BookV2PageFramePlan<'a>),
+    Columns(&'p BookV2ColumnFramePlan<'a>),
+}
+impl<'a> MeasurementPageFrames<'_, 'a> {
+    fn source(self) -> &'a StyledBookV2Body {
+        match self {
+            Self::Pages(p) => p.source(),
+            Self::Columns(p) => p.source(),
+        }
+    }
+    fn body(self) -> Rect {
+        match self {
+            Self::Pages(p) => p.measurement_body(),
+            Self::Columns(p) => p.measurement_body(),
+        }
+    }
+    fn footnote(self) -> Option<Rect> {
+        match self {
+            Self::Pages(p) => p.measurement_footnote(),
+            Self::Columns(p) => p.measurement_footnote(),
+        }
+    }
+}
 
 pub const BOOK_V2_BODY_FRAMES_ALGORITHM: &str = "typaxis.book-2-body-frames/1";
 
 pub struct BookV2BodyInlineFrames<'p, 'a> {
     prepared: &'p BookV2PreparedInlines<'a>,
     projection: list_frames::FrameProjection,
-    page_plan: Option<&'p BookV2PageFramePlan<'a>>,
+    page_plan: Option<MeasurementPageFrames<'p, 'a>>,
     block_measurements: Vec<(NodeId, ProductionInlineFrame)>,
     source_unit_starts: Option<Vec<Option<Vec<Length>>>>,
     occurrence_frames: bool,
@@ -33,7 +61,17 @@ impl<'p, 'a> BookV2BodyInlineFrames<'p, 'a> {
         !self.block_measurements.is_empty()
     }
     pub fn page_plan(&self) -> Option<&'p BookV2PageFramePlan<'a>> {
-        self.page_plan
+        match self.page_plan {
+            Some(MeasurementPageFrames::Pages(p)) => Some(p),
+            _ => None,
+        }
+    }
+    /// A measured column envelope is not a selected physical page frame.
+    pub fn column_plan(&self) -> Option<&'p BookV2ColumnFramePlan<'a>> {
+        match self.page_plan {
+            Some(MeasurementPageFrames::Columns(p)) => Some(p),
+            _ => None,
+        }
     }
     pub fn body(&self) -> Rect {
         self.projection.body
@@ -205,10 +243,30 @@ pub(super) fn layout_body_lines_counted_with_records<'p, 'a>(
     consumed: &mut u64,
     observed_records: &mut u64,
 ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
+    layout_body_lines_in_measured_frames(
+        prepared,
+        body,
+        max_candidate_steps,
+        page_plan.map(MeasurementPageFrames::Pages),
+        source_widths,
+        consumed,
+        observed_records,
+    )
+}
+
+pub(super) fn layout_body_lines_in_measured_frames<'p, 'a>(
+    prepared: &'p BookV2PreparedInlines<'a>,
+    body: Rect,
+    max_candidate_steps: u64,
+    page_plan: Option<MeasurementPageFrames<'p, 'a>>,
+    source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
+    consumed: &mut u64,
+    observed_records: &mut u64,
+) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
     *consumed = 0;
     *observed_records = 0;
     let mut frames = if let Some(plan) = page_plan {
-        if !std::ptr::eq(plan.source(), prepared.flow.body()) || body != plan.measurement_body() {
+        if !std::ptr::eq(plan.source(), prepared.flow.body()) || body != plan.body() {
             return Err(error(
                 NodeId::new(0),
                 ProductionInlinePreparationErrorKind::ReceiptMismatch,
@@ -223,7 +281,7 @@ pub(super) fn layout_body_lines_counted_with_records<'p, 'a>(
                 prepared.output_record_limit,
                 prepared.fingerprint(),
                 body,
-                plan.measurement_footnote(),
+                plan.footnote(),
                 BOOK_V2_BODY_FRAMES_ALGORITHM,
                 observed_records,
             )?,

@@ -15,12 +15,13 @@ pub use footnote_lines::{prepare_book_v2_footnote_lines, prepare_book_v2_footnot
 mod feedback;
 pub use feedback::{
     with_budgeted_book_v2_body_lines, with_budgeted_book_v2_body_lines_with_source_widths,
+    with_budgeted_book_v2_column_lines,
     with_converged_book_v2_body_lines,
     with_converged_book_v2_body_lines_in_page_frames,
     with_converged_book_v2_body_lines_with_native_context,
     with_converged_book_v2_body_lines_with_remaining_passes,
     with_converged_book_v2_body_lines_with_source_widths, BookV2BodyLineBudget,
-    BookV2ConvergedBodyLines,
+    BookV2ConvergedBodyLines, BookV2ConvergedColumnLines,
 };
 #[path = "book_v2_line_variant_seed.rs"]
 mod line_variant_seed;

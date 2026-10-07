@@ -16776,3 +16776,20 @@ BookV2ColumnFramePlanは単段のページ計画と別の型であり、元sourc
 全863 PDFは§274とbyte一致し、名前変更0だった。保存済みVMB table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§274と一致した。旧独立verifierの21 checksと、保存old binary出力への旧21成果物のbyte一致も成功した。verify-correspondence.pyは全676開始／終了hashes・74 verifier hashes・全4変更、原入力・10 VMB jobs、7回帰commands／logs・6 geometry tests・CLI binaryと314 unique successes、8独立commandsと旧検証、全artifact対応をrun-source-correspondence.jsonへ結ぶ。検証後の文書3件は別hashへ記録する。font全suite・外部host・元全巻・著者／人手の受入は今回の結果として扱わない。
 
 実段に応じた元cursor・再組版、同じ物理ページの全段・脚注の共通選択、改ページ・keep・表の継続と反復header、最後の物理ページのbalance、実段PDFと独立検証を引き続き接続する。完全なcommand byte／spool／work・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入も継続する。Speech／SemanticRef未作成と固定veraPDF／V19 hostの未受入を維持し、設計全体を完了とは扱わない。
+
+<a id="book-2-column-line-convergence-design-14276"></a>
+## 276. 段幅で元本文を再組版する（design §14.276）
+
+337b467を基準として、[ADR-0139](../adr/ADR-0139-book-2-column-line-convergence.md)に従い、元段組計画の測定幅を実際の行再組版へ接続した。単段の既存APIは維持し、実shaping・inline準備・行選択・line-contextを反映する再shapingと安定比較のループを共有する。callerの候補work・開始済みpass・source recordと受理済みの失敗prefixを引き継ぎ、安定を比較できた後だけcallbackを呼ぶ。
+
+段組の結果をBookV2ConvergedColumnLinesとし、単段の収束結果への変換を設けない。frameは単段／段組の計画を区別して保持する。元sourceへの幅候補と入れ子表の列・caption・セルを段幅で測定し、脚注は元の全ページ領域と元番号マーカー・gapの占有幅を使う。既存の物理ページ選択へ渡すとPendingRegion("column_pages")で拒否し、counted constructorはそれまでのrecord履歴を保持する。private driverとPDF assemblyの段組拒否も維持する。
+
+新規3 testsは元文字・glyph owner、全本文幅と実段幅の折り返しの差、実際の幅候補、入れ子表と全幅脚注、別source、候補work exact／1不足、pass・source record不足、失敗と再試行の台帳、callbackの拒否を確認した。原HaranoのbytesとSHA-256を固定して同じ検査を実行した。脚注fixtureでは元マーカー幅とgapを差し引き、割合列の整数端数を含めて全幅へ閉じることを確認する。最初の検査でこの期待値と実際に折り返せる英文幅を修正した。実装の字形・番号・表の丸め規則を変更していない。
+
+証跡はworkspace/target/vmb-design/20261007/column-line-convergence/。678 compilation／source入力を固定し、run-checks.pyで原Haranoを検証してローカル検査を直列実行する。各commandの引数・exit code・時間・log SHA-256をcommands.jsonへ記録し、開始／終了時のsource hashを照合する。初期の失敗はinitial-attempt.jsonとcolumns-rejected-01.logへ保全した。新しいモジュールだけの整形を確認し、既存ファイルを広域に整形していない。
+
+受理済み11 commandsはすべてexit code 0であり、layout 70 tests＋doc-test 2件、pagination 104 tests、workspace --all-features --tests checkが成功した。CLIは新規column_lines 3件、body_line_budget 22件、reshape 2件、framesとその子module 110件、table_width_frames 2件、page_width_feedback 2件、vector_testsとその子module 23件、native_testsとその子module 25件の計189 unique testsに成功し、失敗／ignoredは0だった。CLI全317件／binary全736件の再実行とは扱わない。元Haranoと元Arial Unicodeのbytes／SHA-256を確認して使用した。数式の双方向文字検査の初回はArialの環境変数未指定で失敗し、vector_tests-rejected-02.logとcommands-rejected-02.jsonへ保全した。設定後は失敗したgroupと残りだけを再実行した。
+
+verification-summary.jsonは全678最終source hashes、全7 source／test変更、成功した11 commands／log hashesとCLI 189件、実test binaryとrunnerのSHA-256を対応付ける。文書3件は検証後に別hashへ記録する。既存863 PDFの独立検査・VMB 10 jobs・旧成果物とのbyte比較は§275の結果であり、この変更の検証結果として再計上しない。新しい段組PDFの受入は0件である。framesの436.53秒などの時間は観測値で、制御された性能受入ではない。
+
+同じ物理ページの全段・脚注の共通選択、元cursorと表の継続・反復header、last_page balance、実段PDFと独立検査は引き続き必要である。完全なcommand予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入、未作成のSpeech／SemanticRefも継続する。この変更を段組PDFと設計全体の完了とは扱わない。

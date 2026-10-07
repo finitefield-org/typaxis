@@ -5896,3 +5896,25 @@ byte一致した。新しい段組PDFを生成・受入した結果ではない�
 表の継続と反復header、最終ページのbalance、実PDFの段配置と独立検証を接続する作業は
 残る。完全なcommand予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・
 著者／人手受入と未作成のSpeech／SemanticRefも継続する。段組PDFと設計全体の完了とはしない。
+
+### 14.276 段幅で元本文を再組版する（実装追補）
+
+BookV2ColumnFramePlanの最大実段幅で、元リソースを用いたshaping・行選択・line-context
+による再shapingを行う。単段の既存処理と収束ループを共有し、実際に安定を比較した後
+だけBookV2ConvergedColumnLinesをcallbackへ渡す。元sourceへの幅候補、候補探索work・
+開始済みpass・source recordと失敗時の受理済みprefixを既存の予算へ接続する。
+
+本文の表・caption・セル・入れ子は段の測定幅を使い、脚注は元の全ページ脚注領域と
+実番号マーカー・gapから測定する。段組の行frameには別の計画を保持し、単段のページ
+選択へ渡すとPendingRegion("column_pages")で拒否する。単段の収束結果への変換を設けず、
+private driverとPDF assemblyの段組拒否も維持する。
+
+[ADR-0139](../adr/ADR-0139-book-2-column-line-convergence.md)と
+[実装台帳§276](28-vmb-book-production-progress.md#book-2-column-line-convergence-design-14276)を参照。
+検査では元文字・glyph owner、実段幅での折り返し、入れ子表と全幅脚注、元Harano、
+sourceの同一性、workのexact／1不足、pass・source record不足と失敗後の台帳を確認する。
+
+今回の収束結果は初期測定であり、物理ページの全段・脚注の共通選択、実cursorの継続と
+表の反復header、last_page balance、段組PDFの描画・独立受入は残る。完全なcommand
+予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入と
+未作成のSpeech／SemanticRefも継続する。段組PDFと設計全体の完了とはしない。

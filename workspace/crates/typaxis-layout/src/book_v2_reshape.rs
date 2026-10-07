@@ -1,5 +1,6 @@
 //! Actual book-2 shaping/selection feedback; this is not page convergence.
 use super::*;
+use super::frames::MeasurementPageFrames;
 use typaxis_core::Rect;
 use typaxis_linebreak::{
     BreakError, LineLayoutContext, LineReshapeFeedback, LineReshapeObservation,
@@ -9,6 +10,10 @@ use typaxis_shaping::{
     book_v2::shape_book_v2_authored_text_with_source_budget_counted, ProductionParagraphLineContext,
 };
 use typaxis_syntax::book_v2::BookV2ResourcePolicy;
+
+#[path = "book_v2_column_lines.rs"]
+mod column_lines;
+pub use column_lines::*;
 
 /// Only an observed stable comparison can construct this callback-scoped view.
 /// The final shape, inlines and frames cannot outlive the feedback owner.
@@ -256,6 +261,37 @@ pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
     source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
     use_stable: impl FnOnce(BookV2ConvergedBodyLines<'_, '_, '_>) -> R,
 ) -> Result<R, ProductionBodyReshapeError> {
+    with_budgeted_lines_in_measured_frames(
+        policy,
+        flow,
+        admitted,
+        bindings,
+        limits,
+        japanese_mode,
+        body,
+        native,
+        allowance,
+        page_plan.map(MeasurementPageFrames::Pages),
+        source_widths,
+        use_stable,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn with_budgeted_lines_in_measured_frames<'a, R>(
+    policy: &BookV2ResourcePolicy<'_>,
+    flow: &PreparedBookV2TextFlow<'a>,
+    admitted: &AdmittedProductionResourceLedgerV3,
+    bindings: &BookV2VectorBindings<'_>,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: JapaneseLineBreakMode,
+    body: Rect,
+    native: Option<&BookV2NativeMath<'_>>,
+    allowance: &mut BookV2BodyLineBudget,
+    page_plan: Option<MeasurementPageFrames<'_, 'a>>,
+    source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
+    use_stable: impl FnOnce(BookV2ConvergedBodyLines<'_, '_, '_>) -> R,
+) -> Result<R, ProductionBodyReshapeError> {
     let remaining_passes = allowance
         .remaining_passes
         .min(limits.base().get().max_line_reshape_passes);
@@ -438,12 +474,12 @@ impl BookV2BodyLineBudget {
         &mut self,
         prepared: &'p BookV2PreparedInlines<'a>,
         body: Rect,
-        page_plan: Option<&'p typaxis_syntax::book_v2::BookV2PageFramePlan<'a>>,
+        page_plan: Option<MeasurementPageFrames<'p, 'a>>,
         source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
     ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
         let mut consumed = 0;
         let mut records = 0;
-        let result = super::frames::layout_body_lines_counted_with_records(
+        let result = super::frames::layout_body_lines_in_measured_frames(
             prepared,
             body,
             self.remaining_steps,
