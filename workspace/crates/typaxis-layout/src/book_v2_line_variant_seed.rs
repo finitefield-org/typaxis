@@ -5,6 +5,7 @@ use typaxis_core::Rect;
 use typaxis_linebreak::BreakError;
 use typaxis_shaping::{book_v2::shape_book_v2_authored_text_with_source_budget_counted, ProductionParagraphLineContext};
 use typaxis_syntax::book_v2::{BookV2PageFramePlan, BookV2ResourcePolicy};
+use super::frames::MeasurementPageFrames;
 
 /// All replay inputs remain borrowed and immutable. No caller-supplied hash or
 /// changed width/label/resource context can be substituted during reconstruction.
@@ -17,7 +18,7 @@ pub struct BookV2BodyLineVariantSeed<'a> {
     japanese_mode: JapaneseLineBreakMode,
     body: Rect,
     native: Option<&'a BookV2NativeMath<'a>>,
-    page_plan: Option<&'a BookV2PageFramePlan<'a>>,
+    measured_frames: Option<MeasurementPageFrames<'a, 'a>>,
     source_widths: Option<&'a BookV2SourceWidthAssignments<'a, 'a>>,
     contexts: ProductionSelectedLineContexts,
     rebuild_records: u64,
@@ -72,7 +73,8 @@ impl<'a> BookV2BodyLineVariantSeed<'a> {
             )
             .into());
         }
-        prepare_book_v2_body_line_variant_seed(
+        let mut allowance = BookV2LineVariantBudget::new(maximum_work, remaining_passes);
+        prepare_variant_seed_in_measured_frames(
             self.policy,
             self.flow,
             self.admitted,
@@ -80,11 +82,10 @@ impl<'a> BookV2BodyLineVariantSeed<'a> {
             self.limits,
             self.japanese_mode,
             self.body,
-            maximum_work,
+            &mut allowance,
             prior_records,
             self.native,
-            remaining_passes,
-            self.page_plan,
+            self.measured_frames,
             Some(widths),
         )
     }
@@ -102,7 +103,7 @@ impl<'a> BookV2BodyLineVariantSeed<'a> {
             )
             .into());
         }
-        prepare_budgeted_book_v2_body_line_variant_seed(
+        prepare_variant_seed_in_measured_frames(
             self.policy,
             self.flow,
             self.admitted,
@@ -113,7 +114,7 @@ impl<'a> BookV2BodyLineVariantSeed<'a> {
             allowance,
             prior_records,
             self.native,
-            self.page_plan,
+            self.measured_frames,
             Some(widths),
         )
     }
@@ -211,6 +212,26 @@ pub fn prepare_budgeted_book_v2_body_line_variant_seed<'a>(
     page_plan: Option<&'a BookV2PageFramePlan<'a>>,
     source_widths: Option<&'a BookV2SourceWidthAssignments<'a, 'a>>,
 ) -> Result<BookV2BodyLineVariantSeed<'a>, ProductionBodyReshapeError> {
+    prepare_variant_seed_in_measured_frames(
+        policy, flow, admitted, bindings, limits, japanese_mode, body, allowance,
+        prior_records, native, page_plan.map(MeasurementPageFrames::Pages), source_widths,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+fn prepare_variant_seed_in_measured_frames<'a>(
+    policy: &'a BookV2ResourcePolicy<'a>,
+    flow: &'a PreparedBookV2TextFlow<'a>,
+    admitted: &'a AdmittedProductionResourceLedgerV3,
+    bindings: &'a BookV2VectorBindings<'a>,
+    limits: &'a M4EffectiveResourceLimits,
+    japanese_mode: JapaneseLineBreakMode,
+    body: Rect,
+    allowance: &mut BookV2LineVariantBudget,
+    prior_records: u64,
+    native: Option<&'a BookV2NativeMath<'a>>,
+    measured_frames: Option<MeasurementPageFrames<'a, 'a>>,
+    source_widths: Option<&'a BookV2SourceWidthAssignments<'a, 'a>>,
+) -> Result<BookV2BodyLineVariantSeed<'a>, ProductionBodyReshapeError> {
     allowance.records = allowance.records.max(prior_records);
     if prior_records >= limits.base().get().max_fragments {
         return Err(error(
@@ -226,7 +247,7 @@ pub fn prepare_budgeted_book_v2_body_line_variant_seed<'a>(
     );
     let mut capture_work = 0;
     let mut capture_records = prior_records;
-    let result = with_budgeted_book_v2_body_lines_with_source_widths(
+    let result = super::feedback::with_budgeted_lines_in_measured_frames(
         policy,
         flow,
         admitted,
@@ -236,7 +257,7 @@ pub fn prepare_budgeted_book_v2_body_line_variant_seed<'a>(
         body,
         native,
         &mut line_budget,
-        page_plan,
+        measured_frames,
         source_widths,
         |stable| -> Result<_, ProductionBodyReshapeError> {
             let lines = stable.lines();
@@ -282,7 +303,7 @@ pub fn prepare_budgeted_book_v2_body_line_variant_seed<'a>(
                 japanese_mode,
                 body,
                 native,
-                page_plan,
+                measured_frames,
                 source_widths,
                 contexts,
                 rebuild_records,
@@ -416,13 +437,14 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variant<R>(
         let prepared = prepared?;
         records = allowance.records;
         let mut consumed = 0;
-        let selected = super::frames::layout_body_lines_counted(
+        let selected = super::frames::layout_body_lines_in_measured_frames(
             &prepared,
             seed.body,
             maximum_work - work,
-            seed.page_plan,
+            seed.measured_frames,
             seed.source_widths,
             &mut consumed,
+            &mut 0,
         );
         take_work(&mut work, consumed, maximum_work)?;
         let selected = selected?;
@@ -466,3 +488,6 @@ pub use variant_set::{
     with_budgeted_rebuilt_book_v2_body_line_variants, with_rebuilt_book_v2_body_line_variants,
     BookV2RebuiltBodyLineVariants,
 };
+#[path = "book_v2_column_line_variants.rs"]
+mod column_variants;
+pub use column_variants::*;

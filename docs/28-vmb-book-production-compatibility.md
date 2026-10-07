@@ -5966,3 +5966,27 @@ caption・セル・入れ子・rowspanの実cursorを段間とページ間へ渡
 private driver／PDF assemblyの段組拒否を維持する。完全なcommand予算・同時保持graph、
 公開Book /2、元全巻・管理host・制御性能・著者／人手受入と未作成のSpeech／SemanticRefも
 残り、設計全体の完了とはしない。
+
+### 14.279 実段幅で反復ヘッダーを選択する（実装追補）
+
+元column planに結び付く専用seedと同時保持する再構築行グラフを追加する。単段と共通の
+収束・capture・所有層別の反復再構築を使い、元source・policy・resource・native ownerと
+同じcolumn planへの参照を検査する。単段のseed／行集合への変換は提供しない。
+
+段組の行グラフから専用の表測定とheader variant／catalogを構築する。元集合への所属と
+元の表・セル・入れ子・全header sourceを検査し、元rootの親幅をkeyにする。各headerの
+実幅・startは元source階層の再測定で照合する。各実段にはその段幅、脚注には段で分割しない
+元脚注領域の幅を使う。反復headerの実高を予約し、元semantic leafを重複消費しない。
+
+一時参照配列の確保前予約と、変換・再構築・collectorのwork／recordを共通予算へ接続する。
+失敗時の受理済みprefixを保持し、専用ownerのworkにも変換分を含める。
+[ADR-0142](../adr/ADR-0142-book-2-column-header-variants.md)と
+[実装台帳§279](28-vmb-book-production-progress.md#book-2-column-header-variants-design-14279)を参照。
+
+これはheaderの幅候補と初期source選択であり、本文自身の実段幅feedback・幅が収束した
+ページ列、last_page balance、安定配置・terminal・段組PDFと独立受入は継続する。
+親headerで減る子表容量を含む共通境界の選択も継続課題であり、子表の検査は独立セル
+継続を選ぶ容量で行う。
+private driver／PDF assemblyの段組拒否を維持する。完全なcommand予算・同時保持graph、
+公開Book /2、元全巻・管理host・制御性能・著者／人手受入と未作成のSpeech／SemanticRefも
+残り、設計全体の完了とはしない。

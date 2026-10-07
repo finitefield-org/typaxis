@@ -1,6 +1,7 @@
 //! Original-source header geometry from a different, simultaneously live line graph.
 use super::*;
 use typaxis_layout::book_v2::BookV2RebuiltBodyLineVariants;
+use typaxis_layout::book_v2::{BookV2InlineLineLayout, BookV2RebuiltColumnLineVariants};
 use typaxis_syntax::ProductionTableSection;
 
 pub struct BookV2TableHeaderVariantLeaf {
@@ -156,6 +157,43 @@ pub fn prepare_book_v2_table_header_variant_counted<'m, 'f, 's, 'p, 'a>(
     observed_records: &mut u64,
     observed_work: &mut u64,
 ) -> Result<BookV2TableHeaderVariant<'m, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    prepare_header_variant_in_graphs(set, base, variant, table_index, limits,
+        maximum_work, prior_records, observed_records, observed_work)
+}
+pub(super) trait HeaderLineGraphs {
+    fn record_charge(&self) -> u64;
+    fn fingerprint(&self) -> [u8; 32];
+    fn len(&self) -> usize;
+    fn line(&self, index: usize) -> Option<&BookV2InlineLineLayout<'_, '_>>;
+}
+impl HeaderLineGraphs for BookV2RebuiltBodyLineVariants<'_, '_, '_> {
+    fn record_charge(&self) -> u64 { self.record_charge() }
+    fn fingerprint(&self) -> [u8; 32] { self.fingerprint() }
+    fn len(&self) -> usize { self.variants().len() }
+    fn line(&self, index: usize) -> Option<&BookV2InlineLineLayout<'_, '_>> {
+        self.variants().get(index).map(|v| v.lines())
+    }
+}
+impl HeaderLineGraphs for BookV2RebuiltColumnLineVariants<'_, '_, '_> {
+    fn record_charge(&self) -> u64 { self.record_charge() }
+    fn fingerprint(&self) -> [u8; 32] { self.fingerprint() }
+    fn len(&self) -> usize { self.variants().len() }
+    fn line(&self, index: usize) -> Option<&BookV2InlineLineLayout<'_, '_>> {
+        self.variant(index).map(|v| v.lines())
+    }
+}
+#[allow(clippy::too_many_arguments)]
+pub(super) fn prepare_header_variant_in_graphs<'m, 'f, 's, 'p, 'a>(
+    set: &impl HeaderLineGraphs,
+    base: &'m BookV2TableMeasurements<'f, 's, 'p, 'a>,
+    variant: &'m BookV2TableMeasurements<'f, 's, 'p, 'a>,
+    table_index: usize,
+    limits: &M4EffectiveResourceLimits,
+    maximum_work: u64,
+    prior_records: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
+) -> Result<BookV2TableHeaderVariant<'m, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
     *observed_records = prior_records
         .max(base.record_charge())
         .max(variant.record_charge())
@@ -171,10 +209,11 @@ pub fn prepare_book_v2_table_header_variant_counted<'m, 'f, 's, 'p, 'a>(
             Ok(())
         };
         let (mut has_base, mut has_variant) = (false, false);
-        for entry in set.variants() {
+        for index in 0..set.len() {
             step(2)?;
-            has_base |= std::ptr::eq(base.flow().lines(), entry.lines());
-            has_variant |= std::ptr::eq(variant.flow().lines(), entry.lines());
+            let lines = set.line(index).ok_or_else(|| error(root, E::ReceiptMismatch))?;
+            has_base |= std::ptr::eq(base.flow().lines(), lines);
+            has_variant |= std::ptr::eq(variant.flow().lines(), lines);
         }
         if !has_base || !has_variant {
             return Err(error(root, E::ReceiptMismatch));

@@ -186,13 +186,14 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variants<R>(
             .map_err(|_| BreakError::AllocationFailure)?;
         for (seed, prepared) in seeds.iter().zip(&prepared) {
             let mut consumed = 0;
-            let lines = super::super::frames::layout_body_lines_counted(
+            let lines = super::super::frames::layout_body_lines_in_measured_frames(
                 prepared,
                 seed.body,
                 maximum_work - work,
-                seed.page_plan,
+                seed.measured_frames,
                 seed.source_widths,
                 &mut consumed,
+                &mut 0,
             );
             take_work(&mut work, consumed, maximum_work)?;
             let lines = lines?;

@@ -16856,3 +16856,22 @@ Book /2 CLIは--test-threads=4で一時領域の同時使用を抑え、今回�
 verify-correspondence.pyは全683開始／終了hashes・74 verifier hashes・全7変更、原入力・10 VMB jobs、全回帰commands／logs、最終focused 10件と保存済みfixture失敗、実test binaryと全333 unique successes、8独立commands・旧検証・全artifact対応をrun-source-correspondence.jsonへ結ぶ。検証後の文書3件は別hashへ記録する。元sourceの自動選択と専用ページ列を受理し、実幅で安定した段組ページ列・段組PDFの受入とは区別する。font全suite・外部host・元全巻・著者／人手の受入は今回の結果として扱わない。
 
 この列は初期測定でのsource選択であり、選択した実段幅への再組版feedbackと反復header variants、last_page balance、安定配置・terminal・段組PDFと独立受入は継続する。private driver／PDF assemblyの段組拒否を維持し、新しい段組PDFの受入は0件である。完全なcommand予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入と未作成のSpeech／SemanticRefも継続し、設計全体の完了とは扱わない。
+
+<a id="book-2-column-header-variants-design-14279"></a>
+## 279. 実段幅で反復ヘッダーを選択する（design §14.279）
+
+35e74eaを基準として、[ADR-0142](../adr/ADR-0142-book-2-column-header-variants.md)に従い、元column planへ結び付くseedと同時保持する行グラフ、専用の表header variant／catalogとheader付き段組searchを追加した。単段と共通の収束・capture・所有層別の反復再構築を使う。全seedの元column planへの参照、source・policy・resource・native ownerの同一性と、captureした収束結果の再照合を維持する。
+
+各行グラフから専用のcolumn source flow・表測定を構築する。header collectorは元行集合への所属、元表・セル・caption・入れ子の全header sourceを照合する。catalogは元rootの親幅をkeyにし、元source階層の再測定で実幅・startを確認する。本文の各段には実段幅、脚注の表には段で分割しない元脚注領域の幅を使い、選択した別グラフの実header高を予約する。元semantic leafは一度だけ消費し、反復は別ownerの配置leafとして保持する。欠けた幅・異なるowner・重複／逆順のkeyを拒否する。
+
+一時的なseed／header参照配列をlogical recordへ予約してから確保し、変換・共通再構築・collectorのworkと受理済みrecordを失敗時もcallerへ戻す。専用行集合とcatalogのworkには変換prefixも含め、callback内の値とcaller台帳の一致を検査する。単段のseed・行集合・header・catalogへの直接変換をcompile-failで拒否し、既存の単段flow constructorもcolumn frameを拒否する。
+
+新しい7 testsは本文と脚注の実幅、入れ子header、子表の独立継続、rowspan、元改ページと原Haranoを検査する。元leafの一回消費、実幅に対する選択headerのfingerprint・実高とheader leafの元親幅、同値でも別参照のcolumn planの拒否を確認する。seedのwork／pass／record、同時再構築・header collector・catalogのwork／record exact／1不足と失敗prefix、空catalogによる幅不足診断も検査する。
+
+証跡はworkspace/target/vmb-design/20261007/column-header-variants/。初回のtest module参照、初回の元headerと反復の区別、入れ子の最小幅・実容量を修正し、失敗logsを保全した。子表の512 pt fixtureでは、元kernelが子表の空ページ容量から共通cutを維持する一方、親headerが実容量を減らすため子表を開始できずOversizeになった。child-diagnostic-01.log〜04.logへ検査履歴を保存した。診断用コードは除去し、今回の子表試験は両headerと最初の元内容が入り、独立セル継続を選ぶ384 ptで行う。親headerの予約を含む共通境界の判断は継続課題として残す。新しい3 filesだけを整形し、既存の巨大filesは広域整形していない。
+
+最終686 compilation／source入力と全14 source／test変更を固定した。run-checks.pyの7 commandsを直列に実行し、全てexit code 0だった。layout 70 tests＋doc-test 4件、pagination 104 tests＋doc-test 6件とworkspace --all-features --tests checkが成功した。原Harano／ArialのbytesとSHA-256を検証して使用し、CLIは共通line_variant_seeds 28件（新規7件を含む）、既存column_lines 19件、body_line_budget 22件の計69 unique testsに成功した。失敗／ignoredは0である。旧precomposedは4成功／外部host 1 ignoredだった。共通行グラフのtest観測時間590.30秒などは今回の観測値であり、制御された性能受入ではない。
+
+verify-results.pyは全686開始／終了hashes、14変更とGitの変更17 paths、文書3件、各commandの引数・exit code・時間・log SHA-256、実test binary・runnerのSHA-256と69 unique successesをverification-summary.jsonへ対応付ける。Book /2 CLI全340件／binary全759件を実行したとは扱わない。既存863 PDFの独立検査・保存済みVMB 10 jobs・旧成果物の比較は§278の結果であり、今回の結果へ再計上しない。
+
+これはheaderの幅候補と初期source選択であり、本文自身の選択した実段幅へのfeedback・幅が収束したページ列、last_page balance、安定配置・terminal・段組PDFと独立受入は継続する。private driver／PDF assemblyの段組拒否を維持し、新しい段組PDFの受入は0件である。完全なcommand予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入と未作成のSpeech／SemanticRefも継続し、設計全体の完了とは扱わない。

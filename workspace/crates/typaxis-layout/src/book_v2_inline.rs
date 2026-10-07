@@ -31,6 +31,9 @@ pub use line_variant_seed::{
     with_budgeted_rebuilt_book_v2_body_line_variants, with_rebuilt_book_v2_body_line_variant,
     with_rebuilt_book_v2_body_line_variants, BookV2BodyLineVariantSeed, BookV2LineVariantBudget,
     BookV2RebuiltBodyLineVariant, BookV2RebuiltBodyLineVariants,
+    prepare_budgeted_book_v2_column_line_variant_seed,
+    with_budgeted_rebuilt_book_v2_column_line_variants,
+    BookV2ColumnLineVariantSeed, BookV2RebuiltColumnLineVariant, BookV2RebuiltColumnLineVariants,
 };
 #[path = "book_v2_source_widths.rs"]
 mod source_widths;

@@ -10,7 +10,7 @@ use typaxis_syntax::book_v2::{prepare_book_v2_column_frame_plan, BookV2ColumnFra
 
 const MODE: JapaneseLineBreakMode = JapaneseLineBreakMode::Normal;
 
-fn input(
+pub(in crate::book_v2_resources::tests::shaping_tests) fn input(
     root: &Root,
     mut data: Value,
     text: &str,

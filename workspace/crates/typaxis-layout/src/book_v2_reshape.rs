@@ -278,7 +278,7 @@ pub fn with_budgeted_book_v2_body_lines_with_source_widths<'a, R>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn with_budgeted_lines_in_measured_frames<'a, R>(
+pub(super) fn with_budgeted_lines_in_measured_frames<'a, R>(
     policy: &BookV2ResourcePolicy<'_>,
     flow: &PreparedBookV2TextFlow<'a>,
     admitted: &AdmittedProductionResourceLedgerV3,

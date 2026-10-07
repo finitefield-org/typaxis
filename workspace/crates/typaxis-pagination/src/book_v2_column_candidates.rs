@@ -120,6 +120,19 @@ pub fn prepare_book_v2_column_page_search_counted<'b, 'f, 's, 'p, 'a>(
         plan: measurements.column_plan(),
     })
 }
+/// A column-owned catalog supplies the actual header chosen in every segment.
+pub fn prepare_book_v2_column_page_search_with_headers_counted<'b, 'f, 's, 'p, 'a>(
+    catalog: &'b crate::book_v2::BookV2ColumnTableHeaderCatalog<'b, 'f, 's, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    maximum_work: u64,
+    prior_records: u64,
+    observed_records: &mut u64,
+    observed_work: &mut u64,
+) -> Result<BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    let inner = prepare_book_v2_table_body_search_with_headers_counted(&catalog.inner,
+        limits, maximum_work, prior_records, observed_records, observed_work)?;
+    Ok(BookV2ColumnPageSearch { inner, plan: catalog.base().column_plan() })
+}
 impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
     pub fn record_charge(&self) -> u64 {
         self.inner.record_charge()

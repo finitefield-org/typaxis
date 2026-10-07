@@ -11,6 +11,8 @@ mod header_catalog;
 mod header_selection;
 #[path = "book_v2_table_header_variant_tests.rs"]
 mod header_variants;
+#[path = "book_v2_column_header_tests.rs"]
+mod column_headers;
 
 fn check_variant_seeds(font: Option<&[u8]>, nested: bool) {
     for notes in [false, true] {
