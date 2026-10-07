@@ -8,11 +8,11 @@ mod pages;
 pub use pages::*;
 
 pub struct BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
-    inner: BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>,
-    plan: &'p BookV2ColumnFramePlan<'a>,
+    pub(super) inner: BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>,
+    pub(super) plan: &'p BookV2ColumnFramePlan<'a>,
 }
 pub struct BookV2ColumnPageState<'b, 'f, 's, 'p, 'a> {
-    source: BookV2BodySourceState<'b, 'f, 's, 'p, 'a>,
+    pub(super) source: BookV2BodySourceState<'b, 'f, 's, 'p, 'a>,
     page: u32,
 }
 impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageState<'b, 'f, 's, 'p, 'a> {

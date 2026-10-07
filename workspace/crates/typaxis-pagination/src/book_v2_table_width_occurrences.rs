@@ -1,6 +1,8 @@
 //! Source-position observations for reflowing a table across different widths.
 use super::*;
 use std::ops::Range;
+#[path = "book_v2_column_table_widths.rs"]
+mod column_widths;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BookV2TableWidthSource {
@@ -260,6 +262,17 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         >,
         definition: Option<usize>,
     ) -> Result<(), ProductionBodyPaginationError> {
+        self.append_table_occurrence_in_frame(result, page.page_index(), selected, definition,
+            |search, index| search.physical_table_parent_width(page, index))
+    }
+    fn append_table_occurrence_in_frame(
+        &mut self,
+        result: &mut BookV2TableWidthOccurrences,
+        page: u32,
+        selected: &crate::production_body::body_flow::book_v2::BookV2TableFragmentSelection<'b, 'f, 's, 'p, 'a>,
+        definition: Option<usize>,
+        physical_width: impl FnOnce(&mut Self, usize) -> Result<PositiveLength, ProductionBodyPaginationError>,
+    ) -> Result<(), ProductionBodyPaginationError> {
         selected.verify_source_flow(self.content.flow, definition)?;
         let index = selected.before().table_index();
         let table = &self.content.flow.collected.tables.tables[index];
@@ -267,7 +280,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         if table.parent.is_some() || table.definition != definition {
             return Err(error(owner, E::ReceiptMismatch));
         }
-        let width = self.physical_table_parent_width(page, index)?;
+        let width = physical_width(self, index)?;
         let mut count = 0usize;
         for range in selected.source_leaf_ranges() {
             self.content.step(owner)?;
@@ -301,7 +314,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             .map_err(|_| error(owner, E::AllocationFailure))?;
         let mut occurrence = BookV2TableWidthOccurrence {
             owner,
-            page: page.page_index(),
+            page,
             definition,
             parent_width: width,
             pieces,
@@ -460,7 +473,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         }
         for value in [
             u64::from(owner.get()),
-            u64::from(page.page_index()),
+            u64::from(page),
             definition.map_or(u64::MAX, |n| n as u64),
             width.get().raw() as u64,
             occurrence.pieces.len() as u64,

@@ -50,7 +50,7 @@ mod source_closure;
 pub use source_closure::BookV2BodySourceClosure;
 #[path = "book_v2_paragraph_width_feedback.rs"]
 mod paragraph_width_feedback;
-pub use paragraph_width_feedback::{BookV2TableWidthSource, BookV2TableWidthPiece, BookV2TableWidthOccurrence, BookV2TableWidthOccurrences, BookV2ParagraphWidthCandidate, BookV2ParagraphWidthFeedback};
+pub use paragraph_width_feedback::{BookV2TableWidthSource, BookV2TableWidthPiece, BookV2TableWidthOccurrence, BookV2TableWidthOccurrences, BookV2ParagraphWidthCandidate, BookV2ParagraphWidthFeedback, BookV2ColumnWidthFeedback};
 #[path = "book_v2_body_math_terminals.rs"]
 mod math_terminals;
 pub use math_terminals::{

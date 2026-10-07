@@ -6011,3 +6011,33 @@ last_page balance、安定配置・terminal・段組PDFと独立受入は継続�
 private driver／PDF assemblyの段組拒否を維持する。完全なcommand予算・同時保持graph、
 公開Book /2、元全巻・管理host・制御性能・著者／人手受入と未作成のSpeech／SemanticRefも
 残り、設計全体の完了とはしない。
+
+<a id="book-2-column-width-feedback-design-14281"></a>
+### 14.281 選択した実段幅を元論理単位の再組版へ戻す（実装追補）
+
+BookV2ColumnPageSearchの選択した実段幅を、専用のBookV2ColumnWidthFeedbackで元sourceへ
+戻す。元search owner、同じcolumn planへの参照、測定・flowのfingerprintと完全なページ列を
+検査する。行番号ではなく元unit区間へ幅を返し、元の字下げ・脚注番号とgapを保持する。
+本文は各実段、脚注は元の全ページ脚注領域の幅を用いる。観測した段落の元unitを一度だけ
+対応付け、空anchorの0-unit行を扱い、未参照定義は元測定幅を保持する。
+
+表のroot親幅を実段／脚注の幅へ戻し、caption・セル・入れ子の階層再投影を既存処理と
+共用する。別graphの反復headerは実frameと測定frameを検査し、元semantic幅を上書きしない。
+図版とnative／vector式も元ownerのblock幅・startへ戻す。幅循環のconsumerには元selected
+lineのend_unitを渡し、保持行境界を含む候補fingerprintと同じownerへの所属を検査する。
+
+幅・訪問・start・表出現・元行終端の配列は確保前にlogical recordへ予約する。走査・hashを
+workへ計上し、成功・失敗の受理済みprefixをsearchへ保持する。単段feedback・安定配置の
+型へ変換しない。[ADR-0144](../adr/ADR-0144-book-2-column-width-feedback.md)と
+[実装台帳§281](28-vmb-book-production-progress.md#book-2-column-width-feedback-design-14281)を参照。
+
+新しい6 testsは元unitからの再shapingと再選択、原Harano、元文字・glyph owner、全幅脚注、
+未参照定義、空anchor、入れ子・rowspan・caption・反復headerと20種類のblockケースを確認する。
+work／recordのexact／1不足と失敗prefixも検査する。各反復に独立した部品予算を渡す試験であり、
+全commandの累積予算を持つ自動column driverの受入ではない。
+
+元source／planと予約済み所有データを保つcallback外へのcapture、同時保持header graphと
+全反復予算を接続する自動driver、幅が安定した実段ページ列、last_page balance、安定配置・
+source closure・terminal・段組PDFと独立受入は継続する。private driver／PDF assemblyの段組拒否を
+維持する。完全なcommand予算・同時保持graph、公開Book /2、元全巻・5,000画像・管理host・
+制御性能・著者／人手受入と未作成のSpeech／SemanticRefも残り、設計全体の完了とはしない。

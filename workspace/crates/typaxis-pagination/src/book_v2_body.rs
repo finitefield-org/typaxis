@@ -423,7 +423,7 @@ pub use footnote_breaks::{
     BookV2FootnoteRegionFragment, BookV2FootnoteRegionSelection,
     BookV2BodyFootnoteCandidate,
     BookV2BodyMixedStablePages, BookV2BodyPlacedHeaderVariant, BookV2BodyPlacedEquationNumber, BookV2BodySourceClosure,
-    BookV2TableWidthSource, BookV2TableWidthPiece, BookV2TableWidthOccurrence, BookV2TableWidthOccurrences, BookV2ParagraphWidthCandidate, BookV2ParagraphWidthFeedback,
+    BookV2TableWidthSource, BookV2TableWidthPiece, BookV2TableWidthOccurrence, BookV2TableWidthOccurrences, BookV2ParagraphWidthCandidate, BookV2ParagraphWidthFeedback, BookV2ColumnWidthFeedback,
     BookV2BodyMathSource, BookV2BodyMathTerminal, BookV2BodyMathTerminals, BOOK_V2_BODY_MATH_TERMINAL_ALGORITHM,
     BookV2BodyMixedPlacedPage, BookV2BodyMixedPlacedSequence,
     BookV2BodyMixedPageState, BookV2BodyMixedPageSelection, BookV2BodyMixedPageSequence,

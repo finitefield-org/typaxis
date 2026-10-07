@@ -119,6 +119,20 @@ fn block_width_data(kind: &str, notes: bool) -> Value {
     data
 }
 
+pub(super) fn column_block_data(kind: &str, notes: bool, tables: bool) -> Value {
+    let mut data = block_width_data(kind, notes);
+    if tables { table_blocks::wrap_tables(&mut data); }
+    for master in data["page_masters"]["masters"].as_array_mut().unwrap() {
+        let width = master["body"]["width"].as_i64().unwrap();
+        let page_width = if tables { 800 } else { 600 } * 65536;
+        master["width"] = page_width.into();
+        master["trim"]["width"] = page_width.into();
+        master["body"]["width"] = (2 * width + 10 * 65536).into();
+        master["column_layout"] = json!({"count":2,"gap":10*65536,"fill":"sequential","balance":"none"});
+    }
+    data
+}
+
 #[path = "book_v2_table_block_width_pdf_tests.rs"]
 mod table_blocks;
 

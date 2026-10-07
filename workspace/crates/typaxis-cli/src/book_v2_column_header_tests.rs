@@ -7,6 +7,8 @@ use typaxis_pagination::book_v2::*;
 use typaxis_syntax::book_v2::prepare_book_v2_column_frame_plan;
 
 const MODE: JapaneseLineBreakMode = JapaneseLineBreakMode::Normal;
+#[path = "book_v2_column_width_tests.rs"]
+mod width_feedback;
 fn data(notes: bool, mode: &str, text: &str) -> Value {
     let fixture_mode = if mode.starts_with("nested-body-") { "nested-body" } else { mode };
     let mut data = super::header_selection::fixture(notes, fixture_mode, text);
@@ -89,6 +91,9 @@ fn check(font: Option<&[u8]>, notes: bool, mode: &str) {
 }
 
 fn check_with_height(font: Option<&[u8]>, notes: bool, mode: &str, height: Option<i64>) {
+    check_feedback_with_height(font, notes, mode, height, false);
+}
+fn check_feedback_with_height(font: Option<&[u8]>, notes: bool, mode: &str, height: Option<i64>, feedback: bool) {
     let text = if font.is_some() {
         "本文を続けて組み直す本文を続けて組み直す"
     } else {
@@ -489,6 +494,53 @@ fn check_with_height(font: Option<&[u8]>, notes: bool, mode: &str, height: Optio
         assert!(actual_widths.len() > 1, "{mode}/{notes}: one actual width");
         let expected = if notes { base.definition_items(0).unwrap().len() } else { base.body_table_range(0).unwrap().len() };
         assert_eq!(covered.len(), expected);
+        if feedback {
+            let report = search.paragraph_frame_feedback(&pages).unwrap_or_else(|e| panic!("feedback/{mode}/{notes}: {e:?}"));
+            assert!(report.matches_source_flow(&flow));
+            assert!(std::ptr::eq(report.column_plan(), &plan));
+            assert_eq!(report.paragraphs().len(), flow.paragraphs().len());
+            assert!(report.paragraphs().iter().any(|p| p.source_unit_starts().is_some()));
+            assert_eq!((report.work_steps(), report.record_charge()), (search.work_steps(), search.record_charge()));
+            if budgets {
+                let run = |maximum, prior, retain| {
+                    let (mut observed_records, mut observed_work) = (0, 0);
+                    let mut search = match prepare_book_v2_column_page_search_with_headers_counted(
+                        &catalog, &caps, maximum, prior, &mut observed_records, &mut observed_work,
+                    ) {
+                        Ok(search) => search,
+                        Err(error) => return (Err(error), observed_records, observed_work),
+                    };
+                    let result = (|| {
+                        let pages = search.select_pages()?;
+                        let mut report = search.paragraph_frame_feedback(&pages)?;
+                        if retain { search.retain_paragraph_line_boundaries(&pages, &mut report)?; }
+                        Ok(report.assignment_fingerprint())
+                    })();
+                    (result, search.record_charge(), search.work_steps())
+                };
+                for retain in [false, true] {
+                    let full = run(20_000_000, records, retain);
+                    assert!(full.0.is_ok());
+                    if !retain { assert_eq!(full.0.as_ref().unwrap(), &report.assignment_fingerprint()); }
+                    assert_eq!(run(full.2, records, retain), full);
+                    let short = run(full.2 - 1, records, retain);
+                    assert!(short.0.is_err());
+                    assert!(short.1 >= records && short.2 > 0 && short.2 <= full.2 - 1);
+                    let raised = caps.base().get().max_fragments / 2;
+                    let extra = run(full.2, raised, retain).1 - raised;
+                    let prior = caps.base().get().max_fragments - extra;
+                    let exact = run(full.2, prior, retain);
+                    assert_eq!(exact.0, full.0);
+                    assert_eq!(exact.1, caps.base().get().max_fragments);
+                    let short = run(full.2, prior + 1, retain);
+                    assert!(short.0.is_err());
+                    assert!(short.1 >= prior + 1 && short.1 <= caps.base().get().max_fragments && short.2 <= full.2);
+                }
+            }
+            let mut foreign = prepare_book_v2_column_page_search_with_headers_counted(
+                &catalog, &caps, 10_000_000, records, &mut 0, &mut 0).unwrap();
+            assert!(matches!(foreign.paragraph_frame_feedback(&pages), Err(e) if e.kind == typaxis_pagination::ProductionBodyPaginationErrorKind::ReceiptMismatch));
+        }
         json!({"pages":pages.pages().len(), "repeated":repeated, "covered":covered.len()})
     }).unwrap();
 }

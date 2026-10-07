@@ -143,10 +143,25 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         paragraphs: &mut [BookV2ParagraphWidthCandidate],
         visits: &mut [Vec<u8>],
         blocks: &mut [(NodeId, PositiveLength)],
-        mut block_starts: Option<&mut [Length]>,
+        block_starts: Option<&mut [Length]>,
     ) -> Result<(bool, bool), ProductionBodyPaginationError> {
         let report = self.table_width_frames(closed)?;
         self.verify_table_profile_roots(closed, &report)?;
+        self.collect_table_profiles_from_report(&report, paragraphs, visits, blocks, block_starts)
+    }
+    pub(in crate::production_body::body_flow) fn collect_table_profiles_from_report(
+        &mut self,
+        report: &BookV2TableWidthOccurrences,
+        paragraphs: &mut [BookV2ParagraphWidthCandidate],
+        visits: &mut [Vec<u8>],
+        blocks: &mut [(NodeId, PositiveLength)],
+        mut block_starts: Option<&mut [Length]>,
+    ) -> Result<(bool, bool), ProductionBodyPaginationError> {
+        if !report.has_remeasured_frames()
+            || !report.matches_source_flow(self.content.flow.lines().prepared().source_flow())
+        {
+            return Err(error(NodeId::new(0), E::ReceiptMismatch));
+        }
         let frames = self
             .content
             .flow

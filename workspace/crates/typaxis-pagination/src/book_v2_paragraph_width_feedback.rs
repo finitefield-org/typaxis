@@ -7,6 +7,9 @@ mod block_width_feedback;
 mod table_width_feedback;
 #[path = "book_v2_table_width_occurrences.rs"]
 mod table_width_occurrences;
+#[path = "book_v2_column_width_feedback.rs"]
+mod column_width_feedback;
+pub use column_width_feedback::BookV2ColumnWidthFeedback;
 pub use table_width_occurrences::{
     BookV2TableWidthOccurrence, BookV2TableWidthOccurrences, BookV2TableWidthPiece,
     BookV2TableWidthSource,

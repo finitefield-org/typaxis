@@ -16898,3 +16898,30 @@ verify-results.pyは全686開始／終了hashes、14変更とGitの変更17 path
 verify-correspondence.pyは全開始／終了source hashes、74 verifiers、全7変更、5新tests、実binary SHA-256と全345登録名・成功名の一致、7回帰commands／8独立commands／旧検証、元入力・10 jobs、863 PDF対応と21旧成果物をrun-source-correspondence.jsonへ結ぶ。初回byte比較の失敗と14件の元sourceに基づく配置検証も同じ証跡へ結ぶ。検証後の文書3件は別hashへ記録する。
 
 これは元sourceの分割選択の修正であり、本文自身の選択した実段幅へのfeedback・幅が収束したページ列、last_page balance、安定配置・terminal・段組PDFと独立受入は継続する。private driver／PDF assemblyの段組拒否を維持し、新しい段組PDFの受入は0件である。完全なcommand予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入と未作成のSpeech／SemanticRefも継続し、設計全体の完了とは扱わない。
+
+<a id="book-2-column-width-feedback-design-14281"></a>
+## 281. 選択した実段幅を元論理単位の再組版へ戻す（design §14.281）
+
+75055f1を基準として、[ADR-0144](../adr/ADR-0144-book-2-column-width-feedback.md)に従い、BookV2ColumnPageSearchへparagraph_frame_feedbackと元行終端を保持するAPIを追加した。専用のBookV2ColumnWidthFeedbackは元search owner、同じcolumn planへの参照、測定・元flowのfingerprintと完全な元ページ列を検査する。元paragraph ownerと元unit区間へ幅を戻し、再組版後の行番号を元sourceの対応として使用しない。単段feedbackへの変換はcompile-failで拒否する。
+
+本文の各実段とページ全体の元脚注領域を別に観測する。元の字下げ・脚注番号・gapを含む幅差を適用し、観測した段落の元unitがsemanticに一度だけ対応することを確認する。空anchorの0-unit行を明示的に扱い、未参照定義は元測定幅を維持する。図版・native／vector式の幅と起点も元block ownerへ戻す。
+
+表の元root親幅を実段／全幅脚注に再投影し、既存の階層処理を共用してcaption・セル・入れ子の元leaf幅・startを返す。別graphで選択する反復headerは実frameと測定frameを照合し、元semantic幅を上書きしない。rootの実出現と完全なdemandを検査し、未参照定義の表を出現済みと扱わない。幅循環のconsumerは元selected lineのend_unitを保持でき、同じownerへの所属、再保持の拒否と行境界を含む候補fingerprintを検査する。
+
+元unitの幅・訪問・start、block・表出現・元行終端の配列を確保前にlogical recordへ予約し、source走査・候補hashをworkへ計上する。成功・失敗ともsearchの受理済みprefixを保持する。循環検出と累積予算を持つcommand収束はcallerの責務であり、このAPIの実行完了を安定配置のreceiptと扱わない。
+
+新しい6 testsは本文140／220 ptと脚注300／380 ptから元番号・gapを差し引いた幅、未参照定義、空anchor、元文字・glyph owner、保持行境界と同じ入力の再選択一致を確認した。入れ子・rowspan・caption・反復headerは本文／脚注の10ケース、vector／native式とPNG／JPEG／SVGは本文／脚注・表内外の20ケースを検査する。原Haranoのbytes／SHA-256を固定した日本語試験も明示的に実行した。異なるsearchの拒否、feedbackと元行終端保持のwork／record exact／1不足、失敗prefixも確認した。部品の反復試験では各反復へ独立した予算を渡しており、全commandの累積予算の証明ではない。
+
+証跡はworkspace/target/vmb-design/20261007/column-width-feedback/。初期checkとfocused-draft-02から08までのcompile・fixture修正の履歴を保全した。JSON macroの配列参照、test importと型の修正、fixtureのページ幅、生成脚注番号の期待文字、元番号・gapを差し引く期待幅を修正し、focused-draft-08で6件すべて成功した。最終との差は新しいtest moduleの整形だけで、focused-final-format-correspondence.jsonへ対応を記録する。その後、最終sourceで全回帰を実行した。既存filesを広域整形していない。
+
+最終690 compilation／source入力、全12 source／test変更、74独立verifier、原Harano／Arialと元入力、保存済みVMB 10 jobsを固定した。run-regression-01.pyの7 commandsはすべてexit code 0。旧syntax 79 tests＋doc-test 6件、Book /2 syntax 161 tests＋doc-test 13件、layout 70 tests＋doc-test 4件、pagination 104 tests＋doc-test 7件、workspace --all-features --tests checkが成功した。実binaryに登録された全Book CLI 351 unique testsを原font指定・include-ignoredで実行し、失敗／ignoredは0だった。binary全770件のうち419件はこのcommandでfilteredであり、全770件を実行したとは扱わない。旧precomposedは4成功／外部host 1 ignored。CLIのtest観測時間901.35秒は制御された性能受入ではない。
+
+独立検査の8 commandsはすべて成功した。共通検査は863 source PDFs（実driver callbacks 412件）、3300 pages、39244構造nodes、1095 annotations、unsupported 13入力、改変拒否7600件。header resourcesは58 displays（TrueType 48／CFF 10）、793 mapped glyphs、34108 CID uses、174改変拒否、実PDFは58件／446 pages／34108 CID paintsと118改変拒否に成功した。running regionsは3 PDFs／10 pages／126 glyph paintsとresource改変9件・PDF／source改変22件、uniform tableは16 PDFs／60 pages／112改変拒否、named table transitionsは26 driver PDFs／108 pages／130改変拒否、named footnotesは26 driver PDFs／94 pages／156改変拒否に成功した。
+
+初回の独立実行はpypdf不在、次のheader検査はFontTools不在で停止し、それぞれのrunner・command・logを保全した。既存のbundled Pythonで共通PDF検査を実行し、残りは既存のPythonとbundled pypdf／Pillowのlibrary path、既存FontToolsを使用した。新しい依存のinstallや、成功済み共通検査の再起動は行っていない。independent-python.jsonとcommandごとの実行環境へ対応を記録する。
+
+全863 PDFは§280とbyte一致し、名前変更0だった。保存済みVMB table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§280と一致した。旧経路の独立21 checksと旧成果物21組のbyte一致も成功した。
+
+verify-correspondence.pyは全690開始／終了source hashes、74 verifiers、全12変更、6新tests、実binaryと保存copyのSHA-256 56099ad2bd207af40e373a9cdbafa8a70d8f8db706bf4cd04a663fe4e9d169ac、全351登録名・成功名の一致、7回帰commands／8独立commands／旧検証、元入力・10 jobs、863 PDF対応と21旧成果物をrun-source-correspondence.jsonへ結ぶ。検証後の文書3件は別hashへ記録する。
+
+次は元source／planのownerと予約済み所有データを保つcallback外へのcaptureを設け、全反復の累積予算と同時保持header graphを自動column driverへ接続する。短い行graph参照の寿命を未課金の配列copyや過去の全graphを保持するcallback再帰で回避しない。幅が安定した実段ページ列、last_page balance、配置・source closure・terminal・段組PDFと独立受入は継続する。private driver／PDF assemblyの段組拒否を維持し、新しい段組PDFの受入は0件である。完全なcommand予算・同時保持graph、公開Book /2と4 manifests、元全巻1 package／1 PDF、5,000 distinct画像の実配置、元Harano全巻・管理host・制御性能・著者／人手受入も残る。元本文内数式6,343件のSpeech／SemanticRefはユーザーが未作成と回答した状態を維持し、設計全体の完了とは扱わない。

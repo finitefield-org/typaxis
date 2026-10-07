@@ -415,7 +415,7 @@ pub use demand::book_v2::{
     BookV2DefinitionCandidates, BookV2RankedDefinitionCandidate, prepare_book_v2_mixed_footnote_demand_search, prepare_book_v2_mixed_footnote_demand_search_counted, prepare_book_v2_definition_mixed_search, prepare_book_v2_definition_mixed_search_counted, BookV2DefinitionMixedSearch, BookV2DefinitionCandidatePart, BookV2DefinitionSelectedPart, BookV2DefinitionSourceState, BookV2DefinitionMixedCandidate,
     BookV2BodyFootnoteCandidate,
     BookV2BodyMixedStablePages, BookV2BodyPlacedHeaderVariant, BookV2BodyPlacedEquationNumber, BookV2BodySourceClosure,
-    BookV2TableWidthSource, BookV2TableWidthPiece, BookV2TableWidthOccurrence, BookV2TableWidthOccurrences, BookV2ParagraphWidthCandidate, BookV2ParagraphWidthFeedback,
+    BookV2TableWidthSource, BookV2TableWidthPiece, BookV2TableWidthOccurrence, BookV2TableWidthOccurrences, BookV2ParagraphWidthCandidate, BookV2ParagraphWidthFeedback, BookV2ColumnWidthFeedback,
     BookV2BodyMathSource, BookV2BodyMathTerminal, BookV2BodyMathTerminals, BOOK_V2_BODY_MATH_TERMINAL_ALGORITHM,
     BookV2BodyMixedPlacedPage, BookV2BodyMixedPlacedSequence,
     BookV2BodyMixedPageState, BookV2BodyMixedPageSelection, BookV2BodyMixedPageSequence,
