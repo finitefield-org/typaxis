@@ -40,7 +40,9 @@ impl<'b, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'b, 'f, 's, 'p, 'a> {
                     None
                 })
             })()
-        } else if self.kernel.spanning_breaks {
+        } else if self.kernel.spanning_breaks
+            || (!self.kernel.cell_breaks && selected.projection.after.cells.is_some())
+        {
             (|| {
                 let owner = self.measurements.tables()[cursor.table_index].owner;
                 self.kernel

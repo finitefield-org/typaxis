@@ -6,6 +6,9 @@ use super::*;
 mod parallel;
 #[cfg(feature = "book-v2-staging")]
 use parallel::CellContinuation;
+#[cfg(feature = "book-v2-staging")]
+#[path = "production_table_capacity_breaks.rs"]
+mod capacity;
 
 #[derive(Clone, Copy)]
 pub(super) struct TablePosition {
@@ -61,6 +64,10 @@ pub(super) struct TableBreakKernel<'m> {
     pub(super) spanning_breaks: bool,
     #[cfg(feature = "book-v2-staging")]
     cell_states: Vec<CellContinuation>,
+    #[cfg(feature = "book-v2-staging")]
+    pub(super) reserved_by_parent: bool,
+    #[cfg(feature = "book-v2-staging")]
+    common_offset_cells: bool,
     pub(super) max_ends: Vec<Length>,
     pub(super) tree_base: usize,
     pub(super) charge: Charge,
@@ -145,6 +152,30 @@ impl TableBreakKernel<'_> {
         if self.cell_breaks {
             return self.evaluate_parallel(cursor, available);
         }
+        #[cfg(feature = "book-v2-staging")]
+        if cursor.cells.is_some() {
+            return self.evaluate_capacity_cells(cursor, available);
+        }
+        let result = self.evaluate_common(cursor, available);
+        #[cfg(feature = "book-v2-staging")]
+        if self.input.parallel_breaks
+            && self.reserved_by_parent
+            && !self.input.table.keep_together
+            && match &result {
+                Ok(None) => true,
+                Err(failure) => failure.kind == E::Oversize,
+                _ => false,
+            }
+        {
+            return self.evaluate_capacity_cells(cursor, available);
+        }
+        result
+    }
+    fn evaluate_common(
+        &mut self,
+        cursor: &TablePosition,
+        available: Length,
+    ) -> Result<Option<TableFragmentProjection>, ProductionBodyPaginationError> {
         if cursor.cells.is_some() {
             return Err(error(self.input.table.owner, E::ReceiptMismatch));
         }
@@ -925,6 +956,10 @@ pub(super) fn prepare_kernel_counted<'m>(
             spanning_breaks: has_spans.unwrap_or(false),
             #[cfg(feature = "book-v2-staging")]
             cell_states: Vec::new(),
+            #[cfg(feature = "book-v2-staging")]
+            reserved_by_parent: false,
+            #[cfg(feature = "book-v2-staging")]
+            common_offset_cells: false,
             max_ends,
             tree_base,
             charge: Charge {

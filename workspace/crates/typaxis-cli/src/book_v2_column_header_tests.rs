@@ -8,7 +8,24 @@ use typaxis_syntax::book_v2::prepare_book_v2_column_frame_plan;
 
 const MODE: JapaneseLineBreakMode = JapaneseLineBreakMode::Normal;
 fn data(notes: bool, mode: &str, text: &str) -> Value {
-    let mut data = super::header_selection::fixture(notes, mode, text);
+    let fixture_mode = if mode.starts_with("nested-body-") { "nested-body" } else { mode };
+    let mut data = super::header_selection::fixture(notes, fixture_mode, text);
+    if mode.starts_with("nested-body-") {
+        let parent = if notes { &mut data["document"]["footnotes"][0]["blocks"][0] }
+            else { &mut data["document"]["blocks"][0] };
+        let child = &mut parent["body"][0]["cells"][0]["blocks"][0];
+        if mode == "nested-body-span" {
+            let mut row = child["body"][0].clone();
+            row["cells"].as_array_mut().unwrap().remove(0);
+            child["body"][0]["cells"][0]["rowspan"] = 2.into();
+            child["body"].as_array_mut().unwrap().push(row);
+        } else if mode == "nested-body-caption" {
+            child["caption"] = json!([child["body"][0]["cells"][0]["blocks"][0].clone()]);
+        }
+        crate::book_v2_resources::tests::shaping_tests::table_caption_breaks::renumber(
+            &mut data["document"], &mut 0,
+        );
+    }
     let height = match mode {
         "nested-header" => 1600,
         "nested-body" => 384,
@@ -68,6 +85,10 @@ fn header_owners(value: &Value, in_head: bool, owners: &mut BTreeSet<NodeId>) {
 }
 
 fn check(font: Option<&[u8]>, notes: bool, mode: &str) {
+    check_with_height(font, notes, mode, None);
+}
+
+fn check_with_height(font: Option<&[u8]>, notes: bool, mode: &str, height: Option<i64>) {
     let text = if font.is_some() {
         "本文を続けて組み直す本文を続けて組み直す"
     } else {
@@ -83,7 +104,15 @@ fn check(font: Option<&[u8]>, notes: bool, mode: &str) {
         original.extension().get().clone(),
     )
     .unwrap();
-    let data = data(notes, mode, text);
+    let mut data = data(notes, mode, text);
+    if let Some(height) = height {
+        for master in data["page_masters"]["masters"].as_array_mut().unwrap() {
+            master["body"]["height"] = (height * 65536).into();
+            if notes {
+                master["footnote"]["height"] = (height * 65536).into();
+            }
+        }
+    }
     let mut owners = BTreeSet::new();
     header_owners(&data["document"], false, &mut owners);
     let owners = owners.into_iter().collect::<Vec<_>>();
@@ -358,10 +387,58 @@ fn check(font: Option<&[u8]>, notes: bool, mode: &str) {
             &mut 0, &mut 0).unwrap();
         let pages = search.select_pages().unwrap_or_else(|e| panic!("{mode}/{notes}/harano={}: {e:?}", font.is_some()));
         search.verify_sequence(&pages).unwrap();
+        if height == Some(512) && font.is_none() && !notes && mode == "nested-body" {
+            let snapshot = |pages: &BookV2ColumnPageSequence<'_, '_, '_, '_, '_>| {
+                let mut digest = [0u8; 32];
+                for page in pages.pages() {
+                    for column in page.candidate().columns() {
+                        for table in column.parts().iter().filter_map(|part| part.table()) {
+                            let mut bytes = [0u8; 64];
+                            bytes[..32].copy_from_slice(&digest);
+                            bytes[32..].copy_from_slice(&table.fingerprint());
+                            digest = typaxis_core::sha256(&bytes);
+                        }
+                    }
+                }
+                (digest, pages.pages().len())
+            };
+            let full = (snapshot(&pages), search.work_steps(), search.record_charge());
+            let run = |maximum, prior| {
+                let (mut observed_records, mut observed_work) = (0, 0);
+                let mut search = match prepare_book_v2_column_page_search_with_headers_counted(
+                    &catalog, &caps, maximum, prior, &mut observed_records, &mut observed_work,
+                ) {
+                    Ok(search) => search,
+                    Err(error) => return (Err(error), observed_records, observed_work),
+                };
+                let result = search.select_pages().and_then(|pages| {
+                    search.verify_sequence(&pages)?;
+                    Ok(snapshot(&pages))
+                });
+                (result, search.record_charge(), search.work_steps())
+            };
+            let exact = run(full.1, records);
+            assert_eq!(exact.0.unwrap(), full.0);
+            assert_eq!((exact.2, exact.1), (full.1, full.2));
+            let short = run(full.1 - 1, records);
+            assert!(short.0.is_err());
+            assert!(short.1 >= records && short.2 > 0 && short.2 <= full.1 - 1);
+            let raised = caps.base().get().max_fragments / 2;
+            let extra = run(full.1, raised).1 - raised;
+            let exact_records = caps.base().get().max_fragments - extra;
+            let exact = run(full.1, exact_records);
+            assert_eq!(exact.0.unwrap(), full.0);
+            assert_eq!(exact.1, caps.base().get().max_fragments);
+            let short = run(full.1, exact_records + 1);
+            assert!(short.0.is_err());
+            assert!(short.1 >= exact_records + 1 && short.1 <= caps.base().get().max_fragments);
+            assert!(short.2 <= full.1);
+        }
         let mut covered = BTreeSet::new();
         let mut repeated = 0;
         let mut actual_widths = BTreeSet::new();
         let mut table_visit = |table: &BookV2TableFragmentSelection<'_, '_, '_, '_, '_>, actual: PositiveLength| {
+            assert!(table.used_height() <= table.available_height());
             actual_widths.insert(actual.get().raw());
             for range in table.semantic_leaf_ranges() { for item in range { assert!(covered.insert(item)); } }
             if table.repeats_header() {
@@ -375,10 +452,20 @@ fn check(font: Option<&[u8]>, notes: bool, mode: &str) {
             }
             for leaf in table.variant_placement_leaves() {
                 let leaf = leaf.unwrap();
+                let item = leaf.measurements().item(leaf.global_item_index()).unwrap();
+                assert!(leaf.top() >= Length::ZERO);
+                assert!(leaf.top().checked_add(item.consumed_height().unwrap()).unwrap() <= table.used_height());
                 if leaf.uses_header_variant() {
                     let index = usize::from(actual.get().raw() == 220 * 65536);
                     assert_eq!(leaf.measurements().flow().lines().frames().unwrap().region(owner).unwrap().width(),
                         root_widths[index][0].1);
+                }
+            }
+            if !table.has_header_variants() {
+                for leaf in table.placement_leaves() {
+                    let (_, index, top, _) = leaf.unwrap();
+                    assert!(top >= Length::ZERO);
+                    assert!(top.checked_add(base.item(index).unwrap().consumed_height().unwrap()).unwrap() <= table.used_height());
                 }
             }
         };
@@ -421,6 +508,46 @@ fn book_v2_column_header_variants_preserve_nested_headers() {
 #[test]
 fn book_v2_column_header_variants_preserve_child_continuations() {
     check(None, false, "nested-body");
+}
+#[test]
+fn book_v2_column_header_variants_reserve_ancestor_height() {
+    for height in [512, 480, 544] {
+        check_with_height(None, false, "nested-body", Some(height));
+    }
+}
+#[test]
+fn book_v2_column_header_variants_reserve_ancestor_note_height() {
+    for height in [512, 544] {
+        check_with_height(None, true, "nested-body", Some(height));
+    }
+}
+#[test]
+fn book_v2_column_header_variants_reserve_ancestor_spanning_height() {
+    for notes in [false, true] {
+        check_with_height(None, notes, "nested-body-span", Some(544));
+    }
+}
+#[test]
+fn book_v2_column_header_variants_reserve_ancestor_caption_height() {
+    for notes in [false, true] {
+        check_with_height(None, notes, "nested-body-caption", Some(512));
+    }
+}
+#[test]
+#[ignore = "requires explicit original TYPAXIS_HARANO_FONT"]
+fn book_v2_column_header_variants_reserve_original_harano_ancestor_height() {
+    let font = fs::read(std::env::var("TYPAXIS_HARANO_FONT").unwrap()).unwrap();
+    assert_eq!(
+        typaxis_core::sha256(&font)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
+        "66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717"
+    );
+    for notes in [false, true] {
+        check_with_height(Some(&font), notes, "nested-body", Some(512));
+        check_with_height(Some(&font), notes, "nested-body-span", Some(544));
+    }
 }
 #[test]
 fn book_v2_column_header_variants_preserve_rowspans() {

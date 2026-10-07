@@ -16875,3 +16875,26 @@ verify-correspondence.pyは全683開始／終了hashes・74 verifier hashes・�
 verify-results.pyは全686開始／終了hashes、14変更とGitの変更17 paths、文書3件、各commandの引数・exit code・時間・log SHA-256、実test binary・runnerのSHA-256と69 unique successesをverification-summary.jsonへ対応付ける。Book /2 CLI全340件／binary全759件を実行したとは扱わない。既存863 PDFの独立検査・保存済みVMB 10 jobs・旧成果物の比較は§278の結果であり、今回の結果へ再計上しない。
 
 これはheaderの幅候補と初期source選択であり、本文自身の選択した実段幅へのfeedback・幅が収束したページ列、last_page balance、安定配置・terminal・段組PDFと独立受入は継続する。private driver／PDF assemblyの段組拒否を維持し、新しい段組PDFの受入は0件である。完全なcommand予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入と未作成のSpeech／SemanticRefも継続し、設計全体の完了とは扱わない。
+
+<a id="book-2-ancestor-table-capacity-design-14280"></a>
+## 280. 親表の予約後の実容量で子表を継続する（design §14.280）
+
+5a9d96eを基準として、[ADR-0143](../adr/ADR-0143-book-2-ancestor-table-capacity.md)に従い、§279で残した512 pt子表のOversizeを修正した。親の元header、実幅で選択した反復header、captionと先行内容を予約した実容量で子表を評価する。共通cutで進める場合は保持し、進めない場合だけ元セルごとの継続へ移る。表全体のkeepと元改ページの規則を共用する。
+
+開始済みの共通カーソルからも、合法なoffsetを元セルの内容境界へ照合して移る。元prefixを重複消費せず、未消費の内容やkeep途中の境界を拒否する。完了セルの行paddingとrowspanの測定済み残り高を保持する。独立セル状態をカーソルへ束縛し、試行後は方針と親予約contextを戻す。保存済みの共通カーソルからも再試行でき、候補を縮める際は実選択のcaption・cell・header占有量を使う。
+
+追加の元セル走査と境界探索をworkへ計上し、元セル位置配列と継続状態を既存のrecord予約・spool上限で構築する。子searchの共有台帳を成功・失敗ともに戻し、破棄候補や失敗までの受理済みprefixを返金しない。凍結profileではこの独立継続を有効にしない。
+
+新しい5 testsは本文480／512／544 pt、脚注512／544 pt、子caption／rowspanと未変更の原Haranoを検査する。元leafの一回消費、headerの実幅・実高・owner、全配置leafのfragment内占有を確認した。512 pt searchのwork／record exact／1不足、失敗prefixと同じ入力の選択fingerprint一致も確認した。既存384 ptの試験を維持している。
+
+証跡はworkspace/target/vmb-design/20261007/reserved-table-capacity/。reproduction.logは変更前kernelで新しい512 pt試験がOversizeになることを記録する。初回修正のfocused-draft-01.log、fingerprint APIのcompile失敗focused-draft-02.log、修正後の5成功focused-draft-03.logを保全した。新しいkernel moduleだけを整形し、既存filesを広域整形していない。
+
+最終687 compilation／source入力、全7 source／test変更、74独立verifier、原Harano／Arialと元入力、保存済みVMB 10 jobsを固定した。run-regression-01.pyの7 commandsは全てexit code 0。旧syntax 79 tests＋doc-test 6件、Book /2 syntax 161 tests＋doc-test 13件、layout 70 tests＋doc-test 4件、pagination 104 tests＋doc-test 6件、workspace --all-features --tests checkが成功した。実binaryに登録された全Book CLI 345 unique testsを明示的な原fontで実行し、失敗／ignoredは0だった。binary全764件のうち419件はこのcommandでfilteredであり、全764件を実行したとは扱わない。旧precomposedは4成功／外部host 1 ignored。CLIのtest観測時間1016.72秒は制御された性能受入ではない。
+
+独立検査は863 source PDFs（実driver callbacks 412件）、3300 pages、39244構造nodes、1095 annotations、unsupported 13入力、改変拒否7600件に成功した。header resourcesは58 displays（TrueType 48／CFF 10）、793 mapped glyphs、34108 CID uses、174改変拒否、実PDFは58件／446 pages／34108 CID paintsと118改変拒否に成功した。running regionsは3 PDFs／10 pages／126 glyph paints、uniform tableは16 PDFs／60 pages、named table transitionsは26 driver PDFs／108 pages、named footnotesは26 driver PDFs／94 pagesに成功した。旧経路の独立21 checksと旧成果物21組のbyte一致も確認した。
+
+直前の全PDF回帰§278との初回byte比較は失敗し、comparison-runner-01.logと変更前比較script／command記録を保全した。863件中849件はbyte一致し、入れ子表の7元wire入力×component／driverの14件に配置変更がある。元入力とページ数、driverのpage frames・footnote regionsは同一である。captionのkeep、先行内容のkeep、複数caption子表、2／3行rowspan、後続行のforced break、原Haranoのforced breakについて、残り容量に入る子セル内容を先に進める変更だった。verify-changed-pdfs.pyは元fixtureから定めたowner・page・段内位置と原font metricsに対して実PDFのParentTree・ActualText・CID paintsを照合し、全14件の元paragraph位置とテキスト一回消費、owner改変14件の拒否を確認した。変更を認める7入力と14成果物を明示した比較を再実行し、それ以外の849件と保存済みVMB 2 PDFsのbyte一致を維持した。
+
+verify-correspondence.pyは全開始／終了source hashes、74 verifiers、全7変更、5新tests、実binary SHA-256と全345登録名・成功名の一致、7回帰commands／8独立commands／旧検証、元入力・10 jobs、863 PDF対応と21旧成果物をrun-source-correspondence.jsonへ結ぶ。初回byte比較の失敗と14件の元sourceに基づく配置検証も同じ証跡へ結ぶ。検証後の文書3件は別hashへ記録する。
+
+これは元sourceの分割選択の修正であり、本文自身の選択した実段幅へのfeedback・幅が収束したページ列、last_page balance、安定配置・terminal・段組PDFと独立受入は継続する。private driver／PDF assemblyの段組拒否を維持し、新しい段組PDFの受入は0件である。完全なcommand予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入と未作成のSpeech／SemanticRefも継続し、設計全体の完了とは扱わない。

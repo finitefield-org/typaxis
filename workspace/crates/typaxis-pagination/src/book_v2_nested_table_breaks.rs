@@ -183,7 +183,9 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
         std::mem::swap(&mut self.kernel.charge, &mut child.kernel.charge);
         std::mem::swap(&mut self.kernel.work.used, &mut child.kernel.work.used);
         let previous_name = child.frame_page_name;
+        let previous_reservation = child.kernel.reserved_by_parent;
         child.frame_page_name = self.frame_page_name;
+        child.kernel.reserved_by_parent = true;
         let result = (|| {
             let cursor = match before {
                 Some(c) => c,
@@ -192,6 +194,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
             child.evaluate_in_frame(&cursor, capacity, self.frame_catalog, self.frame_width)
         })();
         child.frame_page_name = previous_name;
+        child.kernel.reserved_by_parent = previous_reservation;
         std::mem::swap(&mut self.kernel.charge, &mut child.kernel.charge);
         std::mem::swap(&mut self.kernel.work.used, &mut child.kernel.work.used);
         result

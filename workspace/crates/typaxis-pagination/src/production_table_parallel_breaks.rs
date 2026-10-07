@@ -35,6 +35,9 @@ impl TableBreakKernel<'_> {
                 return Err(error(owner, E::ReceiptMismatch));
             }
             next.resize(count, 0);
+            if self.common_offset_cells {
+                self.common_cell_positions(cursor, &mut next)?;
+            }
         }
         Ok(next)
     }

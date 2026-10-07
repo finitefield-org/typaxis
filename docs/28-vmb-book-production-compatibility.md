@@ -5990,3 +5990,24 @@ private driver／PDF assemblyの段組拒否を維持する。完全なcommand�
 private driver／PDF assemblyの段組拒否を維持する。完全なcommand予算・同時保持graph、
 公開Book /2、元全巻・管理host・制御性能・著者／人手受入と未作成のSpeech／SemanticRefも
 残り、設計全体の完了とはしない。
+
+<a id="book-2-ancestor-table-capacity-design-14280"></a>
+### 14.280 親表の予約後の実容量で子表を継続する（実装追補）
+
+§14.279で残した子表の共通境界判断を修正する。親の元header、実幅で選んだ反復header、
+captionと先行内容を予約した実容量を子表へ渡す。元の共通cutで進める選択を保持し、
+進めない場合だけ元セルごとの継続を試す。表全体のkeepと元forced breakを維持する。
+
+開始済みの合法な共通offsetを元セルの内容境界へ照合し、完了prefixの再消費を防ぐ。
+未消費の内容やkeepの途中にある境界を拒否し、完了セルの行paddingとrowspanの測定済み
+残り高を扱う。独立継続をカーソルへ束縛し、試行後の方針と親予約contextを戻す。
+保存済みの共通カーソルからの再試行を維持し、候補を縮める処理でも実選択の占有量を使う。
+追加の走査をworkへ計上し、既存のrecord予約・spool・共有台帳と失敗prefixを共用する。
+
+[ADR-0143](../adr/ADR-0143-book-2-ancestor-table-capacity.md)と
+[実装台帳§280](28-vmb-book-production-progress.md#book-2-ancestor-table-capacity-design-14280)を参照。
+これは元sourceの分割選択の修正である。本文の実段幅feedback・幅が収束したページ列、
+last_page balance、安定配置・terminal・段組PDFと独立受入は継続する。
+private driver／PDF assemblyの段組拒否を維持する。完全なcommand予算・同時保持graph、
+公開Book /2、元全巻・管理host・制御性能・著者／人手受入と未作成のSpeech／SemanticRefも
+残り、設計全体の完了とはしない。

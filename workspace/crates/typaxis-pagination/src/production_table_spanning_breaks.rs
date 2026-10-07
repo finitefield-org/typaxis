@@ -40,10 +40,12 @@ impl TableBreakKernel<'_> {
         self.charge.take(1, owner)?;
         let mut next = self.cell_positions(cursor)?;
         let mut row = cursor.row.max(region.start);
-        let mut remaining = cursor
-            .cells
-            .and_then(|i| self.cell_states[i].row_remaining)
-            .unwrap_or_else(|| table.rows.get(row).map_or(Length::ZERO, |r| r.height));
+        let mut remaining = if cursor.cells.is_none() && self.common_offset_cells {
+            self.common_row_remaining(cursor, row)?
+        } else {
+            cursor.cells.and_then(|i| self.cell_states[i].row_remaining)
+                .unwrap_or_else(|| table.rows.get(row).map_or(Length::ZERO, |r| r.height))
+        };
         self.charge.take(
             source
                 .len()
