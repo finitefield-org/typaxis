@@ -7,11 +7,17 @@ pub use math::{AtomicMathInlineItem, AtomicMathPlacement, MathAtomicItemError};
 mod vector;
 
 pub use vector::{
-    break_atomic_vector_inline, AtomicVectorInlineBreak, AtomicVectorInlineError,
+    break_atomic_vector_inline, break_production_inline,
+    break_production_inline_with_source_widths, AtomicVectorInlineBreak, AtomicVectorInlineError,
     AtomicVectorInlineItem, AtomicVectorInlineKind, AtomicVectorInlineLogicalUnit,
     AtomicVectorInlineParagraph, AtomicVectorLineMetrics, AtomicVectorLineOccurrence,
     AtomicVectorSelectedLine, AtomicVectorSyntheticAlUnit, AtomicVectorTextUnit,
+    ProductionExplicitBreak, ProductionInlineBreak, ProductionInlineLogicalUnit,
+    ProductionInlineParagraph, ProductionInlineSelectedLine, ProductionInlineSourceWidths,
+    ProductionLineBreakBudget, ProductionNativeMathInlineItem, ProductionTextClusterRange,
     VectorBoundaryBranch, VectorBoundaryItem, ATOMIC_VECTOR_INLINE_ALGORITHM,
+    PRODUCTION_INLINE_BREAK_ALGORITHM, PRODUCTION_REFINED_WIDTH_BREAK_ALGORITHM,
+    PRODUCTION_SOURCE_WIDTH_BREAK_ALGORITHM,
 };
 
 mod unicode_linebreak;
@@ -2789,6 +2795,9 @@ impl LineReshapeFeedback {
                 .checked_add(1)
                 .ok_or(BreakError::ArithmeticOverflow)?;
         }
+        self.records
+            .try_reserve(1)
+            .map_err(|_| BreakError::AllocationFailure)?;
         self.pass_in_flight = true;
         Ok(LineReshapePassPermit {
             feedback: self,

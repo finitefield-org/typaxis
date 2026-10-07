@@ -1,0 +1,86 @@
+{
+  "actual_text_count": 43,
+  "algorithm": "typaxis.production-book-pdf-validator/1",
+  "alternative_count": 4,
+  "document_language": "ja",
+  "form_count": 2,
+  "form_use_count": 4,
+  "image_count": 0,
+  "link_count": 5,
+  "object_count": 100,
+  "outline_count": 3,
+  "page_count": 1,
+  "pdf_sha256": "ca686e7c1ab3aeb729170931d48209775a650876c44ae785b8e6aabdedc41f4f",
+  "structure_count": 68,
+  "structure_roles_sha256": "0403076793c8656f5e647cb906867470fb9f97a65f50e44c0af0c1bafeeecbcd",
+  "type0_font_count": 1,
+  "resources": [
+    {
+      "image_id": 0,
+      "xobject": "/V1",
+      "paths": 3,
+      "commands": 72
+    },
+    {
+      "image_id": 1,
+      "xobject": "/V0",
+      "paths": 16,
+      "commands": 300
+    }
+  ],
+  "uses": [
+    {
+      "node_id": 6,
+      "image_id": 0,
+      "matrix": [
+        "1",
+        "0",
+        "0",
+        "1",
+        "63.7055664",
+        "72.0530853"
+      ]
+    },
+    {
+      "node_id": 13,
+      "image_id": 0,
+      "matrix": [
+        "1",
+        "0",
+        "0",
+        "1",
+        "202.919281",
+        "72.0530853"
+      ]
+    },
+    {
+      "node_id": 29,
+      "image_id": 1,
+      "matrix": [
+        "1",
+        "0",
+        "0",
+        "1",
+        "54",
+        "98.2148438"
+      ]
+    },
+    {
+      "node_id": 38,
+      "image_id": 0,
+      "matrix": [
+        "1",
+        "0",
+        "0",
+        "1",
+        "155.368652",
+        "128.598953"
+      ]
+    }
+  ],
+  "extraction": {
+    "poppler_raw": "source-order exact ignoring whitespace",
+    "mupdf": "source-order exact ignoring whitespace",
+    "poppler_default": "spatial ordering differs; not used for source-order assertion"
+  }
+}

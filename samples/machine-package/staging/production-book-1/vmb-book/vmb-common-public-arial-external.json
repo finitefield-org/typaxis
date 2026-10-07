@@ -1,0 +1,113 @@
+{
+  "scope": "Authored body-only prepared VMB example, StageBookPackage and guarded commands; not original full book, complete artifact verifier or formal backend publication.",
+  "result": "passed",
+  "expected_extracted_lines": [
+    "1. 日本語",
+    "A P かつ Q 強調",
+    "1. 項目",
+    "ノット、かっこ、ピー・アンド・キュー、かっことじ、イフ・アンド・オンリー・イフ、ノット・ピー、オア、ノット・キュー。"
+  ],
+  "extraction_whitespace_normalized": true,
+  "extractors": [
+    "Poppler",
+    "MuPDF"
+  ],
+  "forms": 2,
+  "verified_paths": 19,
+  "verified_source_commands": 372,
+  "verapdf": {
+    "passedRules": "106",
+    "failedRules": "0",
+    "passedChecks": "391",
+    "failedChecks": "0"
+  },
+  "visual_inspection": "single 96-dpi MuPDF page, Japanese text and both actual math outlines visible",
+  "pdf_sha256": "d2a2819dc06ab3dbc4bd2de5047a41e7a9d003c6d89c780c052a347124e90bb8",
+  "stage_package": "VMB StageBookPackage with packageExample body-only authored input; glossary/bibliography/verification are intentionally absent in this fixture, not removed from a full-book export.",
+  "binary_sha256": "b03cd89a18c3138886402c5c201d07a8ef26147be681425f76b5e4b34878814f",
+  "font_path": "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+  "font_sha256": "876af2cd4854644e7f3e7feb2f688997fdb3343c6df6693611209c9dfb47ccec",
+  "package_sha256": "fe97596c3c205df5f8ca1c4242b6013f267a8f7bc73a01a64490937c70975a02",
+  "package_directory": "/private/tmp/vmb-common-public-arial/typaxis-body-3936226032",
+  "run_directory": "/private/tmp/vmb-common-public-arial/typaxis-run-3712330566",
+  "command": [
+    "go",
+    "test",
+    "-C",
+    "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core",
+    "./internal/rendertypaxis",
+    "-run",
+    "^TestTypaxisCommandSequenceReachesPublicBuild$",
+    "-count=1",
+    "-v"
+  ],
+  "environment": {
+    "VMB_TYPAXIS_CLI": "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+    "VMB_TYPAXIS_FIXTURE_ROOT": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job",
+    "VMB_TYPAXIS_PACKAGE_FONT": "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    "VMB_TYPAXIS_COMMAND_OUTPUT": "/private/tmp/vmb-common-public-arial"
+  },
+  "log": "/private/tmp/vmb-common-public-arial.log",
+  "full_exporter_regression": {
+    "command": [
+      "go",
+      "test",
+      "-C",
+      "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core",
+      "./internal/rendertypaxis",
+      "-count=1"
+    ],
+    "exit_code": 0,
+    "seconds": 85.067,
+    "log": "/private/tmp/vmb-common-adapter-regression.log"
+  },
+  "schema_manifest_trace_closure": "passed",
+  "prior_synthetic_font_failure": {
+    "log": "/private/tmp/vmb-common-public-pass-summary.log",
+    "diagnostic": "L5100 MissingDeclaredFontCoverage, NodeId(3)",
+    "scope": "A separate test configuration, not a runtime font fallback."
+  },
+  "artifact_verifier_scope": "External exploratory check; not connected to production ArtifactSink or strict runtime artifact verification.",
+  "artifacts": {
+    "output.pdf": {
+      "bytes": 48251,
+      "sha256": "d2a2819dc06ab3dbc4bd2de5047a41e7a9d003c6d89c780c052a347124e90bb8",
+      "path": "/private/tmp/vmb-common-public-arial/typaxis-run-3712330566/output.pdf"
+    },
+    "build-manifest.json": {
+      "bytes": 16956,
+      "sha256": "c94b0bca4e86b107b182473c065306cc0d3861ffc2e6bc9e8b117fe51c079651",
+      "path": "/private/tmp/vmb-common-public-arial/typaxis-run-3712330566/build-manifest.json"
+    },
+    "trace.json": {
+      "bytes": 736,
+      "sha256": "3eca7b618cfbdf025b2e89e853c0443b58b2b2d79b4b62c21d516b5b38b85891",
+      "path": "/private/tmp/vmb-common-public-arial/typaxis-run-3712330566/trace.json"
+    },
+    "check-diagnostics.json": {
+      "bytes": 52,
+      "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+      "path": "/private/tmp/vmb-common-public-arial/typaxis-run-3712330566/check-diagnostics.json"
+    },
+    "build-diagnostics.json": {
+      "bytes": 52,
+      "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+      "path": "/private/tmp/vmb-common-public-arial/typaxis-run-3712330566/build-diagnostics.json"
+    },
+    "book-config.toml": {
+      "bytes": 1480,
+      "sha256": "3f708506f7353fbde56046b015c61cb49c74970bb59ff8c417a74a9bea701144",
+      "path": "/private/tmp/vmb-common-public-arial/typaxis-run-3712330566/book-config.toml"
+    },
+    "verify_example.py": {
+      "bytes": 2764,
+      "sha256": "08608b0a33ed8323c99be840cae7c8192541e08343c47f21dbbec4c09281918c",
+      "path": "/private/tmp/vmb-common-public-arial/verify_example.py"
+    },
+    "verapdf.xml": {
+      "bytes": 1379,
+      "sha256": "0e54a1488cd7e03dc6cd8f1f0ec79261d8d66ecb37e0627801edfeb2e884ecf8",
+      "path": "/private/tmp/vmb-common-public-arial/verapdf.xml"
+    }
+  }
+}

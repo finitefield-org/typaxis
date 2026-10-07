@@ -1394,3 +1394,8 @@ Typaxis自身の安全性・determinism・object closureを証明できない。
 | 10 capabilities | 12 |
 | 11 error handling | 13 |
 | 12 acceptance tests | 15 |
+
+
+## VMB全巻互換性の規範追補（2026-09-05）
+
+[ADR-0038](../adr/ADR-0038-vmb-book-production-compatibility.md)により、Safe-SVG 2のstart/empty tag終端直前のSP/TAB/LFを受理する限定的な仕様訂正を採択した。Safe-SVG 1と他の語彙・geometry・IR identityは維持する。書籍用defaultと診断の変更、実全巻入力の不足は[設計28](28-vmb-book-production-compatibility.md)、実装状態・検証証拠は[実装台帳](28-vmb-book-production-progress.md)を参照する。本書の旧corpus完了記録は全巻対応の完了を意味しない。

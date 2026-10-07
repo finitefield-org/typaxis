@@ -8,7 +8,13 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+book-v2-staging = ["typaxis-document-package/book-v2-staging"]
+
 [dependencies]
 typaxis-core = { path = "../typaxis-core" }
 typaxis-document-package = { path = "../typaxis-document-package" }
 typaxis-host-admission = { path = "../typaxis-host-admission" }
+
+[dev-dependencies]
+serde_json = "=1.0.151"

@@ -1,0 +1,109 @@
+{
+  "scope": "Production combined fixture entry: two actual CLI builds, check, schema and manifest checks, independent render/extraction/structure verification. Not clean-build, host, full-book or human acceptance.",
+  "result": "passed",
+  "runs": 2,
+  "package_sha256": "44c072c75a7bdede2b15ea73902e10a47305491a91a5e9964e262be25b5e3c69",
+  "source_ledger_sha256": "7b508f5682eaf54ae12dffd6a37b8d1b55b37fb3d93b4c3d9699d5fd0b250ea1",
+  "binary_sha256": "9d433a5fdebfd6b303eb35468641ba52d9709640d244fc3523ccfb82a5aa5eb1",
+  "build_command": [
+    "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+    "build-package",
+    "job/document-package.json",
+    "-o",
+    "/private/tmp/typaxis-common-outline-external/run-1/output.pdf",
+    "--package-root",
+    "job",
+    "--profile",
+    "typaxis.machine-pdf/production-book-1",
+    "--resource-root",
+    "job",
+    "--trace",
+    "/private/tmp/typaxis-common-outline-external/run-1/trace.json",
+    "--trace-text",
+    "--no-compress",
+    "--emit-build-manifest",
+    "/private/tmp/typaxis-common-outline-external/run-1/manifest.json",
+    "--emit-diagnostics",
+    "/private/tmp/typaxis-common-outline-external/run-1/diagnostics.json"
+  ],
+  "command_cwd": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined",
+  "check_command": [
+    "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+    "check-package",
+    "job/document-package.json",
+    "--package-root",
+    "job",
+    "--profile",
+    "typaxis.machine-pdf/production-book-1",
+    "--resource-root",
+    "job",
+    "--emit-diagnostics",
+    "/private/tmp/typaxis-common-outline-external/check-diagnostics.json"
+  ],
+  "artifact_byte_identity": true,
+  "artifacts": {
+    "output.pdf": {
+      "sha256": "7a681623d6d5a239eb711be0fb1e0385a91b8d4c1d54c53e3d4179c276c5012b",
+      "bytes": 81561
+    },
+    "manifest.json": {
+      "sha256": "c83b287586134e0b5db2c7c310d09ad389845b661ada14f46b9bc1b4c50018e5",
+      "bytes": 25713
+    },
+    "trace.json": {
+      "sha256": "067ec54c5644eb19226042598a266187b89f53fbbff92e77d12e76171589fee3",
+      "bytes": 827
+    },
+    "diagnostics.json": {
+      "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+      "bytes": 52
+    },
+    "capabilities.json": {
+      "sha256": "49cc2aca2ff94f6679026c97b972e96cdcd241bc1f4d35a04bc349cf17ddd872",
+      "bytes": 10604
+    }
+  },
+  "retained_pdf": "common-combined-structure.pdf",
+  "pdf_structure": {
+    "actual_text_count": 38,
+    "algorithm": "typaxis.production-book-pdf-validator/1",
+    "alternative_count": 11,
+    "document_language": "en-US",
+    "form_count": 2,
+    "form_use_count": 7,
+    "image_count": 3,
+    "link_count": 3,
+    "object_count": 164,
+    "outline_count": 3,
+    "page_count": 5,
+    "pdf_sha256": "7a681623d6d5a239eb711be0fb1e0385a91b8d4c1d54c53e3d4179c276c5012b",
+    "structure_count": 106,
+    "structure_roles_sha256": "8c2d1b429fc353ea5b28ef6490a09d1366527b4ddd56f2b41cfc90cffbab3f51",
+    "type0_font_count": 3
+  },
+  "external_differential": {
+    "page_count": 5,
+    "render_sha256": "563cbc8a8cf379c4a5b16f5679d8dd612dbfbd0f53216ca9e00cab63a3fa0f7c",
+    "extracted_text_sha256": "aa2aefc9f594398f4f2d5daff41f9e9a4d99475ec0bbfc00799d8d60ce192140",
+    "render_dpis": [
+      72
+    ]
+  },
+  "pdf_ua": {
+    "profile": "PDF/UA-1",
+    "is_compliant": true,
+    "passedRules": 106,
+    "failedRules": 0,
+    "passedChecks": 3499,
+    "failedChecks": 0,
+    "report": "common-combined-structure-verapdf.xml",
+    "report_sha256": "91408604bd644c7edae99b8f1b2baaed889d41e3e500ee2f069bec9f7f2e2e46",
+    "stderr_bytes": 0
+  },
+  "verifier_sha256": "08322a090a1b4f8bf52f291d12d59325e8c518667b515aebb3b265137c7ba838",
+  "limitations": [
+    "Forward footnote destination checks bind peer page and enclose the label; this independent verifier does not reconstruct the complete logical first-row geometry.",
+    "Synthetic rectangular font outlines are not real-font visual book acceptance.",
+    "Nested tables, forced cell boundaries, table-bearing footnote definitions, remaining page/reference forms and formal exporter/full-book/host/human gates remain open."
+  ]
+}

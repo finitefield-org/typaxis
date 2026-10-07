@@ -563,6 +563,9 @@ fn collect_wire_inline_inputs(
                     ));
                 }
             }
+            WireStagingM4Block::DescriptionList { .. } => {
+                return Err(StagingInlineVectorLayoutError::ReceiptMismatch);
+            }
             WireStagingM4Block::List { items, .. } => {
                 for item in items {
                     collect_wire_inline_inputs(
@@ -1188,6 +1191,14 @@ fn collect_inline_vectors(blocks: &[StagingM4Block], output: &mut Vec<ExpectedIn
                 paragraph_node: common.node_id,
                 kind: value.kind,
             })),
+            StagingM4Block::DescriptionList { items, .. } => {
+                for item in items {
+                    output.extend(item.term.inline_vectors.iter().map(|value| ExpectedInlineVector {
+                        node_id: value.node_id, paragraph_node: item.term.common.node_id, kind: value.kind,
+                    }));
+                    collect_inline_vectors(&item.blocks, output);
+                }
+            }
             StagingM4Block::List { items, .. } => {
                 for item in items {
                     collect_inline_vectors(&item.blocks, output);

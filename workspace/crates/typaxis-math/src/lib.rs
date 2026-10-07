@@ -3,6 +3,12 @@
 use typaxis_core::{push_jcs_string, sha256, JSON_SAFE_INTEGER_MAX};
 use typaxis_font::{MathFontError, MathFontFace, OriginalGlyphId};
 
+mod canonical;
+use canonical::{
+    encode_ast, encode_parsed_receipt, format_row, matches as canonical_matches,
+    write_ast, write_formatted_row, write_parsed_receipt,
+};
+
 pub const MATH_SOURCE_LANGUAGE: &str = "typaxis-math";
 pub const MATH_SOURCE_VERSION: &str = "1";
 pub const MATH_SOURCE_ID: &str = "typaxis.math-source/1";
@@ -193,23 +199,22 @@ impl ParsedMathReceipt {
 
     pub fn verify(&self) -> Result<(), MathSourceError> {
         let (ast_node_count, ast_depth) = measure_ast(&self.ast)?;
-        let ast_jcs = encode_ast(&self.ast);
-        let canonical_source = format_row(&self.ast.root);
-        let receipt_jcs = encode_parsed_receipt(
-            sha256(self.source.as_bytes()),
-            sha256(ast_jcs.as_bytes()),
-            ast_node_count,
-            ast_depth,
-            &canonical_source,
-        );
-        if sha256(self.source.as_bytes()) != self.source_sha256
+        let source_sha256 = sha256(self.source.as_bytes());
+        if source_sha256 != self.source_sha256
             || ast_node_count != self.ast_node_count
             || ast_depth != self.ast_depth
-            || ast_jcs != self.ast_jcs
-            || sha256(ast_jcs.as_bytes()) != self.ast_fingerprint
-            || canonical_source != self.canonical_source
-            || receipt_jcs != self.receipt_jcs
-            || sha256(receipt_jcs.as_bytes()) != self.receipt_fingerprint
+            || !canonical_matches(&self.ast_jcs, |out| write_ast(&self.ast, out))
+            || sha256(self.ast_jcs.as_bytes()) != self.ast_fingerprint
+            || !canonical_matches(&self.canonical_source, |out| {
+                write_formatted_row(&self.ast.root, out)
+            })
+            || !canonical_matches(&self.receipt_jcs, |out| {
+                write_parsed_receipt(
+                    source_sha256, self.ast_fingerprint, ast_node_count, ast_depth,
+                    &self.canonical_source, out,
+                )
+            })
+            || sha256(self.receipt_jcs.as_bytes()) != self.receipt_fingerprint
         {
             return Err(MathSourceError::new(
                 MathSourceErrorKind::ReceiptMismatch,
@@ -326,7 +331,7 @@ pub fn parse_math_source(
     let ast_fingerprint = sha256(ast_jcs.as_bytes());
     let canonical_source = format_row(&ast.root);
     let reparsed = parse_unchecked_for_round_trip(&canonical_source, limits)?;
-    if encode_ast(&reparsed) != ast_jcs {
+    if !canonical_matches(&ast_jcs, |out| write_ast(&reparsed, out)) {
         return Err(MathSourceError::new(
             MathSourceErrorKind::ReceiptMismatch,
             0,
@@ -966,165 +971,6 @@ fn is_greek(value: char) -> bool {
     )
 }
 
-fn encode_ast(ast: &MathAst) -> String {
-    let mut output = String::from("{\"algorithm\":");
-    push_jcs_string(&mut output, MATH_AST_FINGERPRINT_ID);
-    output.push_str(",\"root\":");
-    encode_row(&ast.root, &mut output);
-    output.push('}');
-    output
-}
-
-fn encode_row(row: &Row, output: &mut String) {
-    output.push_str("{\"kind\":\"row\",\"terms\":[");
-    for (index, term) in row.terms.iter().enumerate() {
-        if index > 0 {
-            output.push(',');
-        }
-        output.push_str("{\"atom\":");
-        encode_atom(&term.atom, output);
-        output.push_str(",\"kind\":\"term\",\"subscript\":");
-        if let Some(atom) = &term.subscript {
-            encode_atom(atom, output);
-        } else {
-            output.push_str("null");
-        }
-        output.push_str(",\"superscript\":");
-        if let Some(atom) = &term.superscript {
-            encode_atom(atom, output);
-        } else {
-            output.push_str("null");
-        }
-        output.push('}');
-    }
-    output.push_str("]}");
-}
-
-fn encode_atom(atom: &Atom, output: &mut String) {
-    match atom {
-        Atom::Identifier(value) => encode_token_atom("identifier", value, output),
-        Atom::Number(value) => encode_token_atom("number", value, output),
-        Atom::Symbol(value) => encode_token_atom("symbol", &value.to_string(), output),
-        Atom::Group(row) => {
-            output.push_str("{\"kind\":\"group\",\"row\":");
-            encode_row(row, output);
-            output.push('}');
-        }
-        Atom::Fraction {
-            numerator,
-            denominator,
-        } => {
-            output.push_str("{\"denominator\":");
-            encode_row(denominator, output);
-            output.push_str(",\"kind\":\"fraction\",\"numerator\":");
-            encode_row(numerator, output);
-            output.push('}');
-        }
-        Atom::Radical(row) => {
-            output.push_str("{\"kind\":\"radical\",\"radicand\":");
-            encode_row(row, output);
-            output.push('}');
-        }
-        Atom::Operator(value) => encode_token_atom("operator", value, output),
-    }
-}
-
-fn encode_token_atom(kind: &str, value: &str, output: &mut String) {
-    output.push_str("{\"kind\":");
-    push_jcs_string(output, kind);
-    output.push_str(",\"value\":");
-    push_jcs_string(output, value);
-    output.push('}');
-}
-
-fn format_row(row: &Row) -> String {
-    let mut output = String::new();
-    let mut previous_last = None;
-    for term in &row.terms {
-        let formatted = format_term(term);
-        let first = formatted.chars().next();
-        if separator_required(previous_last, first) {
-            output.push(' ');
-        }
-        output.push_str(&formatted);
-        previous_last = formatted.chars().last();
-    }
-    output
-}
-
-fn separator_required(left: Option<char>, right: Option<char>) -> bool {
-    matches!((left, right), (Some(a), Some(b)) if
-        (a.is_ascii_alphabetic() && b.is_ascii_alphabetic())
-        || (a.is_ascii_digit() && b.is_ascii_digit())
-        || (a.is_ascii_digit() && b == '.')
-        || (a == '.' && b.is_ascii_digit()))
-}
-
-fn format_term(term: &Term) -> String {
-    let mut output = format_atom(&term.atom);
-    if let Some(atom) = &term.subscript {
-        output.push('_');
-        output.push_str(&format_atom(atom));
-    }
-    if let Some(atom) = &term.superscript {
-        output.push('^');
-        output.push_str(&format_atom(atom));
-    }
-    output
-}
-
-fn format_atom(atom: &Atom) -> String {
-    match atom {
-        Atom::Identifier(value) | Atom::Number(value) | Atom::Operator(value) => {
-            if matches!(atom, Atom::Operator(_)) {
-                format!("\\operator{{{value}}}")
-            } else {
-                value.clone()
-            }
-        }
-        Atom::Symbol(value) => value.to_string(),
-        Atom::Group(row) => format!("{{{}}}", format_row(row)),
-        Atom::Fraction {
-            numerator,
-            denominator,
-        } => format!(
-            "\\frac{{{}}}{{{}}}",
-            format_row(numerator),
-            format_row(denominator)
-        ),
-        Atom::Radical(row) => format!("\\sqrt{{{}}}", format_row(row)),
-    }
-}
-
-fn encode_parsed_receipt(
-    source_sha256: [u8; 32],
-    ast_fingerprint: [u8; 32],
-    ast_node_count: u64,
-    ast_depth: u32,
-    canonical_source: &str,
-) -> String {
-    let mut output =
-        String::from("{\"algorithm\":\"typaxis.math-parsed-source-receipt/1\",\"ast_depth\":");
-    output.push_str(&ast_depth.to_string());
-    output.push_str(",\"ast_fingerprint\":");
-    push_hash(&mut output, ast_fingerprint);
-    output.push_str(",\"ast_fingerprint_algorithm\":");
-    push_jcs_string(&mut output, MATH_AST_FINGERPRINT_ID);
-    output.push_str(",\"ast_node_count\":");
-    output.push_str(&ast_node_count.to_string());
-    output.push_str(",\"canonical_source\":");
-    push_jcs_string(&mut output, canonical_source);
-    output.push_str(",\"formatter\":");
-    push_jcs_string(&mut output, MATH_FORMATTER_ID);
-    output.push_str(",\"parser\":");
-    push_jcs_string(&mut output, MATH_PARSER_ID);
-    output.push_str(",\"source_identity\":");
-    push_jcs_string(&mut output, MATH_SOURCE_ID);
-    output.push_str(",\"source_sha256\":");
-    push_hash(&mut output, source_sha256);
-    output.push('}');
-    output
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MathComputationInput {
@@ -2363,14 +2209,12 @@ fn encode_computation(
 }
 
 fn push_hash(output: &mut String, value: [u8; 32]) {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    output.push('"');
-    for byte in value {
-        output.push(char::from(HEX[usize::from(byte >> 4)]));
-        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    output.push('"');
+    canonical::write_hash(output, value).expect("writing a hash to a String cannot fail");
 }
+
+#[cfg(test)]
+#[path = "canonical_tests.rs"]
+mod canonical_tests;
 
 #[cfg(test)]
 mod tests {

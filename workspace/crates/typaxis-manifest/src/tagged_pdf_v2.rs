@@ -340,34 +340,45 @@ fn encode_manifest(
     engine: &EngineIdentity,
     facts: &[StagingTaggedPdfVectorStructureFactV2],
 ) -> String {
+    encode_manifest_facts(
+        navigation.languages().document_language(),
+        engine,
+        [
+            ("marked_content_sha256", plan.marked_content().fingerprint()),
+            ("math_vector_manifest_sha256", math.fingerprint()),
+            ("package_sha256", package.canonical_jcs_sha256()),
+            ("pdf_observation_sha256", pdf.observation().fingerprint()),
+            ("pdf_sha256", pdf.final_pdf().content_hash()),
+            ("profile_sha256", profile.fingerprint()),
+            ("safe_vector_manifest_sha256", safe.fingerprint()),
+            (
+                "selected_binding_sha256",
+                plan.selected_binding().fingerprint(),
+            ),
+            ("structure_registry_sha256", registry.fingerprint()),
+        ],
+        facts,
+    )
+}
+
+fn encode_manifest_facts(
+    document_language: &str,
+    engine: &EngineIdentity,
+    fingerprints: [(&str, [u8; 32]); 9],
+    facts: &[StagingTaggedPdfVectorStructureFactV2],
+) -> String {
     let mut out = String::from("{\"accessibility_profile\":");
     push_jcs_string(&mut out, STAGING_PDFUA1_PROFILE_ID_V2);
     out.push_str(",\"algorithm\":");
     push_jcs_string(&mut out, STAGING_TAGGED_PDF_MANIFEST_V2_ALGORITHM);
     out.push_str(",\"contract\":\"typaxis.contract/1.4\",\"document_language\":");
-    push_jcs_string(&mut out, navigation.languages().document_language());
+    push_jcs_string(&mut out, document_language);
     out.push_str(",\"engine\":{\"name\":");
     push_jcs_string(&mut out, engine.name());
     out.push_str(",\"version\":");
     push_jcs_string(&mut out, engine.version());
     out.push_str("},\"fingerprints\":{");
-    for (index, (key, value)) in [
-        ("marked_content_sha256", plan.marked_content().fingerprint()),
-        ("math_vector_manifest_sha256", math.fingerprint()),
-        ("package_sha256", package.canonical_jcs_sha256()),
-        ("pdf_observation_sha256", pdf.observation().fingerprint()),
-        ("pdf_sha256", pdf.final_pdf().content_hash()),
-        ("profile_sha256", profile.fingerprint()),
-        ("safe_vector_manifest_sha256", safe.fingerprint()),
-        (
-            "selected_binding_sha256",
-            plan.selected_binding().fingerprint(),
-        ),
-        ("structure_registry_sha256", registry.fingerprint()),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    for (index, (key, value)) in fingerprints.into_iter().enumerate() {
         if index > 0 {
             out.push(',')
         }
@@ -425,3 +436,7 @@ fn hex(value: [u8; 32]) -> String {
     }
     out
 }
+
+#[path = "production_tagged_manifest.rs"]
+mod production_tagged_manifest;
+pub use production_tagged_manifest::{build_production_tagged_manifest, ProductionTaggedManifest};

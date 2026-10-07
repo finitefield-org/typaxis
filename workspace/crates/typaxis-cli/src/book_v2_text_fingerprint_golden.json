@@ -1,0 +1,28 @@
+{
+  "cases": {
+    "harano": {
+      "backend-bound": "983574e5e345c88d8b49989ec362472296ed0817f8c1fbbae5178ed16ac909e6",
+      "body-context": "b2c7c4d9e43854fa3ef9d78c8747ad350967cd749611684f9d9d5a470c6a680d",
+      "body-initial": "92b76b63b88ae04bae85ef9eaea5b67aebb003ff266c8e110cc64d6c4f65f6e9",
+      "controls-initial": "430e861d991a8426d276d723c7783f00da2c29e92a5e45107818f0db42826221",
+      "empty-initial": "f3be7d1d3e810d825c48ebabb9182d215cce17d066e38bbe919a4001df35bb8a",
+      "generated-initial": "3f66df64136f090d35a7191bda4aa841b10334ac538cdad0b90297fcc5a60415",
+      "large-context": "11c2e44e4267e6e0e9b374a657167349972156a98e7eac567d59df8593342ba5",
+      "large-initial": "4b35b1f316a0bbabec850d34d009f2678c962da4beeb71f7004bd796d60e71b5",
+      "references-initial": "4d48a256b8e46907f06adea581cb25ea2b10eb9a01a213f32b44e020966270be"
+    },
+    "tt": {
+      "backend-bound": "983574e5e345c88d8b49989ec362472296ed0817f8c1fbbae5178ed16ac909e6",
+      "body-context": "8317d4b67c9296e561ef887c3f8c53894eb572676c7a8a3ac1c879a1c735a9a6",
+      "body-initial": "71498c9929e8b543c83412c6c5b5eac81b4891f0f81ef04e9d9061540608b8e6",
+      "controls-initial": "5b141615483ce75eb6aab73b84900c9110dade3b20951d308bbe07a5035f0caa",
+      "empty-initial": "a7947e172036bfbf44b2150a24c0c1ddc3beae05c75daee39243ee12d54ce10a",
+      "generated-initial": "370a0fc8ad3bc0bf7a28960936ea20220f394810329159c260cf0f42df14bf28",
+      "large-context": "b8ffaa8d6bc91343ddcb7ea497cfed4ff5bd9ffed2ba89d093c7b92dd516b849",
+      "large-initial": "b376ad482395b13f059539e364a079a30f8c98a6be62a87aeca6cccab9a2e253",
+      "references-initial": "5451359068b41304db9e1233e3fb87cf34624cde9deb7c5597331015d192964f"
+    }
+  },
+  "comparison": "SHA-256 of each complete serde_json public shape/inline projection; source fixtures are in book_v2_text_fingerprint_tests.rs",
+  "production_commit": "83fedd490801029a3a08e972a8d982fcc6943ad9"
+}

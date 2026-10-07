@@ -1,0 +1,49 @@
+{
+  "actual_text_count": 9,
+  "algorithm": "typaxis.production-book-pdf-validator/1",
+  "alternative_count": 3,
+  "document_language": "ja",
+  "form_count": 2,
+  "form_use_count": 2,
+  "image_count": 1,
+  "link_count": 1,
+  "object_count": 48,
+  "outline_count": 1,
+  "page_count": 1,
+  "pdf_sha256": "d0fd819c50bbcb440bbf59957048cf11ae096407324ca71c03c64de3f0c4eee0",
+  "structure_count": 21,
+  "structure_roles_sha256": "6450f12e05495c037d45524a6441ee3b1ca6eb7ca24182ac470362ebef88122c",
+  "type0_font_count": 1,
+  "qr_metadata": {
+    "algorithm": "vmb.typaxis-verification-qr/1",
+    "producer": "skip2/go-qrcode@v0.0.0-20200617195104-da1b6568686e",
+    "url": "https://verify.example/books/fractions/1/verification/chapter.introduction.html",
+    "recovery": "medium",
+    "version": 5,
+    "modules": 45,
+    "quiet_zone_modules": 4,
+    "pixels_per_module": 4,
+    "png_sha256": "434641d97e7d1e4b6f6cad5d0ab8c65925b30561f98888129eea17e9eae34a38"
+  },
+  "qr_pixels": 32400,
+  "qr_width_raw": 3343884,
+  "qr_use_matrix": [
+    "51.0236206",
+    "0",
+    "0",
+    "-51.0236206",
+    "54",
+    "161.569489"
+  ],
+  "math_geometry": [
+    [
+      3,
+      72
+    ],
+    [
+      16,
+      300
+    ]
+  ],
+  "extraction": "Poppler raw and MuPDF source order match ignoring whitespace"
+}

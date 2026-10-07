@@ -2,7 +2,11 @@
 
 mod advanced;
 mod book_navigation;
+pub use typaxis_document::StagingDocumentMetadata;
 mod semantic_container;
+#[cfg(feature = "book-v2-staging")]
+#[doc(hidden)]
+pub use semantic_container::book_v2;
 mod tagged_structure;
 
 pub use advanced::{
@@ -22,8 +26,14 @@ pub use book_navigation::{
     DOCUMENT_METADATA_ALGORITHM, OUTLINE_REGISTRY_ALGORITHM,
 };
 pub use semantic_container::{
-    PrecomposedVectorActualTextResolution, PrecomposedVectorField, PrecomposedVectorKind,
-    PrecomposedVectorMetricPayload, ProductionMachineParseOutcome, StagingCffProfileView,
+    prepare_production_text_flow, prepare_production_text_flow_with_page_references, PrecomposedVectorActualTextResolution, PrecomposedVectorField,
+    PrecomposedVectorKind, PrecomposedVectorMetricPayload, PrecomposedVectorVerification,
+    ProductionTable, ProductionTableRow, ProductionTableCell, ProductionTableSection,
+    ProductionFootnoteDefinition, ProductionFigure, ProductionFlowError, ProductionFlowErrorKind, ProductionFlowEvent,
+    ProductionFlowRegionKind, ProductionInlineContent, ProductionInlineLinkTarget,
+    ProductionInlineReference, ProductionInlineSite, ProductionList, ProductionListItem,
+    ProductionMachineParseOutcome, ProductionReferenceFormat, ProductionTextFlow,
+    ProductionTextParagraph, StagingCffProfileView,
     StagingJpegFigureProfileUse, StagingJpegProfileView, StagingM4PageGeometry,
     StagingMathLayoutBudgetGuard, StagingMathProfileAuthorization, StagingMathProfileProgressToken,
     StagingMathProfileSessionIdentity, StagingMathProfileView,
@@ -36,6 +46,7 @@ pub use semantic_container::{
     ValidatedPrecomposedVectorTextBinding, ValidatedProductionMachinePackage,
     ValidatedStagingMathNode, ValidatedStagingSemanticPackage,
     PRECOMPOSED_VECTOR_EFFECTIVE_LANGUAGE_ALGORITHM, PRECOMPOSED_VECTOR_METRICS_ALGORITHM,
+    PRODUCTION_TEXT_FLOW_ALGORITHM,
 };
 pub use tagged_structure::{
     validate_staging_structure_semantics, validate_staging_structure_semantics_v2,

@@ -9,6 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [features]
+book-v2-staging = ["typaxis-resources/book-v2-staging", "typaxis-display-list/book-v2-staging"]
 staging-fixtures = [
   "typaxis-display-list/staging-fixtures",
   "typaxis-resources/staging-fixtures",

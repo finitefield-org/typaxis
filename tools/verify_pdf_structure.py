@@ -3762,7 +3762,10 @@ def _production_source_ledger(package: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _production_structure_roles(package: dict[str, Any]) -> list[str]:
+def _production_structure_roles(
+    package: dict[str, Any], *, common_links: list[dict[str, Any]] | None = None,
+    source_positions: dict[int, int] | None = None,
+) -> list[str]:
     document = package["document"]
     footnotes = {
         item["footnote_id"]: item
@@ -3780,6 +3783,8 @@ def _production_structure_roles(package: dict[str, Any]) -> list[str]:
         elif kind == "reference":
             roles.append("Reference")
         elif kind == "link":
+            if common_links is not None:
+                common_links.append({"role_index": len(roles), "kind": "authored", "source": value})
             roles.append("Link")
             for child in value["children"]:
                 inline(child)
@@ -3787,7 +3792,19 @@ def _production_structure_roles(package: dict[str, Any]) -> list[str]:
             definition = footnotes.get(value["footnote_id"])
             if definition is None:
                 raise PdfValidationError("production footnote reference is unresolved")
-            roles.extend(("Reference", "Lbl", "Note", "Lbl"))
+            if common_links is None:
+                roles.extend(("Reference", "Lbl", "Note", "Lbl"))
+            else:
+                start = len(roles)
+                roles.extend(("Reference", "Link", "Lbl", "Note", "Link", "Lbl"))
+                common_links.extend([
+                    {"role_index": start + 1, "kind": "forward", "source": value,
+                     "label_index": start + 2, "target_index": start + 3,
+                     "peer_index": start + 4},
+                    {"role_index": start + 4, "kind": "return", "source": value,
+                     "label_index": start + 5, "target_index": start + 2,
+                     "peer_index": start + 1},
+                ])
             for child in definition["blocks"]:
                 block(child)
         elif kind == "inline_math":
@@ -3805,6 +3822,8 @@ def _production_structure_roles(package: dict[str, Any]) -> list[str]:
 
     def block(value: dict[str, Any]) -> None:
         kind = value["kind"]
+        if source_positions is not None and kind != "page_break":
+            source_positions[value["node_id"]] = len(roles)
         if kind in {"paragraph", "heading"}:
             roles.append("P" if kind == "paragraph" else f"H{value['level']}")
             for child in value["children"]:
@@ -3888,7 +3907,9 @@ def _production_text_span(
         raise PdfValidationError(f"{label} text span is not UTF-8 aligned") from error
 
 
-def _production_actual_text(package: dict[str, Any]) -> list[str]:
+def _production_actual_text(
+    package: dict[str, Any], *, page_reference_values: dict[str, int] | None = None
+) -> list[str]:
     buffers: dict[int, bytes] = {}
     for record in package.get("text_buffers", []):
         if not isinstance(record, dict) or not isinstance(record.get("text_id"), int):
@@ -3906,7 +3927,13 @@ def _production_actual_text(package: dict[str, Any]) -> list[str]:
         if kind == "text":
             values.append(_production_text_span(value, buffers, "text node"))
         elif kind == "reference":
-            values.append(f"{value['format']} {value['target']}")
+            if value["format"] == "page" and page_reference_values is not None:
+                page = page_reference_values.get(value["target"])
+                if page is None or page <= 0:
+                    raise PdfValidationError("production page reference destination is unresolved")
+                values.append(str(page))
+            else:
+                values.append(f"{value['format']} {value['target']}")
         elif kind == "link":
             for child in value["children"]:
                 inline(child)
@@ -4032,6 +4059,161 @@ def _production_structure_graph(
     return ordered, marked, object_references
 
 
+def _production_page_resources(
+    objects: dict[int, ParsedObject], value: Any
+) -> tuple[dict[str, int], dict[str, int]]:
+    if isinstance(value, PdfRef):
+        resource = objects.get(_ref(value, "production page /Resources"))
+        if resource is None or resource.stream is not None:
+            raise PdfValidationError("production page resource dictionary is unresolved")
+        value = resource.value
+    if not isinstance(value, dict):
+        raise PdfValidationError("production page resources are incomplete")
+    result = []
+    for key, expected_type in (("XObject", "XObject"), ("Font", "Font")):
+        entries = value.get(key)
+        if not isinstance(entries, dict):
+            raise PdfValidationError("production page resources are incomplete")
+        bindings = {}
+        for name, reference in entries.items():
+            number = _ref(reference, f"production page {key}")
+            target = objects.get(number)
+            if (target is None or not isinstance(target.value, dict)
+                    or target.value.get("Type") != PdfName(expected_type)):
+                raise PdfValidationError(f"production page {key} target is unresolved or has wrong type")
+            bindings[name] = number
+        result.append(bindings)
+    return result[0], result[1]
+
+
+def _production_pdf_text(value: Any, label: str) -> str:
+    if isinstance(value, PdfString) and value.syntax == "hex":
+        return _utf16_text(value, label)
+    return _literal_ascii_text(value, label)
+
+
+def _production_marked_text(content: bytes) -> dict[int, str]:
+    """Read the common writer's balanced marked scopes, preserving MCID ownership."""
+    stack: list[tuple[int | None, bool, bool]] = []
+    values: dict[int, str] = {}
+    for line in content.splitlines():
+        line = line.strip()
+        words = line.split()
+        if not words:
+            continue
+        if words[-1] == b"BDC":
+            parser = PdfParser(line)
+            tag, properties = parser.parse(), parser.parse()
+            parser.skip_space()
+            if (not isinstance(tag, PdfName) or not isinstance(properties, dict)
+                    or line[parser.pos:] != b"BDC"):
+                raise PdfValidationError("production marked-content prefix differs")
+            mcid, artifact, replacement = stack[-1] if stack else (None, False, False)
+            if "MCID" in properties:
+                if mcid is not None or artifact:
+                    raise PdfValidationError("production nested or artifact MCID")
+                mcid = _integer(properties["MCID"], "production MCID")
+                if mcid < 0 or mcid in values:
+                    raise PdfValidationError("production duplicate or negative MCID")
+                values[mcid] = ""
+            if "ActualText" in properties:
+                if mcid is None or artifact or replacement:
+                    raise PdfValidationError("production unowned or nested ActualText")
+                values[mcid] += _utf16_text(properties["ActualText"], "production ActualText")
+                replacement = True
+            stack.append((mcid, artifact, replacement))
+        elif words[-1] == b"BMC":
+            if line != b"/Artifact BMC" or stack:
+                raise PdfValidationError("production artifact scope differs")
+            stack.append((None, True, False))
+        elif line == b"EMC":
+            if not stack:
+                raise PdfValidationError("production unmatched EMC")
+            stack.pop()
+        elif any(word in {b"BDC", b"BMC", b"EMC"} for word in words):
+            raise PdfValidationError("production marked-content operator is malformed")
+    if stack:
+        raise PdfValidationError("production unterminated marked content")
+    return values
+
+
+def _production_link_name(value: dict[str, Any], buffers: dict[int, bytes],
+                          note_numbers: dict[str, int]) -> str:
+    kind = value["kind"]
+    if kind == "text":
+        return _production_text_span(value, buffers, "production link text")
+    if kind == "inline_math":
+        return value["speech"]
+    if kind in {"inline_vector", "math_vector"}:
+        return value["alt"]
+    if kind in {"emphasis", "strong", "link"}:
+        return "".join(_production_link_name(child, buffers, note_numbers)
+                       for child in value["children"])
+    if kind == "reference":
+        return f"{value['format']} {value['target']}"
+    if kind == "footnote_reference":
+        return str(note_numbers[value["footnote_id"]])
+    if kind in {"soft_break", "hard_break"}:
+        return " "
+    if kind == "anchor":
+        return ""
+    raise PdfValidationError("unsupported production link name source")
+
+
+def _verify_production_link_target(annotation: dict[str, Any], target: dict[str, Any]) -> None:
+    if "AA" in annotation:
+        raise PdfValidationError("production link has additional actions")
+    if target["kind"] == "internal":
+        if "A" in annotation or (_production_pdf_text(annotation.get("Dest"), "production link /Dest")
+                                 != target["anchor_id"]):
+            raise PdfValidationError("production authored link target differs")
+    elif target["kind"] == "uri":
+        action = annotation.get("A")
+        if ("Dest" in annotation or not isinstance(action, dict)
+                or set(action) != {"S", "URI"} or action["S"] != PdfName("URI")
+                or not isinstance(action["URI"], PdfString)
+                or action["URI"].value != target["uri"].encode("utf-8")):
+            raise PdfValidationError("production authored URI action differs")
+    else:
+        raise PdfValidationError("unsupported production authored link target")
+
+
+def _verify_production_id_tree(
+    objects: dict[int, ParsedObject], structure_root: dict[str, Any],
+    ordered_structure: list[int],
+) -> None:
+    structure_ids: dict[str, int] = {}
+    for number in ordered_structure:
+        value = objects[number].value
+        if "ID" not in value:
+            continue
+        identity = _production_pdf_text(value["ID"], "production StructElem /ID")
+        if not identity or identity in structure_ids:
+            raise PdfValidationError("production structure ID is empty or duplicated")
+        structure_ids[identity] = number
+    if not structure_ids:
+        if "IDTree" in structure_root:
+            raise PdfValidationError("production empty IDTree was emitted")
+        return
+    if "IDTree" not in structure_root:
+        raise PdfValidationError("production IDTree is missing for structure IDs")
+    number = _ref(structure_root["IDTree"], "production IDTree")
+    if number not in objects or not isinstance(objects[number].value, dict):
+        raise PdfValidationError("production IDTree is unresolved")
+    id_tree = objects[number].value
+    _exact_keys(id_tree, {"Names"}, "production IDTree")
+    names = id_tree["Names"]
+    if not isinstance(names, list) or len(names) != 2 * len(structure_ids):
+        raise PdfValidationError("production IDTree pair count differs")
+    observed_ids = [
+        (_production_pdf_text(names[index], "production IDTree name"),
+         _ref(names[index + 1], "production IDTree target"))
+        for index in range(0, len(names), 2)
+    ]
+    if observed_ids != sorted(structure_ids.items()):
+        raise PdfValidationError("production IDTree/structure IDs differ")
+
+
 def verify_production_pdf_structure(
     pdf: bytes,
     package: dict[str, Any],
@@ -4083,6 +4265,7 @@ def verify_production_pdf_structure(
         raise PdfValidationError("production page tree duplicates a page")
 
     page_streams: dict[int, bytes] = {}
+    page_marked_text: dict[int, dict[int, str]] = {}
     page_xobjects: dict[int, dict[str, int]] = {}
     annotation_numbers: list[int] = []
     for page_index, number in enumerate(page_numbers):
@@ -4100,15 +4283,8 @@ def verify_production_pdf_structure(
         if content is None:
             raise PdfValidationError("production page content is not a stream")
         page_streams[number] = content
-        resources = page.get("Resources")
-        xobjects = resources.get("XObject") if isinstance(resources, dict) else None
-        fonts = resources.get("Font") if isinstance(resources, dict) else None
-        if not isinstance(xobjects, dict) or not isinstance(fonts, dict):
-            raise PdfValidationError("production page resources are incomplete")
-        page_xobjects[number] = {
-            name: _ref(reference, "production page XObject")
-            for name, reference in xobjects.items()
-        }
+        page_marked_text[number] = _production_marked_text(content)
+        page_xobjects[number], _fonts = _production_page_resources(objects, page.get("Resources"))
         annotations = page.get("Annots", [])
         if not isinstance(annotations, list):
             raise PdfValidationError("production page /Annots is not an array")
@@ -4306,7 +4482,10 @@ def verify_production_pdf_structure(
         objects, document_structure, set(page_numbers)
     )
     observed_roles = [objects[number].value["S"].value for number in ordered_structure]
-    expected_roles = _production_structure_roles(package)
+    common_links: list[dict[str, Any]] = []
+    source_positions: dict[int, int] = {}
+    expected_roles = _production_structure_roles(package, common_links=common_links,
+                                                source_positions=source_positions)
     if observed_roles != expected_roles:
         raise PdfValidationError("production structure role/reading order differs")
 
@@ -4342,42 +4521,89 @@ def verify_production_pdf_structure(
         ):
             raise PdfValidationError("production ParentTree page mapping differs")
 
-    link_nodes = [node for node in source_nodes if node["kind"] == "link"]
-    if len(annotation_numbers) != len(link_nodes) or len(set(annotation_numbers)) != len(annotation_numbers):
+    if (len(annotation_numbers) != len(common_links)
+            or len(set(annotation_numbers)) != len(annotation_numbers)
+            or set(object_references) != set(annotation_numbers)):
         raise PdfValidationError("production link annotation count differs")
-    for annotation_number, link in zip(annotation_numbers, link_nodes, strict=True):
+    by_structure = {owner: number for number, owner in object_references.items()}
+    if len(by_structure) != len(common_links):
+        raise PdfValidationError("production link structure owns duplicate annotations")
+    if set(parent_values) != set(range(len(page_numbers) + len(annotation_numbers))):
+        raise PdfValidationError("production ParentTree annotation keys differ")
+    note_numbers = {note["footnote_id"]: index + 1
+                    for index, note in enumerate(package["document"].get("footnotes", []))}
+    link_buffers = {record["text_id"]: record["utf8"].encode("utf-8")
+                    for record in package["text_buffers"]}
+    for binding in common_links:
+        owner = ordered_structure[binding["role_index"]]
+        annotation_number = by_structure.get(owner)
+        if annotation_number is None:
+            raise PdfValidationError("production source link lacks its annotation")
         annotation = objects[annotation_number].value
-        target = link["target"]
-        if (
-            annotation.get("Type") != PdfName("Annot")
-            or annotation.get("Subtype") != PdfName("Link")
-            or _literal_ascii_text(annotation.get("Dest"), "production link /Dest")
-            != target.get("anchor_id")
-            or not _utf16_text(annotation.get("Contents"), "production link /Contents")
-            or object_references.get(annotation_number) is None
-            or parent_values.get(annotation.get("StructParent"))
-            != PdfRef(object_references[annotation_number])
-        ):
+        page = _ref(annotation.get("P"), "production link /P")
+        rect = annotation.get("Rect")
+        if (annotation.get("Type") != PdfName("Annot")
+                or annotation.get("Subtype") != PdfName("Link")
+                or page not in page_numbers
+                or PdfRef(annotation_number) not in objects[page].value.get("Annots", [])
+                or parent_values.get(annotation.get("StructParent")) != PdfRef(owner)
+                or not isinstance(rect, list) or len(rect) != 4):
             raise PdfValidationError("production link annotation/structure closure differs")
+        x0, y0, x1, y1 = [_fixed(v, "production link rectangle") for v in rect]
+        if x0 >= x1 or y0 >= y1:
+            raise PdfValidationError("production link rectangle has no area")
+        contents = _utf16_text(annotation.get("Contents"), "production link /Contents")
+        object_kids = [kid for kid in objects[owner].value.get("K", [])
+                       if isinstance(kid, dict) and kid.get("Type") == PdfName("OBJR")]
+        if len(object_kids) != 1 or object_kids[0].get("Pg") != PdfRef(page):
+            raise PdfValidationError("production annotation OBJR page differs")
+        if binding["kind"] == "authored":
+            target = binding["source"]["target"]
+            _verify_production_link_target(annotation, target)
+            if (not contents or contents != _production_link_name(
+                    binding["source"], link_buffers, note_numbers)):
+                raise PdfValidationError("production authored link accessible name differs")
+            continue
+        label = ordered_structure[binding["label_index"]]
+        if _ref(objects[label].value.get("P"), "footnote label /P") != owner:
+            raise PdfValidationError("production footnote label/link parent differs")
+        label_pages = {p for p, entries in marked.items() if any(o == label for _, o in entries)}
+        if label_pages != {page} or contents != str(note_numbers[binding["source"]["footnote_id"]]):
+            raise PdfValidationError("production footnote link label/page differs")
+        label_text = "".join(page_marked_text[page].get(mcid, "")
+                             for mcid, structure_owner in sorted(marked[page])
+                             if structure_owner == label)
+        if label_text != contents:
+            raise PdfValidationError("production footnote label ActualText differs")
+        peer_owner = ordered_structure[binding["peer_index"]]
+        peer = objects[by_structure[peer_owner]].value
+        destination = annotation.get("Dest")
+        if (not isinstance(destination, list) or len(destination) != 5
+                or destination[1] != PdfName("XYZ") or destination[4] is not None
+                or destination[0] != peer.get("P")):
+            raise PdfValidationError("production footnote destination page/view differs")
+        dx = _fixed(destination[2], "footnote destination x")
+        dy = _fixed(destination[3], "footnote destination y")
+        peer_rect = peer.get("Rect")
+        if not isinstance(peer_rect, list) or len(peer_rect) != 4:
+            raise PdfValidationError("production peer footnote rectangle differs")
+        px = _fixed(peer_rect[0], "peer footnote left")
+        py = _fixed(peer_rect[3], "peer footnote top")
+        if binding["kind"] == "return":
+            if (dx, dy) != (px, py):
+                raise PdfValidationError("production footnote return misses its reference label")
+        else:
+            # The forward destination is the union of the first content row and
+            # its label. The row may be taller or extend left of the label.
+            # Verify that the destination encloses that label on its actual page;
+            # this does not independently reconstruct source layout geometry.
+            media = objects[destination[0].number].value.get("MediaBox")
+            if (not isinstance(media, list) or len(media) != 4
+                    or not 0 <= dx <= px
+                    or not py <= dy <= _fixed(media[3], "footnote page height")):
+                raise PdfValidationError("production footnote forward destination misses its note")
 
-    id_tree = objects[_ref(structure_root["IDTree"], "production IDTree")].value
-    names = id_tree.get("Names") if isinstance(id_tree, dict) else None
-    structure_ids = {
-        _literal_ascii_text(objects[number].value["ID"], "production StructElem /ID"): number
-        for number in ordered_structure
-        if "ID" in objects[number].value
-    }
-    if not isinstance(names, list) or len(names) != 2 * len(structure_ids):
-        raise PdfValidationError("production IDTree pair count differs")
-    observed_ids = [
-        (
-            _literal_ascii_text(names[index], "production IDTree name"),
-            _ref(names[index + 1], "production IDTree target"),
-        )
-        for index in range(0, len(names), 2)
-    ]
-    if observed_ids != sorted(structure_ids.items()):
-        raise PdfValidationError("production IDTree/structure IDs differ")
+    _verify_production_id_tree(objects, structure_root, ordered_structure)
 
     actual_text: list[str] = []
     for page_number in page_numbers:
@@ -4389,10 +4615,6 @@ def verify_production_pdf_structure(
                 actual_text.append(payload[2:].decode("utf-16-be"))
             except UnicodeDecodeError as error:
                 raise PdfValidationError("production ActualText is malformed") from error
-    expected_actual_text = _production_actual_text(package)
-    if Counter(actual_text) != Counter(expected_actual_text):
-        raise PdfValidationError("production ActualText/source text closure differs")
-
     destinations = catalog["Names"]
     if not isinstance(destinations, dict) or set(destinations) != {"Dests"}:
         raise PdfValidationError("production catalog destination dictionary differs")
@@ -4401,9 +4623,10 @@ def verify_production_pdf_structure(
     if not isinstance(destination_names, list) or len(destination_names) % 2:
         raise PdfValidationError("production destination name tree differs")
     observed_destinations: list[str] = []
+    destination_pages: dict[str, int] = {}
     for index in range(0, len(destination_names), 2):
         observed_destinations.append(
-            _literal_ascii_text(destination_names[index], "production destination name")
+            _production_pdf_text(destination_names[index], "production destination name")
         )
         destination = destination_names[index + 1]
         if (
@@ -4414,6 +4637,7 @@ def verify_production_pdf_structure(
             or destination[4] is not None
         ):
             raise PdfValidationError("production destination view differs")
+        destination_pages[observed_destinations[-1]] = page_numbers.index(destination[0].number) + 1
     expected_destinations = sorted(
         node["anchor_id"]
         for node in source_nodes
@@ -4421,6 +4645,9 @@ def verify_production_pdf_structure(
     )
     if observed_destinations != expected_destinations:
         raise PdfValidationError("production named destinations differ")
+    expected_actual_text = _production_actual_text(package, page_reference_values=destination_pages)
+    if Counter(actual_text) != Counter(expected_actual_text):
+        raise PdfValidationError("production ActualText/source text closure differs")
 
     outline_entries = package["outline"]["entries"]
     outline_root_number = _ref(catalog["Outlines"], "production catalog /Outlines")
@@ -4453,11 +4680,15 @@ def verify_production_pdf_structure(
                 != previous
                 or _utf16_text(item.get("Title"), "production outline /Title")
                 != entry["label"]
-                or _literal_ascii_text(item.get("Dest"), "production outline /Dest")
+                or _production_pdf_text(item.get("Dest"), "production outline /Dest")
                 != entry["destination"]
             ):
                 raise PdfValidationError("production outline entry differs")
-            structure = objects[_ref(item.get("SE"), "production outline /SE")].value
+            structure_number = _ref(item.get("SE"), "production outline /SE")
+            expected_position = source_positions.get(entry["source_node_id"])
+            if expected_position is None or structure_number != ordered_structure[expected_position]:
+                raise PdfValidationError("production outline structure owner differs")
+            structure = objects[structure_number].value
             source_node = next(
                 node for node in source_nodes if node.get("node_id") == entry["source_node_id"]
             )

@@ -1,0 +1,5 @@
+package verified_math_intro.logic
+
+theorem de_morgan_and_not (P Q : Prop) :
+  Not (And P Q) <-> Or (Not P) (Not Q) := by
+  certificate de_morgan_and_not

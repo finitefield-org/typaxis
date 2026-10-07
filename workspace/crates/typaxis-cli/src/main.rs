@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "book-v2-staging")]
+pub mod book_v2_resources;
+
 mod artifacts;
 mod cli;
 mod config;
@@ -28,7 +31,7 @@ use typaxis_diagnostics::{
     encode_diagnostics_canonical, encode_diagnostics_canonical_for_contract, DiagnosticBuilder,
     DiagnosticCode, DiagnosticLocation, DiagnosticSubject, GlobalDiagnosticScope,
     MachineDiagnosticBudget, MachineDiagnosticBudgetError, MachineDiagnosticLender,
-    MachineDiagnosticPhase, PublicMachineError, ResourceErrorSubject, Severity, I9110, I9113,
+    MachineDiagnosticPhase, PublicMachineError, ResourceErrorSubject, Severity,
     I9190, L5100, L5101, R7100,
 };
 use typaxis_document_package::{
@@ -163,7 +166,7 @@ fn run_build_package_with_host(
         &options.package,
         options.package_root.as_deref(),
     )?;
-    let loaded = load_config(&options.common)?;
+    let loaded = load_config_for_profile(&options.common, Some(options.profile))?;
     let config_contract = if options.profile == typaxis_core::MachinePdfProfileId::ProductionBook1 {
         typaxis_core::DocumentPackageContractId::V1_4
     } else {
@@ -574,7 +577,7 @@ fn run_production_build_after_setup(
     {
         let _phase = lend_machine_phase(&mut diagnostics, MachineDiagnosticPhase::Publication)?;
     }
-    let (pdf, vector_fields, selected, flow, _fragments, trace) = built.into_parts();
+    let (pdf, vector_fields, selected, flow, _fragments, trace, layout_pass_count) = built.into_parts();
     publish_production_machine_success(
         &execution,
         diagnostics,
@@ -586,6 +589,7 @@ fn run_production_build_after_setup(
         vector_fields,
         selected,
         flow,
+        layout_pass_count,
         options.trace.as_ref().map(|_| trace.as_str()),
     )
 }
@@ -597,7 +601,7 @@ fn run_check_package(options: CheckPackageOptions) -> Result<(), Failure> {
         &options.package,
         options.package_root.as_deref(),
     )?;
-    let mut loaded = load_config(&options.common)?;
+    let mut loaded = load_config_for_profile(&options.common, Some(options.profile))?;
     let config_contract = if options.profile == typaxis_core::MachinePdfProfileId::ProductionBook1 {
         typaxis_core::DocumentPackageContractId::V1_4
     } else {
@@ -2071,12 +2075,47 @@ fn emit_production_resource_diagnostic(
     let mut builder = DiagnosticBuilder::located(
         production_resource_diagnostic_code(error),
         Severity::Error,
-        error.canonical_message(),
+        error.production_message(),
         DiagnosticLocation::package_json(uri, pointer, None),
     )
     .map_err(|_| Failure::internal("production resource diagnostic text was not canonical"))?;
     if let Some(subject) = subject {
         builder = builder.subject(subject.clone());
+    }
+    if let ResourceAdmissionError::SafeSvg2Detailed(failure) = error {
+        let resource_uri = match subject {
+            Some(DiagnosticSubject::Resource(ResourceErrorSubject::Image(id))) => package.package().resources().images.get(id.get() as usize).map(|declaration| declaration.uri.as_str()),
+            _ => None,
+        };
+        if let Some(uri) = resource_uri {
+            builder = builder.note(format!("resource={uri}"))
+                .map_err(|_| Failure::internal("resource URI note is not canonical"))?;
+        }
+        let context = failure.context_note();
+        if !context.is_empty() {
+            builder = builder.note(context).map_err(|_| Failure::internal("SVG context note is not canonical"))?;
+        }
+        if let Some(budget) = failure.budget {
+            builder = builder.note(format!("scope={}; charge={}; limit={}; observed={}; used_before_resource={}", budget.scope.as_str(), budget.kind.as_str(), budget.limit, budget.observed, budget.used_before_resource))
+                .map_err(|_| Failure::internal("SVG budget note is not canonical"))?;
+        }
+    }
+    let font_context = match error {
+        ResourceAdmissionError::Cff1Detailed(failure) => Some(failure.context_note()),
+        ResourceAdmissionError::FontContainerDetailed(failure) => Some(failure.context_note()),
+        _ => None,
+    };
+    if let Some(context) = font_context {
+        if let Some(DiagnosticSubject::Resource(ResourceErrorSubject::FontFace(id))) = subject {
+            if let Some(declaration) = package.package().resources().font_faces.get(id.get() as usize) {
+                builder = builder.note(format!("resource={}", declaration.uri.as_str()))
+                    .map_err(|_| Failure::internal("font resource URI note is not canonical"))?;
+            }
+        }
+        builder = builder.note(context)
+            .map_err(|_| Failure::internal("font context note is not canonical"))?;
+        builder = builder.note(typaxis_resources::SUPPORTED_FONT_OUTLINES_NOTE)
+            .map_err(|_| Failure::internal("font support note is not canonical"))?;
     }
     let _ = phase
         .emit(builder.build())
@@ -2085,23 +2124,7 @@ fn emit_production_resource_diagnostic(
 }
 
 fn production_resource_diagnostic_code(error: ResourceAdmissionError) -> DiagnosticCode {
-    let message = error.canonical_message();
-    if message.as_bytes().get(5) == Some(&b':') {
-        if let Some(code) = message.get(..5).and_then(DiagnosticCode::new) {
-            return code;
-        }
-    }
-    match error {
-        ResourceAdmissionError::UnsupportedContainedOpen => I9110,
-        ResourceAdmissionError::ResourceLengthMismatch => I9113,
-        ResourceAdmissionError::NonCanonicalResourceId
-        | ResourceAdmissionError::ReceiptKindMismatch
-        | ResourceAdmissionError::ReceiptIdentityMismatch
-        | ResourceAdmissionError::ReceiptSessionMismatch
-        | ResourceAdmissionError::MissingAdmittedRootSet
-        | ResourceAdmissionError::RootSetMismatch => I9190,
-        _ => R7100,
-    }
+    error.production_diagnostic_code()
 }
 
 fn emit_production_processing_diagnostic(
@@ -2110,6 +2133,34 @@ fn emit_production_processing_diagnostic(
     package: &typaxis_syntax::ValidatedProductionMachinePackage,
     failure: &Failure,
 ) -> Result<(), Failure> {
+    if let Some(diagnostic) = failure.processing_diagnostic() {
+        let _ = phase.emit(diagnostic.clone()).map_err(map_diagnostic_budget_error)?;
+        return Ok(());
+    }
+    if let Some((font_face_id, cause)) = failure.font_subset_failure() {
+        let (index, declaration) = package.package().resources().font_faces.iter()
+            .enumerate().find(|(_, declaration)| declaration.font_face_id == font_face_id)
+            .ok_or_else(|| Failure::internal("I9190: font failure has no resource declaration"))?;
+        let uri = package.provenance().progress().package()
+            .map(|facts| facts.uri().clone())
+            .unwrap_or_else(|| fallback_package_uri(package_path));
+        let diagnostic = DiagnosticBuilder::located(
+            DiagnosticCode::new(cause.kind.diagnostic_code())
+                .expect("closed CFF diagnostic code"),
+            Severity::Error,
+            format!("cff1 {}", cause.context.reason.as_str()),
+            DiagnosticLocation::package_json(uri,
+                JsonPointer::from_segments(["resources".to_owned(), "font_faces".to_owned(), index.to_string()]), None),
+        ).map_err(|_| Failure::internal("CFF diagnostic message is not canonical"))?
+            .subject(DiagnosticSubject::Resource(ResourceErrorSubject::FontFace(font_face_id)))
+            .note(format!("resource={}", declaration.uri.as_str()))
+            .and_then(|builder| builder.note(cause.context_note()))
+            .and_then(|builder| builder.note(typaxis_resources::SUPPORTED_FONT_OUTLINES_NOTE))
+            .map_err(|_| Failure::internal("CFF diagnostic note is not canonical"))?
+            .build();
+        let _ = phase.emit(diagnostic).map_err(map_diagnostic_budget_error)?;
+        return Ok(());
+    }
     let code = failure
         .message
         .get(..5)
@@ -2173,7 +2224,10 @@ fn emit_machine_input_diagnostic(
     package_path: &Path,
 ) -> Result<(), Failure> {
     let public = public_machine_input_error(error.kind());
-    let message = canonical_machine_input_diagnostic_message(&public);
+    let message = match error.kind() {
+        MachineInputErrorKind::SemanticDecode(decode @ StagingSemanticDecodeError::ResourceCountLimit { .. }) => decode.to_string(),
+        _ => canonical_machine_input_diagnostic_message(&public).to_owned(),
+    };
     let builder = if matches!(
         public,
         PublicMachineError::CompiledHostUnavailable
@@ -2288,6 +2342,7 @@ fn public_semantic_decode_error(error: &StagingSemanticDecodeError) -> PublicMac
         StagingSemanticDecodeError::Contract => PublicMachineError::PackageContract,
         StagingSemanticDecodeError::Shape(_)
         | StagingSemanticDecodeError::BookNavigationShape { .. }
+        | StagingSemanticDecodeError::ResourceCountLimit { .. }
         | StagingSemanticDecodeError::PrecomposedVectorShape { .. } => {
             PublicMachineError::PackageMember
         }
@@ -2742,6 +2797,7 @@ fn publish_production_machine_success(
     vector_fields: typaxis_manifest::StagingProductionBuildManifestVectorFields,
     selected_layout_sha256: [u8; 32],
     flow_registry_sha256: [u8; 32],
+    layout_pass_count: std::num::NonZeroU16,
     trace_json: Option<&str>,
 ) -> Result<(), Failure> {
     let PreparedProductionCommand {
@@ -2772,6 +2828,7 @@ fn publish_production_machine_success(
                     admitted.token(),
                     selected_layout_sha256,
                     flow_registry_sha256,
+                    layout_pass_count,
                     vector_fields,
                     pdf,
                 )
@@ -3596,6 +3653,13 @@ struct LoadedConfig {
 }
 
 fn load_config(common: &CommonOptions) -> Result<LoadedConfig, Failure> {
+    load_config_for_profile(common, None)
+}
+
+fn load_config_for_profile(
+    common: &CommonOptions,
+    profile: Option<typaxis_core::MachinePdfProfileId>,
+) -> Result<LoadedConfig, Failure> {
     let config_path = match &common.config {
         Some(path) => Some(path.clone()),
         None => {
@@ -3621,8 +3685,12 @@ fn load_config(common: &CommonOptions) -> Result<LoadedConfig, Failure> {
             .set_limit(name, *value)
             .map_err(map_config_error)?;
     }
-    let effective = config::load_from_process_env(config_path.as_deref(), &overrides)
-        .map_err(map_config_error)?;
+    let effective = match profile {
+        Some(profile) => config::load_from_process_env_for_profile(
+            profile, config_path.as_deref(), &overrides,
+        ),
+        None => config::load_from_process_env(config_path.as_deref(), &overrides),
+    }.map_err(map_config_error)?;
     Ok(LoadedConfig {
         effective,
         path: config_path,

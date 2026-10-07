@@ -13,6 +13,28 @@ use typaxis_core::{
 
 use crate::{OriginalGlyphId, SubsetGlyphId};
 
+#[path = "cff_diagnostics.rs"]
+mod diagnostics;
+pub use diagnostics::{
+    admit_sfnt_cff1_detailed, Cff1Failure, FontEmbeddingStatus, FontFailureContext,
+    FontFailurePhase, FontFailureReason, FontSubsetStage,
+};
+
+#[path = "cff_subset_diagnostics.rs"]
+mod subset_diagnostics;
+
+#[path = "cff_v2.rs"]
+mod v2;
+pub use v2::{
+    admit_sfnt_cff1_v2, inspect_cff1_program_v2, validate_cff_cmap_v2,
+    validate_cff_variation_sequences_v2, validate_cff_vertical_metrics_v2, Cff1AdmissionV2,
+    Cff1FailureKindV2, Cff1FailureV2, Cff1GlyphClosureV2, Cff1SubsetSessionV2, Cff1SubsetV2,
+    CffCmapFailureV2, CffCmapV2, CffEvaluatedGlyphV2, CffGlyphFailureReasonV2, CffGlyphFailureV2,
+    CffOutlineCommandV2, CffProgramErrorKindV2, CffProgramErrorV2, CffProgramEvaluationSessionV2,
+    CffProgramInspectionV2, CffSelectionFailureV2, CffTableFailureKindV2, CffTableFailureV2,
+    CffVariationSequencesV2, CffVerticalMetricsV2, VariationCoverage,
+};
+
 pub const CFF1_RESOURCE_PROFILE_ID: &str = "typaxis.resource-profile/sfnt-cff1/1";
 pub const CFF1_ADMISSION_ID: &str = "typaxis.sfnt-cff1-admission/1";
 pub const CFF1_CHARSTRING_EVALUATOR_ID: &str = "typaxis.cff1-charstring-evaluator/1";
@@ -80,9 +102,9 @@ pub enum Cff1Error {
     ReceiptMismatch,
 }
 
-impl std::fmt::Display for Cff1Error {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let code = match self {
+impl Cff1Error {
+    pub const fn diagnostic_code(self) -> &'static str {
+        match self {
             Self::TableLimit => "R7130",
             Self::GlyphLimit => "R7131",
             Self::SubroutineLimit => "R7132",
@@ -91,8 +113,12 @@ impl std::fmt::Display for Cff1Error {
             Self::SubsetByteLimit => "R7135",
             Self::InvalidGlyphClosure | Self::ReceiptMismatch => "I9190",
             _ => "R7100",
-        };
-        write!(formatter, "{code}: {self:?}")
+        }
+    }
+}
+impl std::fmt::Display for Cff1Error {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {self:?}", self.diagnostic_code())
     }
 }
 
@@ -116,6 +142,9 @@ struct CffProgram {
     local_subrs: Vec<Vec<u8>>,
     default_width_x: i32,
     nominal_width_x: i32,
+    charstring_offsets: Vec<usize>,
+    global_subr_offsets: Vec<usize>,
+    local_subr_offsets: Vec<usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -139,6 +168,7 @@ pub struct Cff1Admission {
     left_side_bearings: Vec<i16>,
     cmap: BTreeMap<u32, u16>,
     program: CffProgram,
+    glyph_context: FontFailureContext,
     limits: M4ResourceLimits,
     limits_fingerprint: [u8; 32],
     canonical_jcs: String,
@@ -354,12 +384,8 @@ impl Cff1SubsetSession {
         font_face_id: FontFaceId,
         selected: &BTreeSet<OriginalGlyphId>,
     ) -> Result<(), Cff1Error> {
-        self.require_admission(admission)?;
-        self.evaluate_face_gid(admission, font_face_id, OriginalGlyphId::new(0))?;
-        for gid in selected {
-            self.evaluate_face_gid(admission, font_face_id, *gid)?;
-        }
-        Ok(())
+        self.prepare_face_detailed(admission, font_face_id, selected)
+            .map_err(|failure| failure.kind)
     }
 
     pub fn subset(
@@ -370,23 +396,8 @@ impl Cff1SubsetSession {
         selected: &BTreeSet<OriginalGlyphId>,
         max_cids_per_font: u16,
     ) -> Result<Cff1Subset, Cff1Error> {
-        self.require_admission(admission)?;
-        let closure = Self::close_instance_selection(
-            admission,
-            font_face_id,
-            font_instance_id,
-            selected,
-            max_cids_per_font,
-        )?;
-        for gid in closure.source_gids() {
-            self.evaluate_face_gid(admission, font_face_id, *gid)?;
-        }
-        write_subset(
-            admission,
-            closure,
-            &self.evaluated,
-            self.limits.max_font_subset_bytes,
-        )
+        self.subset_detailed(admission, font_face_id, font_instance_id, selected, max_cids_per_font)
+            .map_err(|failure| failure.kind)
     }
 
     fn require_admission(&self, admission: &Cff1Admission) -> Result<(), Cff1Error> {
@@ -397,23 +408,6 @@ impl Cff1SubsetSession {
         } else {
             Ok(())
         }
-    }
-
-    fn evaluate_face_gid(
-        &mut self,
-        admission: &Cff1Admission,
-        font_face_id: FontFaceId,
-        gid: OriginalGlyphId,
-    ) -> Result<(), Cff1Error> {
-        if u32::from(gid.get()) >= admission.glyph_count {
-            return Err(Cff1Error::InvalidSelectedGlyph);
-        }
-        let key = (font_face_id, admission.source_sha256, gid.get());
-        if !self.evaluated.contains_key(&key) {
-            let outline = evaluate_glyph(admission, gid.get(), self)?;
-            self.evaluated.insert(key, outline);
-        }
-        Ok(())
     }
 
     fn charge_operation(&mut self) -> Result<(), Cff1Error> {
@@ -459,32 +453,78 @@ pub fn admit_sfnt_cff1(
     face_index: u32,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<Cff1Admission, Cff1Error> {
+    admit_sfnt_cff1_detailed(source, face_index, limits).map_err(|failure| failure.kind)
+}
+
+fn admit_sfnt_cff1_inner(
+    source: &[u8],
+    face_index: u32,
+    limits: &M4EffectiveResourceLimits,
+    context: &mut FontFailureContext,
+) -> Result<Cff1Admission, Cff1Error> {
     if face_index != 0 {
         return Err(Cff1Error::InvalidFaceIndex);
     }
-    let table_records = preflight_sfnt(source, *limits.extension().get())?;
+    let table_records = preflight_sfnt(source, *limits.extension().get(), context)?;
     let tables = table_map(source, &table_records)?;
-    typed_read_fonts_check(source)?;
+    typed_read_fonts_check(source).map_err(|kind| {
+        let tag = match kind {
+            Cff1Error::InvalidHead => Some(*b"head"),
+            Cff1Error::InvalidMaxp => Some(*b"maxp"),
+            Cff1Error::InvalidHhea => Some(*b"hhea"),
+            Cff1Error::InvalidHmtx => Some(*b"hmtx"),
+            Cff1Error::InvalidCmap => Some(*b"cmap"),
+            Cff1Error::InvalidName => Some(*b"name"),
+            Cff1Error::InvalidOs2 => Some(*b"OS/2"),
+            Cff1Error::InvalidPost => Some(*b"post"),
+            Cff1Error::InvalidCff => Some(*b"CFF "),
+            _ => None,
+        };
+        if let Some(tag) = tag {
+            context.table(tag, &table_records, FontFailurePhase::TableDecode);
+        }
+        kind
+    })?;
 
+    context.table(*b"head", &table_records, FontFailurePhase::TableDecode);
     let head = parse_head(required_table(&tables, b"head")?)?;
-    let maxp = parse_maxp(required_table(&tables, b"maxp")?, limits)?;
+    context.table(*b"maxp", &table_records, FontFailurePhase::TableDecode);
+    let maxp_bytes = required_table(&tables, b"maxp")?;
+    let maxp = parse_maxp(maxp_bytes, limits).map_err(|kind| {
+        if kind == Cff1Error::GlyphLimit {
+            context.field(4);
+            context.limit = Some(u64::from(limits.extension().get().max_font_glyphs));
+            context.observed = read_u16(maxp_bytes, 4, Cff1Error::InvalidMaxp)
+                .ok()
+                .map(u64::from);
+        }
+        kind
+    })?;
+    context.table(*b"hhea", &table_records, FontFailurePhase::TableDecode);
     let hhea = parse_hhea(required_table(&tables, b"hhea")?)?;
+    context.table(*b"hmtx", &table_records, FontFailurePhase::TableDecode);
     let (advances, left_side_bearings) = parse_hmtx(
         required_table(&tables, b"hmtx")?,
         maxp,
         hhea.number_of_h_metrics,
     )?;
-    let cmap = parse_cmap(required_table(&tables, b"cmap")?, maxp)?;
+    context.table(*b"cmap", &table_records, FontFailurePhase::Cmap);
+    let cmap = parse_cmap(required_table(&tables, b"cmap")?, maxp, context)?;
+    context.table(*b"name", &table_records, FontFailurePhase::TableDecode);
     let names = parse_name(required_table(&tables, b"name")?)?;
+    context.table(*b"OS/2", &table_records, FontFailurePhase::TableDecode);
     let os2 = parse_os2(required_table(&tables, b"OS/2")?)?;
+    context.table(*b"post", &table_records, FontFailurePhase::TableDecode);
     let post = parse_post(required_table(&tables, b"post")?)?;
-    validate_optional_tables(source, &tables, maxp)?;
+    validate_optional_tables(source, &tables, maxp, &table_records, context)?;
+    context.table(*b"CFF ", &table_records, FontFailurePhase::CffIndex);
     let program = parse_cff(
         required_table(&tables, b"CFF ")?,
         maxp,
         &names.postscript_name,
         head.bbox,
         limits,
+        context,
     )?;
     let subroutine_count = u32::try_from(
         program
@@ -494,6 +534,14 @@ pub fn admit_sfnt_cff1(
             .ok_or(Cff1Error::SubroutineLimit)?,
     )
     .map_err(|_| Cff1Error::SubroutineLimit)?;
+    context.table(
+        *b"OS/2",
+        &table_records,
+        FontFailurePhase::EmbeddingPermission,
+    );
+    context.reason = FontFailureReason::RestrictedEmbedding;
+    context.field(8);
+    context.permission(os2.bytes);
     let embedding_permission = embedding_permission(os2.fs_type)?;
     let source_sha256 = sha256(source);
     let source_byte_length = u64::try_from(source.len()).map_err(|_| Cff1Error::InvalidSfnt)?;
@@ -509,6 +557,10 @@ pub fn admit_sfnt_cff1(
         permission: embedding_permission,
         limits_fingerprint: limits.fingerprint(),
     });
+    let mut glyph_context = FontFailureContext::new(face_index);
+    glyph_context.table(*b"CFF ", &table_records, FontFailurePhase::Charstring);
+    glyph_context.permission(os2.bytes);
+    glyph_context.reason = FontFailureReason::InvalidCharstring;
     Ok(Cff1Admission {
         source_sha256,
         source_byte_length,
@@ -529,6 +581,7 @@ pub fn admit_sfnt_cff1(
         left_side_bearings,
         cmap,
         program,
+        glyph_context,
         limits: *limits.extension().get(),
         limits_fingerprint: limits.fingerprint(),
         fingerprint: sha256(canonical_jcs.as_bytes()),
@@ -591,16 +644,39 @@ fn push_hash(output: &mut String, hash: [u8; 32]) {
     output.push('"');
 }
 
-fn preflight_sfnt(source: &[u8], limits: M4ResourceLimits) -> Result<Vec<TableRecord>, Cff1Error> {
+fn preflight_sfnt(
+    source: &[u8],
+    limits: M4ResourceLimits,
+    context: &mut FontFailureContext,
+) -> Result<Vec<TableRecord>, Cff1Error> {
+    preflight_sfnt_with_vertical(source, limits, context, false)
+}
+
+fn preflight_sfnt_with_vertical(
+    source: &[u8],
+    limits: M4ResourceLimits,
+    context: &mut FontFailureContext,
+    allow_vertical: bool,
+) -> Result<Vec<TableRecord>, Cff1Error> {
+    context.directory(None, Some(0), FontFailureReason::MalformedFont);
     if source.get(..4) != Some(b"OTTO") {
         return Err(Cff1Error::InvalidSfnt);
     }
+    context.file_offset = Some(4);
     let count = usize::from(read_u16(source, 4, Cff1Error::InvalidSfnt)?);
     if count == 0
         || u32::try_from(count).map_err(|_| Cff1Error::TableLimit)? > limits.max_font_tables
     {
+        context.reason = if count == 0 {
+            FontFailureReason::InvalidTableCount
+        } else {
+            FontFailureReason::BudgetExceeded
+        };
+        context.observed = Some(count as u64);
+        context.limit = Some(u64::from(limits.max_font_tables));
         return Err(Cff1Error::TableLimit);
     }
+    context.file_offset = None;
     let largest_power = 1usize << (usize::BITS - 1 - count.leading_zeros());
     let expected_search_range = largest_power
         .checked_mul(16)
@@ -635,13 +711,24 @@ fn preflight_sfnt(source: &[u8], limits: M4ResourceLimits) -> Result<Vec<TableRe
         let tag: [u8; 4] = source[record..record + 4]
             .try_into()
             .map_err(|_| Cff1Error::InvalidSfnt)?;
+        context.directory(
+            Some(tag),
+            Some(record),
+            FontFailureReason::InvalidTableOrder,
+        );
         if previous_tag.is_some_and(|previous| previous >= tag) {
             return Err(Cff1Error::InvalidSfnt);
         }
         previous_tag = Some(tag);
-        if !REQUIRED_TABLES.contains(&tag) && !OPTIONAL_TABLES.contains(&tag) {
+        if !REQUIRED_TABLES.contains(&tag)
+            && !OPTIONAL_TABLES.contains(&tag)
+            && !(allow_vertical && [*b"VORG", *b"vhea", *b"vmtx"].contains(&tag))
+        {
+            context.reason = FontFailureReason::UnsupportedTable;
             return Err(Cff1Error::UnsupportedTable);
         }
+        context.reason = FontFailureReason::InvalidTableRange;
+        context.file_offset = Some((record + 8) as u64);
         let expected_checksum = read_u32(source, record + 4, Cff1Error::InvalidSfnt)?;
         let offset = usize::try_from(read_u32(source, record + 8, Cff1Error::InvalidSfnt)?)
             .map_err(|_| Cff1Error::InvalidSfnt)?;
@@ -671,8 +758,13 @@ fn preflight_sfnt(source: &[u8], limits: M4ResourceLimits) -> Result<Vec<TableRe
             }
             checksum_bytes[8..12].fill(0);
         }
+        context.reason = FontFailureReason::ChecksumMismatch;
+        context.file_offset = Some((record + 4) as u64);
         if sfnt_checksum(&checksum_bytes) != expected_checksum {
             return Err(Cff1Error::InvalidSfnt);
+        }
+        if tag == *b"OS/2" {
+            context.permission(&source[offset..end]);
         }
         records.push(TableRecord {
             tag,
@@ -683,6 +775,7 @@ fn preflight_sfnt(source: &[u8], limits: M4ResourceLimits) -> Result<Vec<TableRe
     }
     for required in REQUIRED_TABLES {
         if !records.iter().any(|record| record.tag == required) {
+            context.directory(Some(required), None, FontFailureReason::MissingTable);
             return Err(Cff1Error::InvalidSfnt);
         }
     }
@@ -690,6 +783,13 @@ fn preflight_sfnt(source: &[u8], limits: M4ResourceLimits) -> Result<Vec<TableRe
     by_offset.sort_by_key(|record| record.offset);
     let mut cursor = directory_end;
     for record in by_offset {
+        context.directory(
+            Some(record.tag),
+            Some(record.offset),
+            FontFailureReason::InvalidTableRange,
+        );
+        // The unit starts here; a bad gap/padding byte can be elsewhere.
+        context.position_is_exact = false;
         if record.offset < cursor || source[cursor..record.offset].iter().any(|byte| *byte != 0) {
             return Err(Cff1Error::InvalidSfnt);
         }
@@ -702,6 +802,7 @@ fn preflight_sfnt(source: &[u8], limits: M4ResourceLimits) -> Result<Vec<TableRe
         }
         cursor = record.padded_end;
     }
+    context.directory(None, None, FontFailureReason::ChecksumMismatch);
     if cursor != source.len() || sfnt_checksum(source) != SFNT_CHECKSUM_MAGIC {
         return Err(Cff1Error::InvalidSfnt);
     }
@@ -925,6 +1026,8 @@ fn validate_optional_tables(
     source: &[u8],
     tables: &BTreeMap<[u8; 4], TableRef<'_>>,
     glyph_count: u16,
+    records: &[TableRecord],
+    context: &mut FontFailureContext,
 ) -> Result<(), Cff1Error> {
     let font = FontRef::new(source).map_err(|_| Cff1Error::InvalidOptionalTable)?;
     let all_glyphs = || {
@@ -936,14 +1039,17 @@ fn validate_optional_tables(
     };
 
     if let Some(table) = tables.get(b"BASE") {
+        context.table(*b"BASE", records, FontFailurePhase::TableDecode);
         font.base().map_err(|_| Cff1Error::InvalidOptionalTable)?;
         validate_base_table(table.bytes, glyph_count)?;
     }
     if let Some(table) = tables.get(b"GDEF") {
+        context.table(*b"GDEF", records, FontFailurePhase::TableDecode);
         font.gdef().map_err(|_| Cff1Error::InvalidOptionalTable)?;
         validate_gdef_table(table.bytes, glyph_count)?;
     }
     if tables.contains_key(b"GSUB") {
+        context.table(*b"GSUB", records, FontFailurePhase::TableDecode);
         let gsub = font.gsub().map_err(|_| Cff1Error::InvalidOptionalTable)?;
         if read_u32(tables[b"GSUB"].bytes, 0, Cff1Error::InvalidOptionalTable)? != 0x0001_0000 {
             return Err(Cff1Error::InvalidOptionalTable);
@@ -979,6 +1085,7 @@ fn validate_optional_tables(
         }
     }
     let gpos_lookup_count = if tables.contains_key(b"GPOS") {
+        context.table(*b"GPOS", records, FontFailurePhase::TableDecode);
         let gpos = font.gpos().map_err(|_| Cff1Error::InvalidOptionalTable)?;
         if read_u32(tables[b"GPOS"].bytes, 0, Cff1Error::InvalidOptionalTable)? != 0x0001_0000 {
             return Err(Cff1Error::InvalidOptionalTable);
@@ -1021,6 +1128,7 @@ fn validate_optional_tables(
         0
     };
     let gsub_lookup_count = if tables.contains_key(b"GSUB") {
+        context.table(*b"GSUB", records, FontFailurePhase::TableDecode);
         font.gsub()
             .and_then(|table| table.lookup_list())
             .map(|list| list.lookup_count())
@@ -1029,6 +1137,7 @@ fn validate_optional_tables(
         0
     };
     if let Some(table) = tables.get(b"JSTF") {
+        context.table(*b"JSTF", records, FontFailurePhase::TableDecode);
         validate_jstf_table(
             table.bytes,
             glyph_count,
@@ -1037,10 +1146,12 @@ fn validate_optional_tables(
         )?;
     }
     if let Some(table) = tables.get(b"MATH") {
+        context.table(*b"MATH", records, FontFailurePhase::TableDecode);
         crate::math::validate_cff_math_table(table.bytes, glyph_count)
             .map_err(|_| Cff1Error::InvalidOptionalTable)?;
     }
     if let Some(table) = tables.get(b"kern") {
+        context.table(*b"kern", records, FontFailurePhase::TableDecode);
         font.kern().map_err(|_| Cff1Error::InvalidOptionalTable)?;
         validate_kern_table(table.bytes, glyph_count)?;
     }
@@ -1982,10 +2093,27 @@ fn valid_postscript_name(value: &str) -> bool {
         && bytes.get(6) == Some(&b'+'))
 }
 
-fn parse_cmap(bytes: &[u8], glyph_count: u16) -> Result<BTreeMap<u32, u16>, Cff1Error> {
+fn parse_cmap(
+    bytes: &[u8],
+    glyph_count: u16,
+    context: &mut FontFailureContext,
+) -> Result<BTreeMap<u32, u16>, Cff1Error> {
+    parse_base_cmap(bytes, glyph_count, context, false)
+}
+
+// The /2 caller must validate the supplemental table before allowing it here.
+// Format 14 never contributes mappings to the base Unicode map.
+fn parse_base_cmap(
+    bytes: &[u8],
+    glyph_count: u16,
+    context: &mut FontFailureContext,
+    validated_variations: bool,
+) -> Result<BTreeMap<u32, u16>, Cff1Error> {
+    context.field(0);
     if read_u16(bytes, 0, Cff1Error::InvalidCmap)? != 0 {
         return Err(Cff1Error::InvalidCmap);
     }
+    context.field(2);
     let count = usize::from(read_u16(bytes, 2, Cff1Error::InvalidCmap)?);
     if count == 0 {
         return Err(Cff1Error::InvalidCmap);
@@ -1997,28 +2125,44 @@ fn parse_cmap(bytes: &[u8], glyph_count: u16) -> Result<BTreeMap<u32, u16>, Cff1
         return Err(Cff1Error::InvalidCmap);
     }
     let mut merged = BTreeMap::new();
+    let mut has_base = false;
     for index in 0..count {
         let record = 4 + index * 8;
+        context.cmap_format = None;
+        context.field(record);
         let platform = read_u16(bytes, record, Cff1Error::InvalidCmap)?;
         let encoding = read_u16(bytes, record + 2, Cff1Error::InvalidCmap)?;
         if !matches!((platform, encoding), (0, _) | (3, 1) | (3, 10)) {
             return Err(Cff1Error::InvalidCmap);
         }
+        context.field(record + 4);
         let offset = usize::try_from(read_u32(bytes, record + 4, Cff1Error::InvalidCmap)?)
             .map_err(|_| Cff1Error::InvalidCmap)?;
         if offset < records_end {
             return Err(Cff1Error::InvalidCmap);
         }
+        context.field(offset);
         let format = read_u16(bytes, offset, Cff1Error::InvalidCmap)?;
+        context.cmap_format = Some(format);
+        if validated_variations && (platform, encoding, format) == (0, 5, 14) {
+            continue;
+        }
         let mappings = match format {
             4 if platform == 0 || (platform == 3 && encoding == 1) => {
+                context.at(offset);
                 parse_cmap_format4(bytes, offset, glyph_count)?
             }
             12 if platform == 0 || (platform == 3 && encoding == 10) => {
+                context.at(offset);
                 parse_cmap_format12(bytes, offset, glyph_count)?
             }
-            _ => return Err(Cff1Error::InvalidCmap),
+            _ => {
+                context.reason = FontFailureReason::UnsupportedCmapFormat;
+                return Err(Cff1Error::InvalidCmap);
+            }
         };
+        has_base = true;
+        context.clear_position();
         for (scalar, gid) in mappings {
             if merged
                 .insert(scalar, gid)
@@ -2028,7 +2172,7 @@ fn parse_cmap(bytes: &[u8], glyph_count: u16) -> Result<BTreeMap<u32, u16>, Cff1
             }
         }
     }
-    if merged.is_empty() {
+    if !has_base || (merged.is_empty() && !validated_variations) {
         return Err(Cff1Error::InvalidCmap);
     }
     Ok(merged)
@@ -2171,6 +2315,7 @@ fn parse_cmap_format12(
 
 #[derive(Clone, Debug)]
 struct CffIndex {
+    data_start: usize,
     objects: Vec<Vec<u8>>,
     start: usize,
     end: usize,
@@ -2189,6 +2334,7 @@ fn parse_cff_index(
     }
     if count == 0 {
         return Ok(CffIndex {
+            data_start: offset + 2,
             objects: Vec::new(),
             start: offset,
             end: offset.checked_add(2).ok_or(Cff1Error::InvalidCff)?,
@@ -2264,6 +2410,7 @@ fn parse_cff_index(
         objects.push(object);
     }
     Ok(CffIndex {
+        data_start,
         objects,
         start: offset,
         end,
@@ -2278,6 +2425,7 @@ enum DictOperand {
 
 #[derive(Clone, Debug)]
 struct DictEntry {
+    operator_offset: usize,
     operator: u16,
     operands: Vec<DictOperand>,
 }
@@ -2307,6 +2455,7 @@ fn parse_dict(bytes: &[u8]) -> Result<Vec<DictEntry>, Cff1Error> {
             return Err(Cff1Error::InvalidCff);
         }
         entries.push(DictEntry {
+            operator_offset: cursor,
             operator,
             operands: std::mem::take(&mut operands),
         });
@@ -2545,6 +2694,7 @@ fn parse_cff(
     expected_name: &str,
     expected_bbox: [i16; 4],
     limits: &M4EffectiveResourceLimits,
+    context: &mut FontFailureContext,
 ) -> Result<CffProgram, Cff1Error> {
     if bytes.get(..4).is_none()
         || bytes[0] != 1
@@ -2554,21 +2704,45 @@ fn parse_cff(
     {
         return Err(Cff1Error::InvalidCff);
     }
+    context.at(4);
     let names = parse_cff_index(bytes, 4, None)?;
     if names.objects.len() != 1 || names.objects[0].as_slice() != expected_name.as_bytes() {
         return Err(Cff1Error::InvalidCff);
     }
+    context.at(names.end);
     let top_dicts = parse_cff_index(bytes, names.end, None)?;
     if top_dicts.objects.len() != 1 {
         return Err(Cff1Error::InvalidCff);
     }
+    context.at(top_dicts.end);
     let strings = parse_cff_index(bytes, top_dicts.end, None)?;
+    context.at(strings.end);
     let global_subrs = parse_cff_index(
         bytes,
         strings.end,
         Some(limits.extension().get().max_cff_subroutines),
-    )?;
+    )
+    .map_err(|kind| {
+        if kind == Cff1Error::SubroutineLimit {
+            context.field(strings.end);
+            context.limit = Some(u64::from(limits.extension().get().max_cff_subroutines));
+            context.observed = read_u16(bytes, strings.end, Cff1Error::InvalidCff)
+                .ok()
+                .map(u64::from);
+        }
+        kind
+    })?;
+    context.phase = FontFailurePhase::CffTopDict;
+    context.at(top_dicts.data_start);
     let top = parse_dict(&top_dicts.objects[0])?;
+    if let Some(entry) = top
+        .iter()
+        .find(|e| !ALLOWED_TOP_DICT_OPERATORS.contains(&e.operator))
+    {
+        context.reason = FontFailureReason::UnsupportedCffOperator;
+        context.operator = Some(entry.operator);
+        context.field(top_dicts.data_start + entry.operator_offset);
+    }
     validate_top_dict(&top, expected_bbox, strings.objects.len())?;
     let charset_offset = one_dict_integer(&top, 15)?.unwrap_or(0);
     let encoding_offset = one_dict_integer(&top, 16)?.unwrap_or(0);
@@ -2582,10 +2756,14 @@ fn parse_cff(
     if private_size == 0 {
         return Err(Cff1Error::InvalidCff);
     }
+    context.phase = FontFailurePhase::CffIndex;
+    context.at(charstrings_offset);
     let charstrings = parse_cff_index(bytes, charstrings_offset, None)?;
     if charstrings.objects.len() != usize::from(expected_glyph_count) {
         return Err(Cff1Error::InvalidCff);
     }
+    context.phase = FontFailurePhase::TableDecode;
+    context.clear_position();
     let charset = parse_charset(
         bytes,
         charset_offset,
@@ -2599,17 +2777,30 @@ fn parse_cff(
         strings.objects.len(),
         &charset.sids,
     )?;
+    context.phase = FontFailurePhase::CffPrivateDict;
+    context.at(private_offset);
     let private_end = private_offset
         .checked_add(private_size)
         .ok_or(Cff1Error::InvalidCff)?;
     let private_bytes = bytes
         .get(private_offset..private_end)
         .ok_or(Cff1Error::InvalidCff)?;
+    context.phase = FontFailurePhase::CffPrivateDict;
+    context.at(private_offset);
     let private_entries = parse_dict(private_bytes)?;
+    if let Some(entry) = private_entries
+        .iter()
+        .find(|e| !ALLOWED_PRIVATE_DICT_OPERATORS.contains(&e.operator))
+    {
+        context.reason = FontFailureReason::UnsupportedCffOperator;
+        context.operator = Some(entry.operator);
+        context.field(private_offset + entry.operator_offset);
+    }
     validate_private_dict(&private_entries)?;
     let default_width_x = dict_fixed(&private_entries, 20)?.unwrap_or(0);
     let nominal_width_x = dict_fixed(&private_entries, 21)?.unwrap_or(0);
-    let (local_subrs, local_range) = match one_dict_integer(&private_entries, 19)? {
+    context.clear_position();
+    let (local_subrs, local_range, local_data_start) = match one_dict_integer(&private_entries, 19)? {
         Some(relative) => {
             let offset = private_offset
                 .checked_add(usize::try_from(relative).map_err(|_| Cff1Error::InvalidCff)?)
@@ -2626,12 +2817,25 @@ fn parse_cff(
                         .map_err(|_| Cff1Error::SubroutineLimit)?,
                 )
                 .ok_or(Cff1Error::SubroutineLimit)?;
-            let index = parse_cff_index(bytes, offset, Some(remaining))?;
+            context.phase = FontFailurePhase::CffIndex;
+            context.at(offset);
+            let index = parse_cff_index(bytes, offset, Some(remaining)).map_err(|kind| {
+                if kind == Cff1Error::SubroutineLimit {
+                    context.field(offset);
+                    context.limit = Some(u64::from(limits.extension().get().max_cff_subroutines));
+                    context.observed = read_u16(bytes, offset, Cff1Error::InvalidCff)
+                        .ok()
+                        .map(|count| u64::from(count) + global_subrs.objects.len() as u64);
+                }
+                kind
+            })?;
             let range = Some((index.start, index.end));
-            (index.objects, range)
+            (index.objects, range, index.data_start)
         }
-        None => (Vec::new(), None),
+        None => (Vec::new(), None, 0),
     };
+    context.phase = FontFailurePhase::TableDecode;
+    context.clear_position();
     let mut ranges = vec![
         (0usize, global_subrs.end),
         (charstrings.start, charstrings.end),
@@ -2657,7 +2861,13 @@ fn parse_cff(
     if cursor != bytes.len() {
         return Err(Cff1Error::InvalidCff);
     }
+    let charstring_offsets = subset_diagnostics::program_offsets(&charstrings.objects, charstrings.data_start)?;
+    let global_subr_offsets = subset_diagnostics::program_offsets(&global_subrs.objects, global_subrs.data_start)?;
+    let local_subr_offsets = subset_diagnostics::program_offsets(&local_subrs, local_data_start)?;
     Ok(CffProgram {
+        charstring_offsets,
+        global_subr_offsets,
+        local_subr_offsets,
         charstrings: charstrings.objects,
         global_subrs: global_subrs.objects,
         local_subrs,
@@ -2666,18 +2876,19 @@ fn parse_cff(
     })
 }
 
+const ALLOWED_TOP_DICT_OPERATORS: &[u16] = &[
+    0, 1, 2, 3, 4, 5, 13, 14, 15, 16, 17, 18, 0x0C00, 0x0C01, 0x0C02, 0x0C03, 0x0C04, 0x0C05,
+    0x0C06, 0x0C07, 0x0C08,
+];
+
 fn validate_top_dict(
     entries: &[DictEntry],
     expected_bbox: [i16; 4],
     custom_string_count: usize,
 ) -> Result<(), Cff1Error> {
-    const ALLOWED: &[u16] = &[
-        0, 1, 2, 3, 4, 5, 13, 14, 15, 16, 17, 18, 0x0C00, 0x0C01, 0x0C02, 0x0C03, 0x0C04, 0x0C05,
-        0x0C06, 0x0C07, 0x0C08,
-    ];
     if entries
         .iter()
-        .any(|entry| !ALLOWED.contains(&entry.operator))
+        .any(|entry| !ALLOWED_TOP_DICT_OPERATORS.contains(&entry.operator))
     {
         return Err(Cff1Error::InvalidCff);
     }
@@ -2778,16 +2989,17 @@ fn validate_top_dict(
     Ok(())
 }
 
+const ALLOWED_PRIVATE_DICT_OPERATORS: &[u16] = &[
+    6, 7, 8, 9, 10, 11, 19, 20, 21, 0x0C09, 0x0C0A, 0x0C0B, 0x0C0C, 0x0C0D, 0x0C0E, 0x0C11, 0x0C12,
+    0x0C13,
+];
+
 fn validate_private_dict(entries: &[DictEntry]) -> Result<(), Cff1Error> {
     // Blue/hint values are validated but never copied.  Operators outside the
     // CFF1 Private DICT vocabulary are rejected instead of ignored.
-    const ALLOWED: &[u16] = &[
-        6, 7, 8, 9, 10, 11, 19, 20, 21, 0x0C09, 0x0C0A, 0x0C0B, 0x0C0C, 0x0C0D, 0x0C0E, 0x0C11,
-        0x0C12, 0x0C13,
-    ];
     if entries
         .iter()
-        .any(|entry| !ALLOWED.contains(&entry.operator))
+        .any(|entry| !ALLOWED_PRIVATE_DICT_OPERATORS.contains(&entry.operator))
     {
         return Err(Cff1Error::InvalidCff);
     }
@@ -3050,14 +3262,63 @@ struct Type2State {
     bbox: Option<[i32; 4]>,
 }
 
-fn evaluate_glyph(
-    admission: &Cff1Admission,
-    gid: u16,
-    budget: &mut Cff1SubsetSession,
-) -> Result<EvaluatedGlyph, Cff1Error> {
-    if usize::from(gid) >= admission.program.charstrings.len() {
-        return Err(Cff1Error::InvalidSelectedGlyph);
+// Shared execution mechanics; /1 keeps its original program and width policy.
+#[derive(Clone, Copy)]
+enum Type2OperatorRejection {
+    Unsupported,
+    Reserved,
+}
+trait Type2ProgramAccess {
+    fn accepts_subroutine_endchar(&self) -> bool {
+        false
     }
+    fn observe(&self, _kind: ProgramKind, _position: usize, _operator: Option<u16>) {}
+    fn observe_end(&self, _kind: ProgramKind, _position: usize) {}
+    fn reject_operator(&self, _reason: Type2OperatorRejection) {}
+    fn program_bytes(&self, kind: ProgramKind) -> Result<&[u8], Cff1Error>;
+    fn local_subroutine_count(&self) -> usize;
+    fn global_subroutine_count(&self) -> usize;
+    fn validate_width(&self, operand: Option<i32>) -> Result<(), Cff1Error>;
+}
+trait Type2WorkBudget {
+    fn charge_allocation(&mut self, _records: usize, _bytes: usize) -> Result<(), Cff1Error> {
+        Ok(())
+    }
+    fn charge_operation(&mut self) -> Result<(), Cff1Error>;
+    fn charge_segment(&mut self) -> Result<(), Cff1Error>;
+}
+impl Type2WorkBudget for Cff1SubsetSession {
+    fn charge_operation(&mut self) -> Result<(), Cff1Error> {
+        Cff1SubsetSession::charge_operation(self)
+    }
+    fn charge_segment(&mut self) -> Result<(), Cff1Error> {
+        Cff1SubsetSession::charge_segment(self)
+    }
+}
+impl Type2ProgramAccess for Cff1Admission {
+    fn program_bytes(&self, kind: ProgramKind) -> Result<&[u8], Cff1Error> {
+        program_bytes(&self.program, kind)
+    }
+    fn local_subroutine_count(&self) -> usize {
+        self.program.local_subrs.len()
+    }
+    fn global_subroutine_count(&self) -> usize {
+        self.program.global_subrs.len()
+    }
+    fn validate_width(&self, operand: Option<i32>) -> Result<(), Cff1Error> {
+        validate_source_width(self, operand)
+    }
+}
+fn evaluate_type2(
+    admission: &impl Type2ProgramAccess,
+    gid: u16,
+    budget: &mut impl Type2WorkBudget,
+) -> Result<EvaluatedGlyph, Cff1Error> {
+    budget.charge_allocation(
+        TYPE2_OPERAND_STACK_LIMIT + TYPE2_CALL_DEPTH_LIMIT + 1,
+        TYPE2_OPERAND_STACK_LIMIT * std::mem::size_of::<i32>()
+            + (TYPE2_CALL_DEPTH_LIMIT + 1) * std::mem::size_of::<CallFrame>(),
+    )?;
     let mut stack = Vec::new();
     stack
         .try_reserve_exact(TYPE2_OPERAND_STACK_LIMIT)
@@ -3085,10 +3346,13 @@ fn evaluate_glyph(
     while !state.frames.is_empty() {
         let frame_index = state.frames.len() - 1;
         let frame = state.frames[frame_index];
-        let program = program_bytes(&admission.program, frame.kind)?;
-        let byte = *program
-            .get(frame.position)
-            .ok_or(Cff1Error::InvalidCharstring)?;
+        let program = admission.program_bytes(frame.kind)?;
+        let Some(&byte) = program.get(frame.position) else {
+            admission.observe_end(frame.kind, frame.position);
+            return Err(Cff1Error::InvalidCharstring);
+        };
+        admission.observe(frame.kind, frame.position,
+            if byte == 28 || byte >= 32 { None } else { Some(u16::from(byte)) });
         if byte == 28 || byte >= 32 {
             budget.charge_operation()?;
             let (value, consumed) = parse_type2_number(program, frame.position)?;
@@ -3126,7 +3390,8 @@ fn evaluate_glyph(
                 if state.stack.len() < 2 || state.stack.len() % 2 != 0 {
                     return Err(Cff1Error::InvalidCharstring);
                 }
-                let values = std::mem::take(&mut state.stack);
+                let (values, count) = take_type2_operands(&mut state)?;
+                let values = &values[..count];
                 for pair in values.chunks_exact(2) {
                     state.x = add_fixed(state.x, pair[0])?;
                     state.y = add_fixed(state.y, pair[1])?;
@@ -3138,9 +3403,10 @@ fn evaluate_glyph(
                 if state.stack.is_empty() {
                     return Err(Cff1Error::InvalidCharstring);
                 }
-                let values = std::mem::take(&mut state.stack);
+                let (values, count) = take_type2_operands(&mut state)?;
+                let values = &values[..count];
                 let mut horizontal = byte == 6;
-                for value in values {
+                for &value in values {
                     if horizontal {
                         state.x = add_fixed(state.x, value)?;
                     } else {
@@ -3155,7 +3421,8 @@ fn evaluate_glyph(
                 if state.stack.len() < 6 || state.stack.len() % 6 != 0 {
                     return Err(Cff1Error::InvalidCharstring);
                 }
-                let values = std::mem::take(&mut state.stack);
+                let (values, count) = take_type2_operands(&mut state)?;
+                let values = &values[..count];
                 for values in values.chunks_exact(6) {
                     relative_cubic(&mut state, budget, values)?;
                 }
@@ -3165,9 +3432,9 @@ fn evaluate_glyph(
                 let index = subroutine_index(
                     operand,
                     if byte == 10 {
-                        admission.program.local_subrs.len()
+                        admission.local_subroutine_count()
                     } else {
-                        admission.program.global_subrs.len()
+                        admission.global_subroutine_count()
                     },
                 )?;
                 if state.frames.len() > TYPE2_CALL_DEPTH_LIMIT {
@@ -3197,16 +3464,34 @@ fn evaluate_glyph(
             12 => {
                 let frame_index = state.frames.len() - 1;
                 let frame = state.frames[frame_index];
-                let program = program_bytes(&admission.program, frame.kind)?;
-                let escaped = *program
-                    .get(frame.position)
-                    .ok_or(Cff1Error::InvalidCharstring)?;
+                let program = admission.program_bytes(frame.kind)?;
+                let Some(&escaped) = program.get(frame.position) else {
+                    admission.observe(frame.kind, frame.position - 1, None);
+                    return Err(Cff1Error::InvalidCharstring);
+                };
+                admission.observe(frame.kind, frame.position - 1, Some(0x0c00 | u16::from(escaped)));
                 state.frames[frame_index].position = frame.position + 1;
+                if !(34..=37).contains(&escaped) {
+                    // Adobe Type 2 #5177, Appendix A/C (16 March 2000).
+                    // Known arithmetic/storage/conditional operators and the
+                    // deprecated dotsection are outside this evaluator profile.
+                    // Report only after charging and decoding actually succeed.
+                    admission.reject_operator(if matches!(escaped,
+                        0 | 3..=5 | 9..=12 | 14 | 15 | 18 | 20..=24 | 26..=30
+                    ) {
+                        Type2OperatorRejection::Unsupported
+                    } else {
+                        Type2OperatorRejection::Reserved
+                    });
+                    return Err(Cff1Error::InvalidCharstring);
+                }
                 evaluate_flex(escaped, &mut state, budget)?;
             }
             14 => {
                 consume_width_for_endchar(admission, &mut state)?;
-                if !state.stack.is_empty() || state.frames.len() != 1 {
+                if !state.stack.is_empty()
+                    || (state.frames.len() != 1 && !admission.accepts_subroutine_endchar())
+                {
                     return Err(Cff1Error::InvalidCharstring);
                 }
                 budget.charge_operation()?;
@@ -3220,7 +3505,7 @@ fn evaluate_glyph(
                     .map_err(|_| Cff1Error::InvalidCharstring)?;
                 let frame_index = state.frames.len() - 1;
                 let frame = state.frames[frame_index];
-                let program = program_bytes(&admission.program, frame.kind)?;
+                let program = admission.program_bytes(frame.kind)?;
                 let end = frame
                     .position
                     .checked_add(mask_bytes)
@@ -3257,7 +3542,8 @@ fn evaluate_glyph(
                 if state.stack.len() < 8 || (state.stack.len() - 2) % 6 != 0 {
                     return Err(Cff1Error::InvalidCharstring);
                 }
-                let values = std::mem::take(&mut state.stack);
+                let (values, count) = take_type2_operands(&mut state)?;
+                let values = &values[..count];
                 let curve_end = values.len() - 2;
                 for curve in values[..curve_end].chunks_exact(6) {
                     relative_cubic(&mut state, budget, curve)?;
@@ -3271,7 +3557,8 @@ fn evaluate_glyph(
                 if state.stack.len() < 8 || (state.stack.len() - 6) % 2 != 0 {
                     return Err(Cff1Error::InvalidCharstring);
                 }
-                let values = std::mem::take(&mut state.stack);
+                let (values, count) = take_type2_operands(&mut state)?;
+                let values = &values[..count];
                 let curve_start = values.len() - 6;
                 for line in values[..curve_start].chunks_exact(2) {
                     state.x = add_fixed(state.x, line[0])?;
@@ -3283,7 +3570,10 @@ fn evaluate_glyph(
             26 => evaluate_vvcurveto(&mut state, budget)?,
             27 => evaluate_hhcurveto(&mut state, budget)?,
             30 | 31 => evaluate_alternating_curves(byte == 31, &mut state, budget)?,
-            _ => return Err(Cff1Error::InvalidCharstring),
+            _ => {
+                admission.reject_operator(Type2OperatorRejection::Reserved);
+                return Err(Cff1Error::InvalidCharstring);
+            }
         }
     }
     if !ended {
@@ -3372,7 +3662,7 @@ fn validate_source_width(admission: &Cff1Admission, operand: Option<i32>) -> Res
 }
 
 fn consume_width_for_path(
-    admission: &Cff1Admission,
+    admission: &impl Type2ProgramAccess,
     state: &mut Type2State,
     expected_arguments: usize,
 ) -> Result<(), Cff1Error> {
@@ -3388,14 +3678,14 @@ fn consume_width_for_path(
         } else {
             return Err(Cff1Error::InvalidCharstring);
         };
-        validate_source_width(admission, width)?;
+        admission.validate_width(width)?;
         state.width_seen = true;
     }
     Ok(())
 }
 
 fn consume_width_for_endchar(
-    admission: &Cff1Admission,
+    admission: &impl Type2ProgramAccess,
     state: &mut Type2State,
 ) -> Result<(), Cff1Error> {
     if !state.width_seen {
@@ -3405,16 +3695,16 @@ fn consume_width_for_endchar(
             4 | 5 => return Err(Cff1Error::InvalidCharstring),
             _ => return Err(Cff1Error::InvalidCharstring),
         };
-        validate_source_width(admission, width)?;
+        admission.validate_width(width)?;
         state.width_seen = true;
     }
     Ok(())
 }
 
 fn consume_stems(
-    admission: &Cff1Admission,
+    admission: &impl Type2ProgramAccess,
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     if !state.width_seen {
         let width = if state.stack.len() % 2 == 1 {
@@ -3422,7 +3712,7 @@ fn consume_stems(
         } else {
             None
         };
-        validate_source_width(admission, width)?;
+        admission.validate_width(width)?;
         state.width_seen = true;
     }
     if state.stack.len() % 2 != 0 {
@@ -3487,7 +3777,7 @@ fn update_bbox(bbox: &mut Option<[i32; 4]>, x: i32, y: i32) {
 
 fn emit_move(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
     x: i32,
     y: i32,
 ) -> Result<(), Cff1Error> {
@@ -3500,7 +3790,7 @@ fn emit_move(
 
 fn emit_current_move(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     let (x, y) = (state.x, state.y);
     emit_move(state, budget, x, y)
@@ -3508,7 +3798,7 @@ fn emit_current_move(
 
 fn emit_line(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
     x: i32,
     y: i32,
 ) -> Result<(), Cff1Error> {
@@ -3523,7 +3813,7 @@ fn emit_line(
 
 fn emit_current_line(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     let (x, y) = (state.x, state.y);
     emit_line(state, budget, x, y)
@@ -3531,7 +3821,7 @@ fn emit_current_line(
 
 fn emit_cubic(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
     points: [i32; 6],
 ) -> Result<(), Cff1Error> {
     if !state.contour_open {
@@ -3549,7 +3839,10 @@ fn emit_cubic(
     Ok(())
 }
 
-fn close_contour(state: &mut Type2State, budget: &mut Cff1SubsetSession) -> Result<(), Cff1Error> {
+fn close_contour(
+    state: &mut Type2State,
+    budget: &mut impl Type2WorkBudget,
+) -> Result<(), Cff1Error> {
     if state.contour_open {
         reserve_segment(state, budget)?;
         state.segments.push(OutlineSegment::Close);
@@ -3560,21 +3853,28 @@ fn close_contour(state: &mut Type2State, budget: &mut Cff1SubsetSession) -> Resu
 
 fn reserve_segment(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     // The inclusive work limit wins before allocation or append. A host
     // allocation refusal stays in the same bounded outline-output domain and
     // cannot trigger an infallible Vec growth or a partial subset.
     budget.charge_segment()?;
-    state
-        .segments
-        .try_reserve(1)
-        .map_err(|_| Cff1Error::OutlineSegmentLimit)
+    if state.segments.len() == state.segments.capacity() {
+        let next = state.segments.capacity().checked_mul(2).map(|n| n.max(4))
+            .ok_or(Cff1Error::OutlineSegmentLimit)?;
+        let additional = next - state.segments.capacity();
+        let bytes = additional.checked_mul(std::mem::size_of::<OutlineSegment>())
+            .ok_or(Cff1Error::OutlineSegmentLimit)?;
+        budget.charge_allocation(additional, bytes)?;
+        state.segments.try_reserve_exact(additional)
+            .map_err(|_| Cff1Error::OutlineSegmentLimit)?;
+    }
+    Ok(())
 }
 
 fn relative_cubic(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
     deltas: &[i32],
 ) -> Result<(), Cff1Error> {
     let values = exactly(deltas, 6)?;
@@ -3587,12 +3887,25 @@ fn relative_cubic(
     emit_cubic(state, budget, [x1, y1, x2, y2, x3, y3])
 }
 
+// The operand stack keeps its original bounded allocation across path
+// operators. A fixed stack copy avoids abandoning its Vec and regrowing an
+// unaccounted operand buffer for every following path segment.
+fn take_type2_operands(state: &mut Type2State) -> Result<([i32; TYPE2_OPERAND_STACK_LIMIT], usize), Cff1Error> {
+    let count = state.stack.len();
+    if count > TYPE2_OPERAND_STACK_LIMIT { return Err(Cff1Error::InvalidCharstring); }
+    let mut values = [0; TYPE2_OPERAND_STACK_LIMIT];
+    values[..count].copy_from_slice(&state.stack);
+    state.stack.clear();
+    Ok((values, count))
+}
+
 fn evaluate_vvcurveto(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     require_width_seen(state)?;
-    let values = std::mem::take(&mut state.stack);
+    let (values, count) = take_type2_operands(state)?;
+    let values = &values[..count];
     if values.len() < 4 || values.len() % 4 > 1 {
         return Err(Cff1Error::InvalidCharstring);
     }
@@ -3620,10 +3933,11 @@ fn evaluate_vvcurveto(
 
 fn evaluate_hhcurveto(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     require_width_seen(state)?;
-    let values = std::mem::take(&mut state.stack);
+    let (values, count) = take_type2_operands(state)?;
+    let values = &values[..count];
     if values.len() < 4 || values.len() % 4 > 1 {
         return Err(Cff1Error::InvalidCharstring);
     }
@@ -3651,10 +3965,11 @@ fn evaluate_hhcurveto(
 fn evaluate_alternating_curves(
     horizontal_first: bool,
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     require_width_seen(state)?;
-    let values = std::mem::take(&mut state.stack);
+    let (values, count) = take_type2_operands(state)?;
+    let values = &values[..count];
     if values.len() < 4 || !matches!(values.len() % 4, 0 | 1) {
         return Err(Cff1Error::InvalidCharstring);
     }
@@ -3701,14 +4016,16 @@ fn evaluate_alternating_curves(
 fn evaluate_flex(
     operator: u8,
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     require_width_seen(state)?;
-    let values = std::mem::take(&mut state.stack);
+    let (values, count) = take_type2_operands(state)?;
+    let values = &values[..count];
     let deltas = match operator {
         34 => {
             let v = exactly(&values, 7)?;
-            [v[0], 0, v[1], v[2], v[3], 0, v[4], 0, v[5], -v[2], v[6], 0]
+            let return_dy = v[2].checked_neg().ok_or(Cff1Error::InvalidCharstring)?;
+            [v[0], 0, v[1], v[2], v[3], 0, v[4], 0, v[5], return_dy, v[6], 0]
         }
         35 => {
             let v = exactly(&values, 13)?;
@@ -3817,8 +4134,11 @@ fn write_subset(
     closure: Cff1GlyphClosure,
     evaluated: &BTreeMap<(FontFaceId, [u8; 32], u16), EvaluatedGlyph>,
     max_subset_bytes: u64,
+    context: &mut FontFailureContext,
 ) -> Result<Cff1Subset, Cff1Error> {
+    context.subset_stage = Some(FontSubsetStage::Name);
     let subset_name = subset_postscript_name(closure.font_instance_id)?;
+    context.subset_stage = Some(FontSubsetStage::GlyphStorage);
     let mut original_to_subset = BTreeMap::new();
     let mut original_widths = BTreeMap::new();
     let mut charstrings = Vec::new();
@@ -3831,6 +4151,8 @@ fn write_subset(
         .map_err(|_| Cff1Error::SubsetByteLimit)?;
     let mut global_bbox: Option<[i16; 4]> = None;
     for (subset_gid, original_gid) in closure.source_gids.iter().enumerate() {
+        context.subset_stage = Some(FontSubsetStage::GlyphBounds);
+        context.gid = Some(u32::from(original_gid.get()));
         let subset_gid = u16::try_from(subset_gid).map_err(|_| Cff1Error::SelectedGlyphLimit)?;
         let outline = evaluated
             .get(&(
@@ -3860,21 +4182,30 @@ fn write_subset(
             });
         }
         glyph_bboxes.push(bbox);
+        context.subset_stage = Some(FontSubsetStage::Charstring);
         charstrings.push(canonical_charstring(advance, &outline.segments)?);
         original_to_subset.insert(*original_gid, SubsetGlyphId::new(subset_gid));
         original_widths.insert(*original_gid, advance);
     }
+    context.gid = None;
+    context.subset_stage = Some(FontSubsetStage::GlobalBounds);
     let global_bbox = global_bbox.ok_or(Cff1Error::InvalidSubset)?;
     if global_bbox[0] >= global_bbox[2] || global_bbox[1] >= global_bbox[3] {
         return Err(Cff1Error::InvalidSubset);
     }
 
+    context.subset_stage = Some(FontSubsetStage::Cff);
     let cff = build_cid_cff(&subset_name, global_bbox, &charstrings)?;
+    context.subset_stage = Some(FontSubsetStage::Cmap);
     let cmap = build_subset_cmap(&admission.cmap, &original_to_subset)?;
+    context.subset_stage = Some(FontSubsetStage::Head);
     let head = build_subset_head(&admission.head, global_bbox)?;
+    context.subset_stage = Some(FontSubsetStage::HorizontalMetrics);
     let (hhea, hmtx) =
         build_subset_horizontal_metrics(admission, closure.source_gids(), &glyph_bboxes)?;
+    context.subset_stage = Some(FontSubsetStage::Maxp);
     let maxp = build_subset_maxp(closure.source_gids.len())?;
+    context.subset_stage = Some(FontSubsetStage::NameTable);
     let name = build_subset_name_table(&admission.family, &admission.subfamily, &subset_name)?;
     let tables = vec![
         RewriteTable {
@@ -3914,15 +4245,20 @@ fn write_subset(
             bytes: admission.post.clone(),
         },
     ];
+    context.subset_stage = Some(FontSubsetStage::SfntSize);
     let estimated = sfnt_output_size(&tables)?;
     if estimated > max_subset_bytes {
+        context.limit = Some(max_subset_bytes);
+        context.observed = Some(estimated);
         return Err(Cff1Error::SubsetByteLimit);
     }
+    context.subset_stage = Some(FontSubsetStage::SfntWrite);
     let bytes = rebuild_sfnt(tables)?;
     if u64::try_from(bytes.len()).map_err(|_| Cff1Error::SubsetByteLimit)? != estimated {
         return Err(Cff1Error::InvalidSubset);
     }
     let subset_sha256 = sha256(&bytes);
+    context.subset_stage = Some(FontSubsetStage::PdfMetrics);
     let metrics = subset_pdf_metrics(admission, global_bbox)?;
     let mut canonical_jcs = String::from("{\"algorithm\":");
     push_jcs_string(&mut canonical_jcs, CFF1_SUBSET_ID);
@@ -3991,21 +4327,40 @@ fn outward_i16_bbox(bounds: [i32; 4]) -> Result<[i16; 4], Cff1Error> {
     ])
 }
 
+trait Type2ByteSink {
+    fn push(&mut self, byte: u8);
+    fn extend_from_slice(&mut self, bytes: &[u8]);
+}
+impl Type2ByteSink for Vec<u8> {
+    fn push(&mut self, byte: u8) { Vec::push(self, byte); }
+    fn extend_from_slice(&mut self, bytes: &[u8]) { Vec::extend_from_slice(self, bytes); }
+}
+struct Type2ByteCount(usize);
+impl Type2ByteSink for Type2ByteCount {
+    fn push(&mut self, _: u8) { self.0 += 1; }
+    fn extend_from_slice(&mut self, bytes: &[u8]) { self.0 += bytes.len(); }
+}
+fn canonical_charstring_len(advance: u16, segments: &[OutlineSegment]) -> Result<usize, Cff1Error> {
+    // Each command emits at most six five-byte numbers and one operator.
+    // Prove counting cannot overflow before walking the shared encoder.
+    segments.len().checked_mul(31).and_then(|n| n.checked_add(6))
+        .ok_or(Cff1Error::SubsetByteLimit)?;
+    let mut count = Type2ByteCount(0);
+    write_canonical_charstring(advance, segments, &mut count)?;
+    Ok(count.0)
+}
 fn canonical_charstring(advance: u16, segments: &[OutlineSegment]) -> Result<Vec<u8>, Cff1Error> {
+    let length = canonical_charstring_len(advance, segments)?;
     let mut output = Vec::new();
-    output
-        .try_reserve_exact(
-            segments
-                .len()
-                .checked_mul(31)
-                .and_then(|value| value.checked_add(6))
-                .ok_or(Cff1Error::SubsetByteLimit)?,
-        )
-        .map_err(|_| Cff1Error::SubsetByteLimit)?;
+    output.try_reserve_exact(length).map_err(|_| Cff1Error::SubsetByteLimit)?;
+    write_canonical_charstring(advance, segments, &mut output)?;
+    Ok(output)
+}
+fn write_canonical_charstring(advance: u16, segments: &[OutlineSegment], output: &mut impl Type2ByteSink) -> Result<(), Cff1Error> {
     let width = i32::from(advance) - 32_768;
     encode_type2_number(
         width.checked_mul(65_536).ok_or(Cff1Error::InvalidSubset)?,
-        &mut output,
+        output,
     );
     let mut x = 0i32;
     let mut y = 0i32;
@@ -4014,11 +4369,11 @@ fn canonical_charstring(advance: u16, segments: &[OutlineSegment]) -> Result<Vec
             OutlineSegment::Move(next_x, next_y) => {
                 encode_type2_number(
                     next_x.checked_sub(x).ok_or(Cff1Error::InvalidSubset)?,
-                    &mut output,
+                    output,
                 );
                 encode_type2_number(
                     next_y.checked_sub(y).ok_or(Cff1Error::InvalidSubset)?,
-                    &mut output,
+                    output,
                 );
                 output.push(21);
                 x = next_x;
@@ -4027,11 +4382,11 @@ fn canonical_charstring(advance: u16, segments: &[OutlineSegment]) -> Result<Vec
             OutlineSegment::Line(next_x, next_y) => {
                 encode_type2_number(
                     next_x.checked_sub(x).ok_or(Cff1Error::InvalidSubset)?,
-                    &mut output,
+                    output,
                 );
                 encode_type2_number(
                     next_y.checked_sub(y).ok_or(Cff1Error::InvalidSubset)?,
-                    &mut output,
+                    output,
                 );
                 output.push(5);
                 x = next_x;
@@ -4046,7 +4401,7 @@ fn canonical_charstring(advance: u16, segments: &[OutlineSegment]) -> Result<Vec
                     x3.checked_sub(x2),
                     y3.checked_sub(y2),
                 ] {
-                    encode_type2_number(value.ok_or(Cff1Error::InvalidSubset)?, &mut output);
+                    encode_type2_number(value.ok_or(Cff1Error::InvalidSubset)?, output);
                 }
                 output.push(8);
                 x = x3;
@@ -4056,10 +4411,10 @@ fn canonical_charstring(advance: u16, segments: &[OutlineSegment]) -> Result<Vec
         }
     }
     output.push(14);
-    Ok(output)
+    Ok(())
 }
 
-fn encode_type2_number(raw: i32, output: &mut Vec<u8>) {
+fn encode_type2_number(raw: i32, output: &mut impl Type2ByteSink) {
     if raw % 65_536 != 0 {
         output.push(255);
         output.extend_from_slice(&raw.to_be_bytes());
@@ -4203,6 +4558,12 @@ fn build_cid_top_dict(
     glyph_count: usize,
 ) -> Result<Vec<u8>, Cff1Error> {
     let mut output = Vec::new();
+    // CFF specification, Top DICT INDEX: ROS must be the first operator of a
+    // CIDFont so a consumer can identify it without walking the entire DICT.
+    for value in [391, 392, 0] {
+        encode_dict_integer(value, &mut output);
+    }
+    output.extend_from_slice(&[12, 30]);
     for value in bbox {
         encode_dict_integer(i32::from(value), &mut output);
     }
@@ -4219,10 +4580,6 @@ fn build_cid_top_dict(
     output.push(17);
     encode_dict_integer(2, &mut output);
     output.extend_from_slice(&[12, 6]);
-    for value in [391, 392, 0] {
-        encode_dict_integer(value, &mut output);
-    }
-    output.extend_from_slice(&[12, 30]);
     encode_dict_integer(0, &mut output);
     output.extend_from_slice(&[12, 33]);
     encode_dict_integer(
@@ -4339,6 +4696,13 @@ fn build_subset_cmap(
     source: &BTreeMap<u32, u16>,
     mapping: &BTreeMap<OriginalGlyphId, SubsetGlyphId>,
 ) -> Result<Vec<u8>, Cff1Error> {
+    build_subset_cmap_with_empty(source, mapping, false)
+}
+fn build_subset_cmap_with_empty(
+    source: &BTreeMap<u32, u16>,
+    mapping: &BTreeMap<OriginalGlyphId, SubsetGlyphId>,
+    allow_empty: bool,
+) -> Result<Vec<u8>, Cff1Error> {
     let mut selected = Vec::new();
     selected
         .try_reserve_exact(source.len())
@@ -4351,7 +4715,7 @@ fn build_subset_cmap(
             selected.push((*scalar, u32::from(subset_gid.get())));
         }
     }
-    if selected.is_empty() {
+    if selected.is_empty() && !allow_empty {
         return Err(Cff1Error::InvalidSubset);
     }
     let mut groups = Vec::<[u32; 3]>::new();
@@ -4430,7 +4794,23 @@ fn build_subset_horizontal_metrics(
     source_gids: &[OriginalGlyphId],
     bboxes: &[[i16; 4]],
 ) -> Result<(Vec<u8>, Vec<u8>), Cff1Error> {
-    if source_gids.len() != bboxes.len() || admission.hhea.len() != 36 {
+    build_subset_horizontal_metrics_from(
+        &admission.hhea,
+        &admission.advances,
+        &admission.left_side_bearings,
+        source_gids,
+        bboxes,
+    )
+}
+
+fn build_subset_horizontal_metrics_from(
+    source_hhea: &[u8],
+    advances: &[u16],
+    left_side_bearings: &[i16],
+    source_gids: &[OriginalGlyphId],
+    bboxes: &[[i16; 4]],
+) -> Result<(Vec<u8>, Vec<u8>), Cff1Error> {
+    if source_gids.len() != bboxes.len() || source_hhea.len() != 36 {
         return Err(Cff1Error::InvalidSubset);
     }
     let mut hmtx = Vec::new();
@@ -4447,12 +4827,8 @@ fn build_subset_horizontal_metrics(
     let mut max_extent = i32::MIN;
     for (gid, bbox) in source_gids.iter().zip(bboxes) {
         let index = usize::from(gid.get());
-        let advance = *admission
-            .advances
-            .get(index)
-            .ok_or(Cff1Error::InvalidSubset)?;
-        let lsb = *admission
-            .left_side_bearings
+        let advance = *advances.get(index).ok_or(Cff1Error::InvalidSubset)?;
+        let lsb = *left_side_bearings
             .get(index)
             .ok_or(Cff1Error::InvalidSubset)?;
         hmtx.extend_from_slice(&advance.to_be_bytes());
@@ -4472,7 +4848,7 @@ fn build_subset_horizontal_metrics(
         min_rsb = min_rsb.min(rsb);
         max_extent = max_extent.max(extent);
     }
-    let mut hhea = admission.hhea.clone();
+    let mut hhea = source_hhea.to_vec();
     hhea[10..12].copy_from_slice(&advance_width_max.to_be_bytes());
     hhea[12..14].copy_from_slice(
         &i16::try_from(min_lsb)
@@ -4673,19 +5049,27 @@ fn subset_pdf_metrics(
     admission: &Cff1Admission,
     bbox: [i16; 4],
 ) -> Result<Cff1PdfMetrics, Cff1Error> {
-    let ascent = i32::from(read_i16(&admission.hhea, 4, Cff1Error::InvalidSubset)?);
-    let descent = i32::from(read_i16(&admission.hhea, 6, Cff1Error::InvalidSubset)?);
-    let os2_version = read_u16(&admission.os2, 0, Cff1Error::InvalidSubset)?;
+    subset_pdf_metrics_from(&admission.hhea, &admission.os2, &admission.post, bbox)
+}
+fn subset_pdf_metrics_from(
+    hhea: &[u8],
+    os2: &[u8],
+    post: &[u8],
+    bbox: [i16; 4],
+) -> Result<Cff1PdfMetrics, Cff1Error> {
+    let ascent = i32::from(read_i16(hhea, 4, Cff1Error::InvalidSubset)?);
+    let descent = i32::from(read_i16(hhea, 6, Cff1Error::InvalidSubset)?);
+    let os2_version = read_u16(os2, 0, Cff1Error::InvalidSubset)?;
     let cap_height = if os2_version >= 2 {
-        i32::from(read_i16(&admission.os2, 88, Cff1Error::InvalidSubset)?)
+        i32::from(read_i16(os2, 88, Cff1Error::InvalidSubset)?)
     } else {
         ascent
     };
     if ascent <= 0 || descent >= 0 || cap_height <= 0 {
         return Err(Cff1Error::InvalidSubset);
     }
-    let italic_fixed = read_i32(&admission.post, 4, Cff1Error::InvalidSubset)?;
-    let fixed_pitch = read_u32(&admission.post, 12, Cff1Error::InvalidSubset)? != 0;
+    let italic_fixed = read_i32(post, 4, Cff1Error::InvalidSubset)?;
+    let fixed_pitch = read_u32(post, 12, Cff1Error::InvalidSubset)? != 0;
     let mut flags = 0x20;
     if fixed_pitch {
         flags |= 0x01;
@@ -4706,6 +5090,12 @@ fn subset_pdf_metrics(
 
 #[cfg(test)]
 mod tests {
+    mod subset_diagnostic_tests {
+        include!("cff_subset_diagnostic_tests.rs");
+    }
+    mod diagnostic_tests {
+        include!("cff_diagnostic_tests.rs");
+    }
     use super::*;
     use typaxis_core::{ResourceLimits, ValidatedResourceLimits};
 
@@ -4938,6 +5328,14 @@ mod tests {
         assert_eq!(first.sha256(), second.sha256());
         assert_eq!(first.postscript_name(), "AAAAAA+Typaxis");
         assert_eq!(&first.bytes()[..4], b"OTTO");
+        let (_, offset, length) = table_location(first.bytes(), b"CFF ");
+        let cff = &first.bytes()[offset..offset + length];
+        let names = parse_cff_index(cff, usize::from(cff[2]), None).unwrap();
+        let top = parse_cff_index(cff, names.end, None).unwrap();
+        assert_eq!(top.objects.len(), 1);
+        // The first DICT operands are SIDs 391/392 and supplement 0, followed
+        // immediately by escaped ROS (12 30), before FontBBox or offsets.
+        assert!(top.objects[0].starts_with(&[248, 27, 248, 28, 139, 12, 30]));
     }
 
     #[test]
@@ -5289,6 +5687,22 @@ mod tests {
     }
 
     #[test]
+    fn cff_legacy_hflex_overflow_returns_error_before_subset_encoding() {
+        let mut admission = admit_sfnt_cff1(&fixture(), 0, &limits()).unwrap();
+        // Inject at the evaluator boundary, as in the recursion test below.
+        // The second cubic would require negating the smallest signed value.
+        admission.program.charstrings[1] = vec![
+            139, 139, 21, 139, 139, 255, 128, 0, 0, 0,
+            139, 139, 139, 139, 12, 34, 14,
+        ];
+        let selected = [OriginalGlyphId::new(1)].into_iter().collect();
+        let mut session = Cff1SubsetSession::from_admission(&admission);
+        assert_eq!(session.subset(&admission, FontFaceId::new(0),
+            FontInstanceId::new(0), &selected, 1), Err(Cff1Error::InvalidCharstring));
+        assert!(session.operations_used() > 0);
+    }
+
+    #[test]
     fn cff_subroutine_recursion_is_iterative_and_depth_bounded() {
         let mut admission = admit_sfnt_cff1(&fixture(), 0, &limits()).unwrap();
         // With one subroutine the Type 2 bias is 107; encoded -107 is byte 32.
@@ -5314,6 +5728,7 @@ mod tests {
         let bbox = [0, -200, 600, 800];
         let mut valid = vec![
             DictEntry {
+                operator_offset: 0,
                 operator: 5,
                 operands: bbox
                     .into_iter()
@@ -5321,18 +5736,22 @@ mod tests {
                     .collect(),
             },
             DictEntry {
+                operator_offset: 0,
                 operator: 17,
                 operands: vec![DictOperand::Integer(100)],
             },
             DictEntry {
+                operator_offset: 0,
                 operator: 18,
                 operands: vec![DictOperand::Integer(10), DictOperand::Integer(200)],
             },
             DictEntry {
+                operator_offset: 0,
                 operator: 0x0C06,
                 operands: vec![DictOperand::Integer(2)],
             },
             DictEntry {
+                operator_offset: 0,
                 operator: 0x0C07,
                 operands: vec![
                     DictOperand::Real("1E-3".to_owned()),

@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?>
+<report>
+  <buildInformation>
+    <releaseDetails id="core" version="1.30.2" buildDate="2026-06-03T10:43:00+09:00"></releaseDetails>
+    <releaseDetails id="validation-model" version="1.30.2" buildDate="2026-06-03T10:46:00+09:00"></releaseDetails>
+    <releaseDetails id="apps" version="1.30.2" buildDate="2026-06-03T10:55:00+09:00"></releaseDetails>
+  </buildInformation>
+  <jobs>
+    <job>
+      <item size="5613">
+        <name>/private/tmp/typaxis-common-tagged-19/00.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="86" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963071" finish="1788812963252">00:00:00.181</duration>
+    </job>
+    <job>
+      <item size="5613">
+        <name>/private/tmp/typaxis-common-tagged-19/01.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="86" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963264" finish="1788812963283">00:00:00.019</duration>
+    </job>
+    <job>
+      <item size="6008">
+        <name>/private/tmp/typaxis-common-tagged-19/02.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="86" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963287" finish="1788812963303">00:00:00.016</duration>
+    </job>
+    <job>
+      <item size="27734">
+        <name>/private/tmp/typaxis-common-tagged-19/03.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="246" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963307" finish="1788812963374">00:00:00.067</duration>
+    </job>
+    <job>
+      <item size="8036">
+        <name>/private/tmp/typaxis-common-tagged-19/04.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="152" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963377" finish="1788812963393">00:00:00.016</duration>
+    </job>
+    <job>
+      <item size="36293">
+        <name>/private/tmp/typaxis-common-tagged-19/05.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="813" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963396" finish="1788812963452">00:00:00.056</duration>
+    </job>
+    <job>
+      <item size="26078">
+        <name>/private/tmp/typaxis-common-tagged-19/06.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="742" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963455" finish="1788812963478">00:00:00.023</duration>
+    </job>
+    <job>
+      <item size="35095">
+        <name>/private/tmp/typaxis-common-tagged-19/07.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="785" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963481" finish="1788812963510">00:00:00.029</duration>
+    </job>
+    <job>
+      <item size="33406">
+        <name>/private/tmp/typaxis-common-tagged-19/08.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="1467" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963514" finish="1788812963540">00:00:00.026</duration>
+    </job>
+    <job>
+      <item size="78175">
+        <name>/private/tmp/typaxis-common-tagged-19/09.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="382" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963543" finish="1788812963560">00:00:00.017</duration>
+    </job>
+    <job>
+      <item size="35075">
+        <name>/private/tmp/typaxis-common-tagged-19/10.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="785" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963562" finish="1788812963579">00:00:00.017</duration>
+    </job>
+    <job>
+      <item size="28921">
+        <name>/private/tmp/typaxis-common-tagged-19/11.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="356" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963585" finish="1788812963596">00:00:00.011</duration>
+    </job>
+    <job>
+      <item size="21129">
+        <name>/private/tmp/typaxis-common-tagged-19/12.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="871" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963600" finish="1788812963616">00:00:00.016</duration>
+    </job>
+    <job>
+      <item size="22606">
+        <name>/private/tmp/typaxis-common-tagged-19/13.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="450" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963618" finish="1788812963628">00:00:00.010</duration>
+    </job>
+    <job>
+      <item size="76078">
+        <name>/private/tmp/typaxis-common-tagged-19/14.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="271" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963630" finish="1788812963639">00:00:00.009</duration>
+    </job>
+    <job>
+      <item size="25641">
+        <name>/private/tmp/typaxis-common-tagged-19/15.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="270" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963641" finish="1788812963649">00:00:00.008</duration>
+    </job>
+    <job>
+      <item size="34883">
+        <name>/private/tmp/typaxis-common-tagged-19/16.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="785" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963652" finish="1788812963665">00:00:00.013</duration>
+    </job>
+    <job>
+      <item size="28861">
+        <name>/private/tmp/typaxis-common-tagged-19/17.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="356" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963667" finish="1788812963677">00:00:00.010</duration>
+    </job>
+    <job>
+      <item size="36055">
+        <name>/private/tmp/typaxis-common-tagged-19/18.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="833" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788812963684" finish="1788812963696">00:00:00.012</duration>
+    </job>
+  </jobs>
+  <batchSummary totalJobs="19" failedToParse="0" encrypted="0" outOfMemory="0" veraExceptions="0">
+    <validationReports compliant="19" nonCompliant="0" failedJobs="0">19</validationReports>
+    <featureReports failedJobs="0">0</featureReports>
+    <repairReports failedJobs="0">0</repairReports>
+    <duration start="1788812963041" finish="1788812963699">00:00:00.658</duration>
+  </batchSummary>
+</report>

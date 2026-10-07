@@ -1,0 +1,57 @@
+{
+  "fixture": "production_table_fixture",
+  "test": "production_public_book_uses_common_selection_and_manifest_chain",
+  "scope": "One-page source table through the public in-process book writer and four manifest members; not a full-book or multi-page-header acceptance.",
+  "pdf": {
+    "sha256": "7c1980c7657e18fe9abb57dad6cdeb77b8a976ca5e147c2045e76d8af049725d",
+    "bytes": 28305,
+    "pages": 1
+  },
+  "package_sha256": "03e50576a81ff58b3d104564b1cd976c3f968e1dc52aeec65bcb713c0d58cacb",
+  "validation": {
+    "profile": "PDF/UA-1",
+    "is_compliant": true,
+    "passedRules": 106,
+    "failedRules": 0,
+    "passedChecks": 460,
+    "failedChecks": 0,
+    "stderr_bytes": 0,
+    "report": "common-single-page-table-verapdf.xml",
+    "report_sha256": "b8dd3a063fb76376cfd17b1df669576cd584080bc7535842efac9079a3d994d4"
+  },
+  "generation_environment": {
+    "CARGO_TARGET_DIR": "/private/tmp/typaxis-vmb-book-build",
+    "VMB_SINGLE_PAGE_TABLE_OUT": "/private/tmp/typaxis-single-page-table"
+  },
+  "verification_commands": [
+    [
+      "verapdf",
+      "--flavour",
+      "ua1",
+      "--format",
+      "xml",
+      "/private/tmp/typaxis-single-page-table/output.pdf"
+    ],
+    [
+      "pdftotext",
+      "-layout",
+      "/private/tmp/typaxis-single-page-table/output.pdf",
+      "/private/tmp/typaxis-single-page-table/extracted.txt"
+    ],
+    [
+      "pdftoppm",
+      "-scale-to",
+      "1200",
+      "-png",
+      "-singlefile",
+      "/private/tmp/typaxis-single-page-table/output.pdf",
+      "/private/tmp/typaxis-single-page-table/page"
+    ]
+  ],
+  "limitations": [
+    "Repeated-header PDF Artifact handling is pending.",
+    "The combined public CLI fixture fails with FootnoteSearchLimit under its configured ceiling.",
+    "The fixture body font has zero-contour A/B glyphs; extraction and table tags are present, while rendered ink evidence covers the two real SVG formulas.",
+    "No human PDF/UA or full-book acceptance is asserted."
+  ]
+}

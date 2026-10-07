@@ -1,0 +1,78 @@
+{
+  "fixture": "production-book-1/combined",
+  "scope": "Actual public CLI using common mixed body/table/footnote pagination and native/vector math, with default search limits. Synthetic corpus evidence, not full-book acceptance.",
+  "generation_command": [
+    "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+    "build-package",
+    "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job/document-package.json",
+    "-o",
+    "/private/tmp/typaxis-ranked-combined-cli/output.pdf",
+    "--package-root",
+    "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job",
+    "--profile",
+    "typaxis.machine-pdf/production-book-1",
+    "--resource-root",
+    "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job",
+    "--trace",
+    "/private/tmp/typaxis-ranked-combined-cli/trace.json",
+    "--trace-text",
+    "--no-compress",
+    "--emit-build-manifest",
+    "/private/tmp/typaxis-ranked-combined-cli/manifest.json",
+    "--emit-diagnostics",
+    "/private/tmp/typaxis-ranked-combined-cli/diagnostics.json"
+  ],
+  "binary_sha256": "345f59ac45008cc2490a6c2fcacedcd85806bedf3078a2ffe459be96c43f568a",
+  "package_sha256": "44c072c75a7bdede2b15ea73902e10a47305491a91a5e9964e262be25b5e3c69",
+  "artifacts": {
+    "output.pdf": {
+      "sha256": "36e10fb91c819fac8e914bdffb1559382dbd3fe3d56d7c1dcaffc90aecdd9c6a",
+      "bytes": 81526,
+      "pages": 5
+    },
+    "manifest.json": {
+      "sha256": "b5bc18d50d6bd2b32a3b10427d1224abc135e3881bb633e2dd998f1e202bc4d6",
+      "bytes": 25713
+    },
+    "trace.json": {
+      "sha256": "a881b4af4436438d4ec16d662b7f7fa75e7c13b8f14489617282c93d31d4d250",
+      "bytes": 637
+    },
+    "diagnostics.json": {
+      "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+      "bytes": 52
+    },
+    "reading-order.txt": {
+      "sha256": "1579e6183a19e1ee9d2ebd9869d4a0d58b383403dd3a216a83ccb337ecdbacb4",
+      "bytes": 464
+    }
+  },
+  "validation": {
+    "profile": "PDF/UA-1",
+    "is_compliant": true,
+    "passedRules": 106,
+    "failedRules": 0,
+    "passedChecks": 3499,
+    "failedChecks": 0,
+    "report": "common-combined-ranked-candidates-verapdf.xml",
+    "report_sha256": "7a516e9065dba28a3b5b175d4762736e8426161d94f2330dd8cc1c0ff9ac5f33"
+  },
+  "expected_migration": {
+    "previous_pages": 2,
+    "pages": 5,
+    "reason": "Preserve authored forced break and actual table row heights; table height 25441792 exceeds one body height 18689280. Source content and default limits unchanged by this migration.",
+    "source_geometry_test": "production_common_combined_preserves_tall_table_rows_and_authored_page_break",
+    "row_heights": [
+      1048576,
+      8131072,
+      8131072,
+      8131072
+    ],
+    "body_height": 18689280
+  },
+  "limitations": [
+    "Synthetic rectangular body-font outlines; no real-font full-book visual acceptance.",
+    "No human PDF/UA acceptance.",
+    "Nested tables, table cell forced boundaries and table-bearing footnote definitions remain pending."
+  ]
+}

@@ -1,7 +1,20 @@
 #![forbid(unsafe_code)]
 
+mod production_v3;
+pub use production_v3::{
+    AdmittedCff1FontV2, AdmittedProductionFontInstanceV3, AdmittedProductionFontInstancesV3,
+    AdmittedProductionFontV3, AdmittedProductionResourceLedgerV3, ProductionResourceErrorV3,
+    StagingProductionResourceResolverV3, STAGING_PRODUCTION_RESOURCE_SET_V3,
+};
 mod jpeg;
+mod font_diagnostic;
+pub use font_diagnostic::{FontContainerFailure, FontContainerFailureReason, SUPPORTED_FONT_OUTLINES_NOTE};
 mod safe_vector;
+mod svg_diagnostic;
+pub use svg_diagnostic::{
+    BudgetScope, DiagnosticToken, ResourceByteSpan, SafeSvg2DetailReason, SafeSvg2Failure,
+    VectorBudgetFailure, VectorBudgetKind,
+};
 
 pub use jpeg::{
     JpegAdmissionAttestation, JpegColorKind, JpegFailureReason, JpegSampling, JPEG_DECODER_ID,
@@ -32,7 +45,7 @@ use typaxis_document::{
     FontFaceDeclaration, FontMediaDeclaration, FontMediaType, ImageDeclaration,
     ImageMediaDeclaration, ImageMediaType, ResourceCatalog, StagingM4ResourceCatalog,
 };
-use typaxis_font::{admit_sfnt_cff1, Cff1Admission, Cff1Error, FontFamilyError, FontFamilyTable};
+use typaxis_font::{admit_sfnt_cff1_detailed, Cff1Admission, Cff1Error, Cff1Failure, FontFamilyError, FontFamilyTable};
 use typaxis_host_admission::{
     HostAdmissionError, HostAdmissionSession, HostReadIdentityLedger, HostReadIdentityLedgerToken,
     HostRootSetToken, OpenedContainedFile, RegisteredHostReadCandidate,
@@ -736,8 +749,11 @@ pub enum ResourceAdmissionError {
     SvgSafe2Staging,
     InvalidSafeVector,
     InvalidSafeVectorV2(SafeVectorFailureReason),
+    SafeSvg2Detailed(SafeSvg2Failure),
     InvalidJpeg(JpegFailureReason),
     InvalidCff1(Cff1Error),
+    Cff1Detailed(Cff1Failure),
+    FontContainerDetailed(FontContainerFailure),
     VectorNodeLimit,
     VectorPathSegmentLimit,
     VectorNestingLimit,
@@ -745,6 +761,55 @@ pub enum ResourceAdmissionError {
 }
 
 impl ResourceAdmissionError {
+    /// Production code is selected from the error type, never its display text.
+    pub const fn production_diagnostic_code(self) -> typaxis_diagnostics::DiagnosticCode {
+        use typaxis_diagnostics::*;
+        match self {
+            Self::SafeSvg2Detailed(failure) => match failure.budget {
+                Some(VectorBudgetFailure { kind: VectorBudgetKind::Nodes, .. }) => R7120,
+                Some(VectorBudgetFailure { kind: VectorBudgetKind::StoredSegments | VectorBudgetKind::ClipReplay, .. }) => R7121,
+                Some(VectorBudgetFailure { kind: VectorBudgetKind::Nesting, .. }) => R7122,
+                Some(VectorBudgetFailure { kind: VectorBudgetKind::Allocation, .. }) => R7111,
+                None => R7100,
+            },
+            Self::InvalidJpeg(JpegFailureReason::PixelLimit) => R7110,
+            Self::InvalidJpeg(JpegFailureReason::DecodeLimit) | Self::DecodedImageLimit => R7111,
+            Self::VectorNodeLimit => R7120,
+            Self::VectorPathSegmentLimit => R7121,
+            Self::VectorNestingLimit => R7122,
+            Self::Cff1Detailed(failure) => Self::InvalidCff1(failure.kind).production_diagnostic_code(),
+            Self::InvalidCff1(Cff1Error::TableLimit) => R7130,
+            Self::InvalidCff1(Cff1Error::GlyphLimit) => R7131,
+            Self::InvalidCff1(Cff1Error::SubroutineLimit) => R7132,
+            Self::InvalidCff1(Cff1Error::CharstringOperationLimit) => R7133,
+            Self::InvalidCff1(Cff1Error::OutlineSegmentLimit) => R7134,
+            Self::InvalidCff1(Cff1Error::SubsetByteLimit) => R7135,
+            Self::UnsupportedContainedOpen => I9110,
+            Self::ResourceLengthMismatch => I9113,
+            Self::NonCanonicalResourceId | Self::ReceiptKindMismatch | Self::ReceiptIdentityMismatch
+            | Self::ReceiptSessionMismatch | Self::MissingAdmittedRootSet | Self::RootSetMismatch
+            | Self::InvalidCff1(Cff1Error::InvalidGlyphClosure | Cff1Error::ReceiptMismatch) => I9190,
+            _ => R7100,
+        }
+    }
+
+    /// Plain production message; legacy canonical_message remains available for
+    /// frozen artifact owners. The code is emitted by the formatter once.
+    pub fn production_message(self) -> String {
+        if let Self::SafeSvg2Detailed(failure) = self {
+            return format!("svg_safe_2 {}", failure.reason.as_str());
+        }
+        if let Self::Cff1Detailed(failure) = self {
+            return format!("cff1 {}", failure.context.reason.as_str());
+        }
+        if let Self::FontContainerDetailed(failure) = self {
+            return format!("font {}", failure.reason.as_str());
+        }
+        let message = self.canonical_message();
+        let code = self.production_diagnostic_code().to_string();
+        message.strip_prefix(&code).unwrap_or(message).trim_start_matches([':', ' ']).to_owned()
+    }
+
     /// Stable canonical text for projection into diagnostics. Host error text
     /// is deliberately discarded by the typed host-to-resource mapper.
     pub const fn canonical_message(self) -> &'static str {
@@ -779,6 +844,7 @@ impl ResourceAdmissionError {
                 "svg-safe-2 requires the versioned precomposed-vector admission pipeline"
             }
             Self::InvalidSafeVector => "safe vector bytes contain a forbidden or invalid feature",
+            Self::SafeSvg2Detailed(failure) => failure.reason.as_str(),
             Self::InvalidSafeVectorV2(SafeVectorFailureReason::MalformedSvg) => {
                 "R7100 malformed_svg: Safe-SVG 2 is malformed"
             }
@@ -819,6 +885,8 @@ impl ResourceAdmissionError {
                 JpegFailureReason::DecodeLimit => "R7111: JPEG decode workspace limit was exceeded",
                 JpegFailureReason::SpoolLimit => "R7100: JPEG spool limit was exceeded",
             },
+            Self::FontContainerDetailed(_) => "font container or selected outline is invalid or unsupported",
+            Self::Cff1Detailed(failure) => Self::InvalidCff1(failure.kind).canonical_message(),
             Self::InvalidCff1(error) => match error {
                 Cff1Error::TableLimit => "R7130: CFF1 font table limit was exceeded",
                 Cff1Error::GlyphLimit => "R7131: CFF1 font glyph limit was exceeded",
@@ -1429,6 +1497,7 @@ pub struct AdmittedResourceResolver<'roots> {
     m4_profile_fingerprint: Option<[u8; 32]>,
     vector_nodes_used: u64,
     vector_path_work_used: u64,
+    next_vector_declaration_index: usize,
 }
 impl AdmittedResourceResolver<'static> {
     /// Safe empty-package workflow for lower crates that must not depend on
@@ -1480,6 +1549,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             fonts: declarations.font_media.clone(),
             images: declarations.image_media.clone(),
         }));
+        resolver.skip_non_vector_declarations();
         Ok(resolver)
     }
 
@@ -1497,6 +1567,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             fonts: declarations.font_media.clone(),
             images: declarations.image_media.clone(),
         }));
+        resolver.skip_non_vector_declarations();
         resolver.m4_limits = Some(limits.clone());
         resolver.m4_profile_fingerprint = Some(profile_fingerprint);
         Ok(resolver)
@@ -1523,7 +1594,18 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             m4_profile_fingerprint: None,
             vector_nodes_used: 0,
             vector_path_work_used: 0,
+            next_vector_declaration_index: 0,
         })
+    }
+
+    fn skip_non_vector_declarations(&mut self) {
+        if let Some(policy) = &self.declared_media_policy {
+            while policy.images.get(self.next_vector_declaration_index)
+                .is_some_and(|media| !matches!(media, ImageMediaType::SvgSafe1 | ImageMediaType::SvgSafe2))
+            {
+                self.next_vector_declaration_index += 1;
+            }
+        }
     }
     pub fn read_font(
         &mut self,
@@ -1686,13 +1768,12 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .as_ref()
             .and_then(|policy| policy.fonts.get(font_face_id.get() as usize))
             .ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?;
-        let observed = attest_declared_font_media_kind(
-            source.bytes(),
-            source
-                .face_index()
-                .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?,
-        )
-        .map_err(|_| ResourceAdmissionError::DeclaredMediaMismatch)?;
+        let face_index = source.face_index()
+            .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?;
+        let observed = attest_declared_font_media_kind(source.bytes(), face_index)
+            .map_err(|_| ResourceAdmissionError::FontContainerDetailed(
+                font_diagnostic::diagnose_font_container(source.bytes(), face_index)
+            ))?;
         let expected = match declared {
             FontMediaType::SfntTrueTypeGlyf => AdmittedFontMediaKind::SfntTrueTypeGlyf,
             FontMediaType::TtcTrueTypeGlyf => AdmittedFontMediaKind::TtcTrueTypeGlyf,
@@ -1723,8 +1804,8 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         let profile_fingerprint = self
             .m4_profile_fingerprint
             .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
-        let admission = admit_sfnt_cff1(source.bytes(), 0, limits)
-            .map_err(ResourceAdmissionError::InvalidCff1)?;
+        let admission = admit_sfnt_cff1_detailed(source.bytes(), face_index, limits)
+            .map_err(ResourceAdmissionError::Cff1Detailed)?;
         let owner = VerifiedMetadataReceiptOwner::new();
         let receipt = owner.issue_cff1_font(source, admission, profile_fingerprint)?;
         self.bind_verified_metadata(receipt)
@@ -1900,15 +1981,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .m4_limits
             .as_ref()
             .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
-        if self.declared_media_policy.as_ref().is_some_and(|policy| {
-            policy.images[..image_id.get() as usize]
-                .iter()
-                .zip(&self.declarations.images[..image_id.get() as usize])
-                .any(|(media, declaration)| {
-                    matches!(media, ImageMediaType::SvgSafe1 | ImageMediaType::SvgSafe2)
-                        && !self.images.contains_key(&declaration.image_id)
-                })
-        }) {
+        if self.next_vector_declaration_index != image_id.get() as usize {
             return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
         }
         let remaining_nodes = limits
@@ -1917,7 +1990,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .max_vector_nodes
             .checked_sub(self.vector_nodes_used)
             .ok_or(ResourceAdmissionError::VectorNodeLimit)?;
-        if remaining_nodes == 0 {
+        if remaining_nodes == 0 && parser_profile == SafeVectorParserProfile::SafeSvg1 {
             return Err(ResourceAdmissionError::VectorNodeLimit);
         }
         let remaining_path_work = limits
@@ -1951,7 +2024,22 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                     limits,
                     remaining_nodes,
                     remaining_path_work,
-                )?;
+                ).map_err(|error| {
+                    if let ResourceAdmissionError::SafeSvg2Detailed(mut failure) = error {
+                        if let Some(budget) = &mut failure.budget {
+                            let (total, used) = match budget.kind {
+                                VectorBudgetKind::Nodes => (limits.extension().get().max_vector_nodes, self.vector_nodes_used),
+                                VectorBudgetKind::StoredSegments | VectorBudgetKind::ClipReplay => (limits.extension().get().max_vector_path_segments, self.vector_path_work_used),
+                                _ => return error,
+                            };
+                            budget.scope = BudgetScope::DocumentTotal;
+                            budget.limit = total;
+                            budget.observed = used.saturating_add(budget.observed);
+                            budget.used_before_resource = used;
+                        }
+                        ResourceAdmissionError::SafeSvg2Detailed(failure)
+                    } else { error }
+                })?;
                 let work = decoded.work;
                 let owner = VerifiedMetadataReceiptOwner::new();
                 let receipt = owner.issue_safe_vector_v2(
@@ -1981,6 +2069,8 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         self.bind_verified_metadata(receipt)?;
         self.vector_nodes_used = next_nodes;
         self.vector_path_work_used = next_path_work;
+        self.next_vector_declaration_index += 1;
+        self.skip_non_vector_declarations();
         Ok(())
     }
 
@@ -2379,6 +2469,11 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             || self.images.len() != self.declarations.images.len()
         {
             return Err(ResourceAdmissionError::MissingLogicalResource);
+        }
+        // Only the finalized ledger permits direct indexing. Partial progress
+        // receipts retain their map/lookup semantics.
+        if self.images.values().enumerate().any(|(index, image)| image.image_id().get() as usize != index) {
+            return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
         }
         let mut vector_aliases = Vec::new();
         vector_aliases
@@ -2824,7 +2919,7 @@ impl AdmittedResourceLedger {
         self.fonts.iter().find(|font| font.font_face_id() == id)
     }
     pub fn image(&self, id: ImageResourceId) -> Option<&AdmittedImage> {
-        self.images.iter().find(|image| image.image_id() == id)
+        self.images.get(id.get() as usize).filter(|image| image.image_id() == id)
     }
     pub const fn font_families(&self) -> &FontFamilyTable {
         &self.font_families
@@ -3732,6 +3827,9 @@ fn push_hash_hex(output: &mut String, bytes: [u8; 32]) {
 
 #[cfg(test)]
 mod tests {
+    mod production_v3_tests {
+        include!("production_v3_tests.rs");
+    }
     use super::*;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -5299,6 +5397,87 @@ mod tests {
         );
         assert!(closed.canonical_jcs().contains(SAFE_SVG_PARSER_ID_V2));
         assert!(closed.canonical_jcs().contains(SAFE_VECTOR_IR_ID_V2));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn safe_svg_2_document_budget_keeps_context_after_an_exactly_charged_alias() {
+        let bytes = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10pt\" height=\"10pt\" viewBox=\"0 0 10 10\">\n<path d=\"M 0 0 L 1 0 L 1 1 Z\"/></svg>";
+        let tree = TempTree::new("safe-svg-2-budget-context");
+        fs::write(tree.path().join("same.svg"), bytes).unwrap();
+        let declarations = StagingM4ResourceCatalog {
+            font_faces: vec![],
+            images: (0..2)
+                .map(|id| typaxis_document::StagingM4ImageDeclaration {
+                    image_id: ImageResourceId::new(id),
+                    uri: PortablePath::new("same.svg").unwrap(),
+                    expected_sha256: Some(sha256(bytes)),
+                    media: ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2),
+                    vector_provenance: None,
+                })
+                .collect(),
+        };
+        let catalog = staging_declared_base_catalog(&declarations).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        for (max_nodes, max_segments, kind, limit, used, observed, path, line) in [
+            (2, 18, VectorBudgetKind::Nodes, 2, 2, 3, None, 1),
+            (4, 9, VectorBudgetKind::StoredSegments, 9, 9, 14, None, 1),
+            (
+                4,
+                16,
+                VectorBudgetKind::StoredSegments,
+                16,
+                9,
+                17,
+                Some(0),
+                2,
+            ),
+        ] {
+            let limits = M4EffectiveResourceLimits::new(
+                config.limits().clone(),
+                M4ResourceLimits {
+                    max_vector_nodes: max_nodes,
+                    max_vector_path_segments: max_segments,
+                    ..M4ResourceLimits::default()
+                },
+            )
+            .unwrap();
+            let host =
+                HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                    .unwrap();
+            let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+                &catalog,
+                &limits,
+                sha256(b"typaxis.test-safe-svg-2-profile/1"),
+                host.roots(),
+            )
+            .unwrap();
+            let pending = resolver
+                .read_image(host.open_image(ImageResourceId::new(0)).unwrap())
+                .unwrap();
+            resolver.parse_and_bind_declared_image(pending).unwrap();
+            let pending = resolver
+                .read_image(host.open_image(ImageResourceId::new(1)).unwrap())
+                .unwrap();
+            let error = resolver.parse_and_bind_declared_image(pending).unwrap_err();
+            let ResourceAdmissionError::SafeSvg2Detailed(failure) = error else {
+                panic!("{error:?}");
+            };
+            assert_eq!(
+                failure.budget,
+                Some(VectorBudgetFailure {
+                    kind,
+                    scope: BudgetScope::DocumentTotal,
+                    limit,
+                    observed,
+                    used_before_resource: used,
+                })
+            );
+            assert_eq!(failure.line, Some(line));
+            assert_eq!(failure.path_index, path);
+            assert!(failure.span.is_some());
+            assert_eq!(resolver.progress_token().images().len(), 1);
+        }
     }
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]

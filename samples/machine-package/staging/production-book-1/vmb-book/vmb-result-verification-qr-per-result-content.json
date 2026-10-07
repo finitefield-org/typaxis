@@ -1,0 +1,99 @@
+{
+  "actual_text_count": 19,
+  "algorithm": "typaxis.production-book-pdf-validator/1",
+  "alternative_count": 3,
+  "document_language": "ja",
+  "form_count": 2,
+  "form_use_count": 2,
+  "image_count": 1,
+  "link_count": 2,
+  "object_count": 72,
+  "outline_count": 1,
+  "page_count": 1,
+  "pdf_sha256": "2e17fe3e07c2171acc2ce77c1a0c6b279154f0023895aabb165e32fb9853cfcc",
+  "structure_count": 44,
+  "structure_roles_sha256": "413549b007bc8b92f8b5f586c4ae3f78db06b1a84ca377b438030934223a4dc5",
+  "type0_font_count": 1,
+  "qr_metadata": {
+    "algorithm": "vmb.typaxis-verification-qr/1",
+    "producer": "skip2/go-qrcode@v0.0.0-20200617195104-da1b6568686e",
+    "url": "https://verify.example/result/fraction",
+    "recovery": "medium",
+    "version": 3,
+    "modules": 37,
+    "quiet_zone_modules": 4,
+    "pixels_per_module": 4,
+    "png_sha256": "95b2dbf500ec51444c69c7174eea37012a0be646d91ad2fc2dbec9c83b89d5df"
+  },
+  "qr_pixels": 21904,
+  "qr_width_raw": 2972341,
+  "qr_use_matrix": [
+    "45.3543243",
+    "0",
+    "0",
+    "-45.3543243",
+    "54",
+    "202.522293"
+  ],
+  "math_geometry": [
+    [
+      3,
+      72
+    ],
+    [
+      16,
+      300
+    ]
+  ],
+  "extraction": "Poppler raw and MuPDF source order match ignoring whitespace",
+  "independently_decoded": [
+    "source PNG",
+    "full PDF page rendered at 300 dpi"
+  ],
+  "verification_source": {
+    "formal_result_id": "formal.fraction",
+    "display": {
+      "status": "verified",
+      "badge": "NPA VERIFIED",
+      "linkStyle": "qr-per-result",
+      "url": "https://verify.example/result/fraction",
+      "shortId": "fraction-123",
+      "certificateHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "kernelName": "npa-kernel",
+      "kernelVersion": "1.2.3"
+    }
+  },
+  "source_record": {
+    "node_id": 14,
+    "vmb_id": "result.test",
+    "package_pointer": "/document/blocks/2",
+    "origin": {
+      "path": "book/chapter.json",
+      "pointer": "/blocks/0",
+      "vmb_id": "body.test",
+      "line_start": 2,
+      "line_end": 5
+    },
+    "chapter_id": "section.test",
+    "source_json": "{\"formal_result_id\":\"formal.fraction\",\"display\":{\"status\":\"verified\",\"badge\":\"NPA VERIFIED\",\"linkStyle\":\"qr-per-result\",\"url\":\"https://verify.example/result/fraction\",\"shortId\":\"fraction-123\",\"certificateHash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kernelName\":\"npa-kernel\",\"kernelVersion\":\"1.2.3\"}}",
+    "start_block": 1,
+    "generated_nodes": [
+      20,
+      22,
+      24,
+      29,
+      31
+    ],
+    "qr": {
+      "algorithm": "vmb.typaxis-verification-qr/1",
+      "producer": "skip2/go-qrcode@v0.0.0-20200617195104-da1b6568686e",
+      "url": "https://verify.example/result/fraction",
+      "recovery": "medium",
+      "version": 3,
+      "modules": 37,
+      "quiet_zone_modules": 4,
+      "pixels_per_module": 4,
+      "png_sha256": "95b2dbf500ec51444c69c7174eea37012a0be646d91ad2fc2dbec9c83b89d5df"
+    }
+  }
+}

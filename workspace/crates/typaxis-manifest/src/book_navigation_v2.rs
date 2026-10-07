@@ -101,8 +101,7 @@ pub fn build_staging_book_navigation_manifest_v2(
     {
         return Err(StagingBookNavigationManifestV2Error::PdfMismatch);
     }
-    let canonical_jcs =
-        encode_manifest(package, navigation, profile, selected, observation, engine);
+    let canonical_jcs = encode_manifest(package, navigation, profile, observation, engine);
     Ok(StagingBookNavigationManifestV2 {
         package_sha256: package.canonical_jcs_sha256(),
         semantic_sha256: package.semantic_fingerprint(),
@@ -119,11 +118,102 @@ pub fn build_staging_book_navigation_manifest_v2(
     })
 }
 
+/// Book manifest projected from a common serializer receipt, with cumulative
+/// accounting retained for the root manifest owner.
+#[derive(Debug)]
+pub struct ProductionBookNavigationManifest {
+    manifest: StagingBookNavigationManifestV2,
+    record_charge: u64,
+    spool_charge: u64,
+}
+impl ProductionBookNavigationManifest {
+    pub fn manifest(&self) -> &StagingBookNavigationManifestV2 {
+        &self.manifest
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.record_charge
+    }
+    pub fn spool_charge(&self) -> u64 {
+        self.spool_charge
+    }
+}
+
+pub fn build_production_book_navigation_manifest(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    profile: &StagingBookNavigationProfileAuthorizationV2,
+    pdf: &typaxis_pdf::ProductionCommonTaggedPdf,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<ProductionBookNavigationManifest, typaxis_pdf::ProductionBodyAssemblyError> {
+    use typaxis_pdf::ProductionBodyAssemblyError as E;
+    profile
+        .authorizes(package, navigation, limits)
+        .map_err(|_| E::ReceiptMismatch)?;
+    let observation = pdf.book_navigation();
+    if pdf.package_sha256() != package.canonical_jcs_sha256()
+        || pdf.limits_sha256() != limits.fingerprint()
+        || observation.metadata_sha256() != navigation.metadata().fingerprint()
+        || observation.language_sha256() != navigation.languages().fingerprint()
+        || observation.outline_sha256() != navigation.outline().fingerprint()
+        || observation.profile_sha256() != profile.profile_receipt_fingerprint()
+        || observation.final_pdf_sha256() != pdf.final_pdf().content_hash()
+        || observation.final_pdf_byte_length() != pdf.final_pdf().byte_length()
+        || observation.document_language() != navigation.languages().document_language()
+    {
+        return Err(E::ReceiptMismatch);
+    }
+    // This fixed-field record contains hashes, bounded integers and one source
+    // string. Reserve its conservative encoding charge before creating it.
+    let record_charge = pdf.record_charge().checked_add(1).ok_or(E::RecordLimit)?;
+    if record_charge > limits.base().get().max_fragments {
+        return Err(E::RecordLimit);
+    }
+    let encoding_bound = (navigation.languages().document_language().len() as u64)
+        .checked_mul(6)
+        .and_then(|n| n.checked_add(4096))
+        .ok_or(E::SpoolLimit)?;
+    let spool_charge = pdf
+        .spool_charge()
+        .checked_add(encoding_bound)
+        .ok_or(E::SpoolLimit)?;
+    if spool_charge > limits.base().get().max_spool_bytes {
+        return Err(E::SpoolLimit);
+    }
+    let canonical_jcs = encode_manifest(
+        package,
+        navigation,
+        profile,
+        observation,
+        &EngineIdentity::compiled(),
+    );
+    if canonical_jcs.len() as u64 > encoding_bound {
+        return Err(E::SpoolLimit);
+    }
+    let manifest = StagingBookNavigationManifestV2 {
+        package_sha256: package.canonical_jcs_sha256(),
+        semantic_sha256: package.semantic_fingerprint(),
+        metadata_sha256: navigation.metadata().fingerprint(),
+        computed_language_sha256: navigation.languages().fingerprint(),
+        outline_sha256: navigation.outline().fingerprint(),
+        profile_view_sha256: profile.fingerprint(),
+        profile_receipt_sha256: profile.profile_receipt_fingerprint(),
+        selected_sha256: observation.selected_sha256(),
+        pdf_observation_sha256: observation.fingerprint(),
+        final_pdf_sha256: pdf.final_pdf().content_hash(),
+        fingerprint: sha256(canonical_jcs.as_bytes()),
+        canonical_jcs,
+    };
+    Ok(ProductionBookNavigationManifest {
+        manifest,
+        record_charge,
+        spool_charge,
+    })
+}
+
 fn encode_manifest(
     package: &ValidatedStagingSemanticPackage,
     navigation: &ValidatedStagingBookNavigationV2,
     profile: &StagingBookNavigationProfileAuthorizationV2,
-    selected: &BookNavigationSelectedReceiptV2,
     observation: &typaxis_pdf::BookNavigationPdfObservationV2,
     engine: &EngineIdentity,
 ) -> String {
@@ -143,7 +233,7 @@ fn encode_manifest(
         ),
         (
             "destination_registry_sha256",
-            selected.destination_registry_sha256(),
+            observation.destination_registry_sha256(),
         ),
         ("metadata_sha256", navigation.metadata().fingerprint()),
         ("outline_sha256", navigation.outline().fingerprint()),
@@ -155,7 +245,7 @@ fn encode_manifest(
             profile.profile_receipt_fingerprint(),
         ),
         ("profile_view_sha256", profile.fingerprint()),
-        ("selected_sha256", selected.fingerprint()),
+        ("selected_sha256", observation.selected_sha256()),
         ("semantic_sha256", package.semantic_fingerprint()),
     ]
     .into_iter()

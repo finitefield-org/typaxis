@@ -1,0 +1,158 @@
+{
+  "scope": "Authored Japanese one-page body/math/PNG/JFIF fixture; not original full-book acceptance",
+  "input": "/private/tmp/vmb-figure-public/typaxis-body-1222494301",
+  "run": "/private/tmp/vmb-figure-public/typaxis-run-2908887388",
+  "final_regression_input": "/private/tmp/vmb-figure-public/typaxis-body-2939069140",
+  "final_regression_run": "/private/tmp/vmb-figure-public/typaxis-run-1820987797",
+  "final_pdf_byte_identical": true,
+  "files": [
+    {
+      "path": "/private/tmp/vmb-figure-public/typaxis-body-1222494301/document-package.json",
+      "bytes": 13525,
+      "sha256": "13e2b6891a853832175ca217a7c7d08ecc02793a1e773ee4a06b733d341b3e40"
+    },
+    {
+      "path": "/private/tmp/vmb-figure-public/typaxis-run-2908887388/output.pdf",
+      "bytes": 68275,
+      "sha256": "f6cc8833b66f6340feaf045c15e07b47d71ede0a29525316e6266cf32e1a4f14"
+    },
+    {
+      "path": "/private/tmp/vmb-figure-public/typaxis-run-2908887388/build-manifest.json",
+      "bytes": 27219,
+      "sha256": "b8c3145d53967ea7d043494b0bfaa3a402173d124292445e53f1b68fad76ff42"
+    },
+    {
+      "path": "/private/tmp/vmb-figure-public/typaxis-run-2908887388/trace.json",
+      "bytes": 737,
+      "sha256": "ccba6ab2184aa26f7c1134c34ed081824f7a3c77582ff7aa4557302c9478ed08"
+    },
+    {
+      "path": "/private/tmp/vmb-figure-public/typaxis-run-2908887388/book-config.toml",
+      "bytes": 1480,
+      "sha256": "3f708506f7353fbde56046b015c61cb49c74970bb59ff8c417a74a9bea701144"
+    },
+    {
+      "path": "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+      "bytes": 73517640,
+      "sha256": "08e3b3008e85efcc669f0df68982dab106cfddcc535b90da996a6a52bace526a"
+    },
+    {
+      "path": "/private/tmp/vmb-figure-final-regression.log",
+      "bytes": 64784,
+      "sha256": "acfed0bdf4d3071eff4b48975ed79f61bb5346486a7468421eb4f116b06d5a92"
+    },
+    {
+      "path": "/private/tmp/vmb-figure-pdf-structure-tests.log",
+      "bytes": 135,
+      "sha256": "426b0f1eb6754f74d8477bbedb1f06ad5be69c41d9979872322b32c632977950"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-figure-independent-check.py",
+      "bytes": 4298,
+      "sha256": "35483f3ce423dda87dc31469252dd3f7c7c93823ca4238664b9a63a58921eafd"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-figure-common-content.json",
+      "bytes": 2587,
+      "sha256": "592377883b4d473a0f3cbead5260ea0fe6bdec13eb3e2612fb8c466adc29fb4b"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-figure-common-verapdf.xml",
+      "bytes": 1374,
+      "sha256": "3a9e53ada9bacdcd05d9b349913005c93e6a3ca1acbc8c40fcab12931f3dd3f5"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_figure.go",
+      "bytes": 12420,
+      "sha256": "93a16eb9dd1c87438e921c612bae798ffbabbfe0fe553bf09a4f18abb40b75cf"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_figure_test.go",
+      "bytes": 8196,
+      "sha256": "9d13c6f3928af3735e96691634fb5a7488e3bb686c5961cbf6956b02fc564252"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package.go",
+      "bytes": 11158,
+      "sha256": "255684cd8a41623e97f4d1f1fa42d789639495702bbb78a45dc91635deeb6e58"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_body.go",
+      "bytes": 16166,
+      "sha256": "4f611427dbc601f5c0f0466c5d42bca7d3c07eb378ccdcf635b54aa1ec7b20ab"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_sidecar.go",
+      "bytes": 14356,
+      "sha256": "bda4c405a2b7102cf9d15dcc11c956d6db87ddf2ad7ce8fd270daeadccf4e4b4"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_math_staging.go",
+      "bytes": 4618,
+      "sha256": "40c29904204a1b05db1f5147d8303ba58717466a306d5d11ababc0d1b3264a1e"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/diagnostic.go",
+      "bytes": 16104,
+      "sha256": "99bcd9d2c87aabcdee76271ab5a3f6f485ecb58c6d5118151f11281121e6a5eb"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/raster.go",
+      "bytes": 9221,
+      "sha256": "f080c96a839e9f59d2d4865d7587f339f17c031cff9ffede58aae171c4df9424"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/raster_test.go",
+      "bytes": 12024,
+      "sha256": "67a943b5125771ed01a13f603831dcbe58b3363394c8eba872134f7ab50c299d"
+    }
+  ],
+  "go_tests": {
+    "passed": 98,
+    "skipped": 2,
+    "seconds": 77.532,
+    "skips": [
+      "external math inventory requires separate environment",
+      "separate capabilities probe requires separate environment"
+    ]
+  },
+  "python_tests": {
+    "passed": 36,
+    "seconds": 0.242
+  },
+  "pdf_ua1": {
+    "passed_rules": 106,
+    "passed_checks": 1118,
+    "failed_rules": 0,
+    "failed_checks": 0
+  },
+  "limitations": [
+    "Poppler default spatial extraction orders some formula spans before caption text; raw mode and MuPDF match source order ignoring whitespace.",
+    "VMB runtime closes artifacts but independent content verification remains external.",
+    "Uncaptioned/unprefixed figures lack an anchor in current 1.4 lowering; references fail rather than synthesize content.",
+    "Original 48 PNG byte retention is tested; all 51 original placements and full-book typography remain unverified.",
+    "Human publication acceptance is not obtained."
+  ],
+  "vmb_implementation_commit": "86eb96d8",
+  "followup_style_owner": {
+    "passed": 3,
+    "seconds": 5.853,
+    "files": [
+      {
+        "path": "/private/tmp/vmb-figure-style-owner-tests.log",
+        "sha256": "26d120d31233bb8369955e89cf65f6178c3847c02c664ebe4ef01d86509858ec",
+        "bytes": 1900
+      },
+      {
+        "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_figure.go",
+        "sha256": "bb00a61fb673e41661b78ee4266a806ba6a1cd13617ee0e8c8f8b44ecf76b605",
+        "bytes": 12732
+      },
+      {
+        "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_figure_test.go",
+        "sha256": "5568466ec17798160a1700a0a1669dbd16342cb360f5c9f45f5a45423da382ce",
+        "bytes": 8665
+      }
+    ]
+  }
+}

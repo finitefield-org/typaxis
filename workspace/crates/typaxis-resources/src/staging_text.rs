@@ -13,13 +13,44 @@ use super::{
     VerifiedEncoderReceiptOwner,
 };
 
-/// One source-text cluster and its already-shaped glyph sequence for a
-/// staging PDF text contribution. The resource finalizer never reshapes or
-/// normalizes this input.
+/// Native glyph identity is tied to an issued draw, never to a fabricated text range.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct NativeMathGlyphSource {
+    owner: typaxis_core::NodeId,
+    receipt_sha256: [u8; 32],
+    computation_sha256: [u8; 32],
+    paint_index: u32,
+    logical_ordinal: u32,
+}
+impl NativeMathGlyphSource {
+    pub const fn owner(&self) -> typaxis_core::NodeId {
+        self.owner
+    }
+    pub const fn receipt_sha256(&self) -> [u8; 32] {
+        self.receipt_sha256
+    }
+    pub const fn computation_sha256(&self) -> [u8; 32] {
+        self.computation_sha256
+    }
+    pub const fn paint_index(&self) -> u32 {
+        self.paint_index
+    }
+    pub const fn logical_ordinal(&self) -> u32 {
+        self.logical_ordinal
+    }
+}
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum PdfFontClusterSource {
+    Text(DisplayTextSpan),
+    NativeMathGlyph(NativeMathGlyphSource),
+}
+
+/// One selected text cluster or native math glyph with its nominal source.
+/// The resource finalizer never reshapes or normalizes this input.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct StagingPdfTextClusterUsage {
     font_face_id: FontFaceId,
-    text_span: DisplayTextSpan,
+    source: PdfFontClusterSource,
     exact_text: String,
     glyphs: Vec<OriginalGlyphId>,
 }
@@ -45,7 +76,7 @@ impl StagingPdfTextClusterUsage {
         }
         Ok(Self {
             font_face_id,
-            text_span,
+            source: PdfFontClusterSource::Text(text_span),
             exact_text,
             glyphs,
         })
@@ -55,8 +86,66 @@ impl StagingPdfTextClusterUsage {
         self.font_face_id
     }
 
-    pub const fn text_span(&self) -> DisplayTextSpan {
-        self.text_span
+    pub const fn source(&self) -> &PdfFontClusterSource {
+        &self.source
+    }
+    pub const fn text_span(&self) -> Option<DisplayTextSpan> {
+        match self.source {
+            PdfFontClusterSource::Text(span) => Some(span),
+            _ => None,
+        }
+    }
+    pub fn from_native_math_glyph(
+        draw: &typaxis_display_list::ProductionBodyNativeMathDraw<'_>,
+        paint_index: usize,
+    ) -> Result<Self, ResourceError> {
+        let Some(typaxis_display_list::ProductionNativeMathPaint::Glyph {
+            original_gid,
+            unicode,
+            logical_ordinal,
+            ..
+        }) = draw.paints().get(paint_index)
+        else {
+            return Err(ResourceError::InvalidFontPlan);
+        };
+        Ok(Self {
+            font_face_id: draw.receipt().font_face_id(),
+            source: PdfFontClusterSource::NativeMathGlyph(NativeMathGlyphSource {
+                owner: draw.owner(),
+                receipt_sha256: draw.receipt().key().bytes(),
+                computation_sha256: draw.receipt().computation().fingerprint(),
+                paint_index: u32::try_from(paint_index)
+                    .map_err(|_| ResourceError::ResourceLimit)?,
+                logical_ordinal: *logical_ordinal,
+            }),
+            exact_text: unicode.to_string(),
+            glyphs: vec![*original_gid],
+        })
+    }
+    fn extraction_plan(
+        &self,
+        cids: Vec<Cid>,
+        unicode: Vec<UnicodeScalar>,
+        actual: bool,
+    ) -> ClusterExtractionPlan {
+        match &self.source {
+            PdfFontClusterSource::Text(text_span) if actual => ClusterExtractionPlan::ActualText {
+                text_span: *text_span,
+                cids,
+                unicode,
+            },
+            PdfFontClusterSource::Text(text_span) => ClusterExtractionPlan::PerCid {
+                text_span: *text_span,
+                cids,
+            },
+            PdfFontClusterSource::NativeMathGlyph(source) => {
+                ClusterExtractionPlan::NativeMathGlyph {
+                    source: source.clone(),
+                    cids,
+                    unicode,
+                }
+            }
+        }
     }
 
     pub fn exact_text(&self) -> &str {
@@ -76,8 +165,11 @@ pub struct FrozenStagingPdfTextClusterPlan {
 }
 
 impl FrozenStagingPdfTextClusterPlan {
-    pub const fn text_span(&self) -> DisplayTextSpan {
-        self.usage.text_span
+    pub const fn source(&self) -> &PdfFontClusterSource {
+        self.usage.source()
+    }
+    pub const fn text_span(&self) -> Option<DisplayTextSpan> {
+        self.usage.text_span()
     }
 
     pub fn exact_text(&self) -> &str {
@@ -123,11 +215,17 @@ impl FrozenStagingPdfTextFontPlan {
         exact_text: &str,
         glyphs: &[OriginalGlyphId],
     ) -> Option<&FrozenStagingPdfTextClusterPlan> {
-        self.clusters.iter().find(|cluster| {
-            cluster.text_span() == text_span
-                && cluster.exact_text() == exact_text
-                && cluster.glyphs() == glyphs
-        })
+        // Every plan is built in the BTreeSet usage order, within one face.
+        self.clusters
+            .binary_search_by(|cluster| {
+                cluster
+                    .source()
+                    .cmp(&PdfFontClusterSource::Text(text_span))
+                    .then_with(|| cluster.exact_text().cmp(exact_text))
+                    .then_with(|| cluster.glyphs().cmp(glyphs))
+            })
+            .ok()
+            .map(|index| &self.clusters[index])
     }
 }
 
@@ -137,6 +235,24 @@ pub fn finalize_staging_pdf_text_fonts(
     admitted: &AdmittedResourceLedger,
     usages: &[StagingPdfTextClusterUsage],
     limits: &ValidatedResourceLimits,
+) -> Result<Vec<FrozenStagingPdfTextFontPlan>, ResourceError> {
+    finalize_text_fonts(admitted, usages, limits, false)
+}
+
+// Only the sealed production display bridge may authorize this input.
+pub(crate) fn finalize_production_text_fonts(
+    admitted: &AdmittedResourceLedger,
+    usages: &[StagingPdfTextClusterUsage],
+    limits: &ValidatedResourceLimits,
+) -> Result<Vec<FrozenStagingPdfTextFontPlan>, ResourceError> {
+    finalize_text_fonts(admitted, usages, limits, true)
+}
+
+fn finalize_text_fonts(
+    admitted: &AdmittedResourceLedger,
+    usages: &[StagingPdfTextClusterUsage],
+    limits: &ValidatedResourceLimits,
+    shared_cids: bool,
 ) -> Result<Vec<FrozenStagingPdfTextFontPlan>, ResourceError> {
     if usages.is_empty() {
         return Ok(Vec::new());
@@ -171,14 +287,14 @@ pub fn finalize_staging_pdf_text_fonts(
             let session =
                 cff1_session.get_or_insert_with(|| Cff1SubsetSession::from_admission(admission));
             let subset = session
-                .subset(
+                .subset_detailed(
                     admission,
                     font_face_id,
                     FontInstanceId::new(font_face_id.get()),
                     &requested,
                     limits.get().max_cids_per_font,
                 )
-                .map_err(ResourceError::Cff1)?;
+                .map_err(|failure| ResourceError::Cff1Detailed { font_face_id, failure })?;
             let (cid_bindings, extraction_plans, frozen_clusters) =
                 build_staging_cff1_plans(&clusters, &subset, limits)?;
             let receipt = owner.issue_cff1_font(Cff1FontEncoderOutput {
@@ -223,79 +339,80 @@ pub fn finalize_staging_pdf_text_fonts(
             admitted_font.face_index(),
             &requested,
         )?;
-        let mut cid_bindings = Vec::new();
-        let mut extraction_plans = Vec::new();
-        let mut frozen_clusters = Vec::new();
-        extraction_plans
-            .try_reserve_exact(clusters.len())
-            .map_err(|_| ResourceError::ResourceLimit)?;
-        frozen_clusters
-            .try_reserve_exact(clusters.len())
-            .map_err(|_| ResourceError::ResourceLimit)?;
-        for usage in clusters {
-            let scalars = usage
-                .exact_text
-                .chars()
-                .map(UnicodeScalar::new)
-                .collect::<Vec<_>>();
-            let per_cid = scalars.len() == usage.glyphs.len();
-            let mut cids = Vec::new();
-            cids.try_reserve_exact(usage.glyphs.len())
+        let (cid_bindings, extraction_plans, frozen_clusters) = if shared_cids {
+            build_production_truetype_plans(
+                &clusters,
+                &subset,
+                admitted_font.metadata().units_per_em,
+                limits,
+            )?
+        } else {
+            let mut cid_bindings = Vec::new();
+            let mut extraction_plans = Vec::new();
+            let mut frozen_clusters = Vec::new();
+            extraction_plans
+                .try_reserve_exact(clusters.len())
                 .map_err(|_| ResourceError::ResourceLimit)?;
-            for (index, glyph) in usage.glyphs.iter().enumerate() {
-                let next = cid_bindings
-                    .len()
-                    .checked_add(1)
-                    .ok_or(ResourceError::ResourceLimit)?;
-                if next > usize::from(limits.get().max_cids_per_font) {
-                    return Err(ResourceError::ResourceLimit);
+            frozen_clusters
+                .try_reserve_exact(clusters.len())
+                .map_err(|_| ResourceError::ResourceLimit)?;
+            for usage in clusters {
+                let scalars = usage
+                    .exact_text
+                    .chars()
+                    .map(UnicodeScalar::new)
+                    .collect::<Vec<_>>();
+                let per_cid = scalars.len() == usage.glyphs.len();
+                let mut cids = Vec::new();
+                cids.try_reserve_exact(usage.glyphs.len())
+                    .map_err(|_| ResourceError::ResourceLimit)?;
+                for (index, glyph) in usage.glyphs.iter().enumerate() {
+                    let next = cid_bindings
+                        .len()
+                        .checked_add(1)
+                        .ok_or(ResourceError::ResourceLimit)?;
+                    if next > usize::from(limits.get().max_cids_per_font) {
+                        return Err(ResourceError::ResourceLimit);
+                    }
+                    let cid =
+                        Cid::new(u16::try_from(next).map_err(|_| ResourceError::ResourceLimit)?)
+                            .ok_or(ResourceError::ResourceLimit)?;
+                    let subset_gid = *subset
+                        .original_to_subset
+                        .get(glyph)
+                        .ok_or(ResourceError::InvalidFontPlan)?;
+                    let advance = *subset
+                        .original_widths
+                        .get(glyph)
+                        .ok_or(ResourceError::InvalidFontPlan)?;
+                    let width_1000 = u32::try_from(
+                        (u64::from(advance) * 1_000
+                            + u64::from(admitted_font.metadata().units_per_em) / 2)
+                            / u64::from(admitted_font.metadata().units_per_em),
+                    )
+                    .map_err(|_| ResourceError::InvalidFontPlan)?;
+                    cid_bindings.push(CidBinding {
+                        cid,
+                        subset_gid,
+                        unicode: if per_cid {
+                            vec![scalars[index]]
+                        } else {
+                            Vec::new()
+                        },
+                        width_1000,
+                    });
+                    cids.push(cid);
                 }
-                let cid = Cid::new(u16::try_from(next).map_err(|_| ResourceError::ResourceLimit)?)
-                    .ok_or(ResourceError::ResourceLimit)?;
-                let subset_gid = *subset
-                    .original_to_subset
-                    .get(glyph)
-                    .ok_or(ResourceError::InvalidFontPlan)?;
-                let advance = *subset
-                    .original_widths
-                    .get(glyph)
-                    .ok_or(ResourceError::InvalidFontPlan)?;
-                let width_1000 = u32::try_from(
-                    (u64::from(advance) * 1_000
-                        + u64::from(admitted_font.metadata().units_per_em) / 2)
-                        / u64::from(admitted_font.metadata().units_per_em),
-                )
-                .map_err(|_| ResourceError::InvalidFontPlan)?;
-                cid_bindings.push(CidBinding {
-                    cid,
-                    subset_gid,
-                    unicode: if per_cid {
-                        vec![scalars[index]]
-                    } else {
-                        Vec::new()
-                    },
-                    width_1000,
+                extraction_plans.push(usage.extraction_plan(cids.clone(), scalars, !per_cid));
+                frozen_clusters.push(FrozenStagingPdfTextClusterPlan {
+                    usage,
+                    cids,
+                    requires_actual_text: !per_cid,
                 });
-                cids.push(cid);
             }
-            extraction_plans.push(if per_cid {
-                ClusterExtractionPlan::PerCid {
-                    text_span: usage.text_span,
-                    cids: cids.clone(),
-                }
-            } else {
-                ClusterExtractionPlan::ActualText {
-                    text_span: usage.text_span,
-                    cids: cids.clone(),
-                    unicode: scalars,
-                }
-            });
-            frozen_clusters.push(FrozenStagingPdfTextClusterPlan {
-                usage,
-                cids,
-                requires_actual_text: !per_cid,
-            });
-        }
+
+            (cid_bindings, extraction_plans, frozen_clusters)
+        };
 
         let glyphs = subset
             .original_to_subset
@@ -483,18 +600,7 @@ fn build_staging_cff1_plans(
             .flat_map(|cid| bindings[usize::from(cid.get()) - 1].unicode.iter().copied())
             .collect::<Vec<_>>();
         let requires_actual_text = extracted != scalars;
-        extraction_plans.push(if requires_actual_text {
-            ClusterExtractionPlan::ActualText {
-                text_span: usage.text_span,
-                cids: cids.clone(),
-                unicode: scalars,
-            }
-        } else {
-            ClusterExtractionPlan::PerCid {
-                text_span: usage.text_span,
-                cids: cids.clone(),
-            }
-        });
+        extraction_plans.push(usage.extraction_plan(cids.clone(), scalars, requires_actual_text));
         frozen_clusters.push(FrozenStagingPdfTextClusterPlan {
             usage,
             cids,
@@ -502,4 +608,193 @@ fn build_staging_cff1_plans(
         });
     }
     Ok((bindings, extraction_plans, frozen_clusters))
+}
+
+// Pure Unicode-claim merge shared with book-2. Each caller still verifies
+// and owns its original source/glyph occurrence; no receipt is translated.
+pub(crate) fn merge_single_glyph_unicode(
+    current: Option<UnicodeScalar>, observed: UnicodeScalar,
+) -> Option<UnicodeScalar> {
+    current.filter(|value| *value == observed)
+}
+
+/// CID count follows glyph diversity, while extraction remains occurrence-local.
+fn build_production_truetype_plans(
+    clusters: &BTreeSet<StagingPdfTextClusterUsage>,
+    subset: &super::TrueTypeSubset,
+    units_per_em: u16,
+    limits: &ValidatedResourceLimits,
+) -> Result<StagingCff1Plans, ResourceError> {
+    let mut unicode_by_glyph = BTreeMap::<OriginalGlyphId, Option<UnicodeScalar>>::new();
+    let mut requested = BTreeSet::new();
+    for cluster in clusters {
+        for glyph in &cluster.glyphs {
+            if glyph.get() == 0 {
+                return Err(ResourceError::InvalidFontPlan);
+            }
+            requested.insert(*glyph);
+        }
+        let mut chars = cluster.exact_text.chars();
+        let first = chars.next();
+        if cluster.glyphs.len() == 1 && first.is_some() && chars.next().is_none() {
+            let scalar = UnicodeScalar::new(first.unwrap());
+            unicode_by_glyph
+                .entry(cluster.glyphs[0])
+                .and_modify(|current| {
+                    *current = merge_single_glyph_unicode(*current, scalar);
+                })
+                .or_insert(Some(scalar));
+        }
+    }
+    if requested.len() > usize::from(limits.get().max_cids_per_font) {
+        return Err(ResourceError::ResourceLimit);
+    }
+    let mut bindings = Vec::new();
+    bindings
+        .try_reserve_exact(requested.len())
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    let mut cid_by_glyph = BTreeMap::new();
+    for glyph in requested {
+        let cid =
+            Cid::new(u16::try_from(bindings.len() + 1).map_err(|_| ResourceError::ResourceLimit)?)
+                .ok_or(ResourceError::ResourceLimit)?;
+        let subset_gid = *subset
+            .original_to_subset
+            .get(&glyph)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        let advance = *subset
+            .original_widths
+            .get(&glyph)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        let units = u64::from(units_per_em);
+        if units == 0 {
+            return Err(ResourceError::InvalidFontPlan);
+        }
+        let width_1000 = u32::try_from((u64::from(advance) * 1000 + units / 2) / units)
+            .map_err(|_| ResourceError::InvalidFontPlan)?;
+        bindings.push(CidBinding {
+            cid,
+            subset_gid,
+            width_1000,
+            unicode: unicode_by_glyph
+                .get(&glyph)
+                .copied()
+                .flatten()
+                .into_iter()
+                .collect(),
+        });
+        cid_by_glyph.insert(glyph, cid);
+    }
+    let mut extraction = Vec::new();
+    let mut frozen = Vec::new();
+    extraction
+        .try_reserve_exact(clusters.len())
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    frozen
+        .try_reserve_exact(clusters.len())
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    for usage in clusters.iter().cloned() {
+        let cids = usage
+            .glyphs
+            .iter()
+            .map(|g| {
+                cid_by_glyph
+                    .get(g)
+                    .copied()
+                    .ok_or(ResourceError::InvalidFontPlan)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let scalars = usage
+            .exact_text
+            .chars()
+            .map(UnicodeScalar::new)
+            .collect::<Vec<_>>();
+        let extracted = cids
+            .iter()
+            .flat_map(|cid| bindings[usize::from(cid.get()) - 1].unicode.iter().copied());
+        let requires_actual_text = !extracted.eq(scalars.iter().copied());
+        extraction.push(usage.extraction_plan(cids.clone(), scalars, requires_actual_text));
+        frozen.push(FrozenStagingPdfTextClusterPlan {
+            usage,
+            cids,
+            requires_actual_text,
+        });
+    }
+    Ok((bindings, extraction, frozen))
+}
+
+#[cfg(test)]
+mod production_tests {
+    use super::*;
+    use typaxis_core::{DisplayTextBufferId, ResourceLimits, Utf8ByteOffset};
+    fn usage(index: u32, text: &str, gids: &[u16]) -> StagingPdfTextClusterUsage {
+        StagingPdfTextClusterUsage::new(
+            FontFaceId::new(0),
+            DisplayTextSpan::new(
+                DisplayTextBufferId::new(index),
+                Utf8ByteOffset::new(0),
+                Utf8ByteOffset::new(text.len() as u32),
+            )
+            .unwrap(),
+            text.to_owned(),
+            gids.iter().map(|g| OriginalGlyphId::new(*g)).collect(),
+        )
+        .unwrap()
+    }
+    #[test]
+    fn production_shared_cids_preserve_ambiguous_ligature_and_multiglyph_cluster_text() {
+        // These are intentional mapping-level usages, not an authored-shape receipt.
+        let clusters = [
+            usage(0, "A", &[1]),
+            usage(1, "B", &[1]),
+            usage(2, "fi", &[2]),
+            usage(3, "e\u{301}", &[1, 2]),
+            usage(4, "AB", &[1, 2]),
+        ]
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+        let source = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/profiles/basic-document-1/combined/job/body.ttf"
+        ));
+        let requested = [OriginalGlyphId::new(1), OriginalGlyphId::new(2)]
+            .into_iter()
+            .collect();
+        let subset = subset_truetype(source, 0, &requested).unwrap();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let (bindings, extraction, frozen) =
+            build_production_truetype_plans(&clusters, &subset, 1000, &limits).unwrap();
+        assert_eq!(bindings.len(), 2);
+        assert!(bindings.iter().all(|b| b.unicode.is_empty()));
+        assert!(frozen.iter().all(|c| c.requires_actual_text()));
+        for (cluster, plan) in frozen.iter().zip(extraction) {
+            let ClusterExtractionPlan::ActualText {
+                unicode,
+                text_span,
+                cids,
+            } = plan
+            else {
+                panic!("exact cluster text")
+            };
+            assert_eq!(Some(text_span), cluster.text_span());
+            assert_eq!(cids, cluster.cids());
+            assert_eq!(
+                unicode,
+                cluster
+                    .exact_text()
+                    .chars()
+                    .map(UnicodeScalar::new)
+                    .collect::<Vec<_>>()
+            );
+        }
+        let lower = ValidatedResourceLimits::new(ResourceLimits {
+            max_cids_per_font: 1,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert_eq!(
+            build_production_truetype_plans(&clusters, &subset, 1000, &lower),
+            Err(ResourceError::ResourceLimit)
+        );
+    }
 }

@@ -1,0 +1,71 @@
+{
+  "actual_text_count": 20,
+  "algorithm": "typaxis.production-book-pdf-validator/1",
+  "alternative_count": 2,
+  "document_language": "ja",
+  "form_count": 2,
+  "form_use_count": 2,
+  "image_count": 0,
+  "link_count": 1,
+  "object_count": 66,
+  "outline_count": 1,
+  "page_count": 1,
+  "pdf_sha256": "0a3e0fea2f6eb01208eba383bf8a61ca3dbcfc795a6b4f3f87d87e4aaddf354f",
+  "structure_count": 40,
+  "structure_roles_sha256": "7c1e10dbb09d5f90bc34bae47e02da87d8d0735e39e3f4d489c9ef940744b787",
+  "type0_font_count": 1,
+  "formal_record": {
+    "block_type": "theorem",
+    "owner_node_id": 14,
+    "vmb_id": "result.test",
+    "origin": {
+      "path": "book/chapter.json",
+      "pointer": "/blocks/0",
+      "vmb_id": "body.test",
+      "line_start": 2,
+      "line_end": 5
+    },
+    "formal_origin": {
+      "path": "formal/results/de-morgan.json",
+      "pointer": "",
+      "vmb_id": "formal.thm.logic.de-morgan",
+      "line_start": 1,
+      "line_end": 59
+    },
+    "statement_json": "{\"resultId\":\"formal.thm.logic.de-morgan\",\"formalName\":\"de_morgan_and_not\",\"statementUnitIds\":[\"text.thm.logic.de-morgan.statement\"],\"mode\":\"collapsible\",\"sourceResourceId\":\"resource.formalsource.formal.thm.logic.de-morgan\"}",
+    "anchor_id": "formal.statement.test",
+    "parent_id": 14,
+    "heading_node_id": 25,
+    "code_node_id": 30,
+    "source_resource": {
+      "id": "resource.formalsource.formal.thm.logic.de-morgan",
+      "kind": "formalSource",
+      "path": "formal/npa/source/de_morgan.npa",
+      "mediaType": "text/plain",
+      "sha256": "sha256:90c5cd7a935e8db988bd056bf74096212e024eb2bc8ce340bbdf519dda840c55"
+    },
+    "source_uri": "formal-sources/90c5cd7a935e8db988bd056bf74096212e024eb2bc8ce340bbdf519dda840c55.npa",
+    "source_bytes": 153,
+    "tab_width": 4
+  },
+  "original_npa_bytes": 153,
+  "original_npa_sha256": "90c5cd7a935e8db988bd056bf74096212e024eb2bc8ce340bbdf519dda840c55",
+  "literal_code_lines": [
+    "package verified_math_intro.logic",
+    "",
+    "theorem de_morgan_and_not (P Q : Prop) :",
+    "  Not (And P Q) <-> Or (Not P) (Not Q) := by",
+    "  certificate de_morgan_and_not"
+  ],
+  "math_geometry": [
+    [
+      3,
+      72
+    ],
+    [
+      16,
+      300
+    ]
+  ],
+  "extraction": "Poppler raw and MuPDF source order match ignoring whitespace"
+}

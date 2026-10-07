@@ -1,0 +1,1 @@
+{"contract":"typaxis.contract/1.4","diagnostics":[{"code":"P1102","location":{"byte_offset":null,"json_pointer":"/resources/font_faces/1","kind":"package_json","uri":"unsupported-kind.json"},"message":"DocumentPackage FontFaces budget 1 was exceeded by 2","notes":[],"severity":"error"}]}

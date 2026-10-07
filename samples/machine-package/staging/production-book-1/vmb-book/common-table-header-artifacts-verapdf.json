@@ -1,0 +1,109 @@
+{
+  "scope": "Six synthetic source-table inputs through the public in-process book writer and final four manifests.",
+  "verapdf_version": "1.30.2",
+  "profile": "PDF/UA-1",
+  "compliant": 6,
+  "non_compliant": 0,
+  "stderr_bytes": 0,
+  "report": "common-table-header-artifacts-verapdf.xml",
+  "report_sha256": "dfae711782de36b2dfd353bbd875d080dde202bc21a123fe72230d5f4db21c32",
+  "test": "production_public_book_uses_common_selection_and_manifest_chain",
+  "cases": [
+    {
+      "fixture": "single-page-table",
+      "pdf_sha256": "7c1980c7657e18fe9abb57dad6cdeb77b8a976ca5e147c2045e76d8af049725d",
+      "pdf_bytes": 28305,
+      "package_sha256": "03e50576a81ff58b3d104564b1cd976c3f968e1dc52aeec65bcb713c0d58cacb",
+      "pages": 1,
+      "formula_speech_occurrences": 2,
+      "extracted_sha256": "f209e775dcb6e3dbfc7d106c90bdcaa99d72ed421bd773071cf167d51bf23619",
+      "validation": {
+        "passedRules": 106,
+        "failedRules": 0,
+        "passedChecks": 460,
+        "failedChecks": 0
+      }
+    },
+    {
+      "fixture": "table-header",
+      "pdf_sha256": "e43eccc17bfbdaa0f71babfcc7174002eea95734de4c2d3f2988c4aea25c3546",
+      "pdf_bytes": 22053,
+      "package_sha256": "6a4054abc94a5b12920a46927f52324a6337daeff5411ef79bdb9b80557ecee3",
+      "pages": 2,
+      "formula_speech_occurrences": 1,
+      "extracted_sha256": "2dff580712617eba8c8c9c3b4336cdab8d08cc4bdad7f603fa25716a6b805a9b",
+      "validation": {
+        "passedRules": 106,
+        "failedRules": 0,
+        "passedChecks": 571,
+        "failedChecks": 0
+      }
+    },
+    {
+      "fixture": "table-header-tail",
+      "pdf_sha256": "df1f20bbc37114b21d35177405c98ed65a971559418536bda2c8e477cac64ae0",
+      "pdf_bytes": 23152,
+      "package_sha256": "38551982d417b769f5e2db10d2824f3535534220eb7457ea7da8a795ce0736e9",
+      "pages": 3,
+      "formula_speech_occurrences": 2,
+      "extracted_sha256": "37c0317bb4053f8357b422ce6929473fc07b0c0fe8360217c794a8b55624d15d",
+      "validation": {
+        "passedRules": 106,
+        "failedRules": 0,
+        "passedChecks": 601,
+        "failedChecks": 0
+      }
+    },
+    {
+      "fixture": "table-header-numbered",
+      "pdf_sha256": "cfad3c11be7f20fec7e5d6311a244957d2176397611a79ad0a034f3955b2361b",
+      "pdf_bytes": 24536,
+      "package_sha256": "08f96d6927f7b476302c620e685b00a50d5c4e952533c1389fbf18579225aa9d",
+      "pages": 2,
+      "formula_speech_occurrences": 1,
+      "extracted_sha256": "2dd73148e7ee1d8eb89a8ffd6f0ca07fea5e261eab13cb75d3ef19af746c3f12",
+      "validation": {
+        "passedRules": 106,
+        "failedRules": 0,
+        "passedChecks": 615,
+        "failedChecks": 0
+      }
+    },
+    {
+      "fixture": "table-header-inline",
+      "pdf_sha256": "88625e27fca12e6af593c62ffdb91b89a3ad9565fc5ae90a391878f5310fe46c",
+      "pdf_bytes": 23518,
+      "package_sha256": "6b8d3e0c3b075d18e1e526d09893ed38ba7a0c10b7e378db33e5edd70dea751e",
+      "pages": 2,
+      "formula_speech_occurrences": 1,
+      "extracted_sha256": "cdbf41c1d3ecd5a4797d8f1185972ae941c7ad928d3bfc888352482aa3af6861",
+      "validation": {
+        "passedRules": 106,
+        "failedRules": 0,
+        "passedChecks": 669,
+        "failedChecks": 0
+      }
+    },
+    {
+      "fixture": "table-footnotes",
+      "pdf_sha256": "b1efeaae5740c001a7754a3261499234c66ba19c0245f41c4757d02532afeeaf",
+      "pdf_bytes": 25069,
+      "package_sha256": "2914e6b8f03a624a80fb94399ba84cb30f20c7317198c2888bbb4f1d84c57551",
+      "pages": 2,
+      "formula_speech_occurrences": 0,
+      "extracted_sha256": "b701ae02beed1bbfdc7f06c7644d6295743209f02313fdc08d2608a49d8e7e57",
+      "validation": {
+        "passedRules": 106,
+        "failedRules": 0,
+        "passedChecks": 1188,
+        "failedChecks": 0
+      }
+    }
+  ],
+  "limitations": [
+    "Not the full combined public CLI fixture; that fixture still exceeds the configured footnote reflow ceiling.",
+    "No nested-table, table-cell forced-break, or table-in-footnote completion claim.",
+    "The synthetic body font has zero-contour A/B glyphs. Real formula ink and source text extraction are independently checked.",
+    "No full-book, managed-host, scale, or human PDF/UA acceptance claim."
+  ]
+}

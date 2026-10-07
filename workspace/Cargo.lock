@@ -412,17 +412,20 @@ name = "typaxis-cli"
 version = "0.1.0"
 dependencies = [
  "rustix",
+ "serde_json",
  "toml",
  "typaxis-core",
  "typaxis-diagnostics",
  "typaxis-display-list",
  "typaxis-document",
  "typaxis-document-package",
+ "typaxis-font",
  "typaxis-layout",
  "typaxis-linebreak",
  "typaxis-machine-input",
  "typaxis-machine-profile",
  "typaxis-manifest",
+ "typaxis-math",
  "typaxis-pagination",
  "typaxis-pdf",
  "typaxis-resources",
@@ -540,6 +543,7 @@ dependencies = [
 name = "typaxis-machine-input"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "typaxis-core",
  "typaxis-document-package",
  "typaxis-host-admission",
@@ -631,6 +635,7 @@ dependencies = [
 name = "typaxis-resources"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "png",
  "read-fonts",
  "typaxis-core",
@@ -640,6 +645,7 @@ dependencies = [
  "typaxis-layout",
  "typaxis-pagination",
  "typaxis-resource-admission",
+ "typaxis-shaping",
  "typaxis-style",
  "typaxis-syntax",
  "typaxis-text",
@@ -674,6 +680,7 @@ dependencies = [
 name = "typaxis-syntax"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "typaxis-core",
  "typaxis-diagnostics",
  "typaxis-document",

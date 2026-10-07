@@ -574,6 +574,9 @@ fn collect_safe_vector_figures(
             | StagingM4Block::SemanticContainer {
                 blocks: caption, ..
             } => collect_safe_vector_figures(caption, admitted, output)?,
+            StagingM4Block::DescriptionList { .. } => {
+                return Err(StagingCombinedVectorDisplayErrorV2::ReceiptMismatch);
+            }
             StagingM4Block::List { items, .. } => {
                 for item in items {
                     collect_safe_vector_figures(&item.blocks, admitted, output)?;

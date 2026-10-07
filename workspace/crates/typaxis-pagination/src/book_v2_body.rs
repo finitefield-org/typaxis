@@ -1,0 +1,436 @@
+//! Combined source-ordered measurements under the exact successor owners.
+use super::*;
+#[path = "book_v2_column_flow.rs"]
+mod column_flow;
+pub use column_flow::*;
+
+#[derive(Clone, Copy)]
+enum SourceFramePlan<'p, 'a> {
+    Pages(&'p typaxis_syntax::book_v2::BookV2PageFramePlan<'a>),
+    Columns(&'p typaxis_syntax::book_v2::BookV2ColumnFramePlan<'a>),
+}
+impl SourceFramePlan<'_, '_> {
+    fn has_source_names(self) -> bool {
+        match self {
+            Self::Pages(plan) => plan.has_source_names(),
+            Self::Columns(plan) => plan.has_source_names(),
+        }
+    }
+    fn source_name_index(self, owner: NodeId) -> Option<usize> {
+        match self {
+            Self::Pages(plan) => plan.source_name_index(owner),
+            Self::Columns(plan) => plan.source_name_index(owner),
+        }
+    }
+}
+use typaxis_layout::book_v2::{
+    BookV2FootnoteLines, BookV2InlineLineLayout, BookV2VectorBlockLayout,
+};
+
+/// Paragraphs, vector/native display math, figures and definition streams.
+/// Table boundaries are retained around their actual cell leaves; cell streams
+/// are not yet measured as rows or selected as pages by this owner.
+pub struct BookV2PreparedBodyFlow<'f, 's, 'p, 'a> {
+    lines: &'s BookV2InlineLineLayout<'p, 'a>,
+    blocks: Option<&'f BookV2VectorBlockLayout<'s, 'p, 'a>>,
+    footnotes: &'f BookV2FootnoteLines<'s, 'p, 'a>,
+    pub(super) collected: CollectedItems,
+    pub(super) definition_markers: Vec<ProductionFootnoteMarkerBinding>,
+    references: Vec<ProductionFootnoteFlowReference<'f>>,
+    record_charge: u64,
+    prior_records: u64,
+    limits_fingerprint: [u8; 32],
+    source_page_names: Vec<Option<usize>>,
+    named_definitions: bool,
+    table_page_names: Vec<TablePageName>,
+}
+#[derive(Clone, Copy)]
+struct TablePageName {
+    initial: Option<usize>,
+    transitions: bool,
+}
+impl<'f, 's, 'p, 'a> BookV2PreparedBodyFlow<'f, 's, 'p, 'a> {
+    pub(in crate::production_body::body_flow) fn source_owner_page_name(&self, owner: NodeId) -> Option<usize> {
+        let frames = self.lines.frames()?;
+        frames.page_plan().and_then(|p| p.source_name_index(owner))
+            .or_else(|| frames.column_plan().and_then(|p| p.source_name_index(owner)))
+    }
+    pub fn body_page_name_index(&self, item: usize) -> Option<usize> {
+        (item < self.collected.body_end).then(|| self.source_page_name_index(item)).flatten()
+    }
+    pub(super) fn source_page_name_index(&self, item: usize) -> Option<usize> {
+        self.source_page_names.get(item).copied().flatten()
+    }
+    /// The original request at this local definition item, before page selection.
+    pub fn definition_page_name_index(&self, definition: usize, item: usize) -> Option<usize> {
+        let range = self.collected.definitions.get(definition)?;
+        (item < range.len()).then(|| self.source_page_name_index(range.start + item)).flatten()
+    }
+    pub(super) fn has_named_definitions(&self) -> bool { self.named_definitions }
+    /// Initial physical name of table content, or its own name when empty.
+    /// The source plan retains the table owner's original enclosing name.
+    pub fn table_page_name_index(&self, table: usize) -> Option<usize> {
+        self.table_page_names.get(table).and_then(|n| n.initial)
+    }
+    pub(super) fn table_has_page_name_transitions(&self, table: usize) -> bool {
+        self.table_page_names.get(table).is_some_and(|n| n.transitions)
+    }
+    pub fn body_items(&self) -> &[ProductionBodyFlowItem] {
+        &self.collected.items[..self.collected.body_end]
+    }
+    pub fn definition_items(&self, index: usize) -> Option<&[ProductionBodyFlowItem]> {
+        self.collected
+            .definitions
+            .get(index)
+            .map(|r| &self.collected.items[r.clone()])
+    }
+    pub fn definition_marker(&self, index: usize) -> Option<&ProductionFootnoteMarkerBinding> {
+        self.definition_markers.get(index)
+    }
+    pub fn references(&self) -> &[ProductionFootnoteFlowReference<'f>] {
+        &self.references
+    }
+    pub fn references_in_items(
+        &self,
+        source_definition: Option<usize>,
+        range: std::ops::Range<usize>,
+    ) -> &[ProductionFootnoteFlowReference<'f>] {
+        super::references_in_items(&self.references, source_definition, range)
+    }
+    pub fn list_marker_count(&self) -> usize {
+        self.collected.marker_bindings.len()
+    }
+    pub fn table_count(&self) -> usize {
+        self.collected.tables.tables.len()
+    }
+    /// Outer None is an unknown table index; inner None is the actual body.
+    /// An empty body table can share a leaf index with a following definition.
+    pub fn table_source_definition(&self, index: usize) -> Option<Option<usize>> {
+        self.collected.tables.tables.get(index).map(|table| table.definition)
+    }
+    pub fn table_parent(&self, index: usize) -> Option<Option<usize>> {
+        self.collected.tables.tables.get(index).map(|table| table.parent)
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.record_charge
+    }
+    pub fn lines(&self) -> &'s BookV2InlineLineLayout<'p, 'a> {
+        self.lines
+    }
+    pub fn blocks(&self) -> Option<&'f BookV2VectorBlockLayout<'s, 'p, 'a>> {
+        self.blocks
+    }
+    pub fn footnotes(&self) -> &'f BookV2FootnoteLines<'s, 'p, 'a> {
+        self.footnotes
+    }
+    pub fn verify(
+        &self,
+        lines: &BookV2InlineLineLayout<'_, '_>,
+        blocks: Option<&BookV2VectorBlockLayout<'_, '_, '_>>,
+        footnotes: &BookV2FootnoteLines<'_, '_, '_>,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        let same_blocks = match (self.blocks, blocks) {
+            (None, None) => true,
+            (Some(a), Some(b)) => std::ptr::eq(a, b),
+            _ => false,
+        };
+        if !std::ptr::eq(self.lines, lines)
+            || !same_blocks
+            || !std::ptr::eq(self.footnotes, footnotes)
+            || self.limits_fingerprint != limits.fingerprint()
+        {
+            return Err(error(NodeId::new(0), E::ReceiptMismatch));
+        }
+        Ok(())
+    }
+}
+/// Collect every actual selected leaf, list label and footnote edge. The prior
+/// count excludes new block/number storage; independent preparations therefore
+/// cannot hide each other's retained records behind a maximum of total counts.
+pub fn prepare_book_v2_body_flow<'f, 's, 'p, 'a>(
+    lines: &'s BookV2InlineLineLayout<'p, 'a>,
+    blocks: Option<&'f BookV2VectorBlockLayout<'s, 'p, 'a>>,
+    footnotes: &'f BookV2FootnoteLines<'s, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    prior_records: u64,
+) -> Result<BookV2PreparedBodyFlow<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    prepare_book_v2_body_flow_counted(lines, blocks, footnotes, limits, prior_records, &mut 0)
+}
+/// Preserve accepted constructor charges when no owner can be returned.
+pub fn prepare_book_v2_body_flow_counted<'f, 's, 'p, 'a>(
+    lines: &'s BookV2InlineLineLayout<'p, 'a>,
+    blocks: Option<&'f BookV2VectorBlockLayout<'s, 'p, 'a>>,
+    footnotes: &'f BookV2FootnoteLines<'s, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    prior_records: u64,
+    observed_records: &mut u64,
+) -> Result<BookV2PreparedBodyFlow<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    prepare_body_flow_in_frames(lines, blocks, footnotes, limits, prior_records, observed_records, false)
+}
+
+fn prepare_body_flow_in_frames<'f, 's, 'p, 'a>(
+    lines: &'s BookV2InlineLineLayout<'p, 'a>,
+    blocks: Option<&'f BookV2VectorBlockLayout<'s, 'p, 'a>>,
+    footnotes: &'f BookV2FootnoteLines<'s, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    prior_records: u64,
+    observed_records: &mut u64,
+    columns: bool,
+) -> Result<BookV2PreparedBodyFlow<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    *observed_records = prior_records
+        .max(footnotes.record_charge())
+        .max(blocks.map_or(0, |b| b.record_charge()));
+    let root = NodeId::new(0);
+    footnotes
+        .verify(lines, limits)
+        .map_err(|e| error(e.owner, E::ReceiptMismatch))?;
+    if let Some(blocks) = blocks {
+        blocks
+            .verify(lines, limits)
+            .map_err(|_| error(root, E::ReceiptMismatch))?;
+    }
+    let frames = lines
+        .frames()
+        .ok_or_else(|| error(root, E::PendingRegion("body_frame")))?;
+    frames
+        .verify(lines.prepared(), frames.body())
+        .map_err(|e| error(e.owner, E::ReceiptMismatch))?;
+    if frames.column_plan().is_some() != columns {
+        return Err(error(root, E::PendingRegion("column_pages")));
+    }
+    if let Some(first) = footnotes.definitions().first() {
+        if frames.footnote_region().is_none() {
+            return Err(error(first.owner(), E::PendingRegion("footnote_frame")));
+        }
+    }
+    let prior_records = prior_records
+        .max(footnotes.record_charge())
+        .max(blocks.map_or(0, |b| b.prior_records()));
+    let base = prior_records
+        .checked_add(blocks.map_or(0, |b| b.retained_records()))
+        .ok_or_else(|| error(root, E::FragmentLimit))?;
+    *observed_records = base;
+    let mut charge = Charge {
+        remaining: limits
+            .base()
+            .get()
+            .max_fragments
+            .checked_sub(base)
+            .ok_or_else(|| error(root, E::FragmentLimit))?,
+    };
+    let result = (|| {
+        charge.take(1, root)?;
+        let view = BodyLines::BookV2(lines);
+        let block_view = BodyBlocks::BookV2(blocks.map_or(&[], |b| b.blocks()));
+        let mut collected = collect_items_shared(
+            view,
+            block_view,
+            frames.body(),
+            Some(footnotes.definitions()),
+            &mut charge,
+            true,
+        )?;
+        let mut source_page_names = Vec::new();
+        let mut table_page_names = Vec::new();
+        let plan = frames.page_plan().map(SourceFramePlan::Pages)
+            .or_else(|| frames.column_plan().map(SourceFramePlan::Columns));
+        if let Some(plan) = plan.filter(|p| p.has_source_names()) {
+            charge.take(
+                collected
+                    .items.len()
+                    .checked_add(collected.tables.tables.len())
+                    .and_then(|n| n.checked_add(2))
+                    .ok_or_else(|| error(root, E::FragmentLimit))?,
+                root,
+            )?;
+            source_page_names
+                .try_reserve_exact(collected.items.len())
+                .map_err(|_| error(root, E::AllocationFailure))?;
+            table_page_names
+                .try_reserve_exact(collected.tables.tables.len())
+                .map_err(|_| error(root, E::AllocationFailure))?;
+            source_page_names.extend(
+                collected.items
+                    .iter()
+                    .map(|i| plan.source_name_index(i.owner)),
+            );
+            for table in &collected.tables.tables {
+                let mut name = plan.source_name_index(table.owner);
+                let mut transitions = false;
+                {
+                    let names = source_page_names
+                        .get(table.items.clone())
+                        .ok_or_else(|| error(table.owner, E::ReceiptMismatch))?;
+                    // A nonempty table starts with its first original content.
+                    // Actual parallel-cell positions resolve subsequent names.
+                    // Roots scan once; children share the root's transition path.
+                    if let Some(first) = names.first() {
+                        name = *first;
+                    }
+                    if table.parent.is_none() {
+                        transitions = names.iter().any(|n| *n != name);
+                    }
+                }
+                table_page_names.push(TablePageName { initial: name, transitions });
+            }
+            // Empty descendants have no leaf name in a root's range. Their own
+            // authored scope still participates in physical page selection.
+            for (index, table) in collected.tables.tables.iter().enumerate() {
+                if !table.items.is_empty() {
+                    continue;
+                }
+                let name = table_page_names[index].initial;
+                let mut parent = table.parent;
+                while let Some(index) = parent {
+                    if table_page_names[index].initial != name {
+                        table_page_names[index].transitions = true;
+                    }
+                    parent = collected.tables.tables[index].parent;
+                }
+            }
+            for (index, table) in collected.tables.tables.iter().enumerate() {
+                if let Some(parent) = table.parent {
+                    table_page_names[index].transitions |= table_page_names[parent].transitions;
+                }
+            }
+        }
+        let named_definitions = source_page_names.get(collected.body_end..)
+            .is_some_and(|names| names.iter().any(Option::is_some))
+            || collected.tables.tables.iter().enumerate().any(|(index, table)| {
+                table.definition.is_some()
+                    && table_page_names.get(index).is_some_and(|name| name.initial.is_some())
+            });
+        let (definition_markers, references) = finish_collection(
+            view,
+            block_view,
+            footnotes.definitions(),
+            footnotes.references(),
+            &mut collected,
+            &mut charge,
+        )?;
+        Ok(BookV2PreparedBodyFlow {
+            lines,
+            blocks,
+            footnotes,
+            collected,
+            definition_markers,
+            references,
+            record_charge: limits.base().get().max_fragments - charge.remaining,
+            prior_records,
+            limits_fingerprint: limits.fingerprint(),
+            source_page_names,
+            named_definitions,
+            table_page_names,
+        })
+    })();
+    *observed_records = limits.base().get().max_fragments - charge.remaining;
+    result
+}
+
+pub const BOOK_V2_TABLE_MEASUREMENT_ALGORITHM: &str = "typaxis.book-2-table-measurements/1";
+#[path = "book_v2_table_header_variant.rs"]
+mod header_variant;
+pub use header_variant::{
+    prepare_book_v2_table_header_variant, prepare_book_v2_table_header_variant_counted, BookV2TableHeaderVariant, BookV2TableHeaderVariantLeaf,
+};
+#[path = "book_v2_table_header_catalog.rs"]
+mod header_catalog;
+pub use header_catalog::{prepare_book_v2_table_header_catalog, prepare_book_v2_table_header_catalog_counted, BookV2TableHeaderCatalog};
+/// Actual row bands and nested child extents, retaining the complete dedicated
+/// body owner. No legacy table/page receipt is minted by this projection.
+pub struct BookV2TableMeasurements<'f, 's, 'p, 'a> {
+    flow: BookV2PreparedBodyFlow<'f, 's, 'p, 'a>,
+    projection: table_measurements::TableMeasurementProjection,
+}
+impl<'f, 's, 'p, 'a> BookV2TableMeasurements<'f, 's, 'p, 'a> {
+    /// Historical input/line records, excluding retained block, body and table
+    /// projections. Exact set membership is still required before sharing lines.
+    pub fn prior_records(&self) -> u64 {
+        self.flow.prior_records
+    }
+    pub fn retained_records(&self) -> u64 {
+        self.record_charge() - self.prior_records()
+    }
+    pub fn flow(&self) -> &BookV2PreparedBodyFlow<'f, 's, 'p, 'a> {
+        &self.flow
+    }
+    pub fn tables(&self) -> &[ProductionMeasuredTable] {
+        &self.projection.tables
+    }
+    pub fn item(&self, index: usize) -> Option<&ProductionBodyFlowItem> {
+        self.flow.collected.items.get(index)
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.projection.record_charge
+    }
+    pub fn fingerprint(&self) -> [u8; 32] {
+        self.projection.fingerprint
+    }
+}
+pub fn prepare_book_v2_table_measurements<'f, 's, 'p, 'a>(
+    flow: BookV2PreparedBodyFlow<'f, 's, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<BookV2TableMeasurements<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    prepare_book_v2_table_measurements_counted(flow, limits, &mut 0)
+}
+/// Preserve accepted constructor charges when no owner can be returned.
+pub fn prepare_book_v2_table_measurements_counted<'f, 's, 'p, 'a>(
+    flow: BookV2PreparedBodyFlow<'f, 's, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    observed_records: &mut u64,
+) -> Result<BookV2TableMeasurements<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    *observed_records = flow.record_charge();
+    flow.verify(flow.lines, flow.blocks, flow.footnotes, limits)?;
+    let projection = table_measurements::project_table_measurements_counted(
+        table_measurements::TableMeasurementInputs {
+            collected: &flow.collected,
+            sources: flow.lines.prepared().source_flow().tables(),
+            prior_records: flow.record_charge(),
+            max_canonical_bytes: Some(limits.base().get().max_spool_bytes),
+            fingerprint_header: [
+                sha256(BOOK_V2_TABLE_MEASUREMENT_ALGORITHM.as_bytes()),
+                flow.lines.fingerprint(),
+                flow.blocks.map_or([0; 32], |b| b.fingerprint()),
+                limits.fingerprint(),
+            ],
+        },
+        limits,
+        observed_records,
+    )?;
+    Ok(BookV2TableMeasurements { flow, projection })
+}
+
+pub use table_measurements::{
+    prepare_book_v2_table_footnote_search, prepare_book_v2_table_footnote_search_counted, BookV2TableFootnoteSearch, BookV2TableFootnoteState, BookV2TableFootnoteSelection,
+    prepare_book_v2_table_search, prepare_book_v2_table_search_counted, BookV2TableBreakSearch, BookV2TableCursor,
+    BookV2TableFragmentSelection, BookV2TableSourceLeaf, BOOK_V2_TABLE_FRAGMENT_ALGORITHM,
+    BookV2TableHeaderFragmentSelection, BookV2TableHeaderPaintLeaf,
+    prepare_book_v2_definition_table_demand_search, prepare_book_v2_definition_table_demand_search_counted,BookV2DefinitionTableDemandSearch,BookV2DefinitionTableDemandState,BookV2DefinitionTableDemandSelection,
+};
+
+pub use footnote_breaks::book_v2::{
+    prepare_book_v2_footnote_search, prepare_book_v2_footnote_search_counted, BookV2FootnoteBreakSearch, BookV2FootnoteCursor,
+    BookV2FootnoteFragmentSelection,
+};
+
+pub use footnote_breaks::{
+    prepare_book_v2_column_page_search_counted, BookV2ColumnPageSearch,
+    prepare_book_v2_column_page_search_with_headers_counted,
+    BookV2ColumnPageState, BookV2ColumnPageCandidate, BookV2ColumnBodyCandidate,
+    BookV2ColumnPageSequenceState, BookV2ColumnPageSelection, BookV2ColumnPageSequence, BookV2ColumnRepeatedPages,
+    BookV2ColumnPlacedBody, BookV2ColumnPlacedHeaderVariant, BookV2ColumnPlacedPage, BookV2ColumnPlacedSequence, BookV2ColumnStablePages,
+    BookV2DefinitionCandidates, BookV2RankedDefinitionCandidate, prepare_book_v2_mixed_footnote_demand_search, prepare_book_v2_mixed_footnote_demand_search_counted, prepare_book_v2_definition_mixed_search, prepare_book_v2_definition_mixed_search_counted, BookV2DefinitionMixedSearch, BookV2DefinitionCandidatePart, BookV2DefinitionSelectedPart, BookV2DefinitionSourceState, BookV2DefinitionMixedCandidate,
+    BookV2FootnoteRegionFragment, BookV2FootnoteRegionSelection,
+    BookV2BodyFootnoteCandidate,
+    BookV2BodyMixedStablePages, BookV2BodyPlacedHeaderVariant, BookV2BodyPlacedEquationNumber, BookV2BodySourceClosure,
+    BookV2TableWidthSource, BookV2TableWidthPiece, BookV2TableWidthOccurrence, BookV2TableWidthOccurrences, BookV2ParagraphWidthCandidate, BookV2ParagraphWidthFeedback, BookV2ColumnWidthFeedback,
+    BookV2BodyMathSource, BookV2BodyMathTerminal, BookV2BodyMathTerminals, BOOK_V2_BODY_MATH_TERMINAL_ALGORITHM,
+    BookV2BodyMixedPlacedPage, BookV2BodyMixedPlacedSequence,
+    BookV2BodyMixedPageState, BookV2BodyMixedPageSelection, BookV2BodyMixedPageSequence,
+    BookV2BodyCandidatePart,BookV2BodySelectedPart,BookV2BodyMixedCandidate,BookV2BodySourceState,
+    prepare_book_v2_table_body_search, prepare_book_v2_table_body_search_with_headers,
+    prepare_book_v2_table_body_search_counted, prepare_book_v2_table_body_search_with_headers_counted,
+    prepare_book_v2_footnote_demand_search, prepare_book_v2_footnote_demand_search_counted, BookV2FootnoteDemandSearch,
+    BookV2FootnoteDemandSelection, BookV2FootnoteDemandState,
+};

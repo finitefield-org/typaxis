@@ -1,3 +1,8 @@
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_vectors.rs"]
+pub mod book_v2;
+#[path = "safe_vector_codec.rs"]
+mod codec;
 use std::collections::BTreeSet;
 use typaxis_core::{
     push_jcs_string, sha256, ImageResourceId, Length, M4EffectiveResourceLimits, NodeId,
@@ -499,9 +504,12 @@ fn build_precomposed_vector_bindings(
         .try_reserve_exact(math_count)
         .map_err(|_| PrecomposedVectorBindingError::AllocationFailure)?;
 
+    let verifier = package
+        .precomposed_vector_verifier()
+        .map_err(|_| PrecomposedVectorBindingError::ReceiptMismatch)?;
     for metrics in package.precomposed_vector_metrics() {
-        package
-            .verify_precomposed_vector_metrics(metrics)
+        verifier
+            .verify_metrics(metrics)
             .map_err(|_| PrecomposedVectorBindingError::ReceiptMismatch)?;
         let owner = metrics.node_id();
         let image_id = metrics.resource_binding().image_id();
@@ -531,7 +539,7 @@ fn build_precomposed_vector_bindings(
             profile,
             limits,
         )?;
-        let placement = bind_precomposed_vector_placement(package, metrics, &resource)?;
+        let placement = bind_precomposed_vector_placement(&verifier, metrics, &resource)?;
         let alternative = metrics.alternative().alternative().to_owned();
         let language = metrics.language().map(|value| value.canonical().to_owned());
         let mut receipt = ValidatedPrecomposedVectorReceipt {
@@ -595,6 +603,44 @@ fn bind_precomposed_vector_resource(
     profile: &StagingPrecomposedVectorProfileAuthorization,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<BoundPrecomposedVectorResource, PrecomposedVectorBindingError> {
+    let resource = bind_vector_resource_core(owner, kind, declaration, attestation, profile.profile_receipt_fingerprint(), limits)?;
+    let declared_media = resource.declared_media();
+    let declared_domain_media = match declared_media {
+        BoundPrecomposedVectorMedia::SafeSvg1 => ImageMediaType::SvgSafe1,
+        BoundPrecomposedVectorMedia::SafeSvg2 => ImageMediaType::SvgSafe2,
+    };
+    let media_identity_matches = match declared_media {
+        BoundPrecomposedVectorMedia::SafeSvg1 => {
+            media_attestation.safe_vector_parser_id().is_none()
+                && media_attestation.safe_vector_ir_id().is_none()
+        }
+        BoundPrecomposedVectorMedia::SafeSvg2 => {
+            media_attestation.safe_vector_parser_id() == Some(attestation.parser_id())
+                && media_attestation.safe_vector_ir_id() == Some(attestation.ir_id())
+        }
+    };
+    if media_attestation.image_id() != attestation.image_id()
+        || media_attestation.declared() != declared_domain_media
+        || media_attestation.attested() != attestation.media_kind()
+        || media_attestation.content_hash() != attestation.source_sha256()
+        || !media_identity_matches
+        || media_attestation.safe_vector_ir_fingerprint() != Some(attestation.ir_fingerprint())
+        || media_attestation.m4_limits_fingerprint() != Some(limits.fingerprint())
+        || media_attestation.m4_profile_fingerprint() != Some(profile.profile_receipt_fingerprint())
+    {
+        return Err(PrecomposedVectorBindingError::ResourceMismatch(owner));
+    }
+    Ok(resource)
+}
+
+fn bind_vector_resource_core(
+    owner: NodeId,
+    kind: PrecomposedVectorKind,
+    declaration: &typaxis_document::StagingM4ImageDeclaration,
+    attestation: &SafeVectorAdmissionAttestation,
+    profile_fingerprint: [u8; 32],
+    limits: &M4EffectiveResourceLimits,
+) -> Result<BoundPrecomposedVectorResource, PrecomposedVectorBindingError> {
     let declared_media = match declaration.media {
         ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1) => {
             BoundPrecomposedVectorMedia::SafeSvg1
@@ -624,20 +670,6 @@ fn bind_precomposed_vector_resource(
         BoundPrecomposedVectorMedia::SafeSvg1 => declaration.vector_provenance.is_none(),
         BoundPrecomposedVectorMedia::SafeSvg2 => declaration.vector_provenance.is_some(),
     };
-    let declared_domain_media = match declared_media {
-        BoundPrecomposedVectorMedia::SafeSvg1 => ImageMediaType::SvgSafe1,
-        BoundPrecomposedVectorMedia::SafeSvg2 => ImageMediaType::SvgSafe2,
-    };
-    let media_identity_matches = match declared_media {
-        BoundPrecomposedVectorMedia::SafeSvg1 => {
-            media_attestation.safe_vector_parser_id().is_none()
-                && media_attestation.safe_vector_ir_id().is_none()
-        }
-        BoundPrecomposedVectorMedia::SafeSvg2 => {
-            media_attestation.safe_vector_parser_id() == Some(attestation.parser_id())
-                && media_attestation.safe_vector_ir_id() == Some(attestation.ir_id())
-        }
-    };
     let expected_hash_matches = match declared_media {
         BoundPrecomposedVectorMedia::SafeSvg1 => declaration
             .expected_sha256
@@ -647,10 +679,6 @@ fn bind_precomposed_vector_resource(
         }
     };
     if declaration.image_id != attestation.image_id()
-        || media_attestation.image_id() != attestation.image_id()
-        || media_attestation.declared() != declared_domain_media
-        || media_attestation.attested() != attestation.media_kind()
-        || media_attestation.content_hash() != attestation.source_sha256()
         || declared_media != admitted_media
         || !kind_media_matches
         || !provenance_matches
@@ -659,11 +687,7 @@ fn bind_precomposed_vector_resource(
         || attestation.ir_id() != attestation.parser_profile().ir_id()
         || attestation.ir_fingerprint_id() != attestation.parser_profile().ir_fingerprint_id()
         || attestation.limits_fingerprint() != limits.fingerprint()
-        || attestation.profile_fingerprint() != profile.profile_receipt_fingerprint()
-        || !media_identity_matches
-        || media_attestation.safe_vector_ir_fingerprint() != Some(attestation.ir_fingerprint())
-        || media_attestation.m4_limits_fingerprint() != Some(limits.fingerprint())
-        || media_attestation.m4_profile_fingerprint() != Some(profile.profile_receipt_fingerprint())
+        || attestation.profile_fingerprint() != profile_fingerprint
     {
         return Err(PrecomposedVectorBindingError::ResourceMismatch(owner));
     }
@@ -686,13 +710,31 @@ fn bind_precomposed_vector_resource(
 }
 
 fn bind_precomposed_vector_placement(
-    package: &ValidatedStagingSemanticPackage,
+    verifier: &typaxis_syntax::PrecomposedVectorVerification<'_>,
     metrics: &typaxis_syntax::ValidatedPrecomposedVectorMetrics,
     resource: &BoundPrecomposedVectorResource,
 ) -> Result<PrecomposedVectorPlacementInput, PrecomposedVectorBindingError> {
+    let package = verifier.package();
     let owner = metrics.node_id();
+    let style = if matches!(metrics.kind(), PrecomposedVectorKind::VectorFigure | PrecomposedVectorKind::MathVectorBlock) {
+        let style = package.precomposed_vector_style(owner)
+            .ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
+        verifier.verify_style(owner, style)
+            .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
+        Some(style)
+    } else { None };
+    bind_vector_placement_core(owner, metrics.kind(), metrics.payload(), style, resource)
+}
+
+fn bind_vector_placement_core(
+    owner: NodeId,
+    kind: PrecomposedVectorKind,
+    payload: PrecomposedVectorMetricPayload,
+    style: Option<&typaxis_style::PrecomposedVectorComputedStyleReceipt>,
+    resource: &BoundPrecomposedVectorResource,
+) -> Result<PrecomposedVectorPlacementInput, PrecomposedVectorBindingError> {
     let paint = ResolvedRgb8::BLACK;
-    let result = match (metrics.kind(), metrics.payload()) {
+    let result = match (kind, payload) {
         (
             PrecomposedVectorKind::InlineVector | PrecomposedVectorKind::MathVector,
             PrecomposedVectorMetricPayload::Inline {
@@ -711,12 +753,7 @@ fn bind_precomposed_vector_placement(
             PrecomposedVectorKind::VectorFigure,
             PrecomposedVectorMetricPayload::Figure { viewport },
         ) => {
-            let style = package
-                .precomposed_vector_style(owner)
-                .ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
-            package
-                .verify_precomposed_vector_style(style)
-                .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
+            let style = style.ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
             let style = VectorFigureStyleInput::from_computed(style)
                 .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
             VectorFigurePlacementInput::from_validated_viewport(
@@ -732,12 +769,7 @@ fn bind_precomposed_vector_placement(
             PrecomposedVectorKind::MathVectorBlock,
             PrecomposedVectorMetricPayload::MathBlock { metrics: values },
         ) => {
-            let style = package
-                .precomposed_vector_style(owner)
-                .ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
-            package
-                .verify_precomposed_vector_style(style)
-                .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
+            let style = style.ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
             let style = MathVectorBlockStyleInput::from_computed(style)
                 .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
             MathVectorBlockPlacementInput::from_validated_metrics(
@@ -849,123 +881,15 @@ fn push_bound_precomposed_vector_resource(
     output: &mut String,
     value: &BoundPrecomposedVectorResource,
 ) {
-    output.push_str("{\"admitted_media\":");
-    push_jcs_string(output, value.admitted_media.as_str());
-    output.push_str(",\"declared_media\":");
-    push_jcs_string(output, value.declared_media.as_str());
-    output.push_str(",\"image_id\":");
-    output.push_str(&value.image_id.get().to_string());
-    output.push_str(",\"intrinsic_height\":");
-    output.push_str(&value.intrinsic_height.get().raw().to_string());
-    output.push_str(",\"intrinsic_width\":");
-    output.push_str(&value.intrinsic_width.get().raw().to_string());
-    output.push_str(",\"ir_fingerprint\":");
-    push_hash(output, value.ir_fingerprint);
-    output.push_str(",\"ir_fingerprint_id\":");
-    push_jcs_string(output, value.ir_fingerprint_id);
-    output.push_str(",\"ir_id\":");
-    push_jcs_string(output, value.ir_id);
-    output.push_str(",\"limits_fingerprint\":");
-    push_hash(output, value.limits_fingerprint);
-    output.push_str(",\"parser_id\":");
-    push_jcs_string(output, value.parser_id);
-    output.push_str(",\"profile_fingerprint\":");
-    push_hash(output, value.profile_fingerprint);
-    output.push_str(",\"source_sha256\":");
-    push_hash(output, value.source_sha256);
-    output.push_str(",\"view_box\":[");
-    for (index, coordinate) in value.view_box.iter().enumerate() {
-        if index > 0 {
-            output.push(',');
-        }
-        output.push_str(&coordinate.to_string());
-    }
-    output.push_str("]}");
+    codec::write_resource(output, value).expect("String formatting is infallible");
 }
 
 fn push_precomposed_vector_placement(output: &mut String, value: &PrecomposedVectorPlacementInput) {
-    output.push('{');
-    match value {
-        PrecomposedVectorPlacementInput::Inline(value) => {
-            output.push_str("\"kind\":\"inline\",\"metrics\":");
-            push_bound_vector_metrics(output, value.metrics());
-            output.push_str(",\"paint\":");
-            push_resolved_rgb8(output, value.paint());
-            output.push_str(",\"scale\":");
-            output.push_str(&value.scale().get().raw().to_string());
-            output.push_str(",\"spacing_after\":");
-            output.push_str(&value.spacing_after().get().raw().to_string());
-            output.push_str(",\"spacing_before\":");
-            output.push_str(&value.spacing_before().get().raw().to_string());
-        }
-        PrecomposedVectorPlacementInput::VectorFigure(value) => {
-            output.push_str("\"kind\":\"vector_figure\",\"paint\":");
-            push_resolved_rgb8(output, value.paint());
-            output.push_str(",\"scale\":");
-            output.push_str(&value.scale().get().raw().to_string());
-            output.push_str(",\"style_fingerprint\":");
-            push_hash(output, value.style().fingerprint());
-            output.push_str(",\"viewport\":{\"height\":");
-            output.push_str(&value.viewport_height().get().raw().to_string());
-            output.push_str(",\"width\":");
-            output.push_str(&value.viewport_width().get().raw().to_string());
-            output.push('}');
-        }
-        PrecomposedVectorPlacementInput::MathVectorBlock(value) => {
-            output.push_str("\"kind\":\"math_vector_block\",\"metrics\":");
-            push_bound_vector_metrics(output, value.metrics());
-            output.push_str(",\"paint\":");
-            push_resolved_rgb8(output, value.paint());
-            output.push_str(",\"scale\":");
-            output.push_str(&value.scale().get().raw().to_string());
-            output.push_str(",\"style_fingerprint\":");
-            push_hash(output, value.style().fingerprint());
-        }
-    }
-    output.push('}');
-}
-
-fn push_bound_vector_metrics(
-    output: &mut String,
-    value: typaxis_layout_contract::BoundPrecomposedVectorMetrics,
-) {
-    output.push_str("{\"advance\":");
-    output.push_str(&value.advance().get().raw().to_string());
-    output.push_str(",\"ascent\":");
-    output.push_str(&value.ascent().get().raw().to_string());
-    output.push_str(",\"baseline\":");
-    output.push_str(&value.baseline().get().raw().to_string());
-    output.push_str(",\"descent\":");
-    output.push_str(&value.descent().get().raw().to_string());
-    output.push_str(",\"origin_x\":");
-    output.push_str(&value.origin_x().raw().to_string());
-    output.push_str(",\"viewport\":{\"height\":");
-    output.push_str(&value.viewport_height().get().raw().to_string());
-    output.push_str(",\"width\":");
-    output.push_str(&value.viewport_width().get().raw().to_string());
-    output.push_str("},\"viewport_right_from_pen\":");
-    output.push_str(&value.viewport_right_from_pen().raw().to_string());
-    output.push('}');
-}
-
-fn push_resolved_rgb8(output: &mut String, value: ResolvedRgb8) {
-    output.push_str("{\"blue\":");
-    output.push_str(&value.blue().to_string());
-    output.push_str(",\"green\":");
-    output.push_str(&value.green().to_string());
-    output.push_str(",\"red\":");
-    output.push_str(&value.red().to_string());
-    output.push('}');
+    codec::write_placement(output, value).expect("String formatting is infallible");
 }
 
 fn push_source_span(output: &mut String, value: SourceSpan) {
-    output.push_str("{\"end_byte\":");
-    output.push_str(&value.end_byte().get().to_string());
-    output.push_str(",\"source_id\":");
-    output.push_str(&value.source_id().get().to_string());
-    output.push_str(",\"start_byte\":");
-    output.push_str(&value.start_byte().get().to_string());
-    output.push('}');
+    codec::write_source_span(output, value).expect("String formatting is infallible");
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1652,6 +1576,9 @@ fn collect_figures<'a>(
                 }
                 collect_figures(caption, vector_ids, output, reject_precomposed)?;
             }
+            StagingM4Block::DescriptionList { .. } => {
+                return Err(StagingSafeVectorLayoutError::ReceiptMismatch);
+            }
             StagingM4Block::List { items, .. } => {
                 for item in items {
                     collect_figures(&item.blocks, vector_ids, output, reject_precomposed)?;
@@ -1766,6 +1693,7 @@ fn placements_match_package(
                         return false;
                     }
                 }
+                StagingM4Block::DescriptionList { .. } => return false,
                 StagingM4Block::List { items, .. } => {
                     for item in items {
                         if !visit(&item.blocks, vector_ids, figure_owners, placements, next) {

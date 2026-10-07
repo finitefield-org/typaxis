@@ -465,6 +465,25 @@ def _assert_profile_receipt_closure(
         raise MachineProfileError("an older profile unexpectedly carries advanced pagination facts")
 
 
+def _assert_production_pass_count(layout: dict[str, Any], trace: dict[str, Any]) -> None:
+    # Historical common traces predate this summary. Do not invent their
+    # counters, but validate both fields whenever either is present.
+    if "pass_count" not in trace and "selected_state" not in trace:
+        return
+    count = trace.get("pass_count")
+    selected = trace.get("selected_state")
+    if (
+        type(count) is not int or not 2 <= count <= 65535
+        or type(selected) is not int or selected != count
+        or type(layout.get("pass_count")) is not int
+        or type(layout.get("selected_state")) is not int
+        or layout.get("pass_count") != count
+        or layout.get("selected_state") != selected
+        or layout.get("status") != "converged"
+    ):
+        raise MachineProfileError("production cumulative layout pass count differs")
+
+
 def _assert_production_vector_closure(
     expected: dict[str, Any], manifest: dict[str, Any], trace: dict[str, Any]
 ) -> None:
@@ -523,6 +542,7 @@ def _assert_production_vector_closure(
         or trace["fragment_count"] <= 0
     ):
         raise MachineProfileError("production selected-layout trace closure differs")
+    _assert_production_pass_count(layout, trace)
     output = manifest.get("output")
     output_sha256 = output.get("sha256") if isinstance(output, dict) else None
     pdf_hashes = {

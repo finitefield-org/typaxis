@@ -1,12 +1,38 @@
+#[path = "book_v2_table_cell_styles.rs"]
+mod table_cell_styles;
+use table_cell_styles::inherit_cell_style;
+
+#[path = "semantic_host_sources.rs"]
+mod host_sources;
+
+#[path = "production_flow.rs"]
+mod production_flow;
+pub use production_flow::{
+    prepare_production_text_flow, prepare_production_text_flow_with_page_references, ProductionFigure, ProductionFlowError, ProductionFlowErrorKind,
+    ProductionFlowEvent, ProductionFlowRegionKind, ProductionInlineContent,
+    ProductionInlineLinkTarget, ProductionInlineReference, ProductionInlineSite, ProductionList,
+    ProductionListItem, ProductionFootnoteDefinition, ProductionReferenceFormat, ProductionTextFlow, ProductionTextParagraph,
+    ProductionTable, ProductionTableRow, ProductionTableCell, ProductionTableSection, PRODUCTION_TEXT_FLOW_ALGORITHM,
+};
+
 use super::*;
+use typaxis_document::{
+    SemanticBlock, SemanticDocument, SemanticFootnoteDefinition, SemanticListItem,
+    SemanticTableCell, SemanticTableRow,
+};
+use typaxis_document_package::{WireSemanticBlock, WireSemanticDocument, WireSemanticTableRow};
+
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2.rs"]
+pub mod book_v2;
 use typaxis_document::{
     FontMediaDeclaration, FontMediaType, ImageMediaDeclaration, ImageMediaType,
     PrecomposedVectorEquationNumber, PrecomposedVectorMetrics, PrecomposedVectorSourceTex,
     PrecomposedVectorSpacing, PrecomposedVectorViewport, SemanticContainerKind, StagingM4Block,
     StagingM4BlockCommon, StagingM4Document, StagingM4FigurePlacement,
-    StagingM4FontFaceDeclaration, StagingM4FootnoteDefinition, StagingM4ImageDeclaration,
-    StagingM4InlineVector, StagingM4InlineVectorKind, StagingM4ListItem, StagingM4MathKind,
-    StagingM4MathNode, StagingM4ResourceCatalog, StagingM4TableCell, StagingM4TableRow,
+    StagingM4FontFaceDeclaration, StagingM4ImageDeclaration,
+    StagingM4InlineVector, StagingM4InlineVectorKind, StagingM4MathKind,
+    StagingM4MathNode, StagingM4ResourceCatalog,
     VectorProvenance,
 };
 use typaxis_document_package::{
@@ -156,6 +182,9 @@ pub enum StagingSemanticSyntaxError {
     InvalidNesting,
     EmptyContainer(NodeId),
     InvalidBlock(NodeId),
+    TableCaptionStaging(NodeId),
+    TableCellStyleStaging(NodeId),
+    DescriptionListStaging(NodeId),
     InvalidInline,
     InvalidMath,
     InvalidMathSource {
@@ -217,9 +246,24 @@ impl std::fmt::Display for StagingSemanticSyntaxError {
                 "L5100: recursively empty semantic_container at node {}",
                 owner.get()
             ),
+            Self::DescriptionListStaging(owner) => write!(
+                formatter,
+                "L5100: description_list source lowering is not enabled at node {}",
+                owner.get()
+            ),
             Self::InvalidBlock(owner) => write!(
                 formatter,
                 "L5100: invalid block owned by node {}",
+                owner.get()
+            ),
+            Self::TableCellStyleStaging(owner) => write!(
+                formatter,
+                "L5100: table cell styling requires Book-2 at node {}",
+                owner.get()
+            ),
+            Self::TableCaptionStaging(owner) => write!(
+                formatter,
+                "L5100: table captions require Book-2 at node {}",
                 owner.get()
             ),
             Self::InvalidInline => formatter.write_str("L5100: invalid semantic inline nesting"),
@@ -334,6 +378,12 @@ struct PendingStagingMathNode {
     domain: StagingM4MathNode,
     parsed: ParsedMathReceipt,
 }
+impl AsRef<StagingM4MathNode> for PendingStagingMathNode {
+    fn as_ref(&self) -> &StagingM4MathNode {
+        &self.domain
+    }
+}
+
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PrecomposedVectorMetricPayload {
@@ -607,6 +657,7 @@ impl std::error::Error for StagingSemanticSyntaxError {}
 #[derive(Debug)]
 pub struct ValidatedStagingSemanticPackage {
     wire: WireStagingM4DocumentPackage,
+    retained_text_bytes: u64,
     limits: ValidatedResourceLimits,
     precomposed_vector_session: PrecomposedVectorSyntaxSessionIdentity,
     precomposed_vector_metrics: Vec<ValidatedPrecomposedVectorMetrics>,
@@ -1035,7 +1086,7 @@ fn precomposed_vector_profile_bindings(
     package: &ValidatedStagingSemanticPackage,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<Vec<(NodeId, [u8; 32])>, StagingSemanticSyntaxError> {
-    package.checked_wire()?;
+    let verifier = package.precomposed_vector_verifier()?;
     if package.limits() != limits.base() {
         return Err(StagingSemanticSyntaxError::ReceiptMismatch);
     }
@@ -1044,7 +1095,7 @@ fn precomposed_vector_profile_bindings(
         .try_reserve_exact(package.precomposed_vector_metrics().len())
         .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
     for metrics in package.precomposed_vector_metrics() {
-        package.verify_precomposed_vector_metrics(metrics)?;
+        verifier.verify_metrics(metrics)?;
         bindings.push((metrics.node_id(), metrics.fingerprint()));
     }
     if bindings.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
@@ -1719,7 +1770,12 @@ impl StagingMathProfileView {
         } else {
             StagingSafeVectorProfileView::new(package, limits)?
         };
-        if package.math_nodes().is_empty() || package.resources().font_faces.is_empty() {
+        // The closed math slice requires native math, but production books may
+        // contain only precomposed math vectors (or no formulas). An empty native
+        // math receipt chain is valid and still bound to the complete package.
+        if (!production && package.math_nodes().is_empty())
+            || package.resources().font_faces.is_empty()
+        {
             return Err(StagingSemanticSyntaxError::InvalidNesting);
         }
         let mut math_node_ids = Vec::new();
@@ -2046,14 +2102,16 @@ fn first_precomposed_vector_owner(blocks: &[StagingM4Block]) -> Option<NodeId> {
             }
             StagingM4Block::VectorFigure { common, .. }
             | StagingM4Block::MathVectorBlock { common, .. } => Some(common.node_id),
+            StagingM4Block::DescriptionList { items, .. } => items.iter().find_map(|item|
+                item.term.inline_vectors.first().map(|v| v.node_id)
+                    .or_else(|| first_precomposed_vector_owner(&item.blocks))),
             StagingM4Block::List { items, .. } => items
                 .iter()
                 .find_map(|item| first_precomposed_vector_owner(&item.blocks)),
-            StagingM4Block::Table { head, body, .. } => head
-                .iter()
-                .chain(body)
-                .flat_map(|row| &row.cells)
-                .find_map(|cell| first_precomposed_vector_owner(&cell.blocks)),
+            StagingM4Block::Table { caption, head, body, .. } =>
+                first_precomposed_vector_owner(caption).or_else(|| head.iter().chain(body)
+                    .flat_map(|row| &row.cells)
+                    .find_map(|cell| first_precomposed_vector_owner(&cell.blocks))),
             StagingM4Block::Figure { caption, .. } => first_precomposed_vector_owner(caption),
             StagingM4Block::SemanticContainer { blocks, .. } => {
                 first_precomposed_vector_owner(blocks)
@@ -2102,6 +2160,9 @@ fn collect_vector_figure_owners(
                     reject_precomposed,
                 )?;
             }
+            StagingM4Block::DescriptionList { common, .. } => {
+                return Err(StagingSemanticSyntaxError::DescriptionListStaging(common.node_id));
+            }
             StagingM4Block::List { items, .. } => {
                 for item in items {
                     collect_vector_figure_owners(
@@ -2113,7 +2174,8 @@ fn collect_vector_figure_owners(
                     )?;
                 }
             }
-            StagingM4Block::Table { head, body, .. } => {
+            StagingM4Block::Table { caption, head, body, .. } => {
+                collect_vector_figure_owners(caption, package, vectors, output, reject_precomposed)?;
                 for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
                     collect_vector_figure_owners(
                         &cell.blocks,
@@ -2210,13 +2272,22 @@ fn validate_profile_container_domain(
                     .ok_or(StagingSemanticSyntaxError::AstNodeLimit)?;
                 validate_profile_container_domain(blocks, count, permits_precomposed)?;
             }
+            StagingM4Block::DescriptionList { common, .. } => {
+                return Err(StagingSemanticSyntaxError::DescriptionListStaging(common.node_id));
+            }
             StagingM4Block::List { items, .. } => {
                 for item in items {
                     validate_profile_container_domain(&item.blocks, count, permits_precomposed)?;
                 }
             }
-            StagingM4Block::Table { head, body, .. } => {
+            StagingM4Block::Table { common, caption, head, body, .. } => {
+                if !caption.is_empty() {
+                    return Err(StagingSemanticSyntaxError::TableCaptionStaging(common.node_id));
+                }
                 for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
+                    if !cell.classes.is_empty() {
+                        return Err(StagingSemanticSyntaxError::TableCellStyleStaging(cell.node_id));
+                    }
                     validate_profile_container_domain(&cell.blocks, count, permits_precomposed)?;
                 }
             }
@@ -2333,6 +2404,10 @@ fn push_profile_limits(output: &mut String, limits: &ValidatedResourceLimits) {
 }
 
 impl ValidatedStagingSemanticPackage {
+    /// Validated text buffers plus native speech and charged vector alternatives.
+    pub const fn retained_text_bytes(&self) -> u64 {
+        self.retained_text_bytes
+    }
     pub const fn document(&self) -> &StagingM4Document {
         &self.document
     }
@@ -2457,6 +2532,12 @@ impl ValidatedStagingSemanticPackage {
         receipt: &ValidatedPrecomposedVectorEffectiveLanguage,
     ) -> Result<(), StagingSemanticSyntaxError> {
         self.checked_wire()?;
+        self.verify_precomposed_vector_effective_language_local(receipt)
+    }
+    fn verify_precomposed_vector_effective_language_local(
+        &self,
+        receipt: &ValidatedPrecomposedVectorEffectiveLanguage,
+    ) -> Result<(), StagingSemanticSyntaxError> {
         let metrics = self
             .precomposed_vector_metrics_for(receipt.owner)
             .ok_or(StagingSemanticSyntaxError::ReceiptMismatch)?;
@@ -2479,6 +2560,12 @@ impl ValidatedStagingSemanticPackage {
         receipt: &ValidatedPrecomposedVectorMetrics,
     ) -> Result<(), StagingSemanticSyntaxError> {
         self.checked_wire()?;
+        self.verify_precomposed_vector_metrics_local(receipt)
+    }
+    fn verify_precomposed_vector_metrics_local(
+        &self,
+        receipt: &ValidatedPrecomposedVectorMetrics,
+    ) -> Result<(), StagingSemanticSyntaxError> {
         let Some(owned) = self.precomposed_vector_metrics_for(receipt.node_id()) else {
             return Err(StagingSemanticSyntaxError::ReceiptMismatch);
         };
@@ -2492,6 +2579,13 @@ impl ValidatedStagingSemanticPackage {
             return Err(StagingSemanticSyntaxError::ReceiptMismatch);
         }
         Ok(())
+    }
+    /// Validates the whole immutable package once for a batch of vector owners.
+    pub fn precomposed_vector_verifier(
+        &self,
+    ) -> Result<PrecomposedVectorVerification<'_>, StagingSemanticSyntaxError> {
+        self.checked_wire()?;
+        Ok(PrecomposedVectorVerification { package: self })
     }
     pub fn checked_wire(
         &self,
@@ -2531,6 +2625,50 @@ impl ValidatedStagingSemanticPackage {
     }
 }
 
+/// An immutable borrow prevents package mutation for the lifetime of this
+/// verification scope. It cannot be constructed from a hash or another owner.
+pub struct PrecomposedVectorVerification<'a> {
+    package: &'a ValidatedStagingSemanticPackage,
+}
+impl<'a> PrecomposedVectorVerification<'a> {
+    pub const fn package(&self) -> &'a ValidatedStagingSemanticPackage {
+        self.package
+    }
+    pub const fn wire(&self) -> &'a WireStagingM4DocumentPackage {
+        &self.package.wire
+    }
+    pub fn verify_metrics(
+        &self,
+        receipt: &ValidatedPrecomposedVectorMetrics,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        self.package
+            .verify_precomposed_vector_metrics_local(receipt)
+    }
+    pub fn verify_language(
+        &self,
+        receipt: &ValidatedPrecomposedVectorEffectiveLanguage,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        self.package
+            .verify_precomposed_vector_effective_language_local(receipt)
+    }
+    pub fn verify_style(
+        &self,
+        owner: NodeId,
+        receipt: &PrecomposedVectorComputedStyleReceipt,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        if !self
+            .package
+            .precomposed_vector_styles
+            .get(&owner)
+            .is_some_and(|owned| std::ptr::eq(owned, receipt))
+            || receipt.verify_for(receipt.kind()).is_err()
+        {
+            return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+        }
+        Ok(())
+    }
+}
+
 fn collect_precomposed_vector_languages(
     wire: &WireStagingM4DocumentPackage,
     output: &mut Vec<(NodeId, String)>,
@@ -2564,6 +2702,11 @@ fn collect_precomposed_vector_language_from_blocks(
             WireStagingM4Block::Paragraph { children, .. }
             | WireStagingM4Block::Heading { children, .. } => {
                 collect_precomposed_vector_language_from_inlines(children, &effective, output)?;
+            }
+            WireStagingM4Block::DescriptionList { node_id, .. } => {
+                return Err(StagingSemanticSyntaxError::DescriptionListStaging(
+                    NodeId::new(*node_id),
+                ));
             }
             WireStagingM4Block::List { items, .. } => {
                 for item in items {
@@ -2723,7 +2866,9 @@ impl StagingSemanticPackageParser {
             node_count: 0,
             admitted_text_and_math_speech_bytes: admitted_text_bytes,
             math_nodes: Vec::new(),
-            precomposed_vector_session: &precomposed_vector_session,
+            precomposed_vector_session: Some(&precomposed_vector_session),
+            #[cfg(feature = "book-v2-staging")]
+            book_v2_vectors: None,
             precomposed_vector_metrics: Vec::new(),
             canonical_package_sha256: canonical_jcs_sha256,
             precomposed_vector_limits_fingerprint,
@@ -2731,6 +2876,7 @@ impl StagingSemanticPackageParser {
         };
         validator.node(wire.document().node_id, None, 1)?;
         let document = lower_document(wire.document(), &mut validator)?;
+        let retained_text_bytes = validator.admitted_text_and_math_speech_bytes;
         let pending_math = std::mem::take(&mut validator.math_nodes);
         let precomposed_vector_metrics = std::mem::take(&mut validator.precomposed_vector_metrics);
         let resources = lower_resources(wire.resources())?;
@@ -2798,6 +2944,7 @@ impl StagingSemanticPackageParser {
         );
         Ok(ValidatedStagingSemanticPackage {
             wire,
+            retained_text_bytes,
             limits: limits.clone(),
             precomposed_vector_session,
             precomposed_vector_metrics,
@@ -2866,6 +3013,20 @@ impl StagingSemanticPackageParser {
                             .expect("consistent admission retains decoded facts")
                             .canonical_sha256() =>
             {
+                if let Err(error) = host_sources::validate_sources(
+                    package.wire.text_buffers(), package.wire.document(),
+                    package.wire.advanced_page_masters(), &sources, limits,
+                ) {
+                    let failure = match error {
+                        host_sources::SemanticSourceFailure::TextMapping {
+                            reason: host_sources::SemanticMappingFailure::TextLimit, ..
+                        } => StagingSemanticSyntaxError::MathSourceTextLimit,
+                        _ => StagingSemanticSyntaxError::InvalidSourceSpan,
+                    };
+                    return ProductionMachineParseOutcome::Failed {
+                        progress: Box::new(admission.into_failure_progress()), failure,
+                    };
+                }
                 ProductionMachineParseOutcome::Parsed {
                     package: Box::new(ValidatedProductionMachinePackage {
                         package,
@@ -2894,7 +3055,9 @@ struct SemanticValidator<'a> {
     node_count: u64,
     admitted_text_and_math_speech_bytes: u64,
     math_nodes: Vec<PendingStagingMathNode>,
-    precomposed_vector_session: &'a PrecomposedVectorSyntaxSessionIdentity,
+    precomposed_vector_session: Option<&'a PrecomposedVectorSyntaxSessionIdentity>,
+    #[cfg(feature = "book-v2-staging")]
+    book_v2_vectors: Option<Vec<book_v2::PreparedBookVector>>,
     precomposed_vector_metrics: Vec<ValidatedPrecomposedVectorMetrics>,
     canonical_package_sha256: [u8; 32],
     precomposed_vector_limits_fingerprint: [u8; 32],
@@ -3185,7 +3348,36 @@ fn lower_document(
     wire: &WireStagingM4Document,
     validator: &mut SemanticValidator<'_>,
 ) -> Result<StagingM4Document, StagingSemanticSyntaxError> {
-    let blocks = lower_blocks(&wire.blocks, validator, None, NodeId::new(wire.node_id), 2)?;
+    lower_document_kind(
+        |semantic_kind| match semantic_kind {
+            typaxis_document_package::WireStagingSemanticContainerKind::Result => {
+                SemanticContainerKind::Result
+            }
+            typaxis_document_package::WireStagingSemanticContainerKind::Proof => {
+                SemanticContainerKind::Proof
+            }
+            typaxis_document_package::WireStagingSemanticContainerKind::Exercise => {
+                SemanticContainerKind::Exercise
+            }
+        },
+        wire,
+        validator,
+    )
+}
+
+fn lower_document_kind<C: Copy, D: Copy>(
+    map_kind: fn(C) -> D,
+    wire: &WireSemanticDocument<C>,
+    validator: &mut SemanticValidator<'_>,
+) -> Result<SemanticDocument<D>, StagingSemanticSyntaxError> {
+    let blocks = lower_blocks_kind(
+        map_kind,
+        &wire.blocks,
+        validator,
+        None,
+        NodeId::new(wire.node_id),
+        2,
+    )?;
     let mut footnotes = Vec::new();
     footnotes
         .try_reserve_exact(wire.footnotes.len())
@@ -3193,10 +3385,11 @@ fn lower_document(
     for footnote in &wire.footnotes {
         validator.node(footnote.node_id, Some(footnote.span), 2)?;
         let span = lower_span(footnote.span)?;
-        footnotes.push(StagingM4FootnoteDefinition {
+        footnotes.push(SemanticFootnoteDefinition {
             node_id: NodeId::new(footnote.node_id),
             span,
-            blocks: lower_blocks(
+            blocks: lower_blocks_kind(
+                map_kind,
                 &footnote.blocks,
                 validator,
                 Some(footnote.span),
@@ -3205,20 +3398,21 @@ fn lower_document(
             )?,
         });
     }
-    Ok(StagingM4Document {
+    Ok(SemanticDocument {
         node_id: NodeId::new(wire.node_id),
         blocks,
         footnotes,
     })
 }
 
-fn lower_blocks(
-    values: &[WireStagingM4Block],
+fn lower_blocks_kind<C: Copy, D: Copy>(
+    map_kind: fn(C) -> D,
+    values: &[WireSemanticBlock<C>],
     validator: &mut SemanticValidator<'_>,
     semantic_owner: Option<WireStagingSourceSpan>,
     math_owner: NodeId,
     depth: u32,
-) -> Result<Vec<StagingM4Block>, StagingSemanticSyntaxError> {
+) -> Result<Vec<SemanticBlock<D>>, StagingSemanticSyntaxError> {
     let mut output = Vec::new();
     output
         .try_reserve_exact(values.len())
@@ -3228,7 +3422,7 @@ fn lower_blocks(
         let span = wire_block_span(block);
         if matches!(
             block,
-            WireStagingM4Block::VectorFigure { .. } | WireStagingM4Block::MathVectorBlock { .. }
+            WireSemanticBlock::VectorFigure { .. } | WireSemanticBlock::MathVectorBlock { .. }
         ) {
             validator.precomposed_vector_node(block.node_id(), Some(span), depth)?;
         } else {
@@ -3248,7 +3442,7 @@ fn lower_blocks(
             classes: block.classes().to_vec(),
         };
         let lowered = match block {
-            WireStagingM4Block::Paragraph { children, .. } => {
+            WireSemanticBlock::Paragraph { children, .. } => {
                 let mut inline_vectors = Vec::new();
                 let has_authored_content = validate_inlines(
                     children,
@@ -3258,13 +3452,13 @@ fn lower_blocks(
                     depth + 1,
                     &mut inline_vectors,
                 )?;
-                StagingM4Block::Paragraph {
+                SemanticBlock::Paragraph {
                     common,
                     has_authored_content,
                     inline_vectors,
                 }
             }
-            WireStagingM4Block::Heading {
+            WireSemanticBlock::Heading {
                 level, children, ..
             } => {
                 if !(1..=6).contains(level) {
@@ -3279,13 +3473,67 @@ fn lower_blocks(
                     depth + 1,
                     &mut inline_vectors,
                 )?;
-                StagingM4Block::Heading {
+                SemanticBlock::Heading {
                     common,
                     has_authored_content,
                     inline_vectors,
                 }
             }
-            WireStagingM4Block::List {
+            #[cfg(not(feature = "book-v2-staging"))]
+            WireSemanticBlock::DescriptionList { .. } => {
+                return Err(StagingSemanticSyntaxError::DescriptionListStaging(common.node_id));
+            }
+            #[cfg(feature = "book-v2-staging")]
+            WireSemanticBlock::DescriptionList { items, .. } => {
+                // Only the successor entry point owns a book-2 validation context.
+                if validator.book_v2_vectors.is_none() {
+                    return Err(StagingSemanticSyntaxError::DescriptionListStaging(common.node_id));
+                }
+                if items.is_empty() {
+                    return Err(StagingSemanticSyntaxError::InvalidBlock(common.node_id));
+                }
+                let mut lowered = Vec::new();
+                lowered.try_reserve_exact(items.len())
+                    .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
+                let mut previous_item_start = None;
+                for item in items {
+                    validator.node(item.node_id, Some(item.span), depth + 1)?;
+                    validate_owned_span(span, item.span)?;
+                    if previous_item_start.is_some_and(|at| at > item.span.start_byte) {
+                        return Err(StagingSemanticSyntaxError::InvalidSourceSpan);
+                    }
+                    previous_item_start = Some(item.span.start_byte);
+                    let term = &item.term;
+                    validator.node(term.node_id, Some(term.span), depth + 2)?;
+                    validate_owned_span(item.span, term.span)?;
+                    validate_classes(&term.classes)?;
+                    let mut inline_vectors = Vec::new();
+                    let has_authored_content = validate_inlines(
+                        &term.children, validator, Some(term.span), NodeId::new(term.node_id),
+                        depth + 3, &mut inline_vectors,
+                    )?;
+                    if !has_authored_content || item.blocks.is_empty() {
+                        return Err(StagingSemanticSyntaxError::InvalidBlock(NodeId::new(term.node_id)));
+                    }
+                    if item.blocks.first().is_some_and(|block|
+                        wire_block_span(block).start_byte < term.span.start_byte) {
+                        return Err(StagingSemanticSyntaxError::InvalidSourceSpan);
+                    }
+                    let blocks = lower_blocks_kind(map_kind, &item.blocks, validator,
+                        Some(item.span), NodeId::new(item.node_id), depth + 2)?;
+                    lowered.push(typaxis_document::SemanticDescriptionItem {
+                        node_id: NodeId::new(item.node_id), span: lower_span(item.span)?,
+                        term: typaxis_document::SemanticDescriptionTerm {
+                            common: StagingM4BlockCommon { node_id: NodeId::new(term.node_id),
+                                span: lower_span(term.span)?, classes: term.classes.clone() },
+                            has_authored_content, inline_vectors,
+                        },
+                        blocks,
+                    });
+                }
+                SemanticBlock::DescriptionList { common, items: lowered }
+            }
+            WireSemanticBlock::List {
                 items,
                 ordered,
                 start,
@@ -3306,10 +3554,11 @@ fn lower_blocks(
                         return Err(StagingSemanticSyntaxError::InvalidSourceSpan);
                     }
                     previous_item_start = Some(item.span.start_byte);
-                    lowered_items.push(StagingM4ListItem {
+                    lowered_items.push(SemanticListItem {
                         node_id: NodeId::new(item.node_id),
                         span: lower_span(item.span)?,
-                        blocks: lower_blocks(
+                        blocks: lower_blocks_kind(
+                            map_kind,
                             &item.blocks,
                             validator,
                             Some(item.span),
@@ -3318,13 +3567,14 @@ fn lower_blocks(
                         )?,
                     });
                 }
-                StagingM4Block::List {
+                SemanticBlock::List {
                     common,
                     items: lowered_items,
                 }
             }
-            WireStagingM4Block::Table {
+            WireSemanticBlock::Table {
                 columns,
+                caption,
                 head,
                 body,
                 ..
@@ -3332,13 +3582,22 @@ fn lower_blocks(
                 if columns.is_empty() || (head.is_empty() && body.is_empty()) {
                     return Err(StagingSemanticSyntaxError::InvalidBlock(common.node_id));
                 }
-                StagingM4Block::Table {
+                let caption_owner = common.node_id;
+                let caption = lower_blocks_kind(map_kind, caption.as_deref().unwrap_or(&[]),
+                    validator, Some(span), caption_owner, depth + 1)?;
+                if let (Some(last), Some(first)) = (caption.last(), head.first().or_else(|| body.first())) {
+                    if last.span().start_byte().get() > first.span.start_byte {
+                        return Err(StagingSemanticSyntaxError::InvalidSourceSpan);
+                    }
+                }
+                SemanticBlock::Table {
                     common,
-                    head: lower_rows(head, validator, span, depth + 1)?,
-                    body: lower_rows(body, validator, span, depth + 1)?,
+                    caption,
+                    head: lower_rows_kind(map_kind, head, validator, span, depth + 1)?,
+                    body: lower_rows_kind(map_kind, body, validator, span, depth + 1)?,
                 }
             }
-            WireStagingM4Block::Figure {
+            WireSemanticBlock::Figure {
                 image_id,
                 placement,
                 alt,
@@ -3349,7 +3608,7 @@ fn lower_blocks(
                     return Err(StagingSemanticSyntaxError::InvalidBlock(common.node_id));
                 }
                 let caption_owner = common.node_id;
-                StagingM4Block::Figure {
+                SemanticBlock::Figure {
                     common,
                     image_id: ImageResourceId::new(*image_id),
                     placement: match placement.as_str() {
@@ -3359,7 +3618,8 @@ fn lower_blocks(
                     },
                     alternative: alt.clone(),
                     has_nonempty_alternative: !alt.is_empty(),
-                    caption: lower_blocks(
+                    caption: lower_blocks_kind(
+                        map_kind,
                         caption,
                         validator,
                         Some(span),
@@ -3368,8 +3628,8 @@ fn lower_blocks(
                     )?,
                 }
             }
-            WireStagingM4Block::PageBreak { .. } => StagingM4Block::PageBreak { common },
-            WireStagingM4Block::DisplayMath {
+            WireSemanticBlock::PageBreak { .. } => SemanticBlock::PageBreak { common },
+            WireSemanticBlock::DisplayMath {
                 math_source,
                 speech,
                 ..
@@ -3384,9 +3644,9 @@ fn lower_blocks(
                     speech,
                     depth,
                 )?;
-                StagingM4Block::DisplayMath { common }
+                SemanticBlock::DisplayMath { common }
             }
-            WireStagingM4Block::VectorFigure {
+            WireSemanticBlock::VectorFigure {
                 image_id,
                 viewport,
                 alt,
@@ -3417,16 +3677,23 @@ fn lower_blocks(
                     validated_language,
                     None,
                 )?;
-                StagingM4Block::VectorFigure {
+                SemanticBlock::VectorFigure {
                     common,
                     image_id: ImageResourceId::new(*image_id),
                     viewport,
                     alternative: alt.clone(),
-                    caption: lower_blocks(caption, validator, Some(span), owner, depth + 1)?,
+                    caption: lower_blocks_kind(
+                        map_kind,
+                        caption,
+                        validator,
+                        Some(span),
+                        owner,
+                        depth + 1,
+                    )?,
                     language: language.clone(),
                 }
             }
-            WireStagingM4Block::MathVectorBlock {
+            WireSemanticBlock::MathVectorBlock {
                 actual_text,
                 alt,
                 equation_number,
@@ -3475,7 +3742,7 @@ fn lower_blocks(
                     validated_language,
                     validated_equation_number,
                 )?;
-                StagingM4Block::MathVectorBlock {
+                SemanticBlock::MathVectorBlock {
                     common,
                     image_id: ImageResourceId::new(*image_id),
                     metrics,
@@ -3486,7 +3753,7 @@ fn lower_blocks(
                     language: language.clone(),
                 }
             }
-            WireStagingM4Block::SemanticContainer {
+            WireSemanticBlock::SemanticContainer {
                 semantic_kind,
                 blocks,
                 ..
@@ -3494,20 +3761,16 @@ fn lower_blocks(
                 if blocks.is_empty() {
                     return Err(StagingSemanticSyntaxError::EmptyContainer(common.node_id));
                 }
-                let semantic_kind = match semantic_kind {
-                    typaxis_document_package::WireStagingSemanticContainerKind::Result => {
-                        SemanticContainerKind::Result
-                    }
-                    typaxis_document_package::WireStagingSemanticContainerKind::Proof => {
-                        SemanticContainerKind::Proof
-                    }
-                    typaxis_document_package::WireStagingSemanticContainerKind::Exercise => {
-                        SemanticContainerKind::Exercise
-                    }
-                };
-                let blocks =
-                    lower_blocks(blocks, validator, Some(span), common.node_id, depth + 1)?;
-                StagingM4Block::SemanticContainer {
+                let semantic_kind = map_kind(*semantic_kind);
+                let blocks = lower_blocks_kind(
+                    map_kind,
+                    blocks,
+                    validator,
+                    Some(span),
+                    common.node_id,
+                    depth + 1,
+                )?;
+                SemanticBlock::SemanticContainer {
                     common,
                     semantic_kind,
                     blocks,
@@ -3519,12 +3782,13 @@ fn lower_blocks(
     Ok(output)
 }
 
-fn lower_rows(
-    rows: &[typaxis_document_package::WireStagingM4TableRow],
+fn lower_rows_kind<C: Copy, D: Copy>(
+    map_kind: fn(C) -> D,
+    rows: &[WireSemanticTableRow<C>],
     validator: &mut SemanticValidator<'_>,
     table_owner: WireStagingSourceSpan,
     depth: u32,
-) -> Result<Vec<StagingM4TableRow>, StagingSemanticSyntaxError> {
+) -> Result<Vec<SemanticTableRow<D>>, StagingSemanticSyntaxError> {
     let mut output = Vec::new();
     let mut previous_row_start = None;
     for row in rows {
@@ -3543,16 +3807,19 @@ fn lower_rows(
                 return Err(StagingSemanticSyntaxError::InvalidSourceSpan);
             }
             previous_cell_start = Some(cell.span.start_byte);
-            cells.push(StagingM4TableCell {
+            validate_classes(cell.classes.as_deref().unwrap_or(&[]))?;
+            cells.push(SemanticTableCell {
                 node_id: NodeId::new(cell.node_id),
                 span: lower_span(cell.span)?,
+                classes: cell.classes.clone().unwrap_or_default(),
                 colspan: NonZeroU16::new(cell.colspan).ok_or(
                     StagingSemanticSyntaxError::InvalidBlock(NodeId::new(cell.node_id)),
                 )?,
                 rowspan: NonZeroU16::new(cell.rowspan).ok_or(
                     StagingSemanticSyntaxError::InvalidBlock(NodeId::new(cell.node_id)),
                 )?,
-                blocks: lower_blocks(
+                blocks: lower_blocks_kind(
+                    map_kind,
                     &cell.blocks,
                     validator,
                     Some(cell.span),
@@ -3561,7 +3828,7 @@ fn lower_rows(
                 )?,
             });
         }
-        output.push(StagingM4TableRow {
+        output.push(SemanticTableRow {
             node_id: NodeId::new(row.node_id),
             span: lower_span(row.span)?,
             cells,
@@ -4266,13 +4533,42 @@ fn issue_precomposed_vector_metrics(
     {
         return Err(StagingSemanticSyntaxError::ReceiptMismatch);
     }
+    #[cfg(feature = "book-v2-staging")]
+    if let Some(output) = &mut validator.book_v2_vectors {
+        if validator.precomposed_vector_session.is_some()
+            || !validator.precomposed_vector_metrics.is_empty()
+            || output
+                .last()
+                .is_some_and(|previous| previous.node_id >= node_id)
+        {
+            return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+        }
+        output
+            .try_reserve(1)
+            .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
+        output.push(book_v2::PreparedBookVector {
+            node_id,
+            owner_source_span: lower_span(owner_span)?,
+            kind,
+            image_id,
+            payload,
+            source_tex,
+            alternative,
+            language,
+            equation_number,
+        });
+        return Ok(());
+    }
     validator
         .precomposed_vector_metrics
         .try_reserve(1)
         .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
     let mut receipt = ValidatedPrecomposedVectorMetrics {
         package_sha256: validator.canonical_package_sha256,
-        session: validator.precomposed_vector_session.clone(),
+        session: validator
+            .precomposed_vector_session
+            .ok_or(StagingSemanticSyntaxError::ReceiptMismatch)?
+            .clone(),
         limits_fingerprint: validator.precomposed_vector_limits_fingerprint,
         node_id,
         owner_source_span: lower_span(owner_span)?,
@@ -4315,18 +4611,19 @@ fn validate_text_span(
     Ok(value.start_byte < value.end_byte)
 }
 
-fn wire_block_span(block: &WireStagingM4Block) -> WireStagingSourceSpan {
+fn wire_block_span<K>(block: &WireSemanticBlock<K>) -> WireStagingSourceSpan {
     match block {
-        WireStagingM4Block::Paragraph { span, .. }
-        | WireStagingM4Block::Heading { span, .. }
-        | WireStagingM4Block::List { span, .. }
-        | WireStagingM4Block::Table { span, .. }
-        | WireStagingM4Block::Figure { span, .. }
-        | WireStagingM4Block::PageBreak { span, .. }
-        | WireStagingM4Block::DisplayMath { span, .. }
-        | WireStagingM4Block::VectorFigure { span, .. }
-        | WireStagingM4Block::MathVectorBlock { span, .. }
-        | WireStagingM4Block::SemanticContainer { span, .. } => *span,
+        WireSemanticBlock::DescriptionList { span, .. } => *span,
+        WireSemanticBlock::Paragraph { span, .. }
+        | WireSemanticBlock::Heading { span, .. }
+        | WireSemanticBlock::List { span, .. }
+        | WireSemanticBlock::Table { span, .. }
+        | WireSemanticBlock::Figure { span, .. }
+        | WireSemanticBlock::PageBreak { span, .. }
+        | WireSemanticBlock::DisplayMath { span, .. }
+        | WireSemanticBlock::VectorFigure { span, .. }
+        | WireSemanticBlock::MathVectorBlock { span, .. }
+        | WireSemanticBlock::SemanticContainer { span, .. } => *span,
     }
 }
 
@@ -4492,6 +4789,12 @@ fn parse_optional_hash(
 }
 
 struct StagingSemanticStyleSheets {
+    #[cfg(feature = "book-v2-staging")]
+    book_v2: bool,
+    #[cfg(feature = "book-v2-staging")]
+    table_cells: Option<StyleSheet>,
+    #[cfg(feature = "book-v2-staging")]
+    descriptions: Option<(StyleSheet, StyleSheet)>,
     semantic: StyleSheet,
     ordinary: StyleSheet,
     math: StyleSheet,
@@ -4502,6 +4805,33 @@ fn lower_semantic_style_rules(
     sheet: &WireStagingStyleSheet,
     limits: &ValidatedResourceLimits,
 ) -> Result<StagingSemanticStyleSheets, StagingSemanticSyntaxError> {
+    lower_semantic_style_rules_version(sheet, limits, false)
+}
+
+fn validate_semantic_table_sheet(sheet: &StyleSheet, book_v2: bool) -> Result<(), typaxis_style::StyleValidationError> {
+    #[cfg(feature="book-v2-staging")]
+    if book_v2 { return typaxis_style::book_v2::validate_book_v2_document_styles(sheet); }
+    let _=book_v2;
+    sheet.validate_table_document_styles()
+}
+impl StagingSemanticStyleSheets {
+    fn cascade_ordinary(&self, block: &str, classes: &[String]) -> Result<typaxis_style::ComputedStyle,typaxis_style::StyleValidationError> {
+        #[cfg(feature="book-v2-staging")]
+        if self.book_v2 { return typaxis_style::book_v2::cascade_book_v2_document_style(&self.ordinary,block,classes); }
+        self.ordinary.cascade_basic_document(block,classes)
+    }
+    fn descendant_style(&self, block: &str, classes: &[String], sheet: &StyleSheet, parent: Option<&SemanticContainerInheritanceStyle>) -> Result<SemanticContainerInheritanceStyle,typaxis_style::StyleValidationError> {
+        #[cfg(feature="book-v2-staging")]
+        if self.book_v2 { return typaxis_style::book_v2::cascade_book_v2_descendant_style(block,classes,sheet,parent); }
+        cascade_staging_semantic_descendant_style(block,classes,sheet,parent)
+    }
+}
+
+fn lower_semantic_style_rules_version(
+    sheet: &WireStagingStyleSheet,
+    limits: &ValidatedResourceLimits,
+    book_v2: bool,
+) -> Result<StagingSemanticStyleSheets, StagingSemanticSyntaxError> {
     let rules = &sheet.rules;
     if u64::try_from(rules.len()).map_err(|_| StagingSemanticSyntaxError::InvalidStyle)?
         > limits.get().max_style_rules
@@ -4511,6 +4841,9 @@ fn lower_semantic_style_rules(
     let mut parsed = Vec::new();
     let mut semantic_rules = Vec::new();
     let mut math_rules = Vec::new();
+    let mut description_list_rules = Vec::new();
+    let mut description_term_rules = Vec::new();
+    let mut table_cell_rules = Vec::new();
     let mut vector_rules = Vec::new();
     for (index, rule) in rules.iter().enumerate() {
         let source_order = rule.source_order;
@@ -4522,7 +4855,9 @@ fn lower_semantic_style_rules(
         let block_type = parts
             .next()
             .ok_or(StagingSemanticSyntaxError::InvalidStyle)?;
-        if !matches!(
+        let description = book_v2 && matches!(block_type, "description_list" | "description_term");
+        let table_cell = book_v2 && block_type == "table_cell";
+        if !description && !table_cell && !matches!(
             block_type,
             "paragraph"
                 | "heading"
@@ -4560,7 +4895,7 @@ fn lower_semantic_style_rules(
                 important: declaration.important,
             });
         }
-        let mapped_selector = if matches!(block_type, "semantic_container" | "display_math") {
+        let mapped_selector = if description || table_cell || matches!(block_type, "semantic_container" | "display_math") {
             format!("paragraph{}", &selector[block_type.len()..])
         } else {
             selector.to_owned()
@@ -4572,6 +4907,9 @@ fn lower_semantic_style_rules(
             source_order,
             declarations: typed_declarations,
         });
+        description_list_rules.push(block_type == "description_list");
+        description_term_rules.push(block_type == "description_term");
+        table_cell_rules.push(table_cell);
         semantic_rules.push(block_type == "semantic_container");
         math_rules.push(block_type == "display_math");
         vector_rules.push(matches!(block_type, "math_vector_block" | "vector_figure"));
@@ -4602,6 +4940,9 @@ fn lower_semantic_style_rules(
     let mut current_parsed = Vec::new();
     let mut current_semantic_rules = Vec::new();
     let mut current_math_rules = Vec::new();
+    let mut current_description_list_rules = Vec::new();
+    let mut current_description_term_rules = Vec::new();
+    let mut current_table_cell_rules = Vec::new();
     let mut vector_parsed = Vec::new();
     for (index, mut rule) in parsed.into_iter().enumerate() {
         if vector_rules[index] {
@@ -4614,14 +4955,15 @@ fn lower_semantic_style_rules(
             current_parsed.push(rule);
             current_semantic_rules.push(semantic_rules[index]);
             current_math_rules.push(math_rules[index]);
+            current_description_list_rules.push(description_list_rules[index]);
+            current_description_term_rules.push(description_term_rules[index]);
+            current_table_cell_rules.push(table_cell_rules[index]);
         }
     }
     let current_validation_sheet = StyleSheet {
         rules: current_parsed.clone(),
     };
-    current_validation_sheet
-        .validate_table_document_styles()
-        .map_err(map_semantic_style_error)?;
+    validate_semantic_table_sheet(&current_validation_sheet, book_v2).map_err(map_semantic_style_error)?;
     let vector = StyleSheet {
         rules: vector_parsed,
     };
@@ -4631,7 +4973,9 @@ fn lower_semantic_style_rules(
 
     let mut ordinary_rules = current_parsed.clone();
     for (index, rule) in ordinary_rules.iter_mut().enumerate() {
-        if current_semantic_rules[index] || current_math_rules[index] {
+        if current_semantic_rules[index] || current_math_rules[index]
+            || current_description_list_rules[index] || current_description_term_rules[index]
+            || current_table_cell_rules[index] {
             // This sheet is queried only for list/table/figure ancestors.
             // Keeping semantic rules on paragraph preserves `extends` edges
             // by routing it through a reserved class rejected from authored input.
@@ -4641,13 +4985,26 @@ fn lower_semantic_style_rules(
     let ordinary = StyleSheet {
         rules: ordinary_rules,
     };
-    ordinary
-        .validate_table_document_styles()
-        .map_err(map_semantic_style_error)?;
+    validate_semantic_table_sheet(&ordinary, book_v2).map_err(map_semantic_style_error)?;
 
     let semantic = isolate_staging_style_rules(&current_parsed, &current_semantic_rules)?;
     let math = isolate_staging_style_rules(&current_parsed, &current_math_rules)?;
+    #[cfg(feature = "book-v2-staging")]
+    let descriptions = if book_v2 {
+        Some((isolate_staging_style_rules(&current_parsed, &current_description_list_rules)?,
+            isolate_staging_style_rules(&current_parsed, &current_description_term_rules)?))
+    } else { None };
+    #[cfg(feature = "book-v2-staging")]
+    let table_cells = if book_v2 {
+        Some(table_cell_styles::isolate_cell_styles(&current_parsed, &current_table_cell_rules)?)
+    } else { None };
     Ok(StagingSemanticStyleSheets {
+        #[cfg(feature = "book-v2-staging")]
+        book_v2,
+        #[cfg(feature = "book-v2-staging")]
+        table_cells,
+        #[cfg(feature = "book-v2-staging")]
+        descriptions,
         semantic,
         ordinary,
         math,
@@ -4751,30 +5108,58 @@ fn collect_computed_styles(
     vector_output: &mut BTreeMap<NodeId, PrecomposedVectorComputedStyleReceipt>,
     math_output: &mut BTreeMap<NodeId, StagingMathComputedStyle>,
 ) -> Result<(), StagingSemanticSyntaxError> {
+    collect_computed_styles_kind(
+        |kind, classes, sheet, parent| {
+            let kind = match kind {
+                SemanticContainerKind::Result => SemanticContainerStyleKind::Result,
+                SemanticContainerKind::Proof => SemanticContainerStyleKind::Proof,
+                SemanticContainerKind::Exercise => SemanticContainerStyleKind::Exercise,
+            };
+            cascade_staging_semantic_container_style(kind, classes, sheet, parent)
+        },
+        blocks,
+        rules,
+        parent,
+        pending_math,
+        output,
+        vector_output,
+        math_output,
+    )
+}
+
+type ContainerStyleCascade<C, S> =
+    fn(
+        C,
+        &[String],
+        &StyleSheet,
+        Option<&SemanticContainerInheritanceStyle>,
+    ) -> Result<typaxis_style::ComputedSemanticContainerStyle<S>, StyleValidationError>;
+
+fn collect_computed_styles_kind<C: Copy, S: Copy, M: AsRef<StagingM4MathNode>>(
+    cascade_kind: ContainerStyleCascade<C, S>,
+    blocks: &[SemanticBlock<C>],
+    rules: &StagingSemanticStyleSheets,
+    parent: Option<&SemanticContainerInheritanceStyle>,
+    pending_math: &[M],
+    output: &mut BTreeMap<NodeId, typaxis_style::ComputedSemanticContainerStyle<S>>,
+    vector_output: &mut BTreeMap<NodeId, PrecomposedVectorComputedStyleReceipt>,
+    math_output: &mut BTreeMap<NodeId, StagingMathComputedStyle>,
+) -> Result<(), StagingSemanticSyntaxError> {
     for block in blocks {
         match block {
-            StagingM4Block::SemanticContainer {
+            SemanticBlock::SemanticContainer {
                 common,
                 semantic_kind,
                 blocks,
             } => {
-                let kind = match semantic_kind {
-                    SemanticContainerKind::Result => SemanticContainerStyleKind::Result,
-                    SemanticContainerKind::Proof => SemanticContainerStyleKind::Proof,
-                    SemanticContainerKind::Exercise => SemanticContainerStyleKind::Exercise,
-                };
-                let style = cascade_staging_semantic_container_style(
-                    kind,
-                    &common.classes,
-                    &rules.semantic,
-                    parent,
-                )
-                .map_err(map_semantic_style_error)?;
+                let style = cascade_kind(*semantic_kind, &common.classes, &rules.semantic, parent)
+                    .map_err(map_semantic_style_error)?;
                 let inheritance = style.inheritance_style().clone();
                 if output.insert(common.node_id, style).is_some() {
                     return Err(StagingSemanticSyntaxError::InvalidNodeOrder);
                 }
-                collect_computed_styles(
+                collect_computed_styles_kind(
+                    cascade_kind,
                     blocks,
                     rules,
                     Some(&inheritance),
@@ -4784,13 +5169,13 @@ fn collect_computed_styles(
                     math_output,
                 )?;
             }
-            StagingM4Block::Paragraph { common, .. } | StagingM4Block::Heading { common, .. } => {
+            SemanticBlock::Paragraph { common, .. } | SemanticBlock::Heading { common, .. } => {
                 let block_type = match block {
-                    StagingM4Block::Paragraph { .. } => "paragraph",
-                    StagingM4Block::Heading { .. } => "heading",
+                    SemanticBlock::Paragraph { .. } => "paragraph",
+                    SemanticBlock::Heading { .. } => "heading",
                     _ => unreachable!("matched paragraph or heading"),
                 };
-                let inheritance = cascade_staging_semantic_descendant_style(
+                let inheritance = rules.descendant_style(
                     block_type,
                     &common.classes,
                     &rules.ordinary,
@@ -4798,30 +5183,61 @@ fn collect_computed_styles(
                 )
                 .map_err(map_semantic_style_error)?;
                 for math in pending_math.iter().filter(|math| {
-                    math.domain.owner_node_id == common.node_id
-                        && math.domain.kind == StagingM4MathKind::Inline
+                    math.as_ref().owner_node_id == common.node_id
+                        && math.as_ref().kind == StagingM4MathKind::Inline
                 }) {
                     let style = close_staging_inline_math_style(&inheritance)
                         .map_err(map_semantic_style_error)?;
-                    if math_output.insert(math.domain.node_id, style).is_some() {
+                    if math_output.insert(math.as_ref().node_id, style).is_some() {
                         return Err(StagingSemanticSyntaxError::InvalidNodeOrder);
                     }
                 }
             }
-            StagingM4Block::DisplayMath { common } => {
+            SemanticBlock::DisplayMath { common } => {
                 let style =
                     cascade_staging_display_math_style(&common.classes, &rules.math, parent)
                         .map_err(map_semantic_style_error)?;
                 if !pending_math.iter().any(|math| {
-                    math.domain.node_id == common.node_id
-                        && math.domain.kind == StagingM4MathKind::Display
+                    math.as_ref().node_id == common.node_id
+                        && math.as_ref().kind == StagingM4MathKind::Display
                 }) || math_output.insert(common.node_id, style).is_some()
                 {
                     return Err(StagingSemanticSyntaxError::ReceiptMismatch);
                 }
             }
-            StagingM4Block::List { common, items } => {
-                let inheritance = cascade_staging_semantic_descendant_style(
+            #[cfg(not(feature = "book-v2-staging"))]
+            SemanticBlock::DescriptionList { common, .. } => {
+                return Err(StagingSemanticSyntaxError::DescriptionListStaging(common.node_id));
+            }
+            #[cfg(feature = "book-v2-staging")]
+            SemanticBlock::DescriptionList { common, items } => {
+                let (list_rules, term_rules) = rules.descriptions.as_ref()
+                    .ok_or(StagingSemanticSyntaxError::DescriptionListStaging(common.node_id))?;
+                // These isolated property sheets keep explicit extends edges;
+                // no paragraph/list selector is implicitly applied to a term.
+                let list_style = rules.descendant_style(
+                    "paragraph", &common.classes, list_rules, parent,
+                ).map_err(map_semantic_style_error)?;
+                for item in items {
+                    let term = &item.term.common;
+                    let term_style = rules.descendant_style(
+                        "paragraph", &term.classes, term_rules, Some(&list_style),
+                    ).map_err(map_semantic_style_error)?;
+                    for math in pending_math.iter().filter(|math|
+                        math.as_ref().owner_node_id == term.node_id
+                        && math.as_ref().kind == StagingM4MathKind::Inline) {
+                        let style = close_staging_inline_math_style(&term_style)
+                            .map_err(map_semantic_style_error)?;
+                        if math_output.insert(math.as_ref().node_id, style).is_some() {
+                            return Err(StagingSemanticSyntaxError::InvalidNodeOrder);
+                        }
+                    }
+                    collect_computed_styles_kind(cascade_kind, &item.blocks, rules,
+                        Some(&list_style), pending_math, output, vector_output, math_output)?;
+                }
+            }
+            SemanticBlock::List { common, items } => {
+                let inheritance = rules.descendant_style(
                     "list",
                     &common.classes,
                     &rules.ordinary,
@@ -4829,7 +5245,8 @@ fn collect_computed_styles(
                 )
                 .map_err(map_semantic_style_error)?;
                 for item in items {
-                    collect_computed_styles(
+                    collect_computed_styles_kind(
+                        cascade_kind,
                         &item.blocks,
                         rules,
                         Some(&inheritance),
@@ -4840,19 +5257,24 @@ fn collect_computed_styles(
                     )?;
                 }
             }
-            StagingM4Block::Table { common, head, body } => {
-                let inheritance = cascade_staging_semantic_descendant_style(
+            SemanticBlock::Table { common, caption, head, body } => {
+                let inheritance = rules.descendant_style(
                     "table",
                     &common.classes,
                     &rules.ordinary,
                     parent,
                 )
                 .map_err(map_semantic_style_error)?;
+                collect_computed_styles_kind(cascade_kind, caption, rules, Some(&inheritance),
+                    pending_math, output, vector_output, math_output)?;
                 for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
-                    collect_computed_styles(
+                    let cell_style =
+                        inherit_cell_style(cell.node_id, &cell.classes, rules, &inheritance)?;
+                    collect_computed_styles_kind(
+                        cascade_kind,
                         &cell.blocks,
                         rules,
-                        Some(&inheritance),
+                        Some(&cell_style),
                         pending_math,
                         output,
                         vector_output,
@@ -4860,17 +5282,18 @@ fn collect_computed_styles(
                     )?;
                 }
             }
-            StagingM4Block::Figure {
+            SemanticBlock::Figure {
                 common, caption, ..
             } => {
-                let inheritance = cascade_staging_semantic_descendant_style(
+                let inheritance = rules.descendant_style(
                     "figure",
                     &common.classes,
                     &rules.ordinary,
                     parent,
                 )
                 .map_err(map_semantic_style_error)?;
-                collect_computed_styles(
+                collect_computed_styles_kind(
+                    cascade_kind,
                     caption,
                     rules,
                     Some(&inheritance),
@@ -4880,7 +5303,7 @@ fn collect_computed_styles(
                     math_output,
                 )?
             }
-            StagingM4Block::VectorFigure {
+            SemanticBlock::VectorFigure {
                 common, caption, ..
             } => {
                 let style = rules
@@ -4894,7 +5317,8 @@ fn collect_computed_styles(
                 if vector_output.insert(common.node_id, style).is_some() {
                     return Err(StagingSemanticSyntaxError::InvalidNodeOrder);
                 }
-                collect_computed_styles(
+                collect_computed_styles_kind(
+                    cascade_kind,
                     caption,
                     rules,
                     parent,
@@ -4904,7 +5328,7 @@ fn collect_computed_styles(
                     math_output,
                 )?
             }
-            StagingM4Block::MathVectorBlock { common, .. } => {
+            SemanticBlock::MathVectorBlock { common, .. } => {
                 let style = rules
                     .vector
                     .cascade_precomposed_vector_style(
@@ -4917,7 +5341,7 @@ fn collect_computed_styles(
                     return Err(StagingSemanticSyntaxError::InvalidNodeOrder);
                 }
             }
-            StagingM4Block::PageBreak { .. } => {}
+            SemanticBlock::PageBreak { .. } => {}
         }
     }
     Ok(())
@@ -5346,12 +5770,16 @@ fn encode_container_records(
                 output.push_str("}}");
                 encode_container_records(blocks, styles, first, output);
             }
+            StagingM4Block::DescriptionList { items, .. } => {
+                for item in items { encode_container_records(&item.blocks, styles, first, output); }
+            }
             StagingM4Block::List { items, .. } => {
                 for item in items {
                     encode_container_records(&item.blocks, styles, first, output);
                 }
             }
-            StagingM4Block::Table { head, body, .. } => {
+            StagingM4Block::Table { caption, head, body, .. } => {
+                encode_container_records(caption, styles, first, output);
                 for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
                     encode_container_records(&cell.blocks, styles, first, output);
                 }
@@ -5875,6 +6303,18 @@ mod tests {
         ));
         assert_ne!(math.fingerprint(), [0; 32]);
         package.verify_precomposed_vector_metrics(math).unwrap();
+        let scope = package.precomposed_vector_verifier().unwrap();
+        scope.verify_metrics(math).unwrap();
+        assert!(std::ptr::eq(scope.package(), &package));
+        for language in package.precomposed_vector_effective_languages().unwrap() {
+            scope.verify_language(&language).unwrap();
+            let mut bad_language = language.clone();
+            bad_language.fingerprint = [0; 32];
+            assert_eq!(
+                scope.verify_language(&bad_language),
+                Err(StagingSemanticSyntaxError::ReceiptMismatch)
+            );
+        }
 
         let same_input_new_session = parse(PRECOMPOSED_VECTOR_FIXTURE).unwrap();
         assert_eq!(
@@ -5889,8 +6329,19 @@ mod tests {
             Err(StagingSemanticSyntaxError::ReceiptMismatch)
         );
 
+        assert_eq!(
+            same_input_new_session
+                .precomposed_vector_verifier()
+                .unwrap()
+                .verify_metrics(math),
+            Err(StagingSemanticSyntaxError::ReceiptMismatch)
+        );
         let mut tampered = parse(PRECOMPOSED_VECTOR_FIXTURE).unwrap();
         tampered.precomposed_vector_metrics[0].fingerprint = [0; 32];
+        assert!(matches!(
+            tampered.precomposed_vector_verifier(),
+            Err(StagingSemanticSyntaxError::ReceiptMismatch)
+        ));
         let otherwise_intact = &tampered.precomposed_vector_metrics[1];
         assert_eq!(
             tampered.verify_precomposed_vector_metrics(otherwise_intact),
@@ -6293,7 +6744,9 @@ mod tests {
             node_count: 0,
             admitted_text_and_math_speech_bytes: 0,
             math_nodes: Vec::new(),
-            precomposed_vector_session: &session,
+            precomposed_vector_session: Some(&session),
+            #[cfg(feature = "book-v2-staging")]
+            book_v2_vectors: None,
             precomposed_vector_metrics: Vec::new(),
             canonical_package_sha256: [1; 32],
             precomposed_vector_limits_fingerprint: precomposed_vector_limits_fingerprint(
@@ -6322,7 +6775,9 @@ mod tests {
             node_count: 0,
             admitted_text_and_math_speech_bytes: 0,
             math_nodes: Vec::new(),
-            precomposed_vector_session: &session,
+            precomposed_vector_session: Some(&session),
+            #[cfg(feature = "book-v2-staging")]
+            book_v2_vectors: None,
             precomposed_vector_metrics: Vec::new(),
             canonical_package_sha256: [1; 32],
             precomposed_vector_limits_fingerprint: precomposed_vector_limits_fingerprint(
@@ -6551,6 +7006,12 @@ mod tests {
                     WireStagingM4Block::Paragraph { children, .. }
                     | WireStagingM4Block::Heading { children, .. } => {
                         children.iter_mut().for_each(remove_inline_content);
+                    }
+                    WireStagingM4Block::DescriptionList { items, .. } => {
+                        for item in items {
+                            item.term.children.iter_mut().for_each(remove_inline_content);
+                            remove_block_content(&mut item.blocks);
+                        }
                     }
                     WireStagingM4Block::List { items, .. } => {
                         for item in items {

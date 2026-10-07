@@ -41,9 +41,14 @@ pub use preflight::{
     DocumentPackageByteLimit, DocumentPackagePreflightLimits, JsonNestingDepthLimit,
     JsonPreflightReport, StrictJsonPreflight,
 };
+#[doc(hidden)]
+pub use semantic_container::{WireSemanticBlock, WireSemanticDocument, WireSemanticFootnote, WireSemanticTableRow};
+#[doc(hidden)]
+pub use semantic_container::{WireDescriptionTerm, WireSemanticDescriptionItem};
+
 pub use semantic_container::{
     encode_reference_document_package_v1_4, staging_m4_wire_ast_node_count,
-    DecodedStagingSemanticDocumentPackage, StagingSemanticDecodeError,
+    DecodedStagingSemanticDocumentPackage, ResourceCountAxis, StagingSemanticDecodeError,
     StagingSemanticDocumentPackageDecoder, StagingSemanticDocumentPackageEncoder,
     WireDocumentMetadata, WireDocumentOutline, WireFontMediaType, WireImageMediaType,
     WireOutlineEntry, WireOutlineSourceKind, WirePrecomposedVectorEquationNumber,
@@ -65,3 +70,8 @@ pub use semantic_container::{
     staging_math_document_body_fixture,
 };
 pub use typaxis_core::{DocumentPackageContractId, JsonPointer, MachineInputLimitBounds};
+
+// Successor carrier is private staging: no public registry/profile dispatch.
+#[cfg(any(test, feature = "book-v2-staging"))]
+#[doc(hidden)]
+pub mod book_v2;

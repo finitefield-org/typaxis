@@ -1,0 +1,83 @@
+{
+  "actual_text_count": 9,
+  "algorithm": "typaxis.production-book-pdf-validator/1",
+  "alternative_count": 3,
+  "document_language": "ja",
+  "form_count": 2,
+  "form_use_count": 2,
+  "image_count": 1,
+  "link_count": 1,
+  "object_count": 48,
+  "outline_count": 1,
+  "page_count": 1,
+  "pdf_sha256": "ac1753e110d0f2910fd8c4d8b54f032ccc0bc0d7b20e68841d5493142f25a1ae",
+  "structure_count": 21,
+  "structure_roles_sha256": "3ac3ca2b8711eac976d72df3e12546e5c9364f65ed16be2b4c90eb3a4a974908",
+  "type0_font_count": 1,
+  "qr_metadata": {
+    "algorithm": "vmb.typaxis-verification-qr/1",
+    "producer": "skip2/go-qrcode@v0.0.0-20200617195104-da1b6568686e",
+    "url": "https://verify.example/books/fractions/1/verification/chapter.introduction.html",
+    "recovery": "medium",
+    "version": 5,
+    "modules": 45,
+    "quiet_zone_modules": 4,
+    "pixels_per_module": 4,
+    "png_sha256": "434641d97e7d1e4b6f6cad5d0ab8c65925b30561f98888129eea17e9eae34a38"
+  },
+  "qr_pixels": 32400,
+  "qr_width_raw": 3343884,
+  "qr_use_matrix": [
+    "51.0236206",
+    "0",
+    "0",
+    "-51.0236206",
+    "54",
+    "119.761902"
+  ],
+  "math_geometry": [
+    [
+      3,
+      72
+    ],
+    [
+      16,
+      300
+    ]
+  ],
+  "extraction": "Poppler raw and MuPDF source order match ignoring whitespace",
+  "companion": {
+    "source_index": 0,
+    "chapter_node_id": 1,
+    "figure_node_id": 4,
+    "package_pointer": "/document/blocks/1",
+    "origin": {
+      "path": "book/chapter.json",
+      "pointer": "/blocks/0",
+      "vmb_id": "body.test",
+      "line_start": 2,
+      "line_end": 5
+    },
+    "page_json": "{\"chapterId\":\"section.test\",\"path\":\"verification/section.test.html\",\"url\":\"https://verify.example/books/fractions/1/verification/chapter.introduction.html\",\"results\":[{\"resultId\":\"result.\\u003cfraction\\u003e\\u0026\",\"status\":\"verified\",\"shortId\":\"abc\\u003c\\u0026123\",\"url\":\"https://verify.example/result/fraction?book=1\\u0026locale=ja\"},{\"resultId\":\"result.pending\",\"status\":\"unverified\",\"shortId\":\"pending-1\",\"url\":\"https://verify.example/result/pending\"}]}",
+    "html_path": "verification/section.test.html",
+    "html_sha256": "c3edfe90c23e33249879514f50a0a39873bf92f33d2a4a975cfa3fce63955208",
+    "qr": {
+      "algorithm": "vmb.typaxis-verification-qr/1",
+      "producer": "skip2/go-qrcode@v0.0.0-20200617195104-da1b6568686e",
+      "url": "https://verify.example/books/fractions/1/verification/chapter.introduction.html",
+      "recovery": "medium",
+      "version": 5,
+      "modules": 45,
+      "quiet_zone_modules": 4,
+      "pixels_per_module": 4,
+      "png_sha256": "434641d97e7d1e4b6f6cad5d0ab8c65925b30561f98888129eea17e9eae34a38"
+    }
+  },
+  "html_bytes": 767,
+  "html_result_count": 2,
+  "chapter_placement": "immediately after actual chapter heading",
+  "independently_decoded": [
+    "source PNG",
+    "full PDF page rendered at 300 dpi"
+  ]
+}

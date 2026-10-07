@@ -1066,6 +1066,9 @@ fn collect_safe_vector_figures(
             | StagingM4Block::SemanticContainer {
                 blocks: caption, ..
             } => collect_safe_vector_figures(caption, admitted, output)?,
+            StagingM4Block::DescriptionList { .. } => {
+                return Err(TaggedPdfV2Error::ReceiptMismatch);
+            }
             StagingM4Block::List { items, .. } => {
                 for item in items {
                     collect_safe_vector_figures(&item.blocks, admitted, output)?;
@@ -1629,6 +1632,9 @@ fn raster_figure_resources(
                 | StagingM4Block::SemanticContainer {
                     blocks: caption, ..
                 } => visit(caption, admitted, output)?,
+                StagingM4Block::DescriptionList { .. } => {
+                    return Err(TaggedPdfV2Error::ReceiptMismatch);
+                }
                 StagingM4Block::List { items, .. } => {
                     for item in items {
                         visit(&item.blocks, admitted, output)?;
@@ -2696,6 +2702,9 @@ fn raster_figure_bindings_v2(
                 | StagingM4Block::SemanticContainer {
                     blocks: caption, ..
                 } => visit(caption, selected, output)?,
+                StagingM4Block::DescriptionList { .. } => {
+                    return Err(TaggedPdfV2Error::ReceiptMismatch);
+                }
                 StagingM4Block::List { items, .. } => {
                     for item in items {
                         visit(&item.blocks, selected, output)?;
@@ -3559,7 +3568,7 @@ fn build_tagged_observation_v2(
     Ok(value)
 }
 
-fn encode_info_v2(
+pub(crate) fn encode_info_v2(
     navigation: &ValidatedStagingBookNavigationV2,
     engine: &EngineIdentity,
 ) -> Result<String, TaggedPdfV2Error> {
@@ -3688,7 +3697,7 @@ fn pdf_literal_v2(value: &str) -> String {
     output
 }
 
-fn pdf_number_v2(raw: i64) -> String {
+pub(crate) fn pdf_number_v2(raw: i64) -> String {
     const SCALE: u64 = 65_536;
     const BINARY_TO_DECIMAL: u64 = 152_587_890_625;
     let negative = raw < 0;

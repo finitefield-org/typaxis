@@ -1,3 +1,7 @@
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_navigation.rs"]
+pub(crate) mod book_v2;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -15,11 +19,41 @@ use typaxis_document::{
 use typaxis_document_package::{
     staging_m4_wire_ast_node_count, WireAdvancedPageMasterSet, WireDocumentMetadata,
     WireOutlineSourceKind, WirePageRegion, WirePageRegionBlock, WirePageRegionInline,
-    WireSourceSpan, WireStagingM4Block, WireStagingM4Document, WireStagingM4Footnote,
-    WireStagingM4Inline, WireStagingM4LinkTarget, WireStagingM4TableRow, WireStagingSourceSpan,
+    WireSourceSpan, WireStagingM4Block, WireStagingM4Document,
+    WireStagingM4Inline, WireStagingM4LinkTarget, WireStagingSourceSpan,
 };
 
 use crate::{StagingSemanticSyntaxError, ValidatedStagingSemanticPackage};
+use typaxis_document_package::{WireSemanticBlock, WireSemanticDocument, WireSemanticFootnote, WireSemanticTableRow};
+
+trait NavigationLanguageKind: Copy + From<StagingLanguageNodeKind> {
+    fn description_kinds() -> Option<[Self; 3]> { None }
+}
+impl NavigationLanguageKind for StagingLanguageNodeKind {}
+#[cfg(feature = "book-v2-staging")]
+impl NavigationLanguageKind for typaxis_document::book_v2::BookV2LanguageNodeKind {
+    fn description_kinds() -> Option<[Self; 3]> {
+        Some([Self::DescriptionList, Self::DescriptionItem, Self::DescriptionTerm])
+    }
+}
+
+trait NavigationSemanticKind: Copy {
+    type LanguageKind: NavigationLanguageKind;
+    fn navigation_name(self) -> &'static str;
+}
+impl NavigationSemanticKind for typaxis_document_package::WireStagingSemanticContainerKind {
+    type LanguageKind = StagingLanguageNodeKind;
+    fn navigation_name(self) -> &'static str {
+        self.as_str()
+    }
+}
+#[cfg(feature = "book-v2-staging")]
+impl NavigationSemanticKind for typaxis_document_package::book_v2::WireBookV2SemanticContainerKind {
+    type LanguageKind = typaxis_document::book_v2::BookV2LanguageNodeKind;
+    fn navigation_name(self) -> &'static str {
+        self.as_str()
+    }
+}
 
 pub const DOCUMENT_METADATA_ALGORITHM: &str = "typaxis.document-metadata/1";
 pub const BCP47_LANGUAGE_ALGORITHM: &str = "typaxis.bcp47-language/1";
@@ -61,6 +95,13 @@ const GRANDFATHERED: &[&str] = &[
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BookNavigationSyntaxErrorKind {
+    #[cfg(feature = "book-v2-staging")]
+    NavigationRecordLimit,
+    #[cfg(feature = "book-v2-staging")]
+    InvalidNumberBinding,
+    #[cfg(feature = "book-v2-staging")]
+    InvalidSourceSpan,
+    DescriptionListStaging,
     InvalidMetadata,
     InvalidTimestamp,
     InvalidLanguage,
@@ -766,12 +807,15 @@ impl LanguageRegistryGeneration {
 }
 
 #[derive(Clone, Debug)]
-struct LanguageSite {
+struct LanguageSite<'a, L = StagingLanguageNodeKind> {
+    // The legacy consumer shares collection but has no region-aware PDF owner.
+    #[cfg_attr(not(feature = "book-v2-staging"), allow(dead_code))]
+    page_region: Option<u32>,
     node_id: u32,
-    kind: StagingLanguageNodeKind,
+    kind: L,
     parent: Option<u32>,
     span: Option<WireStagingSourceSpan>,
-    raw: Option<String>,
+    raw: Option<&'a str>,
     pointer: String,
 }
 
@@ -818,7 +862,7 @@ fn validate_staging_book_navigation_inner(
     )?;
     let language_charges = sites
         .iter()
-        .map(|site| (site.raw.clone(), site.pointer.clone()))
+        .map(|site| (site.raw.map(str::to_owned), site.pointer.clone()))
         .collect::<Vec<_>>();
     let languages = validate_languages(sites, package_sha256, limits_sha256, wire, limits)?;
     let outline = validate_outline(
@@ -931,8 +975,8 @@ fn validate_staging_book_navigation_v2_inner(
     })
 }
 
-fn collect_internal_links(
-    document: &WireStagingM4Document,
+fn collect_internal_links<K>(
+    document: &WireSemanticDocument<K>,
     anchors: &[(AnchorId, NodeId)],
     generation: LanguageRegistryGeneration,
 ) -> Result<Vec<(NodeId, AnchorId)>, BookNavigationSyntaxError> {
@@ -988,8 +1032,8 @@ fn collect_internal_links(
         Ok(())
     }
 
-    fn blocks(
-        values: &[WireStagingM4Block],
+    fn blocks<K>(
+        values: &[WireSemanticBlock<K>],
         pointer: &str,
         generation: LanguageRegistryGeneration,
         output: &mut Vec<(NodeId, AnchorId, String)>,
@@ -997,11 +1041,18 @@ fn collect_internal_links(
         for (index, value) in values.iter().enumerate() {
             let base = format!("{pointer}/{index}");
             match value {
-                WireStagingM4Block::Paragraph { children, .. }
-                | WireStagingM4Block::Heading { children, .. } => {
+                WireSemanticBlock::Paragraph { children, .. }
+                | WireSemanticBlock::Heading { children, .. } => {
                     inlines(children, &format!("{base}/children"), generation, output)?;
                 }
-                WireStagingM4Block::List { items, .. } => {
+                WireSemanticBlock::DescriptionList { items, .. } => {
+                    for (item_index, item) in items.iter().enumerate() {
+                        let at = format!("{base}/items/{item_index}");
+                        inlines(&item.term.children, &format!("{at}/term/children"), generation, output)?;
+                        blocks(&item.blocks, &format!("{at}/blocks"), generation, output)?;
+                    }
+                }
+                WireSemanticBlock::List { items, .. } => {
                     for (item_index, item) in items.iter().enumerate() {
                         blocks(
                             &item.blocks,
@@ -1011,7 +1062,8 @@ fn collect_internal_links(
                         )?;
                     }
                 }
-                WireStagingM4Block::Table { head, body, .. } => {
+                WireSemanticBlock::Table { caption, head, body, .. } => {
+                    if let Some(caption) = caption { blocks(caption, &format!("{base}/caption"), generation, output)?; }
                     for (collection, rows) in [("head", head), ("body", body)] {
                         for (row_index, row) in rows.iter().enumerate() {
                             for (cell_index, cell) in row.cells.iter().enumerate() {
@@ -1027,9 +1079,9 @@ fn collect_internal_links(
                         }
                     }
                 }
-                WireStagingM4Block::Figure { caption, .. }
-                | WireStagingM4Block::VectorFigure { caption, .. } => {
-                    if matches!(value, WireStagingM4Block::VectorFigure { .. })
+                WireSemanticBlock::Figure { caption, .. }
+                | WireSemanticBlock::VectorFigure { caption, .. } => {
+                    if matches!(value, WireSemanticBlock::VectorFigure { .. })
                         && !generation.accepts_precomposed_vectors()
                     {
                         return Err(BookNavigationSyntaxError::producer(
@@ -1039,12 +1091,12 @@ fn collect_internal_links(
                     }
                     blocks(caption, &format!("{base}/caption"), generation, output)?;
                 }
-                WireStagingM4Block::SemanticContainer {
+                WireSemanticBlock::SemanticContainer {
                     blocks: children, ..
                 } => {
                     blocks(children, &format!("{base}/blocks"), generation, output)?;
                 }
-                WireStagingM4Block::MathVectorBlock { .. } => {
+                WireSemanticBlock::MathVectorBlock { .. } => {
                     if !generation.accepts_precomposed_vectors() {
                         return Err(BookNavigationSyntaxError::producer(
                             BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
@@ -1052,7 +1104,7 @@ fn collect_internal_links(
                         ));
                     }
                 }
-                WireStagingM4Block::PageBreak { .. } | WireStagingM4Block::DisplayMath { .. } => {}
+                WireSemanticBlock::PageBreak { .. } | WireSemanticBlock::DisplayMath { .. } => {}
             }
         }
         Ok(())
@@ -1105,6 +1157,29 @@ fn validate_metadata(
     limits_sha256: [u8; 32],
     limits: &ValidatedResourceLimits,
 ) -> Result<DocumentMetadataReceipt, BookNavigationSyntaxError> {
+    let metadata = validate_metadata_fields(wire, limits)?;
+    let canonical_jcs = encode_metadata(&metadata, package_sha256, limits_sha256);
+    Ok(DocumentMetadataReceipt {
+        metadata,
+        package_sha256,
+        limits_sha256,
+        fingerprint: sha256(canonical_jcs.as_bytes()),
+        canonical_jcs,
+    })
+}
+
+fn validate_metadata_fields(
+    wire: &WireDocumentMetadata,
+    limits: &ValidatedResourceLimits,
+) -> Result<StagingDocumentMetadata, BookNavigationSyntaxError> {
+    validate_metadata_fields_borrowed(wire, limits)?;
+    Ok(copy_metadata_fields(wire))
+}
+
+fn validate_metadata_fields_borrowed(
+    wire: &WireDocumentMetadata,
+    limits: &ValidatedResourceLimits,
+) -> Result<(), BookNavigationSyntaxError> {
     if let Some(author) = &wire.author {
         validate_metadata_string(author, "/metadata/author", limits)?;
     }
@@ -1143,7 +1218,11 @@ fn validate_metadata(
     if let Some(title) = &wire.title {
         validate_metadata_string(title, "/metadata/title", limits)?;
     }
-    let metadata = StagingDocumentMetadata {
+    Ok(())
+}
+
+fn copy_metadata_fields(wire: &WireDocumentMetadata) -> StagingDocumentMetadata {
+    StagingDocumentMetadata {
         author: wire.author.clone(),
         created: wire.created.clone(),
         identifier: wire.identifier.clone(),
@@ -1151,15 +1230,7 @@ fn validate_metadata(
         modified: wire.modified.clone(),
         subject: wire.subject.clone(),
         title: wire.title.clone(),
-    };
-    let canonical_jcs = encode_metadata(&metadata, package_sha256, limits_sha256);
-    Ok(DocumentMetadataReceipt {
-        metadata,
-        package_sha256,
-        limits_sha256,
-        fingerprint: sha256(canonical_jcs.as_bytes()),
-        canonical_jcs,
-    })
+    }
 }
 
 fn validate_metadata_string(
@@ -1249,20 +1320,21 @@ fn validate_timestamp(
     Ok(())
 }
 
-fn collect_document(
-    document: &WireStagingM4Document,
-    page_masters: &WireAdvancedPageMasterSet,
+fn collect_document<'a, K: NavigationSemanticKind>(
+    document: &'a WireSemanticDocument<K>,
+    page_masters: &'a WireAdvancedPageMasterSet,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<'a, K::LanguageKind>>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
     sites.push(LanguageSite {
+        page_region: None,
         node_id: document.node_id,
-        kind: StagingLanguageNodeKind::Document,
+        kind: StagingLanguageNodeKind::Document.into(),
         parent: None,
         span: None,
-        raw: Some(document.language.clone()),
+        raw: Some(document.language.as_str()),
         pointer: "/document/language".to_owned(),
     });
     collect_blocks(
@@ -1297,10 +1369,10 @@ fn collect_document(
     Ok(())
 }
 
-fn collect_page_regions(
-    page_masters: &WireAdvancedPageMasterSet,
+fn collect_page_regions<'a, L: NavigationLanguageKind>(
+    page_masters: &'a WireAdvancedPageMasterSet,
     document_node_id: u32,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<'a, L>>,
 ) -> Result<(), BookNavigationSyntaxError> {
     for (master_index, master) in page_masters.masters.iter().enumerate() {
         for (name, region) in [
@@ -1320,11 +1392,11 @@ fn collect_page_regions(
     Ok(())
 }
 
-fn collect_page_region(
-    region: &WirePageRegion,
+fn collect_page_region<'a, L: NavigationLanguageKind>(
+    region: &'a WirePageRegion,
     document_node_id: u32,
     pointer: &str,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<'a, L>>,
 ) -> Result<(), BookNavigationSyntaxError> {
     for (block_index, block) in region.blocks.iter().enumerate() {
         let block_pointer = format!("{pointer}/blocks/{block_index}");
@@ -1348,8 +1420,9 @@ fn collect_page_region(
             } => (*node_id, *span, StagingLanguageNodeKind::Heading, children),
         };
         sites.push(LanguageSite {
+            page_region: Some(region.node_id),
             node_id,
-            kind,
+            kind: kind.into(),
             parent: Some(document_node_id),
             span: Some(staging_span(span)),
             raw: None,
@@ -1363,8 +1436,9 @@ fn collect_page_region(
             } = inline
             {
                 sites.push(LanguageSite {
+                    page_region: Some(region.node_id),
                     node_id: *child,
-                    kind: StagingLanguageNodeKind::Text,
+                    kind: StagingLanguageNodeKind::Text.into(),
                     parent: Some(node_id),
                     span: Some(staging_span(*span)),
                     raw: None,
@@ -1384,21 +1458,22 @@ fn staging_span(value: WireSourceSpan) -> WireStagingSourceSpan {
     }
 }
 
-fn collect_footnote(
-    footnote: &WireStagingM4Footnote,
+fn collect_footnote<'a, K: NavigationSemanticKind>(
+    footnote: &'a WireSemanticFootnote<K>,
     parent: u32,
     pointer: &str,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<'a, K::LanguageKind>>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
     sites.push(LanguageSite {
+        page_region: None,
         node_id: footnote.node_id,
-        kind: StagingLanguageNodeKind::FootnoteDefinition,
+        kind: StagingLanguageNodeKind::FootnoteDefinition.into(),
         parent: Some(parent),
         span: Some(footnote.span),
-        raw: footnote.language.clone(),
+        raw: footnote.language.as_deref(),
         pointer: format!("{pointer}/language"),
     });
     collect_blocks(
@@ -1414,13 +1489,13 @@ fn collect_footnote(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn collect_blocks(
-    blocks: &[WireStagingM4Block],
+fn collect_blocks<'a, K: NavigationSemanticKind>(
+    blocks: &'a [WireSemanticBlock<K>],
     parent: u32,
     pointer: &str,
     outline_eligible: bool,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<'a, K::LanguageKind>>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
@@ -1428,11 +1503,33 @@ fn collect_blocks(
         let base = format!("{pointer}/{index}");
         let node_id = block.node_id();
         let span = raw_block_span(block);
+        if let WireSemanticBlock::DescriptionList { language, items, .. } = block {
+            let [list_kind, item_kind, term_kind] = K::LanguageKind::description_kinds()
+                .ok_or_else(|| BookNavigationSyntaxError::producer(
+                    BookNavigationSyntaxErrorKind::DescriptionListStaging, &base))?;
+            sites.push(LanguageSite { page_region: None, node_id, kind: list_kind, parent: Some(parent),
+                span: Some(span), raw: language.as_deref(), pointer: format!("{base}/language") });
+            for (index, item) in items.iter().enumerate() {
+                let at = format!("{base}/items/{index}");
+                sites.push(LanguageSite { page_region: None, node_id: item.node_id, kind: item_kind,
+                    parent: Some(node_id), span: Some(item.span), raw: item.language.as_deref(),
+                    pointer: format!("{at}/language") });
+                let term = &item.term;
+                sites.push(LanguageSite { page_region: None, node_id: term.node_id, kind: term_kind,
+                    parent: Some(item.node_id), span: Some(term.span), raw: term.language.as_deref(),
+                    pointer: format!("{at}/term/language") });
+                collect_inlines(&term.children, term.node_id, &format!("{at}/term/children"),
+                    generation, sites, anchors)?;
+                collect_blocks(&item.blocks, item.node_id, &format!("{at}/blocks"),
+                    outline_eligible, generation, sites, owners, anchors)?;
+            }
+            continue;
+        }
         let (kind, raw) = match block {
-            WireStagingM4Block::Paragraph { language, .. } => {
+            WireSemanticBlock::Paragraph { language, .. } => {
                 (Some(StagingLanguageNodeKind::Paragraph), language)
             }
-            WireStagingM4Block::Heading {
+            WireSemanticBlock::Heading {
                 language,
                 level,
                 anchor_id,
@@ -1456,19 +1553,23 @@ fn collect_blocks(
                 }
                 (Some(StagingLanguageNodeKind::Heading), language)
             }
-            WireStagingM4Block::List { language, .. } => {
+            WireSemanticBlock::DescriptionList { .. } => {
+                return Err(BookNavigationSyntaxError::producer(
+                    BookNavigationSyntaxErrorKind::DescriptionListStaging, &base));
+            }
+            WireSemanticBlock::List { language, .. } => {
                 (Some(StagingLanguageNodeKind::List), language)
             }
-            WireStagingM4Block::Table { language, .. } => {
+            WireSemanticBlock::Table { language, .. } => {
                 (Some(StagingLanguageNodeKind::Table), language)
             }
-            WireStagingM4Block::Figure { language, .. } => {
+            WireSemanticBlock::Figure { language, .. } => {
                 (Some(StagingLanguageNodeKind::Figure), language)
             }
-            WireStagingM4Block::DisplayMath { language, .. } => {
+            WireSemanticBlock::DisplayMath { language, .. } => {
                 (Some(StagingLanguageNodeKind::DisplayMath), language)
             }
-            WireStagingM4Block::VectorFigure { language, .. } => {
+            WireSemanticBlock::VectorFigure { language, .. } => {
                 if !generation.accepts_precomposed_vectors() {
                     return Err(BookNavigationSyntaxError::producer(
                         BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
@@ -1477,7 +1578,7 @@ fn collect_blocks(
                 }
                 (Some(StagingLanguageNodeKind::VectorFigure), language)
             }
-            WireStagingM4Block::MathVectorBlock { language, .. } => {
+            WireSemanticBlock::MathVectorBlock { language, .. } => {
                 if !generation.accepts_precomposed_vectors() {
                     return Err(BookNavigationSyntaxError::producer(
                         BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
@@ -1486,7 +1587,7 @@ fn collect_blocks(
                 }
                 (Some(StagingLanguageNodeKind::MathVectorBlock), language)
             }
-            WireStagingM4Block::SemanticContainer {
+            WireSemanticBlock::SemanticContainer {
                 language,
                 anchor_id,
                 semantic_kind,
@@ -1504,27 +1605,28 @@ fn collect_blocks(
                             span,
                             anchor: anchor_id.clone(),
                             heading_level: None,
-                            semantic_kind: Some(semantic_kind.as_str().to_owned()),
+                            semantic_kind: Some(semantic_kind.navigation_name().to_owned()),
                         },
                     );
                 }
                 (Some(StagingLanguageNodeKind::SemanticContainer), language)
             }
-            WireStagingM4Block::PageBreak { .. } => (None, &None),
+            WireSemanticBlock::PageBreak { .. } => (None, &None),
         };
         if let Some(kind) = kind {
             sites.push(LanguageSite {
+                page_region: None,
                 node_id,
-                kind,
+                kind: kind.into(),
                 parent: Some(parent),
                 span: Some(span),
-                raw: raw.clone(),
+                raw: raw.as_deref(),
                 pointer: format!("{base}/language"),
             });
         }
         match block {
-            WireStagingM4Block::Paragraph { children, .. }
-            | WireStagingM4Block::Heading { children, .. } => collect_inlines(
+            WireSemanticBlock::Paragraph { children, .. }
+            | WireSemanticBlock::Heading { children, .. } => collect_inlines(
                 children,
                 node_id,
                 &format!("{base}/children"),
@@ -1532,15 +1634,20 @@ fn collect_blocks(
                 sites,
                 anchors,
             )?,
-            WireStagingM4Block::List { items, .. } => {
+            WireSemanticBlock::DescriptionList { .. } => {
+                return Err(BookNavigationSyntaxError::producer(
+                    BookNavigationSyntaxErrorKind::DescriptionListStaging, &base));
+            }
+            WireSemanticBlock::List { items, .. } => {
                 for (item_index, item) in items.iter().enumerate() {
                     let item_pointer = format!("{base}/items/{item_index}");
                     sites.push(LanguageSite {
+                        page_region: None,
                         node_id: item.node_id,
-                        kind: StagingLanguageNodeKind::ListItem,
+                        kind: StagingLanguageNodeKind::ListItem.into(),
                         parent: Some(node_id),
                         span: Some(item.span),
-                        raw: item.language.clone(),
+                        raw: item.language.as_deref(),
                         pointer: format!("{item_pointer}/language"),
                     });
                     collect_blocks(
@@ -1555,7 +1662,11 @@ fn collect_blocks(
                     )?;
                 }
             }
-            WireStagingM4Block::Table { head, body, .. } => {
+            WireSemanticBlock::Table { caption, head, body, .. } => {
+                if let Some(caption) = caption {
+                    collect_blocks(caption, node_id, &format!("{base}/caption"), outline_eligible,
+                        generation, sites, owners, anchors)?;
+                }
                 collect_rows(
                     head,
                     node_id,
@@ -1577,7 +1688,7 @@ fn collect_blocks(
                     anchors,
                 )?;
             }
-            WireStagingM4Block::Figure { caption, .. } => collect_blocks(
+            WireSemanticBlock::Figure { caption, .. } => collect_blocks(
                 caption,
                 node_id,
                 &format!("{base}/caption"),
@@ -1587,7 +1698,7 @@ fn collect_blocks(
                 owners,
                 anchors,
             )?,
-            WireStagingM4Block::SemanticContainer { blocks, .. } => collect_blocks(
+            WireSemanticBlock::SemanticContainer { blocks, .. } => collect_blocks(
                 blocks,
                 node_id,
                 &format!("{base}/blocks"),
@@ -1597,7 +1708,7 @@ fn collect_blocks(
                 owners,
                 anchors,
             )?,
-            WireStagingM4Block::VectorFigure { caption, .. } => collect_blocks(
+            WireSemanticBlock::VectorFigure { caption, .. } => collect_blocks(
                 caption,
                 node_id,
                 &format!("{base}/caption"),
@@ -1607,42 +1718,44 @@ fn collect_blocks(
                 owners,
                 anchors,
             )?,
-            WireStagingM4Block::MathVectorBlock { .. } => {}
-            WireStagingM4Block::PageBreak { .. } | WireStagingM4Block::DisplayMath { .. } => {}
+            WireSemanticBlock::MathVectorBlock { .. } => {}
+            WireSemanticBlock::PageBreak { .. } | WireSemanticBlock::DisplayMath { .. } => {}
         }
     }
     Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
-fn collect_rows(
-    rows: &[WireStagingM4TableRow],
+fn collect_rows<'a, K: NavigationSemanticKind>(
+    rows: &'a [WireSemanticTableRow<K>],
     parent: u32,
     pointer: &str,
     outline_eligible: bool,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<'a, K::LanguageKind>>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
     for (row_index, row) in rows.iter().enumerate() {
         let row_pointer = format!("{pointer}/{row_index}");
         sites.push(LanguageSite {
+            page_region: None,
             node_id: row.node_id,
-            kind: StagingLanguageNodeKind::TableRow,
+            kind: StagingLanguageNodeKind::TableRow.into(),
             parent: Some(parent),
             span: Some(row.span),
-            raw: row.language.clone(),
+            raw: row.language.as_deref(),
             pointer: format!("{row_pointer}/language"),
         });
         for (cell_index, cell) in row.cells.iter().enumerate() {
             let cell_pointer = format!("{row_pointer}/cells/{cell_index}");
             sites.push(LanguageSite {
+                page_region: None,
                 node_id: cell.node_id,
-                kind: StagingLanguageNodeKind::TableCell,
+                kind: StagingLanguageNodeKind::TableCell.into(),
                 parent: Some(row.node_id),
                 span: Some(cell.span),
-                raw: cell.language.clone(),
+                raw: cell.language.as_deref(),
                 pointer: format!("{cell_pointer}/language"),
             });
             collect_blocks(
@@ -1660,12 +1773,12 @@ fn collect_rows(
     Ok(())
 }
 
-fn collect_inlines(
-    inlines: &[WireStagingM4Inline],
+fn collect_inlines<'a, L: NavigationLanguageKind>(
+    inlines: &'a [WireStagingM4Inline],
     parent: u32,
     pointer: &str,
     generation: LanguageRegistryGeneration,
-    sites: &mut Vec<LanguageSite>,
+    sites: &mut Vec<LanguageSite<'a, L>>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
     for (index, inline) in inlines.iter().enumerate() {
@@ -1707,11 +1820,12 @@ fn collect_inlines(
         };
         if let Some(kind) = kind {
             sites.push(LanguageSite {
+                page_region: None,
                 node_id,
-                kind,
+                kind: kind.into(),
                 parent: Some(parent),
                 span: Some(inline.span()),
-                raw: inline.language().map(str::to_owned),
+                raw: inline.language(),
                 pointer: format!("{base}/language"),
             });
         }
@@ -1767,7 +1881,7 @@ fn insert_anchor(
 }
 
 fn validate_languages(
-    sites: Vec<LanguageSite>,
+    sites: Vec<LanguageSite<'_>>,
     package_sha256: [u8; 32],
     limits_sha256: [u8; 32],
     _wire: &typaxis_document_package::WireStagingM4DocumentPackage,
@@ -1827,13 +1941,16 @@ fn validate_languages(
 }
 
 fn validate_languages_v2(
-    sites: Vec<LanguageSite>,
+    sites: Vec<LanguageSite<'_>>,
     package: &ValidatedStagingSemanticPackage,
     package_sha256: [u8; 32],
     semantic_sha256: [u8; 32],
     base_limits_sha256: [u8; 32],
     limits: &M4EffectiveResourceLimits,
 ) -> Result<ComputedLanguageRegistryReceiptV2, BookNavigationSyntaxError> {
+    let verifier = package
+        .precomposed_vector_verifier()
+        .map_err(map_semantic_error)?;
     let vector_languages = package
         .precomposed_vector_effective_languages()
         .map_err(map_semantic_error)?;
@@ -1899,9 +2016,7 @@ fn validate_languages_v2(
                 || language.kind() != metrics.kind()
                 || node_kind != expected_kind
                 || language.language() != effective.as_ref()
-                || package
-                    .verify_precomposed_vector_effective_language(language)
-                    .is_err()
+                || verifier.verify_language(language).is_err()
             {
                 return Err(BookNavigationSyntaxError::mismatch());
             }
@@ -2073,154 +2188,23 @@ fn canonicalize_language_with_limit(
     pointer: &str,
     max_text_buffer_bytes: u64,
 ) -> Result<String, BookNavigationSyntaxError> {
-    let invalid = || {
-        BookNavigationSyntaxError::producer(BookNavigationSyntaxErrorKind::InvalidLanguage, pointer)
-    };
-    let exceeds_text_limit =
-        u64::try_from(value.len()).map_or(true, |length| length > max_text_buffer_bytes);
-    if value.is_empty()
-        || value.len() > 255
-        || !value.is_ascii()
-        || value
-            .bytes()
-            .any(|byte| !(byte.is_ascii_alphanumeric() || byte == b'-'))
-        || value.starts_with('-')
-        || value.ends_with('-')
-        || value.contains("--")
-    {
-        return Err(invalid());
+    bcp47::canonicalize(value, max_text_buffer_bytes)
+        .map(|canonical| canonical.as_str().to_owned())
+        .map_err(|error| language_canonicalization_error(error, pointer))
+}
+
+#[path = "bcp47_language.rs"]
+mod bcp47;
+
+fn language_canonicalization_error(error: bcp47::Error, pointer: &str) -> BookNavigationSyntaxError {
+    match error {
+        bcp47::Error::Invalid => BookNavigationSyntaxError::producer(
+            BookNavigationSyntaxErrorKind::InvalidLanguage, pointer,
+        ),
+        bcp47::Error::TextLimit => BookNavigationSyntaxError::limit(
+            BookNavigationSyntaxErrorKind::TextBufferLimit, "T2100", pointer,
+        ),
     }
-    if exceeds_text_limit {
-        return Err(BookNavigationSyntaxError::limit(
-            BookNavigationSyntaxErrorKind::TextBufferLimit,
-            "T2100",
-            pointer,
-        ));
-    }
-    if let Some(canonical) = GRANDFATHERED
-        .iter()
-        .find(|canonical| canonical.eq_ignore_ascii_case(value))
-    {
-        return Ok((*canonical).to_owned());
-    }
-    let parts: Vec<&str> = value.split('-').collect();
-    if parts[0].eq_ignore_ascii_case("x") {
-        if parts.len() < 2
-            || parts[1..]
-                .iter()
-                .any(|part| part.is_empty() || part.len() > 8 || !is_alnum(part))
-        {
-            return Err(invalid());
-        }
-        return Ok(parts
-            .iter()
-            .map(|part| part.to_ascii_lowercase())
-            .collect::<Vec<_>>()
-            .join("-"));
-    }
-    let primary = parts[0];
-    if !is_alpha(primary) || !(2..=8).contains(&primary.len()) {
-        return Err(invalid());
-    }
-    let mut index = 1usize;
-    let mut core = vec![primary.to_ascii_lowercase()];
-    if primary.len() <= 3 {
-        let mut extlang_count = 0;
-        while index < parts.len()
-            && extlang_count < 3
-            && parts[index].len() == 3
-            && is_alpha(parts[index])
-        {
-            core.push(parts[index].to_ascii_lowercase());
-            index += 1;
-            extlang_count += 1;
-        }
-    }
-    if index < parts.len() && parts[index].len() == 4 && is_alpha(parts[index]) {
-        let lower = parts[index].to_ascii_lowercase();
-        let mut chars = lower.chars();
-        let first = chars.next().ok_or_else(invalid)?.to_ascii_uppercase();
-        core.push(format!("{first}{}", chars.as_str()));
-        index += 1;
-    }
-    if index < parts.len()
-        && ((parts[index].len() == 2 && is_alpha(parts[index]))
-            || (parts[index].len() == 3 && is_digit(parts[index])))
-    {
-        core.push(if is_alpha(parts[index]) {
-            parts[index].to_ascii_uppercase()
-        } else {
-            parts[index].to_owned()
-        });
-        index += 1;
-    }
-    let mut variants = BTreeSet::new();
-    while index < parts.len() && is_variant(parts[index]) {
-        let variant = parts[index].to_ascii_lowercase();
-        if !variants.insert(variant.clone()) {
-            return Err(invalid());
-        }
-        core.push(variant);
-        index += 1;
-    }
-    let mut extensions: Vec<(String, Vec<String>)> = Vec::new();
-    let mut singletons = BTreeSet::new();
-    while index < parts.len()
-        && is_singleton(parts[index])
-        && !parts[index].eq_ignore_ascii_case("x")
-    {
-        let singleton = parts[index].to_ascii_lowercase();
-        if !singletons.insert(singleton.clone()) {
-            return Err(invalid());
-        }
-        index += 1;
-        let start = index;
-        let mut subtags = Vec::new();
-        while index < parts.len() && (2..=8).contains(&parts[index].len()) && is_alnum(parts[index])
-        {
-            subtags.push(parts[index].to_ascii_lowercase());
-            index += 1;
-        }
-        if index == start {
-            return Err(invalid());
-        }
-        extensions.push((singleton, subtags));
-    }
-    let private_use = if index < parts.len() && parts[index].eq_ignore_ascii_case("x") {
-        index += 1;
-        if index == parts.len()
-            || parts[index..]
-                .iter()
-                .any(|part| part.is_empty() || part.len() > 8 || !is_alnum(part))
-        {
-            return Err(invalid());
-        }
-        Some(
-            parts[index..]
-                .iter()
-                .map(|part| part.to_ascii_lowercase())
-                .collect::<Vec<_>>(),
-        )
-    } else {
-        None
-    };
-    if private_use.is_none() && index != parts.len() {
-        return Err(invalid());
-    }
-    extensions.sort_by(|left, right| left.0.cmp(&right.0));
-    for (singleton, subtags) in extensions {
-        core.push(singleton);
-        core.extend(subtags);
-    }
-    if let Some(private) = private_use {
-        core.push("x".to_owned());
-        core.extend(private);
-    }
-    let canonical = core.join("-");
-    if canonical.len() > 255 {
-        return Err(invalid());
-    }
-    Ok(canonical)
 }
 
 fn is_alpha(value: &str) -> bool {
@@ -2278,21 +2262,64 @@ fn validate_outline<L: ComputedLanguageProjection>(
     limits_sha256: [u8; 32],
     limits: &ValidatedResourceLimits,
 ) -> Result<ValidatedOutlineRegistryReceipt, BookNavigationSyntaxError> {
+    let output = validate_outline_entries(
+        &wire.outline().entries,
+        owners,
+        anchors,
+        &|node| languages.effective_language(node),
+        limits,
+    )?;
+    let canonical_jcs = encode_outline(
+        &output,
+        package_sha256,
+        limits_sha256,
+        semantic_sha256,
+        languages.registry_fingerprint(),
+    );
+    Ok(ValidatedOutlineRegistryReceipt {
+        entries: output,
+        package_sha256,
+        limits_sha256,
+        semantic_sha256,
+        language_sha256: languages.registry_fingerprint(),
+        fingerprint: sha256(canonical_jcs.as_bytes()),
+        canonical_jcs,
+    })
+}
+
+fn validate_outline_entries(
+    entries: &[typaxis_document_package::WireOutlineEntry],
+    owners: &BTreeMap<u32, OutlineOwner>,
+    anchors: &BTreeMap<String, (u32, String)>,
+    language_for: &impl Fn(NodeId) -> Option<Arc<str>>,
+    limits: &ValidatedResourceLimits,
+) -> Result<Vec<StagingOutlineEntry>, BookNavigationSyntaxError> {
+    validate_outline_entries_charged(
+        entries, owners, anchors, language_for, limits, &mut |_, _| Ok(()),
+    )
+}
+
+fn validate_outline_entries_charged(
+    entries: &[typaxis_document_package::WireOutlineEntry],
+    owners: &BTreeMap<u32, OutlineOwner>,
+    anchors: &BTreeMap<String, (u32, String)>,
+    language_for: &impl Fn(NodeId) -> Option<Arc<str>>,
+    limits: &ValidatedResourceLimits,
+    before_label_copy: &mut impl FnMut(usize, &str) -> Result<(), BookNavigationSyntaxError>,
+) -> Result<Vec<StagingOutlineEntry>, BookNavigationSyntaxError> {
     let mut output = Vec::new();
-    output
-        .try_reserve_exact(wire.outline().entries.len())
-        .map_err(|_| {
-            BookNavigationSyntaxError::limit(
-                BookNavigationSyntaxErrorKind::AllocationFailure,
-                "P1120",
-                "/outline/entries",
-            )
-        })?;
+    output.try_reserve_exact(entries.len()).map_err(|_| {
+        BookNavigationSyntaxError::limit(
+            BookNavigationSyntaxErrorKind::AllocationFailure,
+            "P1120",
+            "/outline/entries",
+        )
+    })?;
     let mut stack: Vec<(u8, u32)> = Vec::new();
     let mut sources = BTreeSet::new();
     let mut destinations = BTreeSet::new();
     let mut previous_source = None;
-    for (index, entry) in wire.outline().entries.iter().enumerate() {
+    for (index, entry) in entries.iter().enumerate() {
         let base = format!("/outline/entries/{index}");
         let destination = AnchorId::new(entry.destination.clone()).map_err(|_| {
             BookNavigationSyntaxError::producer(
@@ -2404,9 +2431,9 @@ fn validate_outline<L: ComputedLanguageProjection>(
                 format!("{base}/destination"),
             )
         })?;
-        let language = languages
-            .effective_language(NodeId::new(owner.node_id))
+        let language = language_for(NodeId::new(owner.node_id))
             .ok_or_else(BookNavigationSyntaxError::mismatch)?;
+        before_label_copy(index, &entry.label)?;
         output.push(StagingOutlineEntry {
             outline_id: entry.outline_id,
             parent_outline_id: entry.parent_outline_id,
@@ -2430,22 +2457,7 @@ fn validate_outline<L: ComputedLanguageProjection>(
         });
         stack.push((entry.level, entry.outline_id));
     }
-    let canonical_jcs = encode_outline(
-        &output,
-        package_sha256,
-        limits_sha256,
-        semantic_sha256,
-        languages.registry_fingerprint(),
-    );
-    Ok(ValidatedOutlineRegistryReceipt {
-        entries: output,
-        package_sha256,
-        limits_sha256,
-        semantic_sha256,
-        language_sha256: languages.registry_fingerprint(),
-        fingerprint: sha256(canonical_jcs.as_bytes()),
-        canonical_jcs,
-    })
+    Ok(output)
 }
 
 fn validate_navigation_node_limits(
@@ -2708,6 +2720,8 @@ fn math_speech_bytes(document: &WireStagingM4Document) -> u64 {
             .map(|value| match value {
                 WireStagingM4Block::Paragraph { children, .. }
                 | WireStagingM4Block::Heading { children, .. } => inlines(children),
+                WireStagingM4Block::DescriptionList { items, .. } => items.iter()
+                    .map(|item| inlines(&item.term.children) + blocks(&item.blocks)).sum(),
                 WireStagingM4Block::List { items, .. } => {
                     items.iter().map(|item| blocks(&item.blocks)).sum()
                 }
@@ -2736,18 +2750,19 @@ fn math_speech_bytes(document: &WireStagingM4Document) -> u64 {
             .sum::<u64>()
 }
 
-fn raw_block_span(block: &WireStagingM4Block) -> WireStagingSourceSpan {
+fn raw_block_span<K>(block: &WireSemanticBlock<K>) -> WireStagingSourceSpan {
     match block {
-        WireStagingM4Block::Paragraph { span, .. }
-        | WireStagingM4Block::Heading { span, .. }
-        | WireStagingM4Block::List { span, .. }
-        | WireStagingM4Block::Table { span, .. }
-        | WireStagingM4Block::Figure { span, .. }
-        | WireStagingM4Block::PageBreak { span, .. }
-        | WireStagingM4Block::DisplayMath { span, .. }
-        | WireStagingM4Block::VectorFigure { span, .. }
-        | WireStagingM4Block::MathVectorBlock { span, .. }
-        | WireStagingM4Block::SemanticContainer { span, .. } => *span,
+        WireSemanticBlock::DescriptionList { span, .. } => *span,
+        WireSemanticBlock::Paragraph { span, .. }
+        | WireSemanticBlock::Heading { span, .. }
+        | WireSemanticBlock::List { span, .. }
+        | WireSemanticBlock::Table { span, .. }
+        | WireSemanticBlock::Figure { span, .. }
+        | WireSemanticBlock::PageBreak { span, .. }
+        | WireSemanticBlock::DisplayMath { span, .. }
+        | WireSemanticBlock::VectorFigure { span, .. }
+        | WireSemanticBlock::MathVectorBlock { span, .. }
+        | WireSemanticBlock::SemanticContainer { span, .. } => *span,
     }
 }
 
@@ -3689,7 +3704,7 @@ mod tests {
         .unwrap();
         let language_charges = sites
             .iter()
-            .map(|site| (site.raw.clone(), site.pointer.clone()))
+            .map(|site| (site.raw.map(str::to_owned), site.pointer.clone()))
             .collect::<Vec<_>>();
         let metadata = wire.metadata();
         let metadata_bytes = [

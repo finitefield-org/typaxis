@@ -1,0 +1,62 @@
+{
+  "scope": "Cumulative completed common page-selection count through the public CLI and existing combined fixture gate; not complete per-pass trace, clean-build, managed-host or full-book acceptance.",
+  "result": "passed",
+  "runs": 2,
+  "binary_sha256": "b03cd89a18c3138886402c5c201d07a8ef26147be681425f76b5e4b34878814f",
+  "package_sha256": "44c072c75a7bdede2b15ea73902e10a47305491a91a5e9964e262be25b5e3c69",
+  "entry": "tools.verify_machine_profile._verify_fixture",
+  "log": "/private/tmp/typaxis-common-pass-external.log",
+  "manifest_layout": {
+    "fallback_policy": null,
+    "final_fingerprint": "0998aa85431b24e26cea77d7314b3c6dc1c21f2121eaaf1b7e33baa1fcfb8af9",
+    "flow_registry_sha256": "100f12b88b4c5d46272c0a90dc4f94f95eed0db908e6ce964dc6ab893bbf1944",
+    "pass_count": 4,
+    "profile_receipt_sha256": "7740f65acb0416e2c9ebd1d4a0974c8dfd0061354a6f6aad0642bf5f00e3b708",
+    "selected_state": 4,
+    "status": "converged"
+  },
+  "trace_pass_count": 4,
+  "trace_selected_state": 4,
+  "two_runs_byte_identical": true,
+  "pdf_byte_identical_to": "common-combined-structure.pdf",
+  "unchanged_pdf_existing_ua_report": "common-combined-structure-verapdf.xml",
+  "artifacts": {
+    "output.pdf": {
+      "bytes": 81561,
+      "sha256": "7a681623d6d5a239eb711be0fb1e0385a91b8d4c1d54c53e3d4179c276c5012b",
+      "path": "/private/tmp/typaxis-common-pass-external/run-1/output.pdf"
+    },
+    "manifest.json": {
+      "bytes": 25713,
+      "sha256": "3014ebec20fdb20f1ab6123a69db7d20ca32d6d87d03e1953a4d3f553d5443b6",
+      "path": "/private/tmp/typaxis-common-pass-external/run-1/manifest.json"
+    },
+    "trace.json": {
+      "bytes": 861,
+      "sha256": "83544f00ffda3d657e87331d42f6c5e4f04f78aea6faead6510860d8538ba06e",
+      "path": "/private/tmp/typaxis-common-pass-external/run-1/trace.json"
+    },
+    "diagnostics.json": {
+      "bytes": 52,
+      "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+      "path": "/private/tmp/typaxis-common-pass-external/run-1/diagnostics.json"
+    }
+  },
+  "verification": {
+    "cli_production_tests": {
+      "passed": 245,
+      "failed": 0,
+      "ignored": 1,
+      "log": "/private/tmp/typaxis-common-pass-count-final.log"
+    },
+    "manifest_library_tests": {
+      "passed": 38,
+      "failed": 0,
+      "log": "/private/tmp/typaxis-common-pass-manifest-tests.log"
+    },
+    "schema_closure_tests": {
+      "passed": 4,
+      "log": "/private/tmp/typaxis-common-pass-schema-final.log"
+    }
+  }
+}

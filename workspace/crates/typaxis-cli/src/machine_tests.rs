@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod font_diagnostic_tests { include!("font_diagnostic_tests.rs"); }
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fmt;
@@ -864,6 +866,446 @@ fn capabilities_preserve_older_profiles_and_publish_closed_m4_profile() {
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 #[test]
+fn machine_book_svg_failure_publishes_attribute_token_and_svg_position() {
+    let (_tree, job, artifacts, expected) = copy_fixture("profiles/production-book-1/combined", "book-svg-detail");
+    let path = job.join("document-package.json");
+    let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+    let raw = fs::read(&path).unwrap();
+    let decoded = StagingSemanticDocumentPackageDecoder::new().decode(&raw, &DocumentPackageDecodePolicy::new(&limits)).unwrap();
+    let mut wire = decoded.wire().clone();
+    let mut resources = wire.resources().clone();
+    let image = resources.images.iter_mut().find(|image| image.media_type == typaxis_document_package::WireImageMediaType::SvgSafe2).unwrap();
+    let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10pt\" height=\"10pt\" viewBox=\"0 0 10 10\">\n<path d=\"M 0 0 L 1000001 1 Z\" /></svg>";
+    let id = image.image_id;
+    fs::write(job.join(&image.uri), svg).unwrap();
+    image.expected_sha256 = Some(typaxis_core::sha256(svg).iter().map(|byte| format!("{byte:02x}")).collect());
+    wire.replace_typed_regions(wire.document().clone(), resources);
+    fs::write(&path, typaxis_document_package::StagingSemanticDocumentPackageEncoder::new().encode(&wire).unwrap()).unwrap();
+    let result = run_build_package(build_options(&job, &artifacts, &expected));
+    assert_eq!(failure_exit_code(&result), 1);
+    let manifest = read_json(&artifacts.join("manifest.json"));
+    assert_eq!(manifest["status"], "failed");
+    assert!(manifest["output"].is_null());
+    assert_eq!(manifest["fonts"].as_array().unwrap().len(), 3);
+    assert_eq!(manifest["images"].as_array().unwrap().len(), 2);
+    for record in manifest["fonts"].as_array().unwrap().iter().chain(manifest["images"].as_array().unwrap()) {
+        assert_eq!(record["media_declaration"]["kind"], "declared");
+        assert_eq!(record["attested_media_kind"], record["media_declaration"]["media_type"]);
+    }
+    assert!(!artifacts.join("output.pdf").exists());
+    let diagnostics = read_json(&artifacts.join("diagnostics.json"));
+    let first = &diagnostics["diagnostics"][0];
+    assert_eq!(first["code"], "R7100");
+    assert_eq!(first["message"], "svg_safe_2 coordinate_out_of_range");
+    assert_eq!(first["location"]["json_pointer"].as_str(), Some(format!("/resources/images/{id}").as_str()));
+    assert!(first["location"]["byte_offset"].is_null());
+    let notes = first["notes"].as_array().unwrap();
+    assert_eq!(notes.len(), 2);
+    let context = notes[1]["message"].as_str().unwrap();
+    for marker in ["attribute=d", "path=1", "line=2", "svg_byte=", "byte_column=", "token_percent=%31%30%30%30%30%30%31"] {
+        assert!(context.contains(marker), "missing {marker}: {context}");
+    }
+    assert_eq!(result.unwrap_err().message.matches("R7100").count(), 1);
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_book_svg_points_and_lexical_notes_match_check_and_build() {
+    for (body, reason, attribute, token) in [
+        (
+            r#"<polygon points="0 0 1 bad 2 0"/>"#,
+            "invalid_number",
+            Some("points"),
+            "bad",
+        ),
+        (
+            r#"<polyline points="0 0 1 1000001" fill="none"/>"#,
+            "coordinate_out_of_range",
+            Some("points"),
+            "1000001",
+        ),
+        (
+            r#"<polygon points="0 0 1 1 2"/>"#,
+            "wrong_parameter_count",
+            Some("points"),
+            "2",
+        ),
+        ("<!-- forbidden -->", "forbidden_feature", None, "<!"),
+        ("\r", "unexpected_token", None, "\r"),
+    ] {
+        let (_tree, job, artifacts, expected) =
+            copy_fixture("profiles/production-book-1/combined", "book-svg-points");
+        let path = job.join("document-package.json");
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let raw = fs::read(&path).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(&raw, &DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let mut wire = decoded.wire().clone();
+        let mut resources = wire.resources().clone();
+        let image = resources
+            .images
+            .iter_mut()
+            .find(|image| {
+                image.media_type == typaxis_document_package::WireImageMediaType::SvgSafe2
+            })
+            .unwrap();
+        let svg = format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10pt\" height=\"10pt\" viewBox=\"0 0 10 10\">\n{body}</svg>");
+        fs::write(job.join(&image.uri), &svg).unwrap();
+        image.expected_sha256 = Some(
+            typaxis_core::sha256(svg.as_bytes())
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+        );
+        wire.replace_typed_regions(wire.document().clone(), resources);
+        fs::write(
+            &path,
+            typaxis_document_package::StagingSemanticDocumentPackageEncoder::new()
+                .encode(&wire)
+                .unwrap(),
+        )
+        .unwrap();
+        let build = build_options(&job, &artifacts, &expected);
+        let check = run_check_package(CheckPackageOptions {
+            package: path,
+            package_root: Some(job.clone()),
+            profile: MachinePdfProfileId::ProductionBook1,
+            diagnostics: Some(artifacts.join("check-diagnostics.json")),
+            common: build.common.clone(),
+        });
+        let built = run_build_package(build);
+        assert_eq!(failure_exit_code(&check), 1);
+        assert_eq!(failure_exit_code(&built), 1);
+        assert!(!artifacts.join("output.pdf").exists());
+        let checked = read_json(&artifacts.join("check-diagnostics.json"));
+        let built = read_json(&artifacts.join("diagnostics.json"));
+        let expected_offset = if token == "2" {
+            svg.find("2\"").unwrap()
+        } else {
+            svg.find(token).unwrap()
+        };
+        for diagnostic in [&checked["diagnostics"][0], &built["diagnostics"][0]] {
+            assert_eq!(diagnostic["code"], "R7100");
+            assert_eq!(
+                diagnostic["message"].as_str(),
+                Some(format!("svg_safe_2 {reason}").as_str())
+            );
+            assert_eq!(
+                diagnostic["location"]["json_pointer"],
+                "/resources/images/2"
+            );
+            assert!(diagnostic["location"]["byte_offset"].is_null());
+            let notes = diagnostic["notes"].as_array().unwrap();
+            assert_eq!(notes.len(), 2);
+            let context = notes[1]["message"].as_str().unwrap();
+            assert!(
+                context.contains(&format!("svg_byte={expected_offset}")),
+                "{context}"
+            );
+            assert!(context.contains("line=2"));
+            if let Some(attribute) = attribute {
+                assert!(context.contains(&format!("attribute={attribute}")));
+            }
+        }
+        assert_eq!(
+            checked["diagnostics"][0]["notes"],
+            built["diagnostics"][0]["notes"]
+        );
+        let manifest = read_json(&artifacts.join("manifest.json"));
+        assert_eq!(manifest["status"], "failed");
+        assert!(manifest["output"].is_null());
+        assert_eq!(manifest["images"].as_array().unwrap().len(), 2);
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_book_svg_document_budget_diagnostics_match_check_and_build() {
+    for (limit_name, limit, code, context_markers, budget_note) in [
+        ("max-vector-nodes", 2, "R7120", vec!["element=svg", "line=1"], "scope=document-total; charge=nodes; limit=2; observed=3; used_before_resource=2"),
+        ("max-vector-path-segments", 9, "R7121", vec!["element=svg", "attribute=viewBox", "line=1"], "scope=document-total; charge=stored_segment; limit=9; observed=14; used_before_resource=9"),
+        ("max-vector-path-segments", 16, "R7121", vec!["element=path", "attribute=d", "path=1", "segment=3", "line=2"], "scope=document-total; charge=stored_segment; limit=16; observed=17; used_before_resource=9"),
+    ] {
+        let (_tree, job, artifacts, expected) = copy_fixture("profiles/production-book-1/combined", "book-svg-budget-detail");
+        let path = job.join("document-package.json");
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let raw = fs::read(&path).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new().decode(&raw, &DocumentPackageDecodePolicy::new(&limits)).unwrap();
+        let mut wire = decoded.wire().clone();
+        let mut resources = wire.resources().clone();
+        let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10pt\" height=\"10pt\" viewBox=\"0 0 10 10\">\n<path d=\"M 0 0 L 1 0 L 1 1 Z\"/></svg>";
+        // The first SVG is frozen V1, the second V2. Both cost 2 nodes and 9
+        // segments; the second failure must include prior-resource charges.
+        for image in resources.images.iter_mut().filter(|image| matches!(image.media_type,
+            typaxis_document_package::WireImageMediaType::SvgSafe1 | typaxis_document_package::WireImageMediaType::SvgSafe2)) {
+            fs::write(job.join(&image.uri), svg).unwrap();
+            image.expected_sha256 = Some(typaxis_core::sha256(svg).iter().map(|byte| format!("{byte:02x}")).collect());
+        }
+        wire.replace_typed_regions(wire.document().clone(), resources);
+        fs::write(&path, typaxis_document_package::StagingSemanticDocumentPackageEncoder::new().encode(&wire).unwrap()).unwrap();
+        let mut common = build_options(&job, &artifacts, &expected).common;
+        common.limits.push((limit_name.to_owned(), limit));
+        let check = run_check_package(CheckPackageOptions {
+            package: path, package_root: Some(job.clone()), profile: MachinePdfProfileId::ProductionBook1,
+            diagnostics: Some(artifacts.join("check-diagnostics.json")), common,
+        });
+        let mut build = build_options(&job, &artifacts, &expected);
+        build.common.limits.push((limit_name.to_owned(), limit));
+        let built = run_build_package(build);
+        assert!(check.is_err());
+        assert!(built.is_err());
+        assert!(!artifacts.join("output.pdf").exists());
+        let check_diagnostics = read_json(&artifacts.join("check-diagnostics.json"));
+        let build_diagnostics = read_json(&artifacts.join("diagnostics.json"));
+        let check_failure = &check_diagnostics["diagnostics"][0];
+        let build_failure = &build_diagnostics["diagnostics"][0];
+        for failure in [check_failure, build_failure] {
+            assert_eq!(failure["code"], code);
+            assert_eq!(failure["location"]["json_pointer"], "/resources/images/2");
+            assert!(failure["location"]["byte_offset"].is_null());
+            let notes = failure["notes"].as_array().unwrap();
+            assert_eq!(notes.len(), 3);
+            let context = notes[1]["message"].as_str().unwrap();
+            for marker in &context_markers { assert!(context.contains(marker), "{context}"); }
+            assert!(context.contains("svg_byte="));
+            assert_eq!(notes[2]["message"], budget_note);
+        }
+        assert_eq!(check_failure["notes"], build_failure["notes"]);
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_book_actual_vmb_engine_svg_corpus_is_admitted() {
+    let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../samples/machine-package/staging/production-book-1/vmb-book/engine-v2");
+    let index = read_json(&corpus.join("fixture-index.json"));
+    assert_eq!(index["algorithm"], "vmb.typaxis-engine-fixtures/1");
+    let cases = index["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 20);
+    let identities = cases
+        .iter()
+        .map(|case| {
+            (
+                case["case_id"].as_str().unwrap(),
+                case["display"].as_str().unwrap(),
+                case["font_size_raw"].as_i64().unwrap(),
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    for kind in ["fraction", "parentheses", "equivalence", "negation", "long"] {
+        for display in ["inline", "block"] {
+            for size in [720896, 786431] {
+                assert!(identities.contains(&(kind, display, size)));
+            }
+        }
+    }
+    let (_tree, job, artifacts, _expected) = copy_fixture(
+        "profiles/production-book-1/combined",
+        "vmb-engine-svg-admission",
+    );
+    let path = job.join("document-package.json");
+    let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+    let raw = fs::read(&path).unwrap();
+    let decoded = StagingSemanticDocumentPackageDecoder::new()
+        .decode(&raw, &DocumentPackageDecodePolicy::new(&limits))
+        .unwrap();
+    let mut wire = decoded.wire().clone();
+    let mut resources = wire.resources().clone();
+    let template = resources
+        .images
+        .iter()
+        .find(|image| image.media_type == typaxis_document_package::WireImageMediaType::SvgSafe2)
+        .unwrap()
+        .clone();
+    for (case_index, case) in cases.iter().enumerate() {
+        let svg = fs::read(corpus.join(case["derived_svg"].as_str().unwrap())).unwrap();
+        let source = fs::read(corpus.join(case["source_svg"].as_str().unwrap())).unwrap();
+        let hex_hash = |bytes: &[u8]| {
+            typaxis_core::sha256(bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        };
+        assert_eq!(hex_hash(&svg), case["derived_sha256"].as_str().unwrap());
+        assert_eq!(hex_hash(&source), case["source_sha256"].as_str().unwrap());
+        let mut image = template.clone();
+        image.image_id = resources.images.len() as u32;
+        image.uri = format!("svg/vmb-engine-{case_index}.svg");
+        image.expected_sha256 = Some(hex_hash(&svg));
+        let producer = image.vector_provenance.as_mut().unwrap();
+        producer.engine_id = case["engine_artifact"]["EngineID"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        producer.engine_version = case["engine_artifact"]["EngineVersion"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        producer.rules_version = index["rules_version"].as_str().unwrap().to_owned();
+        fs::write(job.join(&image.uri), svg).unwrap();
+        resources.images.push(image);
+    }
+    wire.replace_typed_regions(wire.document().clone(), resources);
+    fs::write(
+        &path,
+        typaxis_document_package::StagingSemanticDocumentPackageEncoder::new()
+            .encode(&wire)
+            .unwrap(),
+    )
+    .unwrap();
+    fs::create_dir_all(&artifacts).unwrap();
+    let check = run_check_package(CheckPackageOptions {
+        package: path,
+        package_root: Some(job.clone()),
+        profile: MachinePdfProfileId::ProductionBook1,
+        diagnostics: Some(artifacts.join("check-diagnostics.json")),
+        common: CommonOptions {
+            resource_roots: vec![job],
+            ..CommonOptions::default()
+        },
+    });
+    assert!(
+        check.is_ok(),
+        "actual VMB engine corpus rejected: {:?}",
+        check.err().map(|error| error.message)
+    );
+    // This test closes source/derived hash and resource admission. Placement,
+    // text shaping, reading order and the full-book PDF have separate gates.
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_book_image_count_exact_boundary_succeeds_in_check_and_build() {
+    // Count declarations, including aliases, without pretending they are distinct
+    // placed images. This is the positive half of the public N/N+1 boundary gate.
+    for (limit, explicit) in [(8192u32, false), (1024u32, true)] {
+        let (_tree, job, artifacts, expected) = copy_fixture(
+            "profiles/production-book-1/combined",
+            "book-image-count-exact",
+        );
+        let path = job.join("document-package.json");
+        let limits = ValidatedResourceLimits::new(ResourceLimits {
+            max_images: limit,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let raw = fs::read(&path).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(&raw, &DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let mut wire = decoded.wire().clone();
+        let mut resources = wire.resources().clone();
+        let image = resources
+            .images
+            .iter()
+            .find(|i| i.media_type == typaxis_document_package::WireImageMediaType::Png)
+            .unwrap()
+            .clone();
+        while resources.images.len() < limit as usize {
+            let mut alias = image.clone();
+            alias.image_id = resources.images.len() as u32;
+            resources.images.push(alias);
+        }
+        wire.replace_typed_regions(wire.document().clone(), resources);
+        fs::write(
+            &path,
+            typaxis_document_package::StagingSemanticDocumentPackageEncoder::new()
+                .encode(&wire)
+                .unwrap(),
+        )
+        .unwrap();
+        fs::create_dir_all(&artifacts).unwrap();
+        let overrides = if explicit {
+            vec![("max_images".to_owned(), u64::from(limit))]
+        } else {
+            vec![]
+        };
+        let mut options = build_options(&job, &artifacts, &expected);
+        options.common.limits = overrides;
+        let check = run_check_package(CheckPackageOptions {
+            package: path,
+            package_root: Some(job.clone()),
+            profile: MachinePdfProfileId::ProductionBook1,
+            diagnostics: Some(artifacts.join("check-diagnostics.json")),
+            common: options.common.clone(),
+        });
+        assert!(
+            check.is_ok(),
+            "boundary {limit}: {:?}",
+            check.err().map(|e| e.message)
+        );
+        let build = run_build_package(options);
+        assert!(
+            build.is_ok(),
+            "boundary {limit}: {:?}",
+            build.err().map(|e| e.message)
+        );
+        assert!(fs::read(artifacts.join("output.pdf"))
+            .unwrap()
+            .starts_with(b"%PDF-"));
+        let manifest = read_json(&artifacts.join("manifest.json"));
+        assert_eq!(manifest["images"].as_array().unwrap().len(), limit as usize);
+        for name in ["check-diagnostics.json", "diagnostics.json"] {
+            assert!(read_json(&artifacts.join(name))["diagnostics"]
+                .as_array()
+                .unwrap()
+                .is_empty());
+        }
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_book_image_count_failure_is_precise_in_check_and_build() {
+    for (limit, explicit) in [(8192u32, false), (1024u32, true)] {
+        let (_tree, job, artifacts, expected) = copy_fixture("profiles/production-book-1/combined", "book-image-count");
+        let path = job.join("document-package.json");
+        let raw = fs::read(&path).unwrap();
+        let limits = ValidatedResourceLimits::new(ResourceLimits { max_images: 10_000, ..ResourceLimits::default() }).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new().decode(&raw, &DocumentPackageDecodePolicy::new(&limits)).unwrap();
+        let mut wire = decoded.wire().clone();
+        let document = wire.document().clone();
+        let mut resources = wire.resources().clone();
+        let image = resources.images.iter().find(|image| image.media_type == typaxis_document_package::WireImageMediaType::Png).unwrap().clone();
+        while resources.images.len() <= limit as usize {
+            let mut alias = image.clone();
+            alias.image_id = resources.images.len() as u32;
+            resources.images.push(alias);
+        }
+        wire.replace_typed_regions(document, resources);
+        let encoded = typaxis_document_package::StagingSemanticDocumentPackageEncoder::new().encode(&wire).unwrap();
+        fs::write(&path, encoded).unwrap();
+        fs::create_dir_all(&artifacts).unwrap();
+        let check_diagnostics = artifacts.join("check-diagnostics.json");
+        let override_limits = if explicit { vec![("max_images".to_owned(), u64::from(limit))] } else { vec![] };
+        let result = run_check_package(CheckPackageOptions {
+            package: path, package_root: Some(job.clone()), profile: MachinePdfProfileId::ProductionBook1,
+            diagnostics: Some(check_diagnostics.clone()),
+            common: CommonOptions { resource_roots: vec![job.clone()], limits: override_limits.clone(), ..CommonOptions::default() },
+        });
+        assert!(result.is_err());
+        let mut options = build_options(&job, &artifacts, &expected);
+        options.common.limits = override_limits;
+        let result = run_build_package(options);
+        assert!(result.is_err());
+        assert!(!artifacts.join("output.pdf").exists());
+        for diagnostics in [check_diagnostics, artifacts.join("diagnostics.json")] {
+            let json = read_json(&diagnostics);
+            let first = &json["diagnostics"][0];
+            assert_eq!(first["code"], "P1102");
+            assert_eq!(first["location"]["json_pointer"].as_str(), Some(format!("/resources/images/{limit}").as_str()));
+            assert!(first["message"].as_str().unwrap().contains(&format!("Images budget {limit} was exceeded by {}", limit + 1)));
+        }
+        let manifest = read_json(&artifacts.join("manifest.json"));
+        assert!(manifest["images"].as_array().unwrap().is_empty());
+        assert!(manifest["fonts"].as_array().unwrap().is_empty());
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
 fn machine_production_book_1_combined_public_profile() {
     let run = assert_success_fixture("profiles/production-book-1/combined");
     let manifest = read_json(&run.artifacts.join("manifest.json"));
@@ -891,6 +1333,12 @@ fn machine_production_book_1_combined_public_profile() {
         manifest["layout"]["final_fingerprint"],
         trace["selected_layout_sha256"]
     );
+    // The Page reference already resolves to page 1: two complete feedback
+    // rounds, each containing two actual stable page-selection passes.
+    assert_eq!(manifest["layout"]["pass_count"], 4);
+    assert_eq!(manifest["layout"]["selected_state"], 4);
+    assert_eq!(trace["pass_count"], manifest["layout"]["pass_count"]);
+    assert_eq!(trace["selected_state"], manifest["layout"]["selected_state"]);
     for record in manifest["images"].as_array().unwrap() {
         assert_eq!(
             record["media_declaration"]["media_type"],
@@ -913,6 +1361,111 @@ fn machine_production_book_1_combined_public_profile() {
     ] {
         assert!(pdf.windows(marker.len()).any(|window| window == marker));
     }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_production_book_1_authorizes_precomposed_math_without_native_math() {
+    use typaxis_document_package::{WireStagingM4Block as Block, WireStagingM4Inline as Inline};
+
+    let (_tree, job, artifacts, _expected) = copy_fixture(
+        "profiles/production-book-1/combined",
+        "precomposed-without-native-math",
+    );
+    let path = job.join("document-package.json");
+    let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+    let raw = fs::read(&path).unwrap();
+    let decoded = StagingSemanticDocumentPackageDecoder::new()
+        .decode(&raw, &DocumentPackageDecodePolicy::new(&limits))
+        .unwrap();
+    let mut wire = decoded.wire().clone();
+    let mut document = wire.document().clone();
+    let mut removed = 0;
+    for block in &mut document.blocks {
+        match block {
+            Block::Paragraph { children, .. } => {
+                for inline in children {
+                    if let Inline::InlineMath {
+                        node_id,
+                        span,
+                        math_source,
+                        language,
+                        ..
+                    } = inline
+                    {
+                        *inline = Inline::Text {
+                            node_id: *node_id,
+                            span: *span,
+                            text_span: math_source.text_span,
+                            language: language.clone(),
+                        };
+                        removed += 1;
+                    }
+                }
+            }
+            Block::DisplayMath { node_id, span, .. } => {
+                *block = Block::PageBreak {
+                    node_id: *node_id,
+                    span: *span,
+                    classes: vec![],
+                };
+                removed += 1;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(
+        removed, 2,
+        "fixture must exercise an empty native math chain"
+    );
+    wire.replace_typed_regions(document, wire.resources().clone());
+    let encoded = typaxis_document_package::StagingSemanticDocumentPackageEncoder::new()
+        .encode(&wire)
+        .unwrap();
+    let decoded = StagingSemanticDocumentPackageDecoder::new()
+        .decode(
+            encoded.as_bytes(),
+            &DocumentPackageDecodePolicy::new(&limits),
+        )
+        .unwrap();
+    let package = typaxis_syntax::StagingSemanticPackageParser::new()
+        .parse(decoded, &limits)
+        .unwrap();
+    assert!(package.math_nodes().is_empty());
+    let m4_limits = typaxis_core::M4EffectiveResourceLimits::new(
+        limits,
+        typaxis_core::M4ResourceLimits::default(),
+    )
+    .unwrap();
+    // The old, closed native-math slice retains its nonempty requirement.
+    assert!(typaxis_syntax::StagingMathProfileView::new(&package, &m4_limits).is_err());
+    let view =
+        typaxis_syntax::StagingMathProfileView::new_for_production(&package, &m4_limits).unwrap();
+    assert!(view.math_node_ids().is_empty());
+    let session = typaxis_syntax::StagingMathProfileSessionIdentity::fresh();
+    let authorization =
+        typaxis_syntax::StagingMathProfileAuthorization::bind_production_profile_receipt(
+            view, [42; 32], &package, &m4_limits, &session,
+        )
+        .unwrap();
+    authorization.authorizes(&package, &m4_limits).unwrap();
+    fs::write(&path, encoded).unwrap();
+    fs::create_dir_all(&artifacts).unwrap();
+    let check = run_check_package(CheckPackageOptions {
+        package: path,
+        package_root: Some(job.clone()),
+        profile: MachinePdfProfileId::ProductionBook1,
+        diagnostics: Some(artifacts.join("check-diagnostics.json")),
+        common: CommonOptions {
+            resource_roots: vec![job.clone()],
+            ..CommonOptions::default()
+        },
+    });
+    assert!(
+        check.is_ok(),
+        "check failed: {:?}",
+        check.err().map(|error| error.message)
+    );
 }
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
@@ -1001,11 +1554,12 @@ fn machine_production_book_1_resource_failure_is_published_with_typed_location()
     );
     let package_path = job.join("document-package.json");
     let package = fs::read_to_string(&package_path).unwrap();
-    let declared_hash = "dc3862c12ad95f75d7c21cb3c37487e220182aa5088c537c634c194ee83ee894";
-    assert_eq!(package.matches(declared_hash).count(), 1);
+    let declared_hash = read_json(&package_path)["resources"]["font_faces"][0]["expected_sha256"]
+        .as_str().unwrap().to_owned();
+    assert_eq!(package.matches(declared_hash.as_str()).count(), 1);
     fs::write(
         &package_path,
-        package.replace(declared_hash, &"0".repeat(64)),
+        package.replace(&declared_hash, &"0".repeat(64)),
     )
     .unwrap();
 
@@ -2096,4 +2650,54 @@ fn publication_failure_artifact_sets_are_typed() {
     assert!(manifest_case.join("output.pdf").is_file());
     assert!(manifest_case.join("manifest.json").is_dir());
     drop(tree);
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_book_identity_substitution_is_rejected_before_resource_admission() {
+    let (_tree, job, artifacts, expected) = copy_fixture(
+        "profiles/production-book-1/combined",
+        "book-source-substitution",
+    );
+    let path = job.join("document-package.json");
+    let original_source = fs::read(job.join("input.tsf")).unwrap();
+    let mut package: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let buffer = package["text_buffers"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|b| b["utf8"] == "x^2x+1s1s2x+yf1j1v1v2x+yAB")
+        .unwrap();
+    // Keep every declared source byte, source hash, length and text range intact.
+    buffer["utf8"] = "y^2x+1s1s2x+yf1j1v1v2x+yAB".into();
+    fs::write(&path, serde_json::to_vec(&package).unwrap()).unwrap();
+    let options = build_options(&job, &artifacts, &expected);
+    let checked = run_check_package(CheckPackageOptions {
+        package: path,
+        package_root: Some(job.clone()),
+        profile: options.profile,
+        diagnostics: Some(artifacts.join("check-diagnostics.json")),
+        common: CommonOptions {
+            resource_roots: vec![job.clone()],
+            ..CommonOptions::default()
+        },
+    });
+    let built = run_build_package(options);
+    for result in [&checked, &built] {
+        assert_eq!(failure_exit_code(result), 1);
+        assert!(result.as_ref().unwrap_err().message.starts_with("P1102:"));
+    }
+    for name in ["check-diagnostics.json", "diagnostics.json"] {
+        assert_eq!(
+            read_json(&artifacts.join(name))["diagnostics"][0]["code"],
+            "P1102"
+        );
+    }
+    assert_eq!(fs::read(job.join("input.tsf")).unwrap(), original_source);
+    assert!(!artifacts.join("output.pdf").exists());
+    let manifest = read_json(&artifacts.join("manifest.json"));
+    assert_eq!(manifest["status"], "failed");
+    assert!(manifest["output"].is_null());
+    assert!(manifest["fonts"].as_array().unwrap().is_empty());
+    assert!(manifest["images"].as_array().unwrap().is_empty());
 }

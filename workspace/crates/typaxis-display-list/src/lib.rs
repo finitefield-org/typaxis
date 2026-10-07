@@ -1,5 +1,29 @@
 #![forbid(unsafe_code)]
 
+mod production_body;
+#[cfg(feature = "book-v2-staging")]
+pub mod book_v2 {
+    pub use crate::production_body::book_v2_math::*;
+}
+mod production_navigation;
+pub use production_navigation::{
+    build_production_footnote_navigation, ProductionFootnoteNavigation,
+    build_production_footnote_reference_navigation, ProductionFootnoteDestination,
+    ProductionFootnoteReferenceLink, ProductionFootnoteReferenceNavigation,
+    build_production_body_navigation, ProductionBodyDestination, ProductionBodyLink,
+    ProductionBodyLinkTarget, ProductionBodyNavigation, ProductionBodyNavigationError,
+    ProductionBodyNavigationErrorKind, ProductionBodyOutlineTopology,
+    PRODUCTION_BODY_NAVIGATION_ALGORITHM,
+};
+mod production_structure;
+pub use production_structure::{build_production_footnote_structure, ProductionFootnoteStructure, build_production_body_structure, ProductionBodyStructure,
+    ProductionBodyStructureError, ProductionBodyStructureGroup, PRODUCTION_BODY_STRUCTURE_ALGORITHM};
+pub use production_body::{build_production_footnote_display, ProductionBodyFootnoteDisplay, ProductionFootnoteSeparatorDraw, build_production_body_display, ProductionBodyDisplay,
+    ProductionBodyDisplayError, ProductionBodyDisplayErrorKind, ProductionBodyDraw,
+    ProductionBodyNativeMathDraw, ProductionNativeMathPaint,
+    ProductionBodyGlyph, ProductionBodyTextDraw, ProductionBodyVectorDraw, ProductionBodyInlineAnchor, ProductionBodyRasterDraw, ProductionBodySvgFigureDraw, ProductionVectorPaint,
+    PRODUCTION_BODY_DISPLAY_ALGORITHM};
+
 mod advanced_columns;
 mod advanced_content;
 mod advanced_float;
@@ -38,13 +62,14 @@ pub use advanced_header_footer::{
     StagingSelectedPageBoxes, ADVANCED_PAINT_CLOSURE_ALGORITHM,
 };
 pub use book_navigation::{
+    project_production_footnote_book_navigation, seal_production_footnote_book_navigation,
     select_staging_book_navigation, select_staging_book_navigation_v2, BookInternalLink,
     BookInternalLinkInput, BookLanguagePaint, BookLanguagePaintInput, BookLanguagePaintInputV2,
     BookLanguagePaintV2, BookNavigationDestinationBinding, BookNavigationSelectedEntry,
     BookNavigationSelectedError, BookNavigationSelectedPage, BookNavigationSelectedReceipt,
-    BookNavigationSelectedReceiptV2, BookVectorLanguagePaintV2,
-    BOOK_DESTINATION_REGISTRY_ALGORITHM, BOOK_NAVIGATION_SELECTED_ALGORITHM,
-    BOOK_NAVIGATION_SELECTED_ALGORITHM_V2,
+    BookNavigationSelectedReceiptV2, BookVectorLanguagePaintV2, ProductionFootnoteBookNavigation,
+    ProductionFootnoteBookNavigationInputs, BOOK_DESTINATION_REGISTRY_ALGORITHM,
+    BOOK_NAVIGATION_SELECTED_ALGORITHM, BOOK_NAVIGATION_SELECTED_ALGORITHM_V2,
 };
 pub use combined_vector::{
     build_staging_combined_vector_display_v2, StagingCombinedVectorDisplayErrorV2,
@@ -5548,8 +5573,9 @@ impl ValidatedDisplayDocument {
             .checked_add(footnote_selected.body_frame().height().get())
             .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
         let separator_center_offset =
-            Length::from_raw(16_384).ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
-        let separator_width = Length::from_raw(32_768)
+            Length::from_raw(typaxis_layout::FOOTNOTE_SEPARATOR_CENTER_RAW)
+                .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+        let separator_width = Length::from_raw(typaxis_layout::FOOTNOTE_SEPARATOR_STROKE_RAW)
             .and_then(PositiveLength::new)
             .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
         let separator_band = Length::from_raw(FOOTNOTE_SEPARATOR_BAND_RAW)

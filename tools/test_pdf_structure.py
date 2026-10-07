@@ -8,6 +8,7 @@ import copy
 import hashlib
 import io
 import json
+import re
 import tempfile
 import unittest
 from collections.abc import Callable
@@ -1150,7 +1151,107 @@ class TaggedPdfStructureV2Tests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["algorithm"], "typaxis.tagged-pdf-validator/2")
 
 
+class CommonProductionPdfClosureTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.pdf = (ROOT / "samples/machine-package/staging/production-book-1/vmb-book/common-combined-structure.pdf").read_bytes()
+        cls.package = json.loads((PRODUCTION_FIXTURE_PATH / "job/document-package.json").read_bytes())
+        cls.ledger = json.loads((PRODUCTION_FIXTURE_PATH / "ledger.json").read_bytes())
+        cls.parsed, cls.trailer = verifier._parse_xref(cls.pdf)
+        cls.raw = {number: item.raw for number, item in cls.parsed.items()}
+
+    def verify(self, raw: dict[int, bytes] | None = None) -> dict:
+        pdf = self.pdf if raw is None else serialize(raw, self.trailer["Info"].number)
+        return verifier.verify_production_pdf_structure(pdf, self.package, self.ledger,
+                                                        expected_page_count=5)
+
+    def test_actual_common_pdf_has_three_links_and_source_bound_outlines(self) -> None:
+        result = self.verify()
+        self.assertEqual(result["structure_count"], 106)
+        self.assertEqual(result["link_count"], 3)
+        self.assertEqual(result["page_count"], 5)
+
+    def test_marked_text_requires_balanced_source_owned_replacement_scopes(self) -> None:
+        valid = b"/Span << /MCID 0 >> BDC\n/Span << /ActualText <FEFF0031> >> BDC\nEMC\nEMC\n/Artifact BMC\nq\nQ\nEMC\n"
+        self.assertEqual(verifier._production_marked_text(valid), {0: "1"})
+        for invalid in (
+            valid + b"EMC\n",
+            valid + b"/Artifact BMC\n",
+            valid + b"/Span << /MCID 0 >> BDC\nEMC\n",
+            b"/Span << /ActualText <FEFF0031> >> BDC\nEMC\n",
+            b"/Artifact BMC\n/Span << /ActualText <FEFF0031> >> BDC\nEMC\nEMC\n",
+            b"/Span << /MCID 0 >> BDC\n/Span << /MCID 1 >> BDC\nEMC\nEMC\n",
+        ):
+            with self.subTest(content=invalid), self.assertRaises(verifier.PdfValidationError):
+                verifier._production_marked_text(invalid)
+
+    def test_footnote_annotations_and_outline_source_references_reject_tampering(self) -> None:
+        annotations = [(n, o) for n, o in self.parsed.items()
+                       if isinstance(o.value, dict) and o.value.get("Subtype") == verifier.PdfName("Link")]
+        notes = [(n, o) for n, o in annotations if isinstance(o.value.get("Dest"), list)]
+        forward, back = notes
+        outline = next((n, o) for n, o in self.parsed.items()
+                       if isinstance(o.value, dict) and "SE" in o.value)
+        owner = next((n, o) for n, o in self.parsed.items()
+                     if isinstance(o.value, dict) and any(isinstance(k, dict)
+                         and k.get("Obj") == verifier.PdfRef(forward[0])
+                         for k in o.value.get("K", []) if isinstance(o.value.get("K", []), list)))
+        mutations = [
+            (forward[0], b"/Contents <FEFF0031>", b"/Contents <FEFF0032>", "label/page"),
+            (forward[0], b"/Dest [5 0 R", b"/Dest [6 0 R", "destination page/view"),
+            (back[0], b"/Dest [5 0 R /XYZ 72.199981689453125", b"/Dest [5 0 R /XYZ 0", "return misses"),
+            (owner[0], b"/Pg 5 0 R", b"/Pg 6 0 R", "OBJR page"),
+            (owner[0], b"/S /Link ", b"/S /Span ", "role/reading order"),
+            (outline[0], b"/SE ", b"/SX ", "outline /SE"),
+            (outline[0], b"/SE " + str(outline[1].value["SE"].number).encode() + b" 0 R",
+             b"/SE 27 0 R", "outline structure owner"),
+        ]
+        for number, old, new, failure in mutations:
+            with self.subTest(failure=failure):
+                raw = dict(self.raw)
+                self.assertIn(old, raw[number])
+                raw[number] = raw[number].replace(old, new, 1)
+                with self.assertRaisesRegex(verifier.PdfValidationError, failure):
+                    self.verify(raw)
+
+    def test_swapped_actual_text_multiset_cannot_authorize_a_footnote_label(self) -> None:
+        raw = dict(self.raw)
+        def replace(page_index: int, old: str, new: str) -> None:
+            catalog = self.parsed[self.trailer["Root"].number].value
+            page = self.parsed[self.parsed[catalog["Pages"].number].value["Kids"][page_index].number].value
+            number = page["Contents"].number
+            item = self.parsed[number]
+            pattern = rb"(/MCID 3\b.*?/ActualText <)" + utf16_hex(old).encode() + rb"(>)"
+            content, count = re.subn(pattern, lambda m: m[1] + utf16_hex(new).encode() + m[2],
+                                     item.stream, count=1, flags=re.DOTALL)
+            self.assertEqual(count, 1)
+            raw[number] = re.sub(rb"/Length [0-9]+", f"/Length {len(content)}".encode(),
+                                 item.raw.replace(item.stream, content, 1), count=1)
+        replace(0, "1", "AB")
+        replace(4, "AB", "1")
+        with self.assertRaisesRegex(verifier.PdfValidationError, "label ActualText"):
+            self.verify(raw)
+
+
 class ProductionBookStructureDerivationTests(unittest.TestCase):
+    def test_page_resources_resolve_direct_and_indirect_dictionaries_with_typed_targets(self) -> None:
+        entries = {"Font": {"PB0": verifier.PdfRef(2)}, "XObject": {"V0": verifier.PdfRef(3)}}
+        objects = {
+            1: verifier.ParsedObject(1, b"", entries, None),
+            2: verifier.ParsedObject(2, b"", {"Type": verifier.PdfName("Font")}, None),
+            3: verifier.ParsedObject(3, b"", {"Type": verifier.PdfName("XObject")}, b"paint"),
+        }
+        for value in (entries, verifier.PdfRef(1)):
+            self.assertEqual(verifier._production_page_resources(objects, value), ({"V0": 3}, {"PB0": 2}))
+        for value in (None, verifier.PdfRef(9), {"Font": {}, "XObject": []},
+                      {"Font": {"PB0": verifier.PdfRef(3)}, "XObject": {}},
+                      {"Font": {}, "XObject": {"V0": verifier.PdfRef(2)}}):
+            with self.subTest(value=value), self.assertRaises(verifier.PdfValidationError):
+                verifier._production_page_resources(objects, value)
+        objects[1] = verifier.ParsedObject(1, b"", entries, b"unexpected stream")
+        with self.assertRaisesRegex(verifier.PdfValidationError, "dictionary is unresolved"):
+            verifier._production_page_resources(objects, verifier.PdfRef(1))
+
     def setUp(self) -> None:
         self.package = json.loads(
             (PRODUCTION_FIXTURE_PATH / "job/document-package.json").read_text("utf-8")
@@ -1233,6 +1334,58 @@ class ProductionBookStructureDerivationTests(unittest.TestCase):
         paragraph["children"][0]["kind"] = "flattened_math"
         with self.assertRaisesRegex(verifier.PdfValidationError, "unsupported production inline"):
             verifier._production_structure_roles(wrong_kind)
+
+
+class ProductionOptionalIDTreeTests(unittest.TestCase):
+    def test_id_tree_presence_tracks_unique_structure_ids(self):
+        obj = lambda n, value: verifier.ParsedObject(n, b"", value, None)
+        ident = verifier.PdfString(b"first", "literal")
+        objects = {1: obj(1, {})}
+        verifier._verify_production_id_tree(objects, {}, [1])
+        with self.assertRaises(verifier.PdfValidationError):
+            verifier._verify_production_id_tree(objects, {"IDTree": verifier.PdfRef(2)}, [1])
+        objects[1] = obj(1, {"ID": ident})
+        with self.assertRaises(verifier.PdfValidationError):
+            verifier._verify_production_id_tree(objects, {}, [1])
+        objects[2] = obj(2, {"Names": [ident, verifier.PdfRef(1)]})
+        verifier._verify_production_id_tree(objects, {"IDTree": verifier.PdfRef(2)}, [1])
+        objects[3] = obj(3, {"ID": ident})
+        with self.assertRaises(verifier.PdfValidationError):
+            verifier._verify_production_id_tree(objects, {"IDTree": verifier.PdfRef(2)}, [1, 3])
+
+
+class ProductionAuthoredLinkTests(unittest.TestCase):
+    def test_exact_internal_and_uri_targets(self):
+        literal = lambda value: verifier.PdfString(value.encode("ascii"), "literal")
+        uri = {"kind": "uri", "uri": "https://example.org/math"}
+        action = {"S": verifier.PdfName("URI"), "URI": literal(uri["uri"])}
+        verifier._verify_production_link_target({"A": action}, uri)
+        verifier._verify_production_link_target({"A": {**action, "URI":
+            verifier.PdfString(uri["uri"].encode("utf-8"), "hex")}}, uri)
+        verifier._verify_production_link_target({"Dest": literal("bib.one")},
+                                                 {"kind": "internal", "anchor_id": "bib.one"})
+        for annotation in [
+            {"A": {**action, "URI": literal("https://example.org/wrong")}},
+            {"A": {**action, "Next": action}},
+            {"A": action, "Dest": literal("bib.one")},
+            {"A": action, "AA": {}},
+        ]:
+            with self.assertRaises(verifier.PdfValidationError):
+                verifier._verify_production_link_target(annotation, uri)
+        with self.assertRaises(verifier.PdfValidationError):
+            verifier._verify_production_link_target({"A": action, "Dest": literal("bib.one")},
+                                                     {"kind": "internal", "anchor_id": "bib.one"})
+
+    def test_source_accessible_name_preserves_breaks_and_uses_alternative(self):
+        source = {"kind": "link", "children": [
+            {"kind": "strong", "children": [{"kind": "text", "text_span":
+                {"text_id": 0, "start_byte": 0, "end_byte": 3}}]},
+            {"kind": "soft_break"},
+            {"kind": "math_vector", "alt": "meaning", "actual_text": "different extraction"},
+            {"kind": "footnote_reference", "footnote_id": "note"},
+        ]}
+        self.assertEqual(verifier._production_link_name(source, {0: "文".encode()}, {"note": 2}),
+                         "文 meaning2")
 
 
 if __name__ == "__main__":

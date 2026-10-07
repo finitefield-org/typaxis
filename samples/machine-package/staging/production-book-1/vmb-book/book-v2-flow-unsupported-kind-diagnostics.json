@@ -1,0 +1,1 @@
+{"contract":"typaxis.contract/1.4","diagnostics":[{"code":"P1102","location":{"byte_offset":null,"json_pointer":"","kind":"package_json","uri":"unsupported-kind.json"},"message":"DocumentPackage member is invalid","notes":[],"severity":"error"}]}

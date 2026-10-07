@@ -2,7 +2,7 @@ use typaxis_core::{push_jcs_string, sha256, M4EffectiveResourceLimits, NodeId};
 use typaxis_layout_contract::{FlowId, MathVectorFlowId, MathVectorFlowTerminal};
 use typaxis_resource_admission::AdmittedResourceLedger;
 use typaxis_shaping::{
-    shape_staging_equation_number, StagingEquationNumberShapeError,
+    shape_staging_equation_number_in_scope, StagingEquationNumberShapeError,
     StagingEquationNumberShapeReceipt,
 };
 use typaxis_syntax::{
@@ -415,6 +415,9 @@ fn build_staging_math_vector_flows(
         .precomposed_vector_effective_languages()
         .map_err(|_| StagingMathVectorFlowError::LanguageRegistryMismatch)?;
 
+    let verifier = package
+        .precomposed_vector_verifier()
+        .map_err(|_| StagingMathVectorFlowError::ReceiptMismatch)?;
     let block_count = package
         .precomposed_vector_metrics()
         .iter()
@@ -486,8 +489,8 @@ fn build_staging_math_vector_flows(
         let style = package
             .precomposed_vector_style(owner)
             .ok_or(StagingMathVectorFlowError::BindingMismatch)?;
-        package
-            .verify_precomposed_vector_style(style)
+        verifier
+            .verify_style(owner, style)
             .map_err(|_| StagingMathVectorFlowError::BindingMismatch)?;
         let PrecomposedVectorPlacementInput::MathVectorBlock(placement) = common.placement() else {
             return Err(StagingMathVectorFlowError::BindingMismatch);
@@ -509,8 +512,8 @@ fn build_staging_math_vector_flows(
         if language.kind() != PrecomposedVectorKind::MathVectorBlock {
             return Err(StagingMathVectorFlowError::LanguageMismatch(owner));
         }
-        let equation_number_shape = shape_staging_equation_number(
-            package,
+        let equation_number_shape = shape_staging_equation_number_in_scope(
+            &verifier,
             metrics,
             admitted,
             bindings.epoch().fingerprint(),

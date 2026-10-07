@@ -1,0 +1,327 @@
+//! FD-bound Type2 execution over the original program spans. These inspection
+//! results are not selected-glyph closure, font admission, or PDF authorization.
+use super::*;
+use std::cell::Cell;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CffGlyphFailureReasonV2 {
+    Execution,
+    InvalidWidth,
+    UnsupportedOperator,
+    ReservedOperator,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CffGlyphFailureV2 {
+    pub kind: Cff1Error,
+    pub reason: CffGlyphFailureReasonV2,
+    pub gid: u16,
+    pub fd: Option<u8>,
+    pub table_offset: Option<usize>,
+    pub operator: Option<u16>,
+    /// False for a program-end cursor or a failure before token decoding.
+    pub position_is_exact: bool,
+    /// Present only when evaluated through an admitted SFNT selection session.
+    pub font_context: Option<FontFailureContext>,
+}
+impl std::fmt::Display for CffGlyphFailureV2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(context) = self.font_context {
+            return std::fmt::Display::fmt(
+                &Cff1Failure {
+                    kind: self.kind,
+                    context,
+                },
+                f,
+            );
+        }
+        write!(
+            f,
+            "CFF /2 {:?}: GID {}, FD {:?}, {:?}; table_byte={:?}; operator={:?}; position_is_exact={}",
+            self.reason, self.gid, self.fd, self.kind, self.table_offset, self.operator, self.position_is_exact
+        )
+    }
+}
+impl std::error::Error for CffGlyphFailureV2 {}
+#[derive(Clone, Copy)]
+enum ProgramKindV2 {
+    Glyph(u16),
+    Local { fd: u8, index: usize },
+    Global { index: usize },
+}
+struct SelectedFontDict<'a> {
+    program: &'a CffProgramV2,
+    fd: u8,
+    current: Cell<Option<(usize, Option<u16>, bool)>>,
+    invalid_width: Cell<bool>,
+    operator_rejection: Cell<Option<Type2OperatorRejection>>,
+    source_width: Cell<Option<i32>>,
+}
+impl SelectedFontDict<'_> {
+    fn span(&self, kind: ProgramKind) -> Option<ProgramSpan> {
+        let kind = match kind {
+            ProgramKind::Glyph(gid) => ProgramKindV2::Glyph(gid),
+            ProgramKind::Local(index) => ProgramKindV2::Local { fd: self.fd, index },
+            ProgramKind::Global(index) => ProgramKindV2::Global { index },
+        };
+        match kind {
+            ProgramKindV2::Glyph(gid) => self.program.charstrings.get(usize::from(gid)),
+            ProgramKindV2::Local { fd, index } => self
+                .program
+                .font_dicts
+                .get(usize::from(fd))?
+                .local_subrs
+                .get(index),
+            ProgramKindV2::Global { index } => self.program.global_subrs.get(index),
+        }
+        .copied()
+    }
+}
+impl Type2ProgramAccess for SelectedFontDict<'_> {
+    fn accepts_subroutine_endchar(&self) -> bool {
+        true
+    }
+    fn observe(&self, kind: ProgramKind, position: usize, operator: Option<u16>) {
+        self.current.set(
+            self.span(kind)
+                .and_then(|s| s.start.checked_add(position))
+                .map(|p| (p, operator, true)),
+        );
+    }
+    fn observe_end(&self, kind: ProgramKind, position: usize) {
+        // The cursor is the validated end of this program, possibly inside a
+        // subroutine. It must not retain the previous operator's location.
+        self.current.set(
+            self.span(kind)
+                .filter(|s| position == s.end - s.start)
+                .map(|s| (s.end, None, false)),
+        );
+    }
+    fn program_bytes(&self, kind: ProgramKind) -> Result<&[u8], Cff1Error> {
+        self.span(kind)
+            .map(|s| s.bytes(&self.program.source))
+            .ok_or(Cff1Error::InvalidCharstring)
+    }
+    fn reject_operator(&self, reason: Type2OperatorRejection) {
+        self.operator_rejection.set(Some(reason));
+    }
+    fn local_subroutine_count(&self) -> usize {
+        self.program.font_dicts[usize::from(self.fd)]
+            .local_subrs
+            .len()
+    }
+    fn global_subroutine_count(&self) -> usize {
+        self.program.global_subrs.len()
+    }
+    fn validate_width(&self, operand: Option<i32>) -> Result<(), Cff1Error> {
+        let fd = &self.program.font_dicts[usize::from(self.fd)];
+        let width = match operand {
+            Some(v) => fd.nominal_width_x.checked_add(v),
+            None => Some(fd.default_width_x),
+        };
+        let Some(width) = width else {
+            self.invalid_width.set(true);
+            return Err(Cff1Error::InvalidCharstring);
+        };
+        // OpenType advance is hmtx; the CFF/PostScript width can differ.
+        self.source_width.set(Some(width));
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CffOutlineCommandV2 {
+    Move(i32, i32),
+    Line(i32, i32),
+    Cubic(i32, i32, i32, i32, i32, i32),
+    Close,
+}
+/// Coordinates and control-point bounds are 16.16 font units. Bounds are the
+/// control-point hull used by the existing evaluator, not tight Bezier extrema.
+#[derive(Debug)]
+pub struct CffEvaluatedGlyphV2 {
+    gid: u16,
+    fd: u8,
+    advance: u16,
+    outline: EvaluatedGlyph,
+    source_width_fixed: i32,
+}
+impl CffEvaluatedGlyphV2 {
+    pub(super) fn canonical_charstring_len(&self) -> Result<usize, Cff1Error> {
+        canonical_charstring_len(self.advance, &self.outline.segments)
+    }
+    pub(super) fn canonical_charstring(&self) -> Result<Vec<u8>, Cff1Error> {
+        canonical_charstring(self.advance, &self.outline.segments)
+    }
+    pub const fn gid(&self) -> u16 {
+        self.gid
+    }
+    pub const fn fd(&self) -> u8 {
+        self.fd
+    }
+    pub const fn source_width_fixed(&self) -> i32 {
+        self.source_width_fixed
+    }
+    pub const fn advance(&self) -> u16 {
+        self.advance
+    }
+    pub const fn control_bounds(&self) -> Option<[i32; 4]> {
+        self.outline.bbox
+    }
+    pub fn commands(&self) -> impl ExactSizeIterator<Item = CffOutlineCommandV2> + '_ {
+        self.outline.segments.iter().map(|s| match *s {
+            OutlineSegment::Move(x, y) => CffOutlineCommandV2::Move(x, y),
+            OutlineSegment::Line(x, y) => CffOutlineCommandV2::Line(x, y),
+            OutlineSegment::Cubic(a, b, c, d, e, f) => CffOutlineCommandV2::Cubic(a, b, c, d, e, f),
+            OutlineSegment::Close => CffOutlineCommandV2::Close,
+        })
+    }
+}
+/// One finite inspection-work budget across all evaluated glyphs. No implicit
+/// per-glyph reset or uncharged cache. A later admitted subset owner must bind
+/// source/face/profile identity and selected-glyph caching before publication.
+#[derive(Debug)]
+pub struct CffProgramEvaluationSessionV2 {
+    limits: M4ResourceLimits,
+    operations: u64,
+    segments: u64,
+}
+impl CffProgramEvaluationSessionV2 {
+    pub fn new(limits: &M4EffectiveResourceLimits) -> Self {
+        Self {
+            limits: *limits.extension().get(),
+            operations: 0,
+            segments: 0,
+        }
+    }
+    pub const fn operations_used(&self) -> u64 {
+        self.operations
+    }
+    pub const fn outline_segments_used(&self) -> u64 {
+        self.segments
+    }
+    pub fn evaluate(
+        &mut self,
+        inspection: &CffProgramInspectionV2,
+        gid: u16,
+        advance: u16,
+    ) -> Result<CffEvaluatedGlyphV2, CffGlyphFailureV2> {
+        self.evaluate_with_charge(inspection, gid, advance, &mut |_, _, _| Ok(()))
+    }
+    /// The caller's cumulative allocation/work counters are checked before
+    /// growth and execution; this session's Type2 counters are never reset.
+    pub fn evaluate_with_charge(
+        &mut self,
+        inspection: &CffProgramInspectionV2,
+        gid: u16,
+        advance: u16,
+        charge: &mut dyn FnMut(usize, usize, usize) -> Result<(), Cff1Error>,
+    ) -> Result<CffEvaluatedGlyphV2, CffGlyphFailureV2> {
+        let program = &inspection.program;
+        let fd = program
+            .fd_by_gid
+            .get(usize::from(gid))
+            .copied()
+            .ok_or(CffGlyphFailureV2 {
+                kind: Cff1Error::InvalidSelectedGlyph,
+                reason: CffGlyphFailureReasonV2::Execution,
+                gid,
+                fd: None,
+                table_offset: None,
+                operator: None,
+                position_is_exact: false,
+                font_context: None,
+            })?;
+        let selected = SelectedFontDict {
+            program,
+            fd,
+            current: Cell::new(None),
+            invalid_width: Cell::new(false),
+            operator_rejection: Cell::new(None),
+            source_width: Cell::new(None),
+        };
+        let mut budget = ChargedEvaluation {
+            session: self,
+            charge,
+        };
+        let outline =
+            evaluate_type2(&selected, gid, &mut budget).map_err(|kind| CffGlyphFailureV2 {
+                kind,
+                reason: if selected.invalid_width.get() {
+                    CffGlyphFailureReasonV2::InvalidWidth
+                } else if let Some(rejection) = selected.operator_rejection.get() {
+                    match rejection {
+                        Type2OperatorRejection::Unsupported => {
+                            CffGlyphFailureReasonV2::UnsupportedOperator
+                        }
+                        Type2OperatorRejection::Reserved => {
+                            CffGlyphFailureReasonV2::ReservedOperator
+                        }
+                    }
+                } else {
+                    CffGlyphFailureReasonV2::Execution
+                },
+                gid,
+                fd: Some(fd),
+                table_offset: selected.current.get().map(|v| v.0),
+                operator: selected.current.get().and_then(|v| v.1),
+                position_is_exact: selected.current.get().is_some_and(|v| v.2),
+                font_context: None,
+            })?;
+        let source_width_fixed = selected.source_width.get().ok_or(CffGlyphFailureV2 {
+            kind: Cff1Error::InvalidCharstring,
+            reason: CffGlyphFailureReasonV2::InvalidWidth,
+            gid,
+            fd: Some(fd),
+            table_offset: selected.current.get().map(|v| v.0),
+            operator: selected.current.get().and_then(|v| v.1),
+            position_is_exact: selected.current.get().is_some_and(|v| v.2),
+            font_context: None,
+        })?;
+        Ok(CffEvaluatedGlyphV2 {
+            source_width_fixed,
+            gid,
+            fd,
+            advance,
+            outline,
+        })
+    }
+}
+impl Type2WorkBudget for CffProgramEvaluationSessionV2 {
+    fn charge_operation(&mut self) -> Result<(), Cff1Error> {
+        let next = self
+            .operations
+            .checked_add(1)
+            .filter(|v| *v <= self.limits.max_cff_charstring_operations)
+            .ok_or(Cff1Error::CharstringOperationLimit)?;
+        self.operations = next;
+        Ok(())
+    }
+    fn charge_segment(&mut self) -> Result<(), Cff1Error> {
+        let next = self
+            .segments
+            .checked_add(1)
+            .filter(|v| *v <= self.limits.max_cff_outline_segments)
+            .ok_or(Cff1Error::OutlineSegmentLimit)?;
+        self.segments = next;
+        Ok(())
+    }
+}
+
+struct ChargedEvaluation<'a, 'b> {
+    session: &'a mut CffProgramEvaluationSessionV2,
+    charge: &'b mut dyn FnMut(usize, usize, usize) -> Result<(), Cff1Error>,
+}
+impl Type2WorkBudget for ChargedEvaluation<'_, '_> {
+    fn charge_allocation(&mut self, records: usize, bytes: usize) -> Result<(), Cff1Error> {
+        (self.charge)(records, bytes, records + bytes.div_ceil(64))
+    }
+    fn charge_operation(&mut self) -> Result<(), Cff1Error> {
+        self.session.charge_operation()?;
+        // An operator may traverse the bounded 48-operand stack.
+        (self.charge)(0, 0, 64)
+    }
+    fn charge_segment(&mut self) -> Result<(), Cff1Error> {
+        self.session.charge_segment()?;
+        (self.charge)(0, 0, 1)
+    }
+}

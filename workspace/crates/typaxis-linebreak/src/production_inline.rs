@@ -1,0 +1,897 @@
+//! Production candidate selection. Source/glyph authorization belongs to the
+//! layout bridge; this kernel never turns scalar metrics into PDF text.
+use super::*;
+use typaxis_core::Sha256;
+#[path = "production_inline_fingerprint.rs"]
+mod fingerprint;
+#[path = "production_native_math.rs"]
+mod native_math;
+pub use native_math::ProductionNativeMathInlineItem;
+
+pub const PRODUCTION_INLINE_BREAK_ALGORITHM: &str = "typaxis.production-inline-break/3";
+
+/// Explicit zero-width opportunity, with syntax-owned provenance. It is not a
+/// space, object-replacement character, or fabricated TextSpan.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProductionExplicitBreak {
+    owner: NodeId,
+    source_span: SourceSpan,
+    kind: BreakKind,
+}
+impl ProductionExplicitBreak {
+    pub fn new(
+        owner: NodeId,
+        source_span: SourceSpan,
+        kind: BreakKind,
+    ) -> Result<Self, AtomicVectorInlineError> {
+        if kind == BreakKind::Prohibited {
+            return Err(AtomicVectorInlineError::InvalidBinding);
+        }
+        Ok(Self {
+            owner,
+            source_span,
+            kind,
+        })
+    }
+    pub const fn owner(self) -> NodeId {
+        self.owner
+    }
+    pub const fn source_span(self) -> SourceSpan {
+        self.source_span
+    }
+    pub const fn kind(self) -> BreakKind {
+        self.kind
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProductionInlineLogicalUnit {
+    Text(AtomicVectorTextUnit),
+    Vector(AtomicVectorInlineItem),
+    Math(ProductionNativeMathInlineItem),
+    Break(ProductionExplicitBreak),
+}
+impl From<AtomicVectorInlineLogicalUnit> for ProductionInlineLogicalUnit {
+    fn from(value: AtomicVectorInlineLogicalUnit) -> Self {
+        match value {
+            AtomicVectorInlineLogicalUnit::Text(t) => Self::Text(t),
+            AtomicVectorInlineLogicalUnit::Vector(v) => Self::Vector(v),
+        }
+    }
+}
+
+/// Scalar-unit range of one already-shaped cluster. This prevents the Unicode
+/// classifier from proposing a break inside a ligature or extended grapheme.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProductionTextClusterRange {
+    pub start_unit: u32,
+    pub end_unit: u32,
+}
+
+pub struct ProductionInlineParagraph {
+    owner: NodeId,
+    units: Vec<ProductionInlineLogicalUnit>,
+    boundaries: Vec<AtomicVectorInlineBoundary>,
+    previous_content: Vec<Option<usize>>,
+    clusters: Vec<ProductionTextClusterRange>,
+    fingerprint: [u8; 32],
+}
+impl ProductionInlineParagraph {
+    /// An explicit nonpainting paragraph. It retains zero logical units and
+    /// occupies one line of the caller's computed line height when selected.
+    /// Ordinary itemization still rejects an accidentally empty unit sequence.
+    pub fn empty(owner: NodeId) -> Self {
+        let mut identity = [0u8; 36];
+        identity[..32].copy_from_slice(&sha256(b"typaxis.production-empty-inline/1"));
+        identity[32..].copy_from_slice(&owner.get().to_be_bytes());
+        Self {
+            owner,
+            units: Vec::new(),
+            boundaries: Vec::new(),
+            previous_content: Vec::new(),
+            clusters: Vec::new(),
+            fingerprint: sha256(&identity),
+        }
+    }
+    /// All text units must be covered exactly once, in order, by cluster ranges.
+    /// Vectors remain individual typed AL units. Empty paragraphs are handled by
+    /// the containing flow, not by fabricating a zero-width text scalar here.
+    pub fn itemize(
+        owner: NodeId,
+        units: Vec<AtomicVectorInlineLogicalUnit>,
+        clusters: Vec<ProductionTextClusterRange>,
+        japanese_mode: JapaneseLineBreakMode,
+    ) -> Result<Self, AtomicVectorInlineError> {
+        let mut typed = Vec::new();
+        typed
+            .try_reserve_exact(units.len())
+            .map_err(|_| AtomicVectorInlineError::AllocationFailure)?;
+        typed.extend(units.into_iter().map(ProductionInlineLogicalUnit::from));
+        Self::itemize_with_breaks(owner, typed, clusters, japanese_mode)
+    }
+
+    pub fn itemize_with_breaks(
+        owner: NodeId,
+        units: Vec<ProductionInlineLogicalUnit>,
+        clusters: Vec<ProductionTextClusterRange>,
+        japanese_mode: JapaneseLineBreakMode,
+    ) -> Result<Self, AtomicVectorInlineError> {
+        use ProductionInlineLogicalUnit as U;
+        if units.is_empty() {
+            return Err(AtomicVectorInlineError::EmptyParagraph);
+        }
+        u32::try_from(units.len()).map_err(|_| AtomicVectorInlineError::ArithmeticOverflow)?;
+        let mut unicode = Vec::new();
+        unicode
+            .try_reserve_exact(units.len())
+            .map_err(|_| AtomicVectorInlineError::AllocationFailure)?;
+        let mut unicode_positions = Vec::new();
+        unicode_positions
+            .try_reserve_exact(units.len())
+            .map_err(|_| AtomicVectorInlineError::AllocationFailure)?;
+        let mut previous_content = Vec::new();
+        previous_content
+            .try_reserve_exact(units.len())
+            .map_err(|_| AtomicVectorInlineError::AllocationFailure)?;
+        let mut previous = None;
+        let mut break_nodes = std::collections::BTreeSet::new();
+        let mut vector_nodes = std::collections::BTreeSet::new();
+        for (index, unit) in units.iter().enumerate() {
+            previous_content.push(previous);
+            unicode_positions.push(unicode.len());
+            match unit {
+                U::Text(t) => unicode.push(UnicodeLineBreakUnit::Scalar(t.scalar())),
+                U::Vector(v) => {
+                    if v.paragraph_node() != owner
+                        || !vector_nodes.insert(v.node_id())
+                        || !v.matches_bound_placement(v.binding_fingerprint(), v.placement())
+                    {
+                        return Err(AtomicVectorInlineError::InvalidBinding);
+                    }
+                    unicode.push(UnicodeLineBreakUnit::SyntheticAl);
+                }
+                U::Math(m) => {
+                    if m.paragraph() != owner || !vector_nodes.insert(m.owner()) {
+                        return Err(AtomicVectorInlineError::InvalidBinding);
+                    }
+                    unicode.push(UnicodeLineBreakUnit::SyntheticAl);
+                }
+                U::Break(b) => {
+                    if b.owner == owner || !break_nodes.insert(b.owner) {
+                        return Err(AtomicVectorInlineError::InvalidBinding);
+                    }
+                    if b.kind == BreakKind::Mandatory {
+                        unicode.push(UnicodeLineBreakUnit::MandatoryBreak);
+                    }
+                    continue;
+                }
+            }
+            previous = Some(index);
+        }
+        if break_nodes.iter().any(|n| vector_nodes.contains(n)) {
+            return Err(AtomicVectorInlineError::InvalidBinding);
+        }
+        let mut unicode_kinds = Vec::new();
+        unicode_kinds
+            .try_reserve_exact(unicode.len() + 1)
+            .map_err(|_| AtomicVectorInlineError::AllocationFailure)?;
+        unicode_kinds.resize(unicode.len() + 1, None);
+        for b in unicode_line_breaks_for_units(&unicode)
+            .map_err(|_| AtomicVectorInlineError::UnicodeLineBreak)?
+        {
+            unicode_kinds[b.unit_offset()] = Some(b.kind());
+        }
+        let mut boundaries = Vec::new();
+        boundaries
+            .try_reserve_exact(units.len() - 1)
+            .map_err(|_| AtomicVectorInlineError::AllocationFailure)?;
+        for index in 0..units.len() - 1 {
+            let (kind, penalty) = match (units[index], units[index + 1]) {
+                (U::Break(b), _) => (b.kind, 0),
+                (_, U::Break(_)) => (BreakKind::Prohibited, 0),
+                _ => {
+                    let scalar = |u| match u {
+                        U::Text(t) => Some(t.scalar()),
+                        U::Vector(_) | U::Math(_) => Some('A'),
+                        U::Break(_) => None,
+                    };
+                    let pair = japanese_pair_rule(
+                        scalar(units[index]),
+                        scalar(units[index + 1]),
+                        japanese_mode,
+                    );
+                    let kind = match unicode_kinds[unicode_positions[index + 1]] {
+                        Some(UnicodeBreakKind::Mandatory) => BreakKind::Mandatory,
+                        Some(UnicodeBreakKind::Allowed)
+                            if pair.permission() == JapanesePairPermission::Preserve =>
+                        {
+                            BreakKind::Allowed
+                        }
+                        _ => BreakKind::Prohibited,
+                    };
+                    (kind, pair.penalty())
+                }
+            };
+            boundaries.push(AtomicVectorInlineBoundary::Text { kind, penalty });
+        }
+        let mut cursor = 0usize;
+        for cluster in &clusters {
+            while matches!(
+                units.get(cursor),
+                Some(U::Vector(_) | U::Math(_) | U::Break(_))
+            ) {
+                cursor += 1;
+            }
+            let start = cluster.start_unit as usize;
+            let end = cluster.end_unit as usize;
+            if start != cursor
+                || start >= end
+                || end > units.len()
+                || units[start..end]
+                    .iter()
+                    .any(|unit| !matches!(unit, U::Text(_)))
+            {
+                return Err(AtomicVectorInlineError::InvalidBinding);
+            }
+            for index in start..end - 1 {
+                let boundary = &mut boundaries[index];
+                if boundary.kind() == BreakKind::Mandatory {
+                    return Err(AtomicVectorInlineError::InvalidBinding);
+                }
+                *boundary = AtomicVectorInlineBoundary::Text {
+                    kind: BreakKind::Prohibited,
+                    penalty: boundary.penalty(),
+                };
+            }
+            cursor = end;
+        }
+        if units[cursor..]
+            .iter()
+            .any(|unit| !matches!(unit, U::Vector(_) | U::Math(_) | U::Break(_)))
+        {
+            return Err(AtomicVectorInlineError::InvalidBinding);
+        }
+        let mut canonical = Sha256::new();
+        fingerprint::write_paragraph(
+            &mut canonical,
+            owner,
+            &units,
+            &boundaries,
+            &clusters,
+            japanese_mode,
+        )
+        .expect("SHA-256 formatting is infallible");
+        Ok(Self {
+            owner,
+            units,
+            boundaries,
+            previous_content,
+            clusters,
+            fingerprint: canonical.finish(),
+        })
+    }
+    pub const fn paragraph_node(&self) -> NodeId {
+        self.owner
+    }
+    pub fn units(&self) -> &[ProductionInlineLogicalUnit] {
+        &self.units
+    }
+    pub fn clusters(&self) -> &[ProductionTextClusterRange] {
+        &self.clusters
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    fn gap_before(
+        &self,
+        index: usize,
+        line_start: usize,
+    ) -> Result<Length, AtomicVectorInlineError> {
+        if matches!(self.units[index], ProductionInlineLogicalUnit::Break(_)) {
+            return Ok(Length::ZERO);
+        }
+        let Some(previous) = self.previous_content[index].filter(|i| *i >= line_start) else {
+            return Ok(Length::ZERO);
+        };
+        let after = match self.units[previous] {
+            ProductionInlineLogicalUnit::Vector(v) => v.placement().spacing_after(),
+            _ => NonNegativeLength::ZERO,
+        };
+        let before = match self.units[index] {
+            ProductionInlineLogicalUnit::Vector(v) => v.placement().spacing_before(),
+            _ => NonNegativeLength::ZERO,
+        };
+        after
+            .get()
+            .checked_add(before.get())
+            .ok_or(AtomicVectorInlineError::ArithmeticOverflow)
+    }
+}
+
+#[path = "production_inline_widths.rs"]
+mod widths;
+pub use widths::{
+    break_production_inline_with_source_widths, ProductionInlineSourceWidths,
+    PRODUCTION_REFINED_WIDTH_BREAK_ALGORITHM, PRODUCTION_SOURCE_WIDTH_BREAK_ALGORITHM,
+};
+
+/// A containing document stage retains one budget across paragraph calls.
+/// Work is charged per visited candidate unit, before its metrics are evaluated.
+#[derive(Debug)]
+pub struct ProductionLineBreakBudget {
+    remaining_steps: u64,
+    remaining_lines: u64,
+}
+impl ProductionLineBreakBudget {
+    pub const fn new(max_candidate_steps: u64, max_selected_lines: u64) -> Self {
+        Self {
+            remaining_steps: max_candidate_steps,
+            remaining_lines: max_selected_lines,
+        }
+    }
+    pub const fn remaining_steps(&self) -> u64 {
+        self.remaining_steps
+    }
+    pub const fn remaining_lines(&self) -> u64 {
+        self.remaining_lines
+    }
+    /// Tighten the remaining line allowance to fit a downstream document
+    /// allocation budget. This never restores visits or previously used lines.
+    pub fn constrain_remaining_lines(&mut self, maximum: u64) {
+        self.remaining_lines = self.remaining_lines.min(maximum);
+    }
+    fn step(&mut self) -> Result<(), AtomicVectorInlineError> {
+        self.remaining_steps = self
+            .remaining_steps
+            .checked_sub(1)
+            .ok_or(AtomicVectorInlineError::CandidateLimit)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct ProductionInlineSelectedLine {
+    inline_size: PositiveLength,
+    unit_pens: Vec<Length>,
+    line: AtomicVectorSelectedLine,
+    origin_shift: NonNegativeLength,
+    required_inline_size: NonNegativeLength,
+}
+impl ProductionInlineSelectedLine {
+    /// Width actually used to fit and score this original-source line.
+    pub const fn inline_size(&self) -> PositiveLength {
+        self.inline_size
+    }
+
+    /// Pen after same-line spacing and before this logical unit. Coordinates
+    /// exclude origin_shift; controls and zero-advance scalars keep their slots.
+    pub fn unit_pen_x(&self, unit_index: u32) -> Option<Length> {
+        let offset = unit_index.checked_sub(self.line.start_unit())?;
+        self.unit_pens.get(offset as usize).copied()
+    }
+
+    /// Pens in `line` are relative to this shifted line origin. Apply the same
+    /// shift to body glyphs and vector viewports; do not alter producer metrics.
+    pub const fn line(&self) -> &AtomicVectorSelectedLine {
+        &self.line
+    }
+    pub const fn origin_shift(&self) -> NonNegativeLength {
+        self.origin_shift
+    }
+    pub const fn required_inline_size(&self) -> NonNegativeLength {
+        self.required_inline_size
+    }
+}
+
+pub struct ProductionInlineBreak {
+    paragraph_fingerprint: [u8; 32],
+    lines: Vec<ProductionInlineSelectedLine>,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+impl ProductionInlineBreak {
+    pub const fn paragraph_fingerprint(&self) -> [u8; 32] {
+        self.paragraph_fingerprint
+    }
+    pub fn lines(&self) -> &[ProductionInlineSelectedLine] {
+        &self.lines
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
+/// Minimum-demerit LTR candidates with cluster-atomic breaks and compensated
+/// vector viewport overhang. Candidate extension is O(1), rather than remeasuring
+/// every prefix; selected lines alone collect occurrences and vertical metrics.
+pub fn break_production_inline(
+    paragraph: &ProductionInlineParagraph,
+    inline_size: PositiveLength,
+    line_height: PositiveLength,
+    budget: &mut ProductionLineBreakBudget,
+) -> Result<ProductionInlineBreak, AtomicVectorInlineError> {
+    break_with_widths(
+        paragraph,
+        widths::InlineWidths::Fixed(inline_size),
+        line_height,
+        budget,
+    )
+}
+fn break_with_widths(
+    paragraph: &ProductionInlineParagraph,
+    widths: widths::InlineWidths<'_>,
+    line_height: PositiveLength,
+    budget: &mut ProductionLineBreakBudget,
+) -> Result<ProductionInlineBreak, AtomicVectorInlineError> {
+    let p = paragraph;
+    if p.units.is_empty() {
+        budget.step()?;
+        if budget.remaining_lines == 0 {
+            return Err(AtomicVectorInlineError::SelectionLimit);
+        }
+    }
+    let count = p
+        .units
+        .len()
+        .checked_add(1)
+        .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+    let mut costs = Vec::new();
+    costs
+        .try_reserve_exact(count)
+        .map_err(|_| AtomicVectorInlineError::AllocationFailure)?;
+    costs.resize(count, None::<i64>);
+    let mut previous = Vec::new();
+    previous
+        .try_reserve_exact(count)
+        .map_err(|_| AtomicVectorInlineError::AllocationFailure)?;
+    previous.resize(count, None::<usize>);
+    costs[0] = Some(0);
+    let mut retained_index = 0;
+    for start in 0..p.units.len() {
+        let stop = if let Some(ends) = widths.retained_ends() {
+            budget.step()?;
+            while ends[retained_index] as usize <= start {
+                retained_index += 1;
+            }
+            ends[retained_index] as usize
+        } else {
+            p.units.len()
+        };
+        let Some(base_cost) = costs[start] else {
+            continue;
+        };
+        let inline_size = widths.at(start);
+        let mut cursor = Length::ZERO;
+        let mut left = Length::ZERO;
+        let mut right = Length::ZERO;
+        for index in start..stop {
+            budget.step()?;
+            if index > start {
+                cursor = cursor
+                    .checked_add(p.gap_before(index, start)?)
+                    .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+            }
+            let advance = match p.units[index] {
+                ProductionInlineLogicalUnit::Text(t) => t.advance().get(),
+                ProductionInlineLogicalUnit::Break(_) => Length::ZERO,
+                ProductionInlineLogicalUnit::Math(m) => {
+                    left = left.min(
+                        cursor
+                            .checked_add(m.left())
+                            .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?,
+                    );
+                    right = right.max(
+                        cursor
+                            .checked_add(m.right())
+                            .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?,
+                    );
+                    m.advance().get()
+                }
+                ProductionInlineLogicalUnit::Vector(v) => {
+                    left = left.min(
+                        cursor
+                            .checked_add(v.metrics().origin_x())
+                            .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?,
+                    );
+                    right = right.max(
+                        cursor
+                            .checked_add(v.metrics().viewport_right_from_pen())
+                            .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?,
+                    );
+                    v.metrics().advance().get()
+                }
+            };
+            cursor = cursor
+                .checked_add(advance)
+                .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+            right = right.max(cursor);
+            let required = right
+                .checked_sub(left)
+                .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+            // All logical advances/spacing are nonnegative; visual extrema only
+            // expand, so a longer candidate cannot repair this overflow.
+            if required > inline_size.get() {
+                break;
+            }
+            let end = index + 1;
+            let kind = if end == p.units.len() {
+                BreakKind::Mandatory
+            } else {
+                p.boundaries[index].kind()
+            };
+            if kind != BreakKind::Prohibited {
+                let penalty = if end == p.units.len() {
+                    0
+                } else {
+                    p.boundaries[index].penalty()
+                };
+                let width = NonNegativeLength::new(required)
+                    .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+                let cost = base_cost
+                    .checked_add(atomic_line_demerits(inline_size, width, penalty)?)
+                    .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+                if costs[end].map_or(true, |old| cost < old) {
+                    costs[end] = Some(cost);
+                    previous[end] = Some(start);
+                }
+            }
+            if kind == BreakKind::Mandatory {
+                break;
+            }
+        }
+    }
+    if costs[p.units.len()].is_none() {
+        return Err(AtomicVectorInlineError::NoFeasibleLine);
+    }
+    let mut line_count = u64::from(p.units.is_empty());
+    if line_count > budget.remaining_lines {
+        return Err(AtomicVectorInlineError::SelectionLimit);
+    }
+    let mut cursor = p.units.len();
+    while cursor > 0 {
+        line_count = line_count
+            .checked_add(1)
+            .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+        if line_count > budget.remaining_lines {
+            return Err(AtomicVectorInlineError::SelectionLimit);
+        }
+        cursor = previous[cursor].ok_or(AtomicVectorInlineError::NoFeasibleLine)?;
+    }
+    budget.remaining_lines -= line_count;
+    let mut lines = Vec::new();
+    lines
+        .try_reserve_exact(line_count as usize)
+        .map_err(|_| AtomicVectorInlineError::AllocationFailure)?;
+    if p.units.is_empty() {
+        let measured = measure_production_line(p, 0, 0, line_height)?;
+        lines.push(ProductionInlineSelectedLine {
+            inline_size: widths.at(0),
+            unit_pens: Vec::new(),
+            origin_shift: NonNegativeLength::ZERO,
+            required_inline_size: NonNegativeLength::ZERO,
+            line: AtomicVectorSelectedLine {
+                line_index: 0,
+                start_unit: 0,
+                end_unit: 0,
+                logical_advance: measured.logical_advance,
+                visual_left: None,
+                visual_right: None,
+                metrics: measured.metrics,
+                occurrences: Vec::new(),
+                break_kind: BreakKind::Mandatory,
+                break_penalty: 0,
+                break_demerits: 0,
+            },
+        });
+    }
+    let mut end = p.units.len();
+    while end > 0 {
+        let start = previous[end].ok_or(AtomicVectorInlineError::NoFeasibleLine)?;
+        let inline_size = widths.at(start);
+        let measured = measure_production_line(p, start, end, line_height)?;
+        let left = measured
+            .visual_left
+            .unwrap_or(Length::ZERO)
+            .min(Length::ZERO);
+        let right = measured
+            .visual_right
+            .unwrap_or(Length::ZERO)
+            .max(measured.logical_advance.get());
+        let required = right
+            .checked_sub(left)
+            .and_then(NonNegativeLength::new)
+            .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+        if required.get() > inline_size.get() {
+            return Err(AtomicVectorInlineError::InvalidBinding);
+        }
+        lines.push(ProductionInlineSelectedLine {
+            inline_size,
+            unit_pens: measured.unit_pens,
+            origin_shift: Length::ZERO
+                .checked_sub(left)
+                .and_then(NonNegativeLength::new)
+                .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?,
+            required_inline_size: required,
+            line: AtomicVectorSelectedLine {
+                line_index: u32::try_from(line_count - 1 - lines.len() as u64)
+                    .map_err(|_| AtomicVectorInlineError::ArithmeticOverflow)?,
+                start_unit: start as u32,
+                end_unit: end as u32,
+                logical_advance: measured.logical_advance,
+                visual_left: measured.visual_left,
+                visual_right: measured.visual_right,
+                metrics: measured.metrics,
+                occurrences: measured.occurrences,
+                break_kind: if end == p.units.len() {
+                    BreakKind::Mandatory
+                } else {
+                    p.boundaries[end - 1].kind()
+                },
+                break_penalty: if end == p.units.len() {
+                    0
+                } else {
+                    p.boundaries[end - 1].penalty()
+                },
+                break_demerits: costs[end].ok_or(AtomicVectorInlineError::InvalidBinding)?,
+            },
+        });
+        end = start;
+    }
+    lines.reverse();
+    let mut canonical = String::from("{\"algorithm\":");
+    match &widths {
+        widths::InlineWidths::Fixed(inline_size) => {
+            push_jcs_string(&mut canonical, PRODUCTION_INLINE_BREAK_ALGORITHM);
+            canonical.push_str(&format!(",\"inline_size\":{}", inline_size.get().raw()));
+        }
+        widths::InlineWidths::Source(sizes, ends) => {
+            push_jcs_string(
+                &mut canonical,
+                if ends.is_some() {
+                    widths::PRODUCTION_REFINED_WIDTH_BREAK_ALGORITHM
+                } else {
+                    PRODUCTION_SOURCE_WIDTH_BREAK_ALGORITHM
+                },
+            );
+            canonical.push_str(",\"inline_sizes\":[");
+            for (index, size) in sizes.iter().enumerate() {
+                if index != 0 {
+                    canonical.push(',');
+                }
+                canonical.push_str(&size.get().raw().to_string());
+            }
+            canonical.push(']');
+            if let Some(ends) = ends {
+                canonical.push_str(",\"line_ends\":[");
+                for (index, end) in ends.iter().enumerate() {
+                    if index != 0 {
+                        canonical.push(',');
+                    }
+                    canonical.push_str(&end.to_string());
+                }
+                canonical.push(']');
+            }
+        }
+    }
+    canonical.push_str(&format!(
+        ",\"line_height\":{},\"lines\":[",
+        line_height.get().raw()
+    ));
+    for (index, value) in lines.iter().enumerate() {
+        if index != 0 {
+            canonical.push(',');
+        }
+        canonical.push_str(&format!(
+            "{{\"end\":{},\"origin_shift\":{},\"required\":{},\"start\":{},\"unit_pens\":[",
+            value.line.end_unit,
+            value.origin_shift.get().raw(),
+            value.required_inline_size.get().raw(),
+            value.line.start_unit
+        ));
+        for (unit, pen) in value.unit_pens.iter().enumerate() {
+            if unit != 0 {
+                canonical.push(',');
+            }
+            canonical.push_str(&pen.raw().to_string());
+        }
+        canonical.push_str("]}");
+    }
+    canonical.push_str("],\"paragraph_fingerprint\":");
+    push_hash(&mut canonical, paragraph.fingerprint);
+    canonical.push('}');
+    Ok(ProductionInlineBreak {
+        paragraph_fingerprint: paragraph.fingerprint,
+        lines,
+        fingerprint: sha256(canonical.as_bytes()),
+        canonical_jcs: canonical,
+    })
+}
+
+struct ProductionMeasuredLine {
+    unit_pens: Vec<Length>,
+    logical_advance: NonNegativeLength,
+    visual_left: Option<Length>,
+    visual_right: Option<Length>,
+    metrics: AtomicVectorLineMetrics,
+    occurrences: Vec<AtomicVectorLineOccurrence>,
+}
+
+fn measure_production_line(
+    p: &ProductionInlineParagraph,
+    start: usize,
+    end: usize,
+    line_height: PositiveLength,
+) -> Result<ProductionMeasuredLine, AtomicVectorInlineError> {
+    use ProductionInlineLogicalUnit as U;
+    let mut cursor = Length::ZERO;
+    let mut ascent = Length::ZERO;
+    let mut descent = Length::ZERO;
+    let mut visual_left: Option<Length> = None;
+    let mut visual_right: Option<Length> = None;
+    let mut unit_pens = Vec::new();
+    unit_pens
+        .try_reserve_exact(end - start)
+        .map_err(|_| AtomicVectorInlineError::AllocationFailure)?;
+    let mut occurrences = Vec::new();
+    occurrences
+        .try_reserve_exact(
+            p.units[start..end]
+                .iter()
+                .filter(|u| matches!(u, U::Vector(_)))
+                .count(),
+        )
+        .map_err(|_| AtomicVectorInlineError::AllocationFailure)?;
+    // The last painted content item owns after-spacing suppression even when
+    // zero-width explicit breaks follow it on this same selected line.
+    let last_content = (start..end)
+        .rev()
+        .find(|i| !matches!(p.units[*i], U::Break(_)));
+    for index in start..end {
+        cursor = cursor
+            .checked_add(p.gap_before(index, start)?)
+            .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+        unit_pens.push(cursor);
+        match p.units[index] {
+            U::Text(t) => {
+                ascent = ascent.max(t.ascent().get());
+                descent = descent.max(t.descent().get());
+                cursor = cursor
+                    .checked_add(t.advance().get())
+                    .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+            }
+            U::Vector(v) => {
+                let m = v.metrics();
+                ascent = ascent.max(m.ascent().get());
+                descent = descent.max(m.descent().get());
+                let left = cursor
+                    .checked_add(m.origin_x())
+                    .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+                let right = cursor
+                    .checked_add(m.viewport_right_from_pen())
+                    .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+                visual_left = Some(visual_left.map_or(left, |old| old.min(left)));
+                visual_right = Some(visual_right.map_or(right, |old| old.max(right)));
+                occurrences.push(AtomicVectorLineOccurrence {
+                    unit_index: index as u32,
+                    item: v,
+                    pen_x: cursor,
+                    spacing_before: if p.previous_content[index].is_some_and(|i| i >= start) {
+                        v.placement().spacing_before()
+                    } else {
+                        NonNegativeLength::ZERO
+                    },
+                    spacing_after: if last_content == Some(index) {
+                        NonNegativeLength::ZERO
+                    } else {
+                        v.placement().spacing_after()
+                    },
+                });
+                cursor = cursor
+                    .checked_add(m.advance().get())
+                    .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+            }
+            U::Math(m) => {
+                ascent = ascent.max(m.ascent().get());
+                descent = descent.max(m.descent().get());
+                let left = cursor
+                    .checked_add(m.left())
+                    .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+                let right = cursor
+                    .checked_add(m.right())
+                    .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+                visual_left = Some(visual_left.map_or(left, |old| old.min(left)));
+                visual_right = Some(visual_right.map_or(right, |old| old.max(right)));
+                cursor = cursor
+                    .checked_add(m.advance().get())
+                    .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+            }
+            U::Break(_) => (),
+        }
+    }
+    Ok(ProductionMeasuredLine {
+        unit_pens,
+        logical_advance: NonNegativeLength::new(cursor)
+            .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?,
+        visual_left,
+        visual_right,
+        metrics: compute_inline_line_metrics(ascent, descent, line_height)?,
+        occurrences,
+    })
+}
+
+#[cfg(test)]
+mod empty_paragraph_tests {
+    use super::*;
+    fn positive(raw: i64) -> PositiveLength {
+        PositiveLength::new(Length::from_raw(raw).unwrap()).unwrap()
+    }
+    #[test]
+    fn explicit_empty_paragraph_selects_one_nonpainting_line_of_computed_height() {
+        let source = ProductionInlineParagraph::empty(NodeId::new(7));
+        assert!(source.units().is_empty());
+        assert!(source.clusters().is_empty());
+        assert_eq!(source.paragraph_node(), NodeId::new(7));
+        assert_ne!(
+            source.fingerprint(),
+            ProductionInlineParagraph::empty(NodeId::new(8)).fingerprint()
+        );
+        assert!(matches!(
+            ProductionInlineParagraph::itemize_with_breaks(
+                NodeId::new(7),
+                vec![],
+                vec![],
+                JapaneseLineBreakMode::Normal,
+            ),
+            Err(AtomicVectorInlineError::EmptyParagraph)
+        ));
+        for (height, before, after) in [(1, 0, 1), (3, 2, 1), (5, 2, 3), (65536, 32768, 32768)] {
+            let mut budget = ProductionLineBreakBudget::new(1, 1);
+            let selected =
+                break_production_inline(&source, positive(1), positive(height), &mut budget)
+                    .unwrap();
+            assert_eq!(budget.remaining_steps(), 0);
+            assert_eq!(budget.remaining_lines(), 0);
+            assert_eq!(selected.lines().len(), 1);
+            let line = &selected.lines()[0];
+            assert_eq!((line.line().start_unit(), line.line().end_unit()), (0, 0));
+            assert_eq!(line.line().logical_advance().get(), Length::ZERO);
+            assert_eq!(line.required_inline_size().get(), Length::ZERO);
+            assert_eq!(line.origin_shift().get(), Length::ZERO);
+            assert_eq!(line.unit_pen_x(0), None);
+            assert!(line.line().occurrences().is_empty());
+            let metrics = line.line().metrics();
+            assert_eq!(metrics.line_height().get().raw(), height);
+            assert_eq!(metrics.content_ascent().get(), Length::ZERO);
+            assert_eq!(metrics.content_descent().get(), Length::ZERO);
+            assert_eq!(metrics.leading_before().get().raw(), before);
+            assert_eq!(metrics.leading_after().get().raw(), after);
+            assert!(matches!(
+                break_production_inline(&source, positive(1), positive(height), &mut budget),
+                Err(AtomicVectorInlineError::CandidateLimit)
+            ));
+        }
+    }
+    #[test]
+    fn empty_line_limits_are_checked_before_selection_and_do_not_reset() {
+        let source = ProductionInlineParagraph::empty(NodeId::new(0));
+        let mut no_work = ProductionLineBreakBudget::new(0, 1);
+        assert!(matches!(
+            break_production_inline(&source, positive(1), positive(1), &mut no_work),
+            Err(AtomicVectorInlineError::CandidateLimit)
+        ));
+        assert_eq!(no_work.remaining_lines(), 1);
+        let mut no_lines = ProductionLineBreakBudget::new(2, 0);
+        for work_left in [1, 0] {
+            assert!(matches!(
+                break_production_inline(&source, positive(1), positive(1), &mut no_lines),
+                Err(AtomicVectorInlineError::SelectionLimit)
+            ));
+            assert_eq!(no_lines.remaining_steps(), work_left);
+            assert_eq!(no_lines.remaining_lines(), 0);
+        }
+    }
+}

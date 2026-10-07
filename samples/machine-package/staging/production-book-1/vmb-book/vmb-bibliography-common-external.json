@@ -1,0 +1,148 @@
+{
+  "scope": "Two authored bibliography entries and two rich citations, with glossary and real math; not original full-book acceptance",
+  "input": "/private/tmp/vmb-bibliography-public/typaxis-body-1996901992",
+  "run": "/private/tmp/vmb-bibliography-public/typaxis-run-4216583263",
+  "final_regression_input": "/private/tmp/vmb-bibliography-public/typaxis-body-1972854880",
+  "final_regression_run": "/private/tmp/vmb-bibliography-public/typaxis-run-1350648382",
+  "final_pdf_byte_identical": true,
+  "files": [
+    {
+      "path": "/private/tmp/vmb-bibliography-public/typaxis-body-1996901992/document-package.json",
+      "bytes": 20721,
+      "sha256": "6afbc4bd68407c8876858d26f98d4928a57387b611b806d00dd3a4c5cd099dec"
+    },
+    {
+      "path": "/private/tmp/vmb-bibliography-public/typaxis-run-4216583263/output.pdf",
+      "bytes": 92248,
+      "sha256": "ca686e7c1ab3aeb729170931d48209775a650876c44ae785b8e6aabdedc41f4f"
+    },
+    {
+      "path": "/private/tmp/vmb-bibliography-public/typaxis-run-4216583263/build-manifest.json",
+      "bytes": 23343,
+      "sha256": "f36c70a8f1e1f1197b4434e3a3b0fe33d06d97f4006ad229f4826597d621c61a"
+    },
+    {
+      "path": "/private/tmp/vmb-bibliography-public/typaxis-run-4216583263/trace.json",
+      "bytes": 736,
+      "sha256": "88e7bda06dcb44fcffb8d1374f99494bca44177f7fa14e3f8ade5495ecd0ce38"
+    },
+    {
+      "path": "/private/tmp/vmb-bibliography-public/typaxis-run-4216583263/book-config.toml",
+      "bytes": 1480,
+      "sha256": "3f708506f7353fbde56046b015c61cb49c74970bb59ff8c417a74a9bea701144"
+    },
+    {
+      "path": "/private/tmp/typaxis-vmb-book-build/debug/typaxis",
+      "bytes": 73517640,
+      "sha256": "08e3b3008e85efcc669f0df68982dab106cfddcc535b90da996a6a52bace526a"
+    },
+    {
+      "path": "/private/tmp/vmb-bibliography-final-regression.log",
+      "bytes": 69338,
+      "sha256": "a6903eb45bcbbb490ecf75e4208bafb8104409e0113cf9a97e3450bf3b0dea01"
+    },
+    {
+      "path": "/private/tmp/vmb-bibliography-pdf-structure-tests.log",
+      "bytes": 137,
+      "sha256": "8077362326e1b0693ea3fe73873a278e8ddf1cb28fd9ca786f002cf65c56cc8a"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-figure-independent-check.py",
+      "bytes": 4298,
+      "sha256": "35483f3ce423dda87dc31469252dd3f7c7c93823ca4238664b9a63a58921eafd"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-bibliography-language-check.py",
+      "bytes": 2025,
+      "sha256": "704750aa85e8a503af32cb7ddbfbf47503566860f7c498a75eb7590374fd4c2d"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-bibliography-common-content.json",
+      "bytes": 1672,
+      "sha256": "cf89094464e93d048df9c32843bc304f5155e5ab917411524958113af5bb3bd6"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-bibliography-common-languages.json",
+      "bytes": 242,
+      "sha256": "73c251a08e53dc8eaa94594fd4e7575171ce309cc667fde664170f12b7e7308f"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/staging/production-book-1/vmb-book/vmb-bibliography-common-verapdf.xml",
+      "bytes": 1380,
+      "sha256": "5b4919bd50d7bab21fb755edaa9ece34b6aa2d7d110ab7da3f2f83836bd6f533"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/tools/verify_pdf_structure.py",
+      "bytes": 236197,
+      "sha256": "bdc78e098d7b6b7ff069841701abc383b94042ecf73915bc3fcc80c52a74462d"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/t/typaxis/tools/test_pdf_structure.py",
+      "bytes": 65178,
+      "sha256": "e07ae7e1099ae639a5cba940e7e3699ec14b42afecac5d77bb321768e2dc14fb"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_bibliography.go",
+      "bytes": 13922,
+      "sha256": "a32cee9b015ac1daf8bec076d3fea63c6f4afec76e992247c158dc08d38256e5"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_bibliography_test.go",
+      "bytes": 7665,
+      "sha256": "ff7b3855caf20d60a3f817bd751981cf17c7c1b22784b7b8f3eb275b7504d88f"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package.go",
+      "bytes": 11232,
+      "sha256": "ce2dd5d442749023b5e8bd9e68546b45a111141f6da3bb4b339edda4b23a4f1e"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_body.go",
+      "bytes": 17545,
+      "sha256": "990dd82a181e572856e4b7d91a3727f2cdcd85a53c99a46b884e9659c5b18a85"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_reference.go",
+      "bytes": 5755,
+      "sha256": "ac4530ab5c244dfd0549940483261d15702336ea866443db876074c52a7fcbc7"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_glossary.go",
+      "bytes": 7887,
+      "sha256": "1cdc43d0d9b82d3da54acb317d763b4a897b3afb8240c09a994ce51acedf4ead"
+    },
+    {
+      "path": "/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/internal/rendertypaxis/package_sidecar.go",
+      "bytes": 15425,
+      "sha256": "da9ed77381031fdf2e9517d70e987c6791be1801a72410a2ee528ce4e8a2275e"
+    }
+  ],
+  "go_tests": {
+    "passed": 105,
+    "skipped": 2,
+    "seconds": 98.301
+  },
+  "python_tests": {
+    "passed": 38,
+    "seconds": 0.234
+  },
+  "pdf_ua1": {
+    "passed_rules": 106,
+    "passed_checks": 1961,
+    "failed_rules": 0,
+    "failed_checks": 0
+  },
+  "display_policy": "Explicit vmb.authors-title-year/1; other bibliographic fields retained in source JSON",
+  "first_public_failure": {
+    "input": "/private/tmp/vmb-bibliography-public/typaxis-body-845718499",
+    "run": "/private/tmp/vmb-bibliography-public/typaxis-run-1509694884",
+    "cause": "Japanese generated source-link label incorrectly inherited the cited work language en; fixed to inherit publication language, while authored work fields keep en. Frozen Typaxis profile was not changed."
+  },
+  "limitations": [
+    "Original full-book citation/bibliography inventory is not yet run.",
+    "Independent content/language checks are external, not VMB runtime publication authorization.",
+    "Default Poppler spatial extraction differs; raw and MuPDF match source order ignoring whitespace.",
+    "Verification companion pages, formal renderer, full-book/Harano and human acceptance remain open."
+  ],
+  "vmb_implementation_commit": "a470c9c3"
+}

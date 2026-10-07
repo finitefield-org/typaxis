@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<report>
+  <buildInformation>
+    <releaseDetails id="core" version="1.30.2" buildDate="2026-06-03T10:43:00+09:00"></releaseDetails>
+    <releaseDetails id="validation-model" version="1.30.2" buildDate="2026-06-03T10:46:00+09:00"></releaseDetails>
+    <releaseDetails id="apps" version="1.30.2" buildDate="2026-06-03T10:55:00+09:00"></releaseDetails>
+  </buildInformation>
+  <jobs>
+    <job>
+      <item size="28305">
+        <name>/private/tmp/typaxis-table-header-artifact/single-page-table.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="460" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788844565352" finish="1788844565661">00:00:00.309</duration>
+    </job>
+    <job>
+      <item size="22053">
+        <name>/private/tmp/typaxis-table-header-artifact/table-header.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="571" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788844565676" finish="1788844565734">00:00:00.058</duration>
+    </job>
+    <job>
+      <item size="23152">
+        <name>/private/tmp/typaxis-table-header-artifact/table-header-tail.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="601" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788844565741" finish="1788844565776">00:00:00.035</duration>
+    </job>
+    <job>
+      <item size="24536">
+        <name>/private/tmp/typaxis-table-header-artifact/table-header-numbered.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="615" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788844565781" finish="1788844565810">00:00:00.029</duration>
+    </job>
+    <job>
+      <item size="23518">
+        <name>/private/tmp/typaxis-table-header-artifact/table-header-inline.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="669" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788844565814" finish="1788844565842">00:00:00.028</duration>
+    </job>
+    <job>
+      <item size="25069">
+        <name>/private/tmp/typaxis-table-header-artifact/table-footnotes.pdf</name>
+      </item>
+      <validationReport jobEndStatus="normal" profileName="PDF/UA-1 validation profile" statement="PDF file is compliant with Validation Profile requirements." isCompliant="true">
+        <details passedRules="106" failedRules="0" passedChecks="1188" failedChecks="0"></details>
+      </validationReport>
+      <duration start="1788844565846" finish="1788844565915">00:00:00.069</duration>
+    </job>
+  </jobs>
+  <batchSummary totalJobs="6" failedToParse="0" encrypted="0" outOfMemory="0" veraExceptions="0">
+    <validationReports compliant="6" nonCompliant="0" failedJobs="0">6</validationReports>
+    <featureReports failedJobs="0">0</featureReports>
+    <repairReports failedJobs="0">0</repairReports>
+    <duration start="1788844565317" finish="1788844565919">00:00:00.602</duration>
+  </batchSummary>
+</report>

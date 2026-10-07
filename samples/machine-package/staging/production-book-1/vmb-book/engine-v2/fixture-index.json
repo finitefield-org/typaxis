@@ -1,0 +1,727 @@
+{
+  "algorithm": "vmb.typaxis-engine-fixtures/1",
+  "corpus_kind": "authored test expressions rendered by the actual VMB engine",
+  "rules_version": "vmb.typaxis-safe-svg/1",
+  "cases": [
+    {
+      "case_id": "fraction",
+      "display": "inline",
+      "tex": "\\frac{1}{2}=\\frac{2}{4}",
+      "speech": "one half equals two quarters",
+      "font_size_raw": 720896,
+      "source_svg": "fraction-inline.source.svg",
+      "source_sha256": "d5f550c3196c1430dc952f7aaa9f91915bf5cc206b00072f91d67de05503ef22",
+      "derived_svg": "fraction-inline-720896.svg",
+      "derived_sha256": "b2775f8e4dee68c2dadfb3a646f0a782e4ff4d7e57ea14b1397374edfb788ae6",
+      "metrics": {
+        "advance": 1465981,
+        "ascent": 665170,
+        "descent": 293766,
+        "origin_x": -45056,
+        "baseline": 665170,
+        "viewport": {
+          "width": 1556093,
+          "height": 958936
+        }
+      },
+      "path_count": 7,
+      "segment_count": 106,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:25a12cf04d794a1245886e62c8d77e51b3f31f1e42d9edccd0ed257a3fc6b67f",
+        "SVG_SHA256": "sha256:d5f550c3196c1430dc952f7aaa9f91915bf5cc206b00072f91d67de05503ef22"
+      }
+    },
+    {
+      "case_id": "fraction",
+      "display": "inline",
+      "tex": "\\frac{1}{2}=\\frac{2}{4}",
+      "speech": "one half equals two quarters",
+      "font_size_raw": 786431,
+      "source_svg": "fraction-inline.source.svg",
+      "source_sha256": "d5f550c3196c1430dc952f7aaa9f91915bf5cc206b00072f91d67de05503ef22",
+      "derived_svg": "fraction-inline-786431.svg",
+      "derived_sha256": "bbfb86f5e2ba4f7348cefea9863a86c3dc628188a565badb870ecfa3a2a868db",
+      "metrics": {
+        "advance": 1599250,
+        "ascent": 725639,
+        "descent": 320472,
+        "origin_x": -49152,
+        "baseline": 725639,
+        "viewport": {
+          "width": 1697554,
+          "height": 1046111
+        }
+      },
+      "path_count": 7,
+      "segment_count": 106,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:25a12cf04d794a1245886e62c8d77e51b3f31f1e42d9edccd0ed257a3fc6b67f",
+        "SVG_SHA256": "sha256:d5f550c3196c1430dc952f7aaa9f91915bf5cc206b00072f91d67de05503ef22"
+      }
+    },
+    {
+      "case_id": "fraction",
+      "display": "block",
+      "tex": "\\frac{1}{2}=\\frac{2}{4}",
+      "speech": "one half equals two quarters",
+      "font_size_raw": 720896,
+      "source_svg": "fraction-block.source.svg",
+      "source_sha256": "7ddb4d362add2a179de4209fda4aaa779bb831bb83c3b74c46fc0d4f2763351b",
+      "derived_svg": "fraction-block-720896.svg",
+      "derived_sha256": "5317e2068e1372ab4b93662ebdc097885c4781396775c47efd96a427f06454b4",
+      "metrics": {
+        "advance": 1682241,
+        "ascent": 1013221,
+        "descent": 539594,
+        "origin_x": -45056,
+        "baseline": 1013221,
+        "viewport": {
+          "width": 1772353,
+          "height": 1552815
+        }
+      },
+      "path_count": 7,
+      "segment_count": 106,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:dff4867c750f7bd37c5889db18a43ac8e8bf980c6996371aac918e21842ea040",
+        "SVG_SHA256": "sha256:7ddb4d362add2a179de4209fda4aaa779bb831bb83c3b74c46fc0d4f2763351b"
+      }
+    },
+    {
+      "case_id": "fraction",
+      "display": "block",
+      "tex": "\\frac{1}{2}=\\frac{2}{4}",
+      "speech": "one half equals two quarters",
+      "font_size_raw": 786431,
+      "source_svg": "fraction-block.source.svg",
+      "source_sha256": "7ddb4d362add2a179de4209fda4aaa779bb831bb83c3b74c46fc0d4f2763351b",
+      "derived_svg": "fraction-block-786431.svg",
+      "derived_sha256": "1ea616af997ee0a4a4f7fbbe4f1bb334b2749258c67de18e411210cb9e9e03e2",
+      "metrics": {
+        "advance": 1835170,
+        "ascent": 1105331,
+        "descent": 588647,
+        "origin_x": -49152,
+        "baseline": 1105331,
+        "viewport": {
+          "width": 1933474,
+          "height": 1693978
+        }
+      },
+      "path_count": 7,
+      "segment_count": 106,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:dff4867c750f7bd37c5889db18a43ac8e8bf980c6996371aac918e21842ea040",
+        "SVG_SHA256": "sha256:7ddb4d362add2a179de4209fda4aaa779bb831bb83c3b74c46fc0d4f2763351b"
+      }
+    },
+    {
+      "case_id": "parentheses",
+      "display": "inline",
+      "tex": "\\left(\\frac{a}{b}\\right)",
+      "speech": "a over b in parentheses",
+      "font_size_raw": 720896,
+      "source_svg": "parentheses-inline.source.svg",
+      "source_sha256": "6dc1b83db95daaa860f6d60d3d4b4681a975b4be600c12c38de74d24eb04b49b",
+      "derived_svg": "parentheses-inline-720896.svg",
+      "derived_sha256": "ee5ea49d29f4fef7a62401b785c146f23c3599131b7160b7ffece6ccc231e3a6",
+      "metrics": {
+        "advance": 875380,
+        "ascent": 619608,
+        "descent": 299321,
+        "origin_x": -45056,
+        "baseline": 619608,
+        "viewport": {
+          "width": 965492,
+          "height": 918929
+        }
+      },
+      "path_count": 5,
+      "segment_count": 87,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:4715b9808b03f95c707edc9dfd3df516700e4b53d1ac4e565c2db8f623030316",
+        "SVG_SHA256": "sha256:6dc1b83db95daaa860f6d60d3d4b4681a975b4be600c12c38de74d24eb04b49b"
+      }
+    },
+    {
+      "case_id": "parentheses",
+      "display": "inline",
+      "tex": "\\left(\\frac{a}{b}\\right)",
+      "speech": "a over b in parentheses",
+      "font_size_raw": 786431,
+      "source_svg": "parentheses-inline.source.svg",
+      "source_sha256": "6dc1b83db95daaa860f6d60d3d4b4681a975b4be600c12c38de74d24eb04b49b",
+      "derived_svg": "parentheses-inline-786431.svg",
+      "derived_sha256": "a2865b303f5b7de6d2175dfdaaf805d0f653b9a5c6e0532460255720874b21eb",
+      "metrics": {
+        "advance": 954959,
+        "ascent": 675935,
+        "descent": 326532,
+        "origin_x": -49152,
+        "baseline": 675935,
+        "viewport": {
+          "width": 1053263,
+          "height": 1002467
+        }
+      },
+      "path_count": 5,
+      "segment_count": 87,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:4715b9808b03f95c707edc9dfd3df516700e4b53d1ac4e565c2db8f623030316",
+        "SVG_SHA256": "sha256:6dc1b83db95daaa860f6d60d3d4b4681a975b4be600c12c38de74d24eb04b49b"
+      }
+    },
+    {
+      "case_id": "parentheses",
+      "display": "block",
+      "tex": "\\left(\\frac{a}{b}\\right)",
+      "speech": "a over b in parentheses",
+      "font_size_raw": 720896,
+      "source_svg": "parentheses-block.source.svg",
+      "source_sha256": "fc0d64035f5469943d35beff5e831a41b1642c60284119c5bf369feeb1f10448",
+      "derived_svg": "parentheses-block-720896.svg",
+      "derived_sha256": "102ce312d463ee1814a80df9bc4b4a7553660e20af04c1c4f2b43629250450f4",
+      "metrics": {
+        "advance": 1242109,
+        "ascent": 871200,
+        "descent": 547525,
+        "origin_x": -45056,
+        "baseline": 871200,
+        "viewport": {
+          "width": 1332221,
+          "height": 1418725
+        }
+      },
+      "path_count": 5,
+      "segment_count": 87,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:4570c239203ba3422fc12f08b9c05e889e5dbb68ba67b4a4c25afb911beac974",
+        "SVG_SHA256": "sha256:fc0d64035f5469943d35beff5e831a41b1642c60284119c5bf369feeb1f10448"
+      }
+    },
+    {
+      "case_id": "parentheses",
+      "display": "block",
+      "tex": "\\left(\\frac{a}{b}\\right)",
+      "speech": "a over b in parentheses",
+      "font_size_raw": 786431,
+      "source_svg": "parentheses-block.source.svg",
+      "source_sha256": "fc0d64035f5469943d35beff5e831a41b1642c60284119c5bf369feeb1f10448",
+      "derived_svg": "parentheses-block-786431.svg",
+      "derived_sha256": "84bb5896f5eac7174204c58e5edf57e36d3055ebc3b78f2a30aeebb782e0f002",
+      "metrics": {
+        "advance": 1355026,
+        "ascent": 950399,
+        "descent": 597299,
+        "origin_x": -49152,
+        "baseline": 950399,
+        "viewport": {
+          "width": 1453330,
+          "height": 1547698
+        }
+      },
+      "path_count": 5,
+      "segment_count": 87,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:4570c239203ba3422fc12f08b9c05e889e5dbb68ba67b4a4c25afb911beac974",
+        "SVG_SHA256": "sha256:fc0d64035f5469943d35beff5e831a41b1642c60284119c5bf369feeb1f10448"
+      }
+    },
+    {
+      "case_id": "equivalence",
+      "display": "inline",
+      "tex": "a\\iff b",
+      "speech": "a if and only if b",
+      "font_size_raw": 720896,
+      "source_svg": "equivalence-inline.source.svg",
+      "source_sha256": "3bbde79ec09d24228d0031e28d284005a075e6e629d2739dd3fc8c3fc0bd0e1c",
+      "derived_svg": "equivalence-inline-720896.svg",
+      "derived_sha256": "d46803caef60e5b68c7a62d5b9811b30506209c9349d68dde6fd4448468c60d3",
+      "metrics": {
+        "advance": 1812008,
+        "ascent": 545358,
+        "descent": 59477,
+        "origin_x": -45056,
+        "baseline": 545358,
+        "viewport": {
+          "width": 1902120,
+          "height": 604835
+        }
+      },
+      "path_count": 3,
+      "segment_count": 94,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:e33e1995227973ad706b6ce75b07be15d44660e91735d95334890900374dafb6",
+        "SVG_SHA256": "sha256:3bbde79ec09d24228d0031e28d284005a075e6e629d2739dd3fc8c3fc0bd0e1c"
+      }
+    },
+    {
+      "case_id": "equivalence",
+      "display": "inline",
+      "tex": "a\\iff b",
+      "speech": "a if and only if b",
+      "font_size_raw": 786431,
+      "source_svg": "equivalence-inline.source.svg",
+      "source_sha256": "3bbde79ec09d24228d0031e28d284005a075e6e629d2739dd3fc8c3fc0bd0e1c",
+      "derived_svg": "equivalence-inline-786431.svg",
+      "derived_sha256": "8752c127ed0b2ff6928660dadbc69018b7aa6a5102e3ea6aa9cc2b87ced3434f",
+      "metrics": {
+        "advance": 1976733,
+        "ascent": 594935,
+        "descent": 64884,
+        "origin_x": -49152,
+        "baseline": 594935,
+        "viewport": {
+          "width": 2075037,
+          "height": 659819
+        }
+      },
+      "path_count": 3,
+      "segment_count": 94,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:e33e1995227973ad706b6ce75b07be15d44660e91735d95334890900374dafb6",
+        "SVG_SHA256": "sha256:3bbde79ec09d24228d0031e28d284005a075e6e629d2739dd3fc8c3fc0bd0e1c"
+      }
+    },
+    {
+      "case_id": "equivalence",
+      "display": "block",
+      "tex": "a\\iff b",
+      "speech": "a if and only if b",
+      "font_size_raw": 720896,
+      "source_svg": "equivalence-block.source.svg",
+      "source_sha256": "f577d8c3bdb62e2de98fe7f96d8cfcfd72457486f2f98cfc7d68ce7d6aab20aa",
+      "derived_svg": "equivalence-block-720896.svg",
+      "derived_sha256": "d46803caef60e5b68c7a62d5b9811b30506209c9349d68dde6fd4448468c60d3",
+      "metrics": {
+        "advance": 1812008,
+        "ascent": 545358,
+        "descent": 59477,
+        "origin_x": -45056,
+        "baseline": 545358,
+        "viewport": {
+          "width": 1902120,
+          "height": 604835
+        }
+      },
+      "path_count": 3,
+      "segment_count": 94,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:1def953c3fa9c46b6f145df80ebde56bc08e82b4b39239ac5f2512fcc950017f",
+        "SVG_SHA256": "sha256:f577d8c3bdb62e2de98fe7f96d8cfcfd72457486f2f98cfc7d68ce7d6aab20aa"
+      }
+    },
+    {
+      "case_id": "equivalence",
+      "display": "block",
+      "tex": "a\\iff b",
+      "speech": "a if and only if b",
+      "font_size_raw": 786431,
+      "source_svg": "equivalence-block.source.svg",
+      "source_sha256": "f577d8c3bdb62e2de98fe7f96d8cfcfd72457486f2f98cfc7d68ce7d6aab20aa",
+      "derived_svg": "equivalence-block-786431.svg",
+      "derived_sha256": "8752c127ed0b2ff6928660dadbc69018b7aa6a5102e3ea6aa9cc2b87ced3434f",
+      "metrics": {
+        "advance": 1976733,
+        "ascent": 594935,
+        "descent": 64884,
+        "origin_x": -49152,
+        "baseline": 594935,
+        "viewport": {
+          "width": 2075037,
+          "height": 659819
+        }
+      },
+      "path_count": 3,
+      "segment_count": 94,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:1def953c3fa9c46b6f145df80ebde56bc08e82b4b39239ac5f2512fcc950017f",
+        "SVG_SHA256": "sha256:f577d8c3bdb62e2de98fe7f96d8cfcfd72457486f2f98cfc7d68ce7d6aab20aa"
+      }
+    },
+    {
+      "case_id": "negation",
+      "display": "inline",
+      "tex": "\\neg P",
+      "speech": "not P",
+      "font_size_raw": 720896,
+      "source_svg": "negation-inline.source.svg",
+      "source_sha256": "ad215eb21c972b74931c75bc0f3808ae9f34d045e4ab9c79c7e488330226038f",
+      "derived_svg": "negation-inline-720896.svg",
+      "derived_sha256": "554fee4104ac2dbaa9be7dc63b2d92dc3a018e4551c4616e00d0a3fd694f0d2b",
+      "metrics": {
+        "advance": 943657,
+        "ascent": 537427,
+        "descent": 45056,
+        "origin_x": -45056,
+        "baseline": 537427,
+        "viewport": {
+          "width": 1114509,
+          "height": 582483
+        }
+      },
+      "path_count": 2,
+      "segment_count": 43,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:dbaf40beeffc1fdcf0d1471df971e1a9518e9a89ba9ee40af9b65b202e6f8311",
+        "SVG_SHA256": "sha256:ad215eb21c972b74931c75bc0f3808ae9f34d045e4ab9c79c7e488330226038f"
+      }
+    },
+    {
+      "case_id": "negation",
+      "display": "inline",
+      "tex": "\\neg P",
+      "speech": "not P",
+      "font_size_raw": 786431,
+      "source_svg": "negation-inline.source.svg",
+      "source_sha256": "ad215eb21c972b74931c75bc0f3808ae9f34d045e4ab9c79c7e488330226038f",
+      "derived_svg": "negation-inline-786431.svg",
+      "derived_sha256": "a92ff6981029409834d69cfa4b1725daed9e06d0b306b75016f468d6bac6d8ca",
+      "metrics": {
+        "advance": 1029443,
+        "ascent": 586283,
+        "descent": 49152,
+        "origin_x": -49152,
+        "baseline": 586283,
+        "viewport": {
+          "width": 1215826,
+          "height": 635435
+        }
+      },
+      "path_count": 2,
+      "segment_count": 43,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:dbaf40beeffc1fdcf0d1471df971e1a9518e9a89ba9ee40af9b65b202e6f8311",
+        "SVG_SHA256": "sha256:ad215eb21c972b74931c75bc0f3808ae9f34d045e4ab9c79c7e488330226038f"
+      }
+    },
+    {
+      "case_id": "negation",
+      "display": "block",
+      "tex": "\\neg P",
+      "speech": "not P",
+      "font_size_raw": 720896,
+      "source_svg": "negation-block.source.svg",
+      "source_sha256": "7439e1f5f7cbc449c3c5cf65859aeb24f92c4b3ca3ee8b459914475152abee02",
+      "derived_svg": "negation-block-720896.svg",
+      "derived_sha256": "554fee4104ac2dbaa9be7dc63b2d92dc3a018e4551c4616e00d0a3fd694f0d2b",
+      "metrics": {
+        "advance": 943657,
+        "ascent": 537427,
+        "descent": 45056,
+        "origin_x": -45056,
+        "baseline": 537427,
+        "viewport": {
+          "width": 1114509,
+          "height": 582483
+        }
+      },
+      "path_count": 2,
+      "segment_count": 43,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:cada9d57a1f76cbd807c42f79ba64723527e697d678d7fa3b7399b2674d490d1",
+        "SVG_SHA256": "sha256:7439e1f5f7cbc449c3c5cf65859aeb24f92c4b3ca3ee8b459914475152abee02"
+      }
+    },
+    {
+      "case_id": "negation",
+      "display": "block",
+      "tex": "\\neg P",
+      "speech": "not P",
+      "font_size_raw": 786431,
+      "source_svg": "negation-block.source.svg",
+      "source_sha256": "7439e1f5f7cbc449c3c5cf65859aeb24f92c4b3ca3ee8b459914475152abee02",
+      "derived_svg": "negation-block-786431.svg",
+      "derived_sha256": "a92ff6981029409834d69cfa4b1725daed9e06d0b306b75016f468d6bac6d8ca",
+      "metrics": {
+        "advance": 1029443,
+        "ascent": 586283,
+        "descent": 49152,
+        "origin_x": -49152,
+        "baseline": 586283,
+        "viewport": {
+          "width": 1215826,
+          "height": 635435
+        }
+      },
+      "path_count": 2,
+      "segment_count": 43,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:cada9d57a1f76cbd807c42f79ba64723527e697d678d7fa3b7399b2674d490d1",
+        "SVG_SHA256": "sha256:7439e1f5f7cbc449c3c5cf65859aeb24f92c4b3ca3ee8b459914475152abee02"
+      }
+    },
+    {
+      "case_id": "long",
+      "display": "inline",
+      "tex": "a+b+c+d+e+f+g+h+i+j+k+l+m+n",
+      "speech": "the sum of a through n",
+      "font_size_raw": 720896,
+      "source_svg": "long-inline.source.svg",
+      "source_sha256": "e9aa85d98f8c1f5fb332649fcfbdbe63c34b381a3b0db7eb30472b2bb4cefc35",
+      "derived_svg": "long-inline-720896.svg",
+      "derived_sha256": "fc07a3d15f0080eb19ee864573948fef835e9f9919b877db96d5cfb791492290",
+      "metrics": {
+        "advance": 16484006,
+        "ascent": 553289,
+        "descent": 192841,
+        "origin_x": -45056,
+        "baseline": 553289,
+        "viewport": {
+          "width": 16574118,
+          "height": 746130
+        }
+      },
+      "path_count": 27,
+      "segment_count": 631,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:11d2a692594c6308925f310540d349145293d90bac81cf0a0a4775c0bc5a0aa0",
+        "SVG_SHA256": "sha256:e9aa85d98f8c1f5fb332649fcfbdbe63c34b381a3b0db7eb30472b2bb4cefc35"
+      }
+    },
+    {
+      "case_id": "long",
+      "display": "inline",
+      "tex": "a+b+c+d+e+f+g+h+i+j+k+l+m+n",
+      "speech": "the sum of a through n",
+      "font_size_raw": 786431,
+      "source_svg": "long-inline.source.svg",
+      "source_sha256": "e9aa85d98f8c1f5fb332649fcfbdbe63c34b381a3b0db7eb30472b2bb4cefc35",
+      "derived_svg": "long-inline-786431.svg",
+      "derived_sha256": "4a3ca81eee08a4676a5480a7fd85d20f21d7b11414d873d845c82d15d784af74",
+      "metrics": {
+        "advance": 17982529,
+        "ascent": 603587,
+        "descent": 210372,
+        "origin_x": -49152,
+        "baseline": 603587,
+        "viewport": {
+          "width": 18080833,
+          "height": 813959
+        }
+      },
+      "path_count": 27,
+      "segment_count": 631,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:11d2a692594c6308925f310540d349145293d90bac81cf0a0a4775c0bc5a0aa0",
+        "SVG_SHA256": "sha256:e9aa85d98f8c1f5fb332649fcfbdbe63c34b381a3b0db7eb30472b2bb4cefc35"
+      }
+    },
+    {
+      "case_id": "long",
+      "display": "block",
+      "tex": "a+b+c+d+e+f+g+h+i+j+k+l+m+n",
+      "speech": "the sum of a through n",
+      "font_size_raw": 720896,
+      "source_svg": "long-block.source.svg",
+      "source_sha256": "abb26e753d74594c552b85874edf0ad98903d5cebc427ef9682cfc0dd800b650",
+      "derived_svg": "long-block-720896.svg",
+      "derived_sha256": "fc07a3d15f0080eb19ee864573948fef835e9f9919b877db96d5cfb791492290",
+      "metrics": {
+        "advance": 16484006,
+        "ascent": 553289,
+        "descent": 192841,
+        "origin_x": -45056,
+        "baseline": 553289,
+        "viewport": {
+          "width": 16574118,
+          "height": 746130
+        }
+      },
+      "path_count": 27,
+      "segment_count": 631,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:549e7a7a9bfa0ee3fe5b0205586b45c059301f02e98ea8dff8f44a629d0223db",
+        "SVG_SHA256": "sha256:abb26e753d74594c552b85874edf0ad98903d5cebc427ef9682cfc0dd800b650"
+      }
+    },
+    {
+      "case_id": "long",
+      "display": "block",
+      "tex": "a+b+c+d+e+f+g+h+i+j+k+l+m+n",
+      "speech": "the sum of a through n",
+      "font_size_raw": 786431,
+      "source_svg": "long-block.source.svg",
+      "source_sha256": "abb26e753d74594c552b85874edf0ad98903d5cebc427ef9682cfc0dd800b650",
+      "derived_svg": "long-block-786431.svg",
+      "derived_sha256": "4a3ca81eee08a4676a5480a7fd85d20f21d7b11414d873d845c82d15d784af74",
+      "metrics": {
+        "advance": 17982529,
+        "ascent": 603587,
+        "descent": 210372,
+        "origin_x": -49152,
+        "baseline": 603587,
+        "viewport": {
+          "width": 18080833,
+          "height": 813959
+        }
+      },
+      "path_count": 27,
+      "segment_count": 631,
+      "engine_artifact": {
+        "EngineID": "vmb-go-math-svg",
+        "EngineVersion": "2.0.0",
+        "EngineBundleSHA256": "sha256:f562c2a3768875ff0fd81037cdd3931115bbaa93655ca3caf68a0a85e601bbd4",
+        "EffectivePolicySHA256": "sha256:e05eb2bc0de8e60c912cafc9969ce395dffd2c55018bc9ff6f0144b9d3c2e7d3",
+        "GrammarVersion": "2.0.0",
+        "LayoutVersion": "2.0.0",
+        "FontBundleID": "vmb-font-bundle-lm-haranoaji-1",
+        "FontBundleSHA256": "sha256:4a67a0a2bf7b8569111e4554d22c45167eb3a6223eadb40261166daf1295c8fe",
+        "RequestSHA256": "sha256:549e7a7a9bfa0ee3fe5b0205586b45c059301f02e98ea8dff8f44a629d0223db",
+        "SVG_SHA256": "sha256:abb26e753d74594c552b85874edf0ad98903d5cebc427ef9682cfc0dd800b650"
+      }
+    }
+  ]
+}

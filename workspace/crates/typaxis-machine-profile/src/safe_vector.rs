@@ -609,12 +609,15 @@ fn collect_precomposed_vector_authorization(
 
     let descriptor = StagingPrecomposedVectorProfileDescriptor;
     let mut uses = Vec::new();
+    let verifier = package
+        .precomposed_vector_verifier()
+        .map_err(|_| StagingPrecomposedVectorProfileError::ReceiptMismatch)?;
     for ((owner, kind, image_id), metrics) in domain_uses
         .into_iter()
         .zip(package.precomposed_vector_metrics())
     {
-        package
-            .verify_precomposed_vector_metrics(metrics)
+        verifier
+            .verify_metrics(metrics)
             .map_err(|_| StagingPrecomposedVectorProfileError::ReceiptMismatch)?;
         if metrics.node_id() != owner
             || metrics.kind() != kind
@@ -646,8 +649,8 @@ fn collect_precomposed_vector_authorization(
                 let style = package
                     .precomposed_vector_style(owner)
                     .ok_or(StagingPrecomposedVectorProfileError::StyleMismatch(owner))?;
-                package
-                    .verify_precomposed_vector_style(style)
+                verifier
+                    .verify_style(owner, style)
                     .map_err(|_| StagingPrecomposedVectorProfileError::StyleMismatch(owner))?;
                 style
                     .verify_for(style_kind)
@@ -716,12 +719,18 @@ fn collect_precomposed_vector_domain_uses(
                 }));
             }
             StagingM4Block::VectorFigure {
-                common, image_id, ..
-            } => output.push((
-                common.node_id,
-                PrecomposedVectorKind::VectorFigure,
-                *image_id,
-            )),
+                common,
+                image_id,
+                caption,
+                ..
+            } => {
+                output.push((
+                    common.node_id,
+                    PrecomposedVectorKind::VectorFigure,
+                    *image_id,
+                ));
+                collect_precomposed_vector_domain_uses(caption, output);
+            }
             StagingM4Block::MathVectorBlock {
                 common, image_id, ..
             } => output.push((
@@ -729,6 +738,17 @@ fn collect_precomposed_vector_domain_uses(
                 PrecomposedVectorKind::MathVectorBlock,
                 *image_id,
             )),
+            StagingM4Block::DescriptionList { items, .. } => {
+                for item in items {
+                    output.extend(item.term.inline_vectors.iter().map(|vector| {
+                        use typaxis_syntax::machine_profile_boundary::StagingM4InlineVectorKind as K;
+                        let kind = match vector.kind { K::InlineVector => PrecomposedVectorKind::InlineVector,
+                            K::MathVector => PrecomposedVectorKind::MathVector };
+                        (vector.node_id, kind, vector.image_id)
+                    }));
+                    collect_precomposed_vector_domain_uses(&item.blocks, output);
+                }
+            }
             StagingM4Block::List { items, .. } => {
                 for item in items {
                     collect_precomposed_vector_domain_uses(&item.blocks, output);
@@ -782,6 +802,9 @@ fn validate_existing_figure_vector_media(
             }
             StagingM4Block::VectorFigure { caption, .. } => {
                 validate_existing_figure_vector_media(caption, package)?
+            }
+            StagingM4Block::DescriptionList { .. } => {
+                return Err(StagingPrecomposedVectorProfileError::ReceiptMismatch);
             }
             StagingM4Block::List { items, .. } => {
                 for item in items {
@@ -888,6 +911,9 @@ fn first_precomposed_vector_owner(blocks: &[StagingM4Block]) -> Option<NodeId> {
             }
             StagingM4Block::VectorFigure { common, .. }
             | StagingM4Block::MathVectorBlock { common, .. } => Some(common.node_id),
+            StagingM4Block::DescriptionList { items, .. } => items.iter().find_map(|item|
+                item.term.inline_vectors.first().map(|v| v.node_id)
+                    .or_else(|| first_precomposed_vector_owner(&item.blocks))),
             StagingM4Block::List { items, .. } => items
                 .iter()
                 .find_map(|item| first_precomposed_vector_owner(&item.blocks)),
@@ -968,6 +994,9 @@ fn collect_figures(
                     output.push(common.node_id);
                 }
                 collect_figures(caption, package, vector_ids, output)?;
+            }
+            StagingM4Block::DescriptionList { .. } => {
+                return Err(StagingSafeVectorProfileError::ReceiptMismatch);
             }
             StagingM4Block::List { items, .. } => {
                 for item in items {

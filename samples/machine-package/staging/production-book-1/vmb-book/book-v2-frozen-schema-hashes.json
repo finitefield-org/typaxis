@@ -1,0 +1,118 @@
+[
+  {
+    "path": "schemas/1.4/build-manifest.schema.json",
+    "sha256": "baeaae92cbab9e0583532b375f0399700ad29e6bc0fd6b873feeb2fd3415dc64"
+  },
+  {
+    "path": "schemas/1.4/common.schema.json",
+    "sha256": "0276b0ead786793a14416c7f60fa383092a462651926ac62148a9c6fbedc649a"
+  },
+  {
+    "path": "schemas/1.4/diagnostics.schema.json",
+    "sha256": "507206160d5c3bf865405d7807622b02e9c38187be166fc1d38d55f460b48e48"
+  },
+  {
+    "path": "schemas/1.4/display-list.schema.json",
+    "sha256": "55a88e2dbbf0d48015e2544e8eaff53c01bd37b4dedf3019b41a68eac595bff5"
+  },
+  {
+    "path": "schemas/1.4/document-package.schema.json",
+    "sha256": "6b86868b716e38f9494af3512bebbc03891302cfede00319d33ef4869ffd92a0"
+  },
+  {
+    "path": "schemas/1.4/layout-trace.schema.json",
+    "sha256": "43873a7ceaf2fc50d8a82e722d95065a9a62003301c3d475c2ecb144dfca11fc"
+  },
+  {
+    "path": "schemas/1.4/machine-accessibility-manifest.schema.json",
+    "sha256": "517a14d543d5c3223ed1c7cbf356f411c7a49f7e856601c4f81e16d51244f252"
+  },
+  {
+    "path": "schemas/1.4/machine-advanced-pagination-manifest.schema.json",
+    "sha256": "5e777d96e76a599894671d10c4288c9dcc640023a26ab4a02e0326f3108fa5b2"
+  },
+  {
+    "path": "schemas/1.4/machine-block-style-manifest.schema.json",
+    "sha256": "6a6c0226fd8c63f1e0e216aee16cca3978fdc081756cd09ec1b8a5a339301bef"
+  },
+  {
+    "path": "schemas/1.4/machine-book-navigation-manifest.schema.json",
+    "sha256": "2fa5f238a65fa968d7d3ab28f431db4d8237b0cdafca75f47f511bd2549a6c57"
+  },
+  {
+    "path": "schemas/1.4/machine-capabilities.schema.json",
+    "sha256": "bf0fbbb1e47361b91acde8c9360498dac9e346891c372f92ea971f49087cafb8"
+  },
+  {
+    "path": "schemas/1.4/machine-figure-manifest.schema.json",
+    "sha256": "4daf9d0bb33a8fca76bcb1e1ebe9031354017b7daacec4a102b95c17b84ef0a4"
+  },
+  {
+    "path": "schemas/1.4/machine-fixture-expectation.schema.json",
+    "sha256": "bfdef589a2e52e18a35e6b9e3e98589d112573a951627ec15b77d06023a5529d"
+  },
+  {
+    "path": "schemas/1.4/machine-fixture-matrix.schema.json",
+    "sha256": "4d2a877f7a5cdcaa5ed9e483330471b1e657830ae5a953f835024df4040c4083"
+  },
+  {
+    "path": "schemas/1.4/machine-footnote-manifest.schema.json",
+    "sha256": "b3ca749ea91fe8f7773df54abc4224263a74587da626a69ba37e1f0a786f57f0"
+  },
+  {
+    "path": "schemas/1.4/machine-forced-page-break-manifest.schema.json",
+    "sha256": "ee74a07201da7d8441bf4097fe5a1cab3e5ec3d0963b8b5f4a69451b931ab676"
+  },
+  {
+    "path": "schemas/1.4/machine-forced-page-break-trace.schema.json",
+    "sha256": "8f3de47b1929a8c55504d86e26340da72ee9ce3874101c3c64544788c04be720"
+  },
+  {
+    "path": "schemas/1.4/machine-jpeg-manifest.schema.json",
+    "sha256": "0b1569d6475cf4e0990f7e48ee984bd7bc1114e9d342f416c90baa5d1ade3d1d"
+  },
+  {
+    "path": "schemas/1.4/machine-link-manifest.schema.json",
+    "sha256": "4e88aebfc19763b1964c1ee6600dc2234ffaf56cf1985c3ece6fc0cac3265feb"
+  },
+  {
+    "path": "schemas/1.4/machine-list-manifest.schema.json",
+    "sha256": "9cf14c040448dc1070f58f4b671fe563eff8b0c48601f4391629a11ce898cddb"
+  },
+  {
+    "path": "schemas/1.4/machine-math-manifest.schema.json",
+    "sha256": "bd6e917171ed7c2f9b6e10177ee6975ef4f3d63cb037bd160709c1e23e984ace"
+  },
+  {
+    "path": "schemas/1.4/machine-math-vector-manifest.schema.json",
+    "sha256": "5a8762ec03b5d311bc2b58cee1921fce0ec1883694b3e89e7b1159c80795af2a"
+  },
+  {
+    "path": "schemas/1.4/machine-matterhorn-assessment.schema.json",
+    "sha256": "2a549a703777a023914270383beaa00f0d5a340faefe8f437b3320d92cd76a27"
+  },
+  {
+    "path": "schemas/1.4/machine-precomposed-vector-evidence.schema.json",
+    "sha256": "9a78342adef6a858cc58e6e9c77eaa7056e2f5456fb8e9022a3a8721a79b5e20"
+  },
+  {
+    "path": "schemas/1.4/machine-profile-evidence.schema.json",
+    "sha256": "5c09215af8f1b11d33dcbed2f20992d8d6f91dd6720471488120b6777772f878"
+  },
+  {
+    "path": "schemas/1.4/machine-safe-vector-manifest.schema.json",
+    "sha256": "6c1cb11735e2968899a6d8cbe29a2b333e4e544ccf8dcc95a21c39f2cf7394a0"
+  },
+  {
+    "path": "schemas/1.4/machine-semantic-container-manifest.schema.json",
+    "sha256": "10f899f030e6a97b3b21d2d2ff8424a4d12581dbd6cb316ec4d2c2127072e5ae"
+  },
+  {
+    "path": "schemas/1.4/machine-table-manifest.schema.json",
+    "sha256": "4b83610b0e7a5c74b342e77b857d5888e93e31fda2842904072ecd7112c517f7"
+  },
+  {
+    "path": "schemas/1.4/package-config.schema.json",
+    "sha256": "e689c9e63aac6d8ca295427cb021f50aa8f4090f42adddb75289b25bb015e366"
+  }
+]

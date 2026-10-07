@@ -8,6 +8,9 @@
 
 mod path;
 
+#[cfg(feature = "book-v2-staging")]
+pub mod book_v2;
+
 use std::cell::RefCell;
 use std::fmt;
 use std::sync::Arc;
@@ -1355,120 +1358,14 @@ impl HostMachineInputSession {
                 observed: declaration.source_id,
             }));
         }
-        let declared_hash = decode_sha256_hex(&declaration.sha256).ok_or_else(|| {
-            self.failure(MachineInputErrorKind::InvalidSourceHashEncoding {
-                source_id: declaration.source_id,
-            })
-        })?;
-        let uri_bytes = u64::try_from(declaration.uri.len()).unwrap_or(u64::MAX);
-        let maximum_uri = limits.get().max_uri_bytes;
-        if uri_bytes > u64::from(maximum_uri) {
-            return Err(self.failure(MachineInputErrorKind::SourceUriTooLong {
-                source_id: declaration.source_id,
-                maximum: maximum_uri,
-                observed: uri_bytes,
-            }));
-        }
-        let uri = PortablePath::new(declaration.uri.clone()).map_err(|cause| {
-            self.failure(MachineInputErrorKind::UnsafeSourceUri {
-                source_id: declaration.source_id,
-                cause,
-            })
-        })?;
-        let declared = u64::from(declaration.utf8_byte_length);
-        let maximum_source = u64::from(limits.get().max_source_bytes);
-        if declared > maximum_source {
-            return Err(self.failure(MachineInputErrorKind::SourceDeclaredLimit {
-                source_id: declaration.source_id,
-                maximum: maximum_source,
-                declared,
-            }));
-        }
-        if declared > limits.get().max_input_bytes {
-            return Err(self.failure(MachineInputErrorKind::AggregateInputLimit {
-                maximum: limits.get().max_input_bytes,
-                attempted: declared,
-            }));
-        }
-
-        let roots = self.host.roots();
-        let opened = roots.open(&uri).map_err(|cause| {
-            self.failure(MachineInputErrorKind::SourceOpen {
-                source_id: declaration.source_id,
-                cause,
-            })
-        })?;
-        let observed = opened.observed_exact_length();
-        if observed > maximum_source {
-            return Err(self.failure(MachineInputErrorKind::SourceLimit {
-                source_id: declaration.source_id,
-                maximum: maximum_source,
-                observed,
-            }));
-        }
-        if observed > limits.get().max_input_bytes {
-            return Err(self.failure(MachineInputErrorKind::AggregateInputLimit {
-                maximum: limits.get().max_input_bytes,
-                attempted: observed,
-            }));
-        }
-        if observed != declared {
-            return Err(self.failure(MachineInputErrorKind::SourceLengthMismatch {
-                source_id: declaration.source_id,
-                declared,
-                actual: observed,
-            }));
-        }
-        let expected_read = opened.read_identity().clone();
-        let permit = roots.issue_bounded_read_permit(opened).map_err(|cause| {
-            self.failure(MachineInputErrorKind::SourceOpen {
-                source_id: declaration.source_id,
-                cause,
-            })
-        })?;
-        let receipt = roots.read_bounded(permit).map_err(|cause| {
-            self.failure(MachineInputErrorKind::SourceOpen {
-                source_id: declaration.source_id,
-                cause,
-            })
-        })?;
-        let stable = roots
-            .accept_receipt(&expected_read, receipt)
-            .map_err(|cause| {
-                self.failure(MachineInputErrorKind::SourceOpen {
-                    source_id: declaration.source_id,
-                    cause,
-                })
-            })?;
-        let (bytes, actual_hash) = stable.into_bytes_and_sha256();
-        if actual_hash != declared_hash {
-            return Err(self.failure(MachineInputErrorKind::SourceHashMismatch {
-                source_id: declaration.source_id,
-                declared: declared_hash,
-                actual: actual_hash,
-            }));
-        }
-        let text = String::from_utf8(bytes).map_err(|error| {
-            self.failure(MachineInputErrorKind::SourceNotUtf8 {
-                source_id: declaration.source_id,
-                valid_up_to: u64::try_from(error.utf8_error().valid_up_to()).unwrap_or(u64::MAX),
-            })
-        })?;
-        let facts = AdmittedMachineSourceFacts {
-            source_id: SourceId::new(declaration.source_id),
-            uri,
-            bytes: observed,
-            sha256: actual_hash,
-        };
+        let source = read_semantic_source(&self.host, declaration, limits, 0, None)
+            .map_err(|kind| self.failure(kind))?;
+        let facts = source.facts.clone();
         let decoded_facts = DecodedPackageFacts {
             contract: DocumentPackageContractId::V1_4,
             canonical_sha256: decoded.decoded.canonical_jcs_sha256(),
         };
         let fingerprint = portable_fingerprint(&decoded.package.0, decoded_facts, &facts);
-        let source = AdmittedMachineSource {
-            facts: facts.clone(),
-            text,
-        };
         {
             let mut progress = self.progress.borrow_mut();
             progress.stage = MachineInputStage::SourcesAdmitted;
@@ -1623,6 +1520,122 @@ impl HostMachineInputSession {
             read_ledger: self.host.read_ledger().clone(),
         }
     }
+}
+
+/// Shared stable UTF-8 source read, without versioned progress or fingerprint issuance.
+fn read_semantic_source(
+    host: &HostAdmissionSession,
+    declaration: &WireStagingM4Source,
+    limits: &ValidatedResourceLimits,
+    already_read: u64,
+    registered: Option<&typaxis_host_admission::RegisteredHostReadCandidate>,
+) -> Result<AdmittedMachineSource, MachineInputErrorKind> {
+    let declared_hash = decode_sha256_hex(&declaration.sha256).ok_or_else(|| {
+        MachineInputErrorKind::InvalidSourceHashEncoding {
+            source_id: declaration.source_id,
+        }
+    })?;
+    let uri_bytes = u64::try_from(declaration.uri.len()).unwrap_or(u64::MAX);
+    let maximum_uri = limits.get().max_uri_bytes;
+    if uri_bytes > u64::from(maximum_uri) {
+        return Err(MachineInputErrorKind::SourceUriTooLong {
+            source_id: declaration.source_id,
+            maximum: maximum_uri,
+            observed: uri_bytes,
+        });
+    }
+    let uri = PortablePath::new(declaration.uri.clone()).map_err(|cause| {
+        MachineInputErrorKind::UnsafeSourceUri {
+            source_id: declaration.source_id,
+            cause,
+        }
+    })?;
+    let declared = u64::from(declaration.utf8_byte_length);
+    let maximum_source = u64::from(limits.get().max_source_bytes);
+    if declared > maximum_source {
+        return Err(MachineInputErrorKind::SourceDeclaredLimit {
+            source_id: declaration.source_id,
+            maximum: maximum_source,
+            declared,
+        });
+    }
+    let declared_total = already_read.checked_add(declared).unwrap_or(u64::MAX);
+    if declared_total > limits.get().max_input_bytes {
+        return Err(MachineInputErrorKind::AggregateInputLimit {
+            maximum: limits.get().max_input_bytes,
+            attempted: declared_total,
+        });
+    }
+
+    let roots = host.roots();
+    let opened = match registered {
+        Some(candidate) => roots.open_registered(candidate),
+        None => roots.open(&uri),
+    }.map_err(|cause| MachineInputErrorKind::SourceOpen {
+        source_id: declaration.source_id,
+        cause,
+    })?;
+    let observed = opened.observed_exact_length();
+    if observed > maximum_source {
+        return Err(MachineInputErrorKind::SourceLimit {
+            source_id: declaration.source_id,
+            maximum: maximum_source,
+            observed,
+        });
+    }
+    let observed_total = already_read.checked_add(observed).unwrap_or(u64::MAX);
+    if observed_total > limits.get().max_input_bytes {
+        return Err(MachineInputErrorKind::AggregateInputLimit {
+            maximum: limits.get().max_input_bytes,
+            attempted: observed_total,
+        });
+    }
+    if observed != declared {
+        return Err(MachineInputErrorKind::SourceLengthMismatch {
+            source_id: declaration.source_id,
+            declared,
+            actual: observed,
+        });
+    }
+    let expected_read = opened.read_identity().clone();
+    let permit = roots.issue_bounded_read_permit(opened).map_err(|cause| {
+        MachineInputErrorKind::SourceOpen {
+            source_id: declaration.source_id,
+            cause,
+        }
+    })?;
+    let receipt =
+        roots
+            .read_bounded(permit)
+            .map_err(|cause| MachineInputErrorKind::SourceOpen {
+                source_id: declaration.source_id,
+                cause,
+            })?;
+    let stable = roots
+        .accept_receipt(&expected_read, receipt)
+        .map_err(|cause| MachineInputErrorKind::SourceOpen {
+            source_id: declaration.source_id,
+            cause,
+        })?;
+    let (bytes, actual_hash) = stable.into_bytes_and_sha256();
+    if actual_hash != declared_hash {
+        return Err(MachineInputErrorKind::SourceHashMismatch {
+            source_id: declaration.source_id,
+            declared: declared_hash,
+            actual: actual_hash,
+        });
+    }
+    let text = String::from_utf8(bytes).map_err(|error| MachineInputErrorKind::SourceNotUtf8 {
+        source_id: declaration.source_id,
+        valid_up_to: u64::try_from(error.utf8_error().valid_up_to()).unwrap_or(u64::MAX),
+    })?;
+    let facts = AdmittedMachineSourceFacts {
+        source_id: SourceId::new(declaration.source_id),
+        uri,
+        bytes: observed,
+        sha256: actual_hash,
+    };
+    Ok(AdmittedMachineSource { facts, text })
 }
 
 fn map_package_host_error(error: HostAdmissionError) -> MachineInputErrorKind {

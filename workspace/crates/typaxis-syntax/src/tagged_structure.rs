@@ -731,6 +731,7 @@ enum StructureSemanticNavigation<'a> {
 }
 
 struct SemanticCollector<'a> {
+    vectors: crate::PrecomposedVectorVerification<'a>,
     package: &'a ValidatedStagingSemanticPackage,
     navigation: StructureSemanticNavigation<'a>,
     generation: StructureSemanticGeneration,
@@ -771,6 +772,9 @@ pub fn validate_staging_structure_semantics(
         return Err(StagingStructureSemanticError::InvalidSemanticTree);
     }
     let mut collector = SemanticCollector {
+        vectors: package
+            .precomposed_vector_verifier()
+            .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?,
         package,
         navigation: StructureSemanticNavigation::V1(navigation),
         generation: StructureSemanticGeneration::V1,
@@ -875,6 +879,9 @@ pub fn validate_staging_structure_semantics_v2(
         return Err(StagingStructureSemanticError::InvalidSemanticTree);
     }
     let mut collector = SemanticCollector {
+        vectors: package
+            .precomposed_vector_verifier()
+            .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?,
         package,
         navigation: StructureSemanticNavigation::V2(navigation),
         generation: StructureSemanticGeneration::V2,
@@ -1104,8 +1111,8 @@ impl SemanticCollector<'_> {
             .package
             .precomposed_vector_metrics_for(owner)
             .ok_or(StagingStructureSemanticError::ReceiptMismatch)?;
-        self.package
-            .verify_precomposed_vector_metrics(metrics)
+        self.vectors
+            .verify_metrics(metrics)
             .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
         if metrics.kind() != expected_kind {
             return Err(StagingStructureSemanticError::ReceiptMismatch);
@@ -1194,6 +1201,9 @@ impl SemanticCollector<'_> {
             let language = self.language(node_id, inherited_language)?;
             let span = Some(raw_block_span(value));
             match value {
+                WireStagingM4Block::DescriptionList { .. } => {
+                    return Err(StagingStructureSemanticError::InvalidSemanticTree);
+                }
                 WireStagingM4Block::Paragraph { children, .. } => {
                     self.push_record(
                         node_id,
@@ -1405,8 +1415,8 @@ impl SemanticCollector<'_> {
                         .package
                         .precomposed_vector_metrics_for(node)
                         .ok_or(StagingStructureSemanticError::ReceiptMismatch)?;
-                    self.package
-                        .verify_precomposed_vector_metrics(metrics)
+                    self.vectors
+                        .verify_metrics(metrics)
                         .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
                     if metrics.kind() != PrecomposedVectorKind::MathVectorBlock {
                         return Err(StagingStructureSemanticError::ReceiptMismatch);
@@ -1635,8 +1645,8 @@ impl SemanticCollector<'_> {
                     .package
                     .precomposed_vector_metrics_for(node)
                     .ok_or(StagingStructureSemanticError::ReceiptMismatch)?;
-                self.package
-                    .verify_precomposed_vector_metrics(metrics)
+                self.vectors
+                    .verify_metrics(metrics)
                     .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
                 if metrics.kind() != PrecomposedVectorKind::InlineVector {
                     return Err(StagingStructureSemanticError::ReceiptMismatch);
@@ -1667,8 +1677,8 @@ impl SemanticCollector<'_> {
                     .package
                     .precomposed_vector_metrics_for(node)
                     .ok_or(StagingStructureSemanticError::ReceiptMismatch)?;
-                self.package
-                    .verify_precomposed_vector_metrics(metrics)
+                self.vectors
+                    .verify_metrics(metrics)
                     .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
                 if metrics.kind() != PrecomposedVectorKind::MathVector {
                     return Err(StagingStructureSemanticError::ReceiptMismatch);
@@ -1894,6 +1904,7 @@ impl SemanticCollector<'_> {
 
 fn raw_block_span(value: &WireStagingM4Block) -> WireStagingSourceSpan {
     match value {
+        WireStagingM4Block::DescriptionList { span, .. } => *span,
         WireStagingM4Block::Paragraph { span, .. }
         | WireStagingM4Block::Heading { span, .. }
         | WireStagingM4Block::List { span, .. }
@@ -1987,6 +1998,9 @@ fn blocks_have_content(
 ) -> Result<bool, StagingStructureSemanticError> {
     for value in values {
         let has_content = match value {
+            WireStagingM4Block::DescriptionList { .. } => {
+                return Err(StagingStructureSemanticError::InvalidSemanticTree);
+            }
             WireStagingM4Block::Paragraph { children, .. }
             | WireStagingM4Block::Heading { children, .. } => has_non_whitespace(&inline_text(
                 children,

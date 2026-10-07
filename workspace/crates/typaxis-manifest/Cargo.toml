@@ -9,6 +9,9 @@ rust-version.workspace = true
 workspace = true
 
 [features]
+# Keep legacy source walkers exhaustive when the private successor domain is enabled.
+# This does not issue a successor manifest or publish a profile.
+book-v2-staging = ["typaxis-document/book-v2-staging", "typaxis-pdf/book-v2-staging", "typaxis-syntax/book-v2-staging", "typaxis-layout/book-v2-staging", "typaxis-machine-profile/book-v2-staging"]
 staging-fixtures = [
   "typaxis-display-list/staging-fixtures",
   "typaxis-pdf/staging-fixtures",

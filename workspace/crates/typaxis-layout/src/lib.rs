@@ -8,8 +8,30 @@ mod inline_vector;
 mod jpeg;
 mod math;
 mod math_vector;
+mod production_inline;
+#[cfg(feature = "book-v2-staging")]
+pub use production_inline::book_v2;
 mod safe_vector;
 mod semantic_container;
+
+pub use production_inline::{
+    layout_production_body_inline_lines, layout_production_inline_lines,
+    prepare_production_inline_items, prepare_production_inline_items_with_native_context,
+    prepare_production_native_math_context, ProductionNativeMathContext,
+    with_converged_production_body_lines_with_native_context, production_selected_line_contexts,
+    prepare_production_footnote_lines, ProductionFootnoteDefinitionLines,
+    ProductionFootnoteLineReference, ProductionFootnoteLines, ProductionFootnoteReferencePosition,
+    with_converged_production_body_lines, ProductionBodyInlineFrames, ProductionBodyReshapeError,
+    ProductionConvergedBodyLines, ProductionFootnoteFrame, ProductionInlineAnchorPosition,
+    ProductionInlineFrame, ProductionInlineLineLayout, ProductionInlineParagraphLineLayout,
+    ProductionInlinePreparationError, ProductionInlinePreparationErrorKind, ProductionListFrame,
+    ProductionPlacedGlyph, ProductionPlacedInline, ProductionPlacedInlineAnchor,
+    ProductionPlacedInlineLine, ProductionPlacedInlineMath, ProductionPlacedInlineVector, ProductionPlacedTextCluster,
+    ProductionPreparedInlineAnchor, ProductionPreparedInlineParagraph, ProductionPreparedInlines,
+    ProductionPreparedFigure, ProductionFigureMedia, ProductionTableFrame, ProductionSelectedLineContexts,
+    ProductionSelectedParagraphContext, ProductionShapedClusterItem,
+    PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM, PRODUCTION_INLINE_PREPARATION_ALGORITHM,
+};
 
 pub use advanced_columns::{
     layout_staging_columns, StagingColumnBlockLayout, StagingColumnFlowOwnerKind,
@@ -66,6 +88,9 @@ pub use jpeg::{
     STAGING_JPEG_SIZING_ALGORITHM,
 };
 pub use math::{
+    compute_production_native_math, compute_production_native_math_counted,
+    ProductionNativeMathBudgetObservation, ProductionNativeMathComputationError,
+    ProductionNativeMathComputations, ProductionNativeMathDisplayBlock,
     layout_staging_math, BoundPrecomposedMathSource, MathFlowId, MathReceiptKey,
     PrecomposedMathVectorKind, StagingMathFlow, StagingMathLayout, StagingMathLayoutEpoch,
     StagingMathLayoutError, StagingMathPlacement, ValidatedMathReceipt, ValidatedMathVectorReceipt,
@@ -114,7 +139,8 @@ use typaxis_document::{
     TableCell, TableColumn, TableRow, ValidatedDocumentNodeIndex,
 };
 pub use typaxis_layout_contract::{
-    build_structure_registry, build_structure_registry_v2, select_structure_bindings,
+    build_structure_registry, build_structure_registry_v2,
+    build_structure_registry_v2_with_footnote_links, select_structure_bindings,
     select_structure_bindings_v2, GeneratedStructureKey, GeneratedStructureSlot,
     SelectedEquationNumberPaintBindingV2, SelectedStructureAnnotation,
     SelectedStructureAnnotationInput, SelectedStructureBindingError,
@@ -992,6 +1018,9 @@ fn nonnegative_raw(raw: i64) -> Result<NonNegativeLength, StagingMachineListLayo
 
 pub const STAGING_FOOTNOTE_PROFILE_ID: &str = "typaxis.machine-pdf/footnote-1";
 pub const FOOTNOTE_SEPARATOR_BAND_RAW: i64 = 65_536;
+/// Frozen horizontal separator stroke: 0.5 pt, centered 0.25 pt below band top.
+pub const FOOTNOTE_SEPARATOR_STROKE_RAW: i64 = 32_768;
+pub const FOOTNOTE_SEPARATOR_CENTER_RAW: i64 = 16_384;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StagingFootnoteRegistryError {

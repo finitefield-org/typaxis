@@ -30,6 +30,7 @@ pub use book_navigation::{
 };
 pub use book_navigation_v2::{
     build_staging_book_navigation_manifest_v2, StagingBookNavigationManifestV2,
+    build_production_book_navigation_manifest, ProductionBookNavigationManifest,
     StagingBookNavigationManifestV2Error, STAGING_BOOK_NAVIGATION_MANIFEST_V2_ALGORITHM,
 };
 pub use cff::{
@@ -45,7 +46,8 @@ pub use math::{
     StagingMathManifestFact, STAGING_MATH_MANIFEST_ALGORITHM,
 };
 pub use math_vector::{
-    build_staging_math_vector_manifest, StagingMathVectorManifest, StagingMathVectorManifestError,
+    build_production_math_vector_manifest, build_staging_math_vector_manifest,
+    ProductionMathVectorManifest, StagingMathVectorManifest, StagingMathVectorManifestError,
     StagingMathVectorManifestFact, STAGING_MATH_VECTOR_MANIFEST_ALGORITHM,
 };
 pub use safe_vector::{
@@ -54,7 +56,8 @@ pub use safe_vector::{
     STAGING_SAFE_VECTOR_MANIFEST_ALGORITHM,
 };
 pub use safe_vector_v2::{
-    build_staging_safe_vector_manifest_v2, StagingSafeVectorManifestAliasV2,
+    build_production_safe_vector_manifest, build_staging_safe_vector_manifest_v2,
+    ProductionSafeVectorManifest, StagingSafeVectorManifestAliasV2,
     StagingSafeVectorManifestPlacementV2, StagingSafeVectorManifestResourceV2,
     StagingSafeVectorManifestV2, StagingSafeVectorManifestV2Error,
     StagingSafeVectorPlacementDetailsV2, StagingVectorMetricFactV2,
@@ -70,6 +73,7 @@ pub use tagged_pdf::{
     STAGING_TAGGED_PDF_MANIFEST_ALGORITHM,
 };
 pub use tagged_pdf_v2::{
+    build_production_tagged_manifest, ProductionTaggedManifest,
     build_staging_tagged_pdf_manifest_v2, StagingTaggedPdfManifestV2,
     StagingTaggedPdfManifestV2Error, StagingTaggedPdfVectorStructureFactV2,
     STAGING_TAGGED_PDF_MANIFEST_V2_ALGORITHM,
@@ -3659,6 +3663,7 @@ impl ManifestPublicationContext {
         admitted: AdmittedResourceLedgerToken<'_>,
         selected_layout_sha256: [u8; 32],
         flow_registry_sha256: [u8; 32],
+        layout_pass_count: NonZeroU16,
         vector_fields: StagingProductionBuildManifestVectorFields,
         pdf: VerifiedPdfBytesReceipt,
     ) -> Result<PreparedBuiltPublication, BuildManifestError> {
@@ -3671,6 +3676,8 @@ impl ManifestPublicationContext {
             || vector_fields.status() != StagingVectorBuildStatus::Built
             || selected_layout_sha256 == [0; 32]
             || flow_registry_sha256 == [0; 32]
+            || layout_pass_count.get() < 2
+            || layout_pass_count.get() > limits.base().get().max_layout_passes
         {
             return Err(BuildManifestError::MachineCapabilityMismatch);
         }
@@ -3698,8 +3705,8 @@ impl ManifestPublicationContext {
         }
         let mut layout = LayoutRecord::new(
             LayoutStatus::Converged,
-            NonZeroU16::new(1).expect("one is nonzero"),
-            NonZeroU16::new(1).expect("one is nonzero"),
+            layout_pass_count,
+            layout_pass_count,
             selected,
         )
         .ok_or(BuildManifestError::IncompleteLayoutAdmission)?;
@@ -4465,7 +4472,9 @@ impl ManifestAdmissionLedger {
             &self.expected_images,
             false,
         )?;
-        let (fonts, images) = resource_progress_records(&progress)?;
+        let (fonts, images) = resource_progress_records(
+            &progress, &self.expected_fonts, &self.expected_images,
+        )?;
         validate_admission_limits(&self.sources, &fonts, &images, &self.binding)?;
         self.fonts = fonts;
         self.images = images;
@@ -4665,9 +4674,18 @@ impl ManifestAdmissionLedger {
 
 fn resource_progress_records(
     progress: &ResourceAdmissionProgressToken,
+    expected_fonts: &[ExpectedFontResource],
+    expected_images: &[ExpectedImageResource],
 ) -> Result<(ManifestFontRecords, ManifestImageRecords), BuildManifestError> {
     let mut fonts = BTreeMap::new();
     for font in progress.fonts() {
+        let declared = expected_fonts
+            .get(font.font_face_id().get() as usize)
+            .ok_or(BuildManifestError::PackageResourceMismatch)?
+            .media_type;
+        if declared.is_some_and(|media| media != font.media_kind().as_str()) {
+            return Err(BuildManifestError::PackageResourceMismatch);
+        }
         if fonts
             .insert(
                 font.font_face_id(),
@@ -4679,8 +4697,8 @@ fn resource_progress_records(
                     sha256: font.content_hash(),
                     units_per_em: font.metadata().units_per_em,
                     glyph_count: font.metadata().glyph_count,
-                    attested_media_kind: None,
-                    media_declaration: None,
+                    attested_media_kind: declared.map(|_| font.media_kind().as_str()),
+                    media_declaration: declared.map(MediaDeclarationRecord::Declared),
                 },
             )
             .is_some()
@@ -4690,6 +4708,13 @@ fn resource_progress_records(
     }
     let mut images = BTreeMap::new();
     for image in progress.images() {
+        let declared = expected_images
+            .get(image.image_id().get() as usize)
+            .ok_or(BuildManifestError::PackageResourceMismatch)?
+            .media_type;
+        if declared.is_some_and(|media| media != image.media_kind().as_str()) {
+            return Err(BuildManifestError::PackageResourceMismatch);
+        }
         if images
             .insert(
                 image.image_id(),
@@ -4702,7 +4727,7 @@ fn resource_progress_records(
                     pixel_width: image.width().get(),
                     pixel_height: image.height().get(),
                     decoded_bytes: image.decoded_bytes(),
-                    media_declaration: None,
+                    media_declaration: declared.map(MediaDeclarationRecord::Declared),
                 },
             )
             .is_some()

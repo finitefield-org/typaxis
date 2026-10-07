@@ -10,6 +10,19 @@ use typaxis_layout_contract::{
     PrecomposedVectorInlinePlacementInput,
 };
 
+#[path = "vector_fingerprint.rs"]
+mod atomic_fingerprint;
+
+#[path = "production_inline.rs"]
+mod production_inline;
+pub use production_inline::{
+    break_production_inline, break_production_inline_with_source_widths, ProductionExplicitBreak,
+    ProductionInlineBreak, ProductionInlineLogicalUnit, ProductionInlineParagraph,
+    ProductionInlineSelectedLine, ProductionInlineSourceWidths, ProductionLineBreakBudget,
+    ProductionNativeMathInlineItem, ProductionTextClusterRange, PRODUCTION_INLINE_BREAK_ALGORITHM,
+    PRODUCTION_REFINED_WIDTH_BREAK_ALGORITHM, PRODUCTION_SOURCE_WIDTH_BREAK_ALGORITHM,
+};
+
 pub const ATOMIC_VECTOR_INLINE_ALGORITHM: &str = "typaxis.atomic-vector-inline/1";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -101,7 +114,7 @@ impl AtomicVectorInlineItem {
             placement,
             fingerprint: [0; 32],
         };
-        item.fingerprint = sha256(encode_atomic_item(&item).as_bytes());
+        item.fingerprint = atomic_fingerprint::item(&item);
         Ok(item)
     }
 
@@ -153,7 +166,7 @@ impl AtomicVectorInlineItem {
     ) -> bool {
         self.binding_fingerprint == binding_fingerprint
             && self.placement == placement
-            && self.fingerprint == sha256(encode_atomic_item(&self).as_bytes())
+            && self.fingerprint == atomic_fingerprint::item(&self)
     }
 }
 
@@ -333,12 +346,22 @@ impl AtomicVectorInlineParagraph {
         units: Vec<AtomicVectorInlineLogicalUnit>,
         japanese_mode: JapaneseLineBreakMode,
     ) -> Result<Self, AtomicVectorInlineError> {
+        Self::itemize_for_owner(units, japanese_mode, None)
+    }
+
+    fn itemize_for_owner(
+        units: Vec<AtomicVectorInlineLogicalUnit>,
+        japanese_mode: JapaneseLineBreakMode,
+        owner: Option<NodeId>,
+    ) -> Result<Self, AtomicVectorInlineError> {
         if units.is_empty() {
             return Err(AtomicVectorInlineError::EmptyParagraph);
         }
-        let Some(paragraph_node) = units.iter().find_map(|unit| match unit {
-            AtomicVectorInlineLogicalUnit::Text(_) => None,
-            AtomicVectorInlineLogicalUnit::Vector(value) => Some(value.paragraph_node()),
+        let Some(paragraph_node) = owner.or_else(|| {
+            units.iter().find_map(|unit| match unit {
+                AtomicVectorInlineLogicalUnit::Text(_) => None,
+                AtomicVectorInlineLogicalUnit::Vector(value) => Some(value.paragraph_node()),
+            })
         }) else {
             return Err(AtomicVectorInlineError::MissingVector);
         };
@@ -462,7 +485,7 @@ impl AtomicVectorInlineParagraph {
             vector_count,
             fingerprint: [0; 32],
         };
-        paragraph.fingerprint = sha256(encode_itemization(&paragraph).as_bytes());
+        paragraph.fingerprint = atomic_fingerprint::paragraph(&paragraph);
         Ok(paragraph)
     }
 
@@ -660,6 +683,7 @@ pub enum AtomicVectorInlineError {
     NoFeasibleLine,
     Oversize(NodeId),
     SelectionLimit,
+    CandidateLimit,
     ArithmeticOverflow,
     AllocationFailure,
 }
@@ -684,6 +708,9 @@ impl std::fmt::Display for AtomicVectorInlineError {
             ),
             Self::SelectionLimit => {
                 formatter.write_str("L5110: atomic vector selected line limit exceeded")
+            }
+            Self::CandidateLimit => {
+                formatter.write_str("L5110: production inline candidate work limit exceeded")
             }
             Self::ArithmeticOverflow => {
                 formatter.write_str("L5100: atomic vector line arithmetic overflow")
@@ -999,6 +1026,25 @@ fn measure_line(
     }
     let logical_advance =
         NonNegativeLength::new(cursor).ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+    let metrics = compute_inline_line_metrics(content_ascent, content_descent, computed_line_height)?;
+    let fits = logical_advance.get().raw() <= inline_size.get().raw()
+        && visual_left.map_or(true, |left| left.raw() >= 0)
+        && visual_right.map_or(true, |right| right.raw() <= inline_size.get().raw());
+    Ok(MeasuredLine {
+        fits,
+        logical_advance,
+        visual_left,
+        visual_right,
+        metrics,
+        occurrences,
+    })
+}
+
+fn compute_inline_line_metrics(
+    content_ascent: Length,
+    content_descent: Length,
+    computed_line_height: PositiveLength,
+) -> Result<AtomicVectorLineMetrics, AtomicVectorInlineError> {
     let content_height = content_ascent
         .checked_add(content_descent)
         .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
@@ -1016,7 +1062,7 @@ fn measure_line(
         .checked_add(content_height.raw())
         .and_then(|value| value.checked_add(leading_after_raw))
         .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
-    let metrics = AtomicVectorLineMetrics {
+    Ok(AtomicVectorLineMetrics {
         content_ascent: NonNegativeLength::new(content_ascent)
             .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?,
         content_descent: NonNegativeLength::new(content_descent)
@@ -1024,17 +1070,6 @@ fn measure_line(
         leading_before: nonnegative_from_raw(leading_before_raw)?,
         leading_after: nonnegative_from_raw(leading_after_raw)?,
         line_height: positive_from_raw(line_height_raw)?,
-    };
-    let fits = logical_advance.get().raw() <= inline_size.get().raw()
-        && visual_left.map_or(true, |left| left.raw() >= 0)
-        && visual_right.map_or(true, |right| right.raw() <= inline_size.get().raw());
-    Ok(MeasuredLine {
-        fits,
-        logical_advance,
-        visual_left,
-        visual_right,
-        metrics,
-        occurrences,
     })
 }
 
@@ -1073,90 +1108,6 @@ fn positive_from_raw(value: i64) -> Result<PositiveLength, AtomicVectorInlineErr
     Length::from_raw(value)
         .and_then(PositiveLength::new)
         .ok_or(AtomicVectorInlineError::ArithmeticOverflow)
-}
-
-fn encode_atomic_item(value: &AtomicVectorInlineItem) -> String {
-    let metrics = value.metrics();
-    let mut output = String::from("{\"algorithm\":");
-    push_jcs_string(&mut output, ATOMIC_VECTOR_INLINE_ALGORITHM);
-    output.push_str(",\"bidi\":\"ltr_isolate\",\"binding_fingerprint\":");
-    push_hash(&mut output, value.binding_fingerprint.bytes());
-    output.push_str(",\"kind\":");
-    push_jcs_string(&mut output, value.kind.as_str());
-    output.push_str(",\"line_break_class\":\"AL\",\"metrics\":");
-    push_metrics(&mut output, metrics);
-    output.push_str(",\"node_id\":");
-    output.push_str(&value.node_id.get().to_string());
-    output.push_str(",\"paint\":{\"blue\":");
-    output.push_str(&value.placement.paint().blue().to_string());
-    output.push_str(",\"green\":");
-    output.push_str(&value.placement.paint().green().to_string());
-    output.push_str(",\"red\":");
-    output.push_str(&value.placement.paint().red().to_string());
-    output.push_str("},\"paragraph_node\":");
-    output.push_str(&value.paragraph_node.get().to_string());
-    output.push_str(",\"record\":\"item\",\"scale\":");
-    output.push_str(&value.placement.scale().get().raw().to_string());
-    output.push_str(",\"source_span\":");
-    push_source_span(&mut output, value.source_span);
-    output.push_str(",\"spacing\":{\"after\":");
-    output.push_str(&value.placement.spacing_after().get().raw().to_string());
-    output.push_str(",\"before\":");
-    output.push_str(&value.placement.spacing_before().get().raw().to_string());
-    output.push_str("}}");
-    output
-}
-
-fn encode_itemization(value: &AtomicVectorInlineParagraph) -> String {
-    let mut output = String::from("{\"algorithm\":");
-    push_jcs_string(&mut output, ATOMIC_VECTOR_INLINE_ALGORITHM);
-    output.push_str(",\"boundaries\":[");
-    for (index, boundary) in value.boundaries.iter().copied().enumerate() {
-        if index > 0 {
-            output.push(',');
-        }
-        output.push_str("{\"kind\":");
-        push_jcs_string(&mut output, break_kind_str(boundary.kind()));
-        output.push_str(",\"logical_boundary\":");
-        output.push_str(&(index + 1).to_string());
-        output.push_str(",\"penalty\":");
-        output.push_str(&boundary.penalty().to_string());
-        output.push_str(",\"same_line_width\":");
-        output.push_str(&boundary.same_line_width().get().raw().to_string());
-        output.push('}');
-    }
-    output.push_str("],\"paragraph_node\":");
-    output.push_str(&value.paragraph_node.get().to_string());
-    output.push_str(",\"record\":\"itemization\",\"units\":[");
-    for (index, unit) in value.units.iter().copied().enumerate() {
-        if index > 0 {
-            output.push(',');
-        }
-        match unit {
-            AtomicVectorInlineLogicalUnit::Text(text) => {
-                output.push_str("{\"advance\":");
-                output.push_str(&text.advance().get().raw().to_string());
-                output.push_str(",\"ascent\":");
-                output.push_str(&text.ascent().get().raw().to_string());
-                output.push_str(",\"descent\":");
-                output.push_str(&text.descent().get().raw().to_string());
-                output.push_str(",\"kind\":\"text\",\"scalar\":");
-                push_jcs_string(&mut output, &text.scalar().to_string());
-                output.push('}');
-            }
-            AtomicVectorInlineLogicalUnit::Vector(item) => {
-                output.push_str("{\"atomic_fingerprint\":");
-                push_hash(&mut output, item.fingerprint());
-                output.push_str(",\"kind\":\"vector\",\"node_id\":");
-                output.push_str(&item.node_id().get().to_string());
-                output.push('}');
-            }
-        }
-    }
-    output.push_str("],\"vector_count\":");
-    output.push_str(&value.vector_count.to_string());
-    output.push('}');
-    output
 }
 
 fn encode_selected_break(
@@ -1200,34 +1151,6 @@ fn encode_selected_break(
     }
     output.push_str("],\"record\":\"line_selection\"}");
     output
-}
-
-fn push_metrics(output: &mut String, value: BoundPrecomposedVectorMetrics) {
-    output.push_str("{\"advance\":");
-    output.push_str(&value.advance().get().raw().to_string());
-    output.push_str(",\"ascent\":");
-    output.push_str(&value.ascent().get().raw().to_string());
-    output.push_str(",\"baseline\":");
-    output.push_str(&value.baseline().get().raw().to_string());
-    output.push_str(",\"descent\":");
-    output.push_str(&value.descent().get().raw().to_string());
-    output.push_str(",\"origin_x\":");
-    output.push_str(&value.origin_x().raw().to_string());
-    output.push_str(",\"viewport\":{\"height\":");
-    output.push_str(&value.viewport_height().get().raw().to_string());
-    output.push_str(",\"width\":");
-    output.push_str(&value.viewport_width().get().raw().to_string());
-    output.push_str("}}");
-}
-
-fn push_source_span(output: &mut String, value: SourceSpan) {
-    output.push_str("{\"end_byte\":");
-    output.push_str(&value.end_byte().get().to_string());
-    output.push_str(",\"source_id\":");
-    output.push_str(&value.source_id().get().to_string());
-    output.push_str(",\"start_byte\":");
-    output.push_str(&value.start_byte().get().to_string());
-    output.push('}');
 }
 
 fn push_hash(output: &mut String, value: [u8; 32]) {
@@ -1326,6 +1249,379 @@ mod tests {
             nonnegative(700),
             nonnegative(300),
         ))
+    }
+
+    #[test]
+    fn production_explicit_breaks_remove_vector_spacing_only_at_selected_edges() {
+        use ProductionInlineLogicalUnit as U;
+        let control = |kind| {
+            U::Break(
+                ProductionExplicitBreak::new(
+                    NodeId::new(4),
+                    SourceSpan::new(
+                        SourceId::new(0),
+                        Utf8ByteOffset::new(0),
+                        Utf8ByteOffset::new(0),
+                    )
+                    .unwrap(),
+                    kind,
+                )
+                .unwrap(),
+            )
+        };
+        let v = U::Vector(vector(2, 10, 8, 2, 0, 8, 10, 10, 3, 4));
+        for reverse in [false, true] {
+            let (units, text_index, wide_advance) = if reverse {
+                (
+                    vec![text('A', 5).into(), control(BreakKind::Allowed), v],
+                    0,
+                    18,
+                )
+            } else {
+                (
+                    vec![v, control(BreakKind::Allowed), text('A', 5).into()],
+                    2,
+                    19,
+                )
+            };
+            let p = ProductionInlineParagraph::itemize_with_breaks(
+                NodeId::new(1),
+                units,
+                vec![ProductionTextClusterRange {
+                    start_unit: text_index,
+                    end_unit: text_index + 1,
+                }],
+                JapaneseLineBreakMode::Normal,
+            )
+            .unwrap();
+            for (width, expected_lines) in [(wide_advance, 1), (10, 2)] {
+                let selected = break_production_inline(
+                    &p,
+                    positive(width),
+                    positive(10),
+                    &mut ProductionLineBreakBudget::new(20, 2),
+                )
+                .unwrap();
+                assert_eq!(selected.lines().len(), expected_lines);
+                assert_eq!(
+                    selected
+                        .lines()
+                        .iter()
+                        .map(|l| l.line().logical_advance().get().raw())
+                        .sum::<i64>(),
+                    if expected_lines == 1 {
+                        wide_advance
+                    } else {
+                        15
+                    }
+                );
+                let occurrence = selected
+                    .lines()
+                    .iter()
+                    .flat_map(|l| l.line().occurrences())
+                    .next()
+                    .unwrap();
+                assert_eq!(
+                    occurrence.spacing_before.get().raw(),
+                    if expected_lines == 1 && reverse { 3 } else { 0 }
+                );
+                assert_eq!(
+                    occurrence.spacing_after.get().raw(),
+                    if expected_lines == 1 && !reverse {
+                        4
+                    } else {
+                        0
+                    }
+                );
+                assert_eq!(
+                    occurrence.pen_x.raw(),
+                    if expected_lines == 1 && reverse { 8 } else { 0 }
+                );
+                if expected_lines == 2 {
+                    assert_eq!(selected.lines()[0].line().end_unit(), 2);
+                    assert_eq!(selected.lines()[0].line().break_kind(), BreakKind::Allowed);
+                }
+            }
+        }
+        let p = ProductionInlineParagraph::itemize_with_breaks(
+            NodeId::new(1),
+            vec![
+                v,
+                control(BreakKind::Mandatory),
+                U::Vector(vector(3, 10, 8, 2, 0, 8, 10, 10, 3, 4)),
+            ],
+            vec![],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        let selected = break_production_inline(
+            &p,
+            positive(100),
+            positive(10),
+            &mut ProductionLineBreakBudget::new(20, 2),
+        )
+        .unwrap();
+        assert_eq!(selected.lines().len(), 2);
+        for line in selected.lines() {
+            assert_eq!(line.line().logical_advance().get().raw(), 10);
+            let occurrence = &line.line().occurrences()[0];
+            assert_eq!(occurrence.spacing_before, NonNegativeLength::ZERO);
+            assert_eq!(occurrence.spacing_after, NonNegativeLength::ZERO);
+            assert_eq!(occurrence.pen_x, Length::ZERO);
+        }
+    }
+
+    #[test]
+    fn production_break_only_lines_keep_height_and_charge_selection_budget() {
+        for kinds in [
+            vec![BreakKind::Allowed],
+            vec![BreakKind::Mandatory],
+            vec![BreakKind::Mandatory; 2],
+        ] {
+            let units = kinds
+                .iter()
+                .enumerate()
+                .map(|(index, kind)| {
+                    ProductionInlineLogicalUnit::Break(
+                        ProductionExplicitBreak::new(
+                            NodeId::new(index as u32 + 2),
+                            SourceSpan::new(
+                                SourceId::new(0),
+                                Utf8ByteOffset::new(0),
+                                Utf8ByteOffset::new(0),
+                            )
+                            .unwrap(),
+                            *kind,
+                        )
+                        .unwrap(),
+                    )
+                })
+                .collect();
+            let p = ProductionInlineParagraph::itemize_with_breaks(
+                NodeId::new(1),
+                units,
+                vec![],
+                JapaneseLineBreakMode::Normal,
+            )
+            .unwrap();
+            let mut budget = ProductionLineBreakBudget::new(kinds.len() as u64, kinds.len() as u64);
+            let selected =
+                break_production_inline(&p, positive(10), positive(11), &mut budget).unwrap();
+            assert_eq!(selected.lines().len(), kinds.len());
+            assert_eq!(budget.remaining_steps(), 0);
+            assert_eq!(budget.remaining_lines(), 0);
+            for line in selected.lines() {
+                assert_eq!(line.line().logical_advance(), NonNegativeLength::ZERO);
+                assert_eq!(line.line().metrics().line_height(), positive(11));
+                assert_eq!(line.line().break_kind(), BreakKind::Mandatory);
+                assert!(line.line().occurrences().is_empty());
+            }
+            assert!(matches!(
+                break_production_inline(
+                    &p,
+                    positive(10),
+                    positive(11),
+                    &mut ProductionLineBreakBudget::new(10, kinds.len() as u64 - 1)
+                ),
+                Err(AtomicVectorInlineError::SelectionLimit)
+            ));
+        }
+    }
+
+    #[test]
+    fn production_explicit_breaks_reject_owner_collision_and_crossing_clusters() {
+        use ProductionInlineLogicalUnit as U;
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            Utf8ByteOffset::new(0),
+            Utf8ByteOffset::new(0),
+        )
+        .unwrap();
+        assert!(ProductionExplicitBreak::new(NodeId::new(2), span, BreakKind::Prohibited).is_err());
+        let control = |id| {
+            U::Break(
+                ProductionExplicitBreak::new(NodeId::new(id), span, BreakKind::Allowed).unwrap(),
+            )
+        };
+        let cases = [
+            (vec![control(1)], vec![]),
+            (vec![control(2), control(2)], vec![]),
+            (
+                vec![
+                    control(2),
+                    U::Vector(vector(2, 10, 8, 2, 0, 8, 10, 10, 0, 0)),
+                ],
+                vec![],
+            ),
+            (
+                vec![text('A', 5).into(), control(2), text('B', 5).into()],
+                vec![ProductionTextClusterRange {
+                    start_unit: 0,
+                    end_unit: 3,
+                }],
+            ),
+        ];
+        for (units, clusters) in cases {
+            assert!(matches!(
+                ProductionInlineParagraph::itemize_with_breaks(
+                    NodeId::new(1),
+                    units,
+                    clusters,
+                    JapaneseLineBreakMode::Normal
+                ),
+                Err(AtomicVectorInlineError::InvalidBinding)
+            ));
+        }
+    }
+
+    #[test]
+    fn production_inline_compensates_negative_origin_without_changing_vector_metrics() {
+        let item = vector(2, 10, 8, 2, -2, 8, 12, 10, 0, 0);
+        let units = vec![AtomicVectorInlineLogicalUnit::Vector(item)];
+        let old =
+            AtomicVectorInlineParagraph::itemize(units.clone(), JapaneseLineBreakMode::Normal)
+                .unwrap();
+        assert!(matches!(
+            break_atomic_vector_inline(&old, positive(12), positive(10), 2),
+            Err(AtomicVectorInlineError::Oversize(_))
+        ));
+        let p = ProductionInlineParagraph::itemize(
+            NodeId::new(1),
+            units,
+            vec![],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        let mut budget = ProductionLineBreakBudget::new(2, 2);
+        let selected =
+            break_production_inline(&p, positive(12), positive(10), &mut budget).unwrap();
+        let line = &selected.lines()[0];
+        assert_eq!(line.origin_shift().get().raw(), 2);
+        assert_eq!(line.required_inline_size().get().raw(), 12);
+        assert_eq!(line.line().logical_advance().get().raw(), 10);
+        assert_eq!(line.line().occurrences()[0].item, item);
+        assert_eq!(line.line().occurrences()[0].pen_x.raw(), 0);
+        assert!(matches!(
+            break_production_inline(&p, positive(11), positive(10), &mut budget),
+            Err(AtomicVectorInlineError::NoFeasibleLine)
+        ));
+    }
+
+    #[test]
+    fn production_inline_keeps_multiscalar_clusters_indivisible_and_accepts_body_only() {
+        let units = vec![text('日', 5), text('本', 5)];
+        let p = ProductionInlineParagraph::itemize(
+            NodeId::new(1),
+            units.clone(),
+            vec![ProductionTextClusterRange {
+                start_unit: 0,
+                end_unit: 2,
+            }],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        assert!(matches!(
+            break_production_inline(
+                &p,
+                positive(5),
+                positive(10),
+                &mut ProductionLineBreakBudget::new(20, 20)
+            ),
+            Err(AtomicVectorInlineError::NoFeasibleLine)
+        ));
+        let p = ProductionInlineParagraph::itemize(
+            NodeId::new(1),
+            units,
+            vec![
+                ProductionTextClusterRange {
+                    start_unit: 0,
+                    end_unit: 1,
+                },
+                ProductionTextClusterRange {
+                    start_unit: 1,
+                    end_unit: 2,
+                },
+            ],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        let mut budget = ProductionLineBreakBudget::new(3, 2);
+        let selected = break_production_inline(&p, positive(5), positive(10), &mut budget).unwrap();
+        assert_eq!(selected.lines().len(), 2);
+        assert_eq!(budget.remaining_steps(), 0);
+        assert_eq!(budget.remaining_lines(), 0);
+        assert!(matches!(
+            break_production_inline(
+                &p,
+                positive(5),
+                positive(10),
+                &mut ProductionLineBreakBudget::new(2, 2)
+            ),
+            Err(AtomicVectorInlineError::CandidateLimit)
+        ));
+        assert!(matches!(
+            break_production_inline(
+                &p,
+                positive(5),
+                positive(10),
+                &mut ProductionLineBreakBudget::new(3, 1)
+            ),
+            Err(AtomicVectorInlineError::SelectionLimit)
+        ));
+    }
+
+    #[test]
+    fn production_inline_rejects_cluster_gaps_overlap_vector_crossing_and_mandatory_crossing() {
+        let cases = [
+            (
+                vec![text('日', 5), text('本', 5)],
+                vec![ProductionTextClusterRange {
+                    start_unit: 1,
+                    end_unit: 2,
+                }],
+            ),
+            (
+                vec![text('日', 5), text('本', 5)],
+                vec![
+                    ProductionTextClusterRange {
+                        start_unit: 0,
+                        end_unit: 2,
+                    },
+                    ProductionTextClusterRange {
+                        start_unit: 1,
+                        end_unit: 2,
+                    },
+                ],
+            ),
+            (
+                vec![
+                    text('A', 5),
+                    AtomicVectorInlineLogicalUnit::Vector(vector(2, 10, 8, 2, 0, 8, 10, 10, 0, 0)),
+                ],
+                vec![ProductionTextClusterRange {
+                    start_unit: 0,
+                    end_unit: 2,
+                }],
+            ),
+            (
+                vec![text('\n', 0), text('B', 5)],
+                vec![ProductionTextClusterRange {
+                    start_unit: 0,
+                    end_unit: 2,
+                }],
+            ),
+        ];
+        for (units, clusters) in cases {
+            assert!(matches!(
+                ProductionInlineParagraph::itemize(
+                    NodeId::new(1),
+                    units,
+                    clusters,
+                    JapaneseLineBreakMode::Normal
+                ),
+                Err(AtomicVectorInlineError::InvalidBinding)
+            ));
+        }
     }
 
     #[test]
@@ -1564,4 +1860,78 @@ mod tests {
         assert_eq!(boundaries[0].left_after().get().raw(), 11);
         assert_eq!(boundaries[0].right_before().get().raw(), 13);
     }
+    #[test]
+    fn production_source_widths_preserve_atomic_vector_overhang_and_hard_breaks() {
+        use ProductionInlineLogicalUnit as U;
+        let item = vector(2, 10, 8, 2, -2, 8, 12, 10, 0, 0);
+        let second = vector(4, 10, 8, 2, -2, 8, 12, 10, 0, 0);
+        let control = ProductionExplicitBreak::new(
+            NodeId::new(3),
+            SourceSpan::new(
+                SourceId::new(0),
+                Utf8ByteOffset::new(3),
+                Utf8ByteOffset::new(4),
+            )
+            .unwrap(),
+            BreakKind::Mandatory,
+        )
+        .unwrap();
+        let p = ProductionInlineParagraph::itemize_with_breaks(
+            NodeId::new(1),
+            vec![U::Vector(item), U::Break(control), U::Vector(second)],
+            vec![],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        let sizes = [positive(12), positive(1), positive(20)];
+        let widths = ProductionInlineSourceWidths::new(&p, &sizes).unwrap();
+        let selected = break_production_inline_with_source_widths(
+            &widths,
+            positive(10),
+            &mut ProductionLineBreakBudget::new(100, 10),
+        )
+        .unwrap();
+        assert_eq!(selected.lines().len(), 2);
+        for (line, (start, end, width)) in selected.lines().iter().zip([(0, 2, 12), (2, 3, 20)]) {
+            assert_eq!(
+                (
+                    line.line().start_unit(),
+                    line.line().end_unit(),
+                    line.inline_size().get().raw()
+                ),
+                (start, end, width)
+            );
+            assert_eq!(line.origin_shift().get().raw(), 2);
+            assert_eq!(line.required_inline_size().get().raw(), 12);
+            assert_eq!(
+                line.line().occurrences()[0].item,
+                if start == 0 { item } else { second }
+            );
+        }
+        let narrow = [positive(11), positive(100), positive(100)];
+        let refined = break_production_inline_with_source_widths(
+            &ProductionInlineSourceWidths::with_retained_line_ends(&p, &sizes, &[3]).unwrap(),
+            positive(10),
+            &mut ProductionLineBreakBudget::new(100, 10),
+        ).unwrap();
+        assert_eq!(refined.lines().len(), selected.lines().len());
+        for (a, b) in refined.lines().iter().zip(selected.lines()) {
+            assert_eq!(a.line().start_unit(), b.line().start_unit());
+            assert_eq!(a.line().end_unit(), b.line().end_unit());
+            assert_eq!(a.line().break_kind(), b.line().break_kind());
+            assert_eq!(a.origin_shift(), b.origin_shift());
+            assert_eq!(a.required_inline_size(), b.required_inline_size());
+            assert_eq!(a.line().occurrences()[0].item, b.line().occurrences()[0].item);
+        }
+        assert_ne!(refined.fingerprint(), selected.fingerprint());
+        assert!(matches!(
+            break_production_inline_with_source_widths(
+                &ProductionInlineSourceWidths::new(&p, &narrow).unwrap(),
+                positive(10),
+                &mut ProductionLineBreakBudget::new(100, 10)
+            ),
+            Err(AtomicVectorInlineError::NoFeasibleLine)
+        ));
+    }
+
 }

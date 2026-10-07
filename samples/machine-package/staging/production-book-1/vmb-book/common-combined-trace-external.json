@@ -1,0 +1,45 @@
+{
+  "scope": "Two actual public CLI builds and check-package using the existing fixture verifier entry, without clean-build or host/release reproducibility claims. Full independent structure gate remains failed.",
+  "result": "partial",
+  "package_sha256": "44c072c75a7bdede2b15ea73902e10a47305491a91a5e9964e262be25b5e3c69",
+  "binary_sha256": "a9e50e12872b14d6188e9227a816c31f2a9949e554cff9da0d316b12b560fe70",
+  "runs": 2,
+  "artifact_byte_identity": true,
+  "artifacts": {
+    "output.pdf": {
+      "sha256": "36e10fb91c819fac8e914bdffb1559382dbd3fe3d56d7c1dcaffc90aecdd9c6a",
+      "bytes": 81526
+    },
+    "trace.json": {
+      "sha256": "067ec54c5644eb19226042598a266187b89f53fbbff92e77d12e76171589fee3",
+      "bytes": 827
+    },
+    "manifest.json": {
+      "sha256": "b5bc18d50d6bd2b32a3b10427d1224abc135e3881bb633e2dd998f1e202bc4d6",
+      "bytes": 25713
+    },
+    "diagnostics.json": {
+      "sha256": "69ad7b6ef4a430f0abda52ea9977be74b10a2269325ac69e153329b433736cde",
+      "bytes": 52
+    },
+    "capabilities.json": {
+      "sha256": "49cc2aca2ff94f6679026c97b972e96cdcd241bc1f4d35a04bc349cf17ddd872",
+      "bytes": 10604
+    }
+  },
+  "external_pdf_differential": {
+    "page_count": 5,
+    "render_sha256": "563cbc8a8cf379c4a5b16f5679d8dd612dbfbd0f53216ca9e00cab63a3fa0f7c",
+    "extracted_text_sha256": "aa2aefc9f594398f4f2d5daff41f9e9a4d99475ec0bbfc00799d8d60ce192140",
+    "render_dpis": [
+      72
+    ]
+  },
+  "independent_structure": {
+    "result": "failed",
+    "error": "production structure role/reading order differs"
+  },
+  "pdf_ua_evidence": "common-combined-ranked-candidates-verapdf.json",
+  "pdf_ua_binding": "Final PDF bytes equal the previously validated output.pdf; report applies to the same SHA-256.",
+  "log": "/private/tmp/typaxis-common-combined-external.log"
+}

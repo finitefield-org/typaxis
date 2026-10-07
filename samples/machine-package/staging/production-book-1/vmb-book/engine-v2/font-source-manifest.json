@@ -1,0 +1,140 @@
+{
+  "schema": "vmb-math/font-source-manifest/1",
+  "manifestVersion": "1.0.0",
+  "bundle": {
+    "id": "vmb-font-bundle-lm-haranoaji-1",
+    "revision": "1.0.0",
+    "rootDesignSizeTeXPt": {
+      "numerator": 10,
+      "denominator": 1
+    }
+  },
+  "licenses": [
+    {
+      "id": "license.gust-font-lm-math",
+      "name": "GUST Font License (2006-09-30 preliminary text distributed with Latin Modern Math)",
+      "spdxExpression": "LicenseRef-GUST-Font-License-2006-09-30",
+      "path": "third_party/rendermath/fonts/licenses/GUST-FONT-LICENSE-lm-math.txt",
+      "sha256": "sha256:2bd69affc3da00715116f713f57eab9707e96daf3562ad0215987b15b9c16f73",
+      "sourceURL": "https://mirrors.ctan.org/fonts/lm-math/doc/GUST-FONT-LICENSE.txt"
+    },
+    {
+      "id": "license.gust-font-1.0",
+      "name": "GUST Font License 1.0",
+      "spdxExpression": "LicenseRef-GUST-Font-License-1.0",
+      "path": "third_party/rendermath/fonts/licenses/GUST-FONT-LICENSE-lm.txt",
+      "sha256": "sha256:49ea6cb9257bbee0a3979c48a774cd221550ac1c20c95549efe45fc99cc18050",
+      "sourceURL": "https://mirrors.ctan.org/fonts/lm/doc/fonts/lm/GUST-FONT-LICENSE.TXT"
+    },
+    {
+      "id": "license.ofl-1.1",
+      "name": "SIL Open Font License 1.1",
+      "spdxExpression": "OFL-1.1",
+      "path": "third_party/rendermath/fonts/licenses/OFL-1.1.txt",
+      "sha256": "sha256:6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+      "sourceURL": "https://raw.githubusercontent.com/trueroad/HaranoAjiFonts/20250811/LICENSE"
+    }
+  ],
+  "notices": [
+    {
+      "id": "notice.latin-modern-math-1.959",
+      "path": "third_party/rendermath/fonts/notices/README-Latin-Modern-Math.txt",
+      "sha256": "sha256:e6fdd5fb44b656146fa988d191f58901c09a347d3f4fbaa3b45b24a6ad7ec30b",
+      "sourceURL": "https://mirrors.ctan.org/fonts/lm-math/README"
+    },
+    {
+      "id": "notice.latin-modern-2.005",
+      "path": "third_party/rendermath/fonts/notices/README-Latin-Modern.txt",
+      "sha256": "sha256:7cac4a4a78985ccb1ed429bb2eddf32eeb2e413c94493c7b268385bb7b525250",
+      "sourceURL": "https://mirrors.ctan.org/fonts/lm/doc/fonts/lm/README-Latin-Modern.TXT"
+    },
+    {
+      "id": "notice.haranoaji-20250811",
+      "path": "third_party/rendermath/fonts/notices/README-HaranoAji.en.md",
+      "sha256": "sha256:d87c9ab93a03bdd0bce96ebd073451babac45a568c641d52d2faa3d19e590409",
+      "sourceURL": "https://raw.githubusercontent.com/trueroad/HaranoAjiFonts/20250811/README.en.md"
+    }
+  ],
+  "fonts": [
+    {
+      "subjectId": "font.latin-modern-math",
+      "resourceRevision": "1.0.0",
+      "role": "math-primary",
+      "path": "third_party/rendermath/fonts/latinmodern-math.otf",
+      "sha256": "sha256:6075562b771f8b82f0c179e363389684f2dd09de30038269e2628e504bd7be0f",
+      "upstream": {
+        "project": "Latin Modern Math",
+        "package": "lm-math",
+        "version": "1.959",
+        "fontVersion": "1.959",
+        "sourceURL": "https://mirrors.ctan.org/fonts/lm-math/opentype/latinmodern-math.otf"
+      },
+      "licenseId": "license.gust-font-lm-math",
+      "noticeId": "notice.latin-modern-math-1.959"
+    },
+    {
+      "subjectId": "font.latin-modern",
+      "resourceRevision": "1.0.0",
+      "role": "text-latin-primary",
+      "path": "third_party/rendermath/fonts/lmroman10-regular.otf",
+      "sha256": "sha256:1aa18cfefa58132c52ce5de70db1fd1154201c19cd2b2cdaffba4906a33e6852",
+      "upstream": {
+        "project": "Latin Modern",
+        "package": "lm",
+        "version": "2.005",
+        "fontVersion": "2.004",
+        "sourceURL": "https://mirrors.ctan.org/fonts/lm/fonts/opentype/public/lm/lmroman10-regular.otf"
+      },
+      "licenseId": "license.gust-font-1.0",
+      "noticeId": "notice.latin-modern-2.005"
+    },
+    {
+      "subjectId": "font.latin-modern-mono",
+      "resourceRevision": "1.0.0",
+      "role": "text-monospace-fallback",
+      "path": "third_party/rendermath/fonts/lmmono10-regular.otf",
+      "sha256": "sha256:22deb6d3be3ffcb40b33f0e010afb256c677d97c2a2bdee1f5740cdc97751558",
+      "upstream": {
+        "project": "Latin Modern",
+        "package": "lm",
+        "version": "2.005",
+        "fontVersion": "2.004",
+        "sourceURL": "https://mirrors.ctan.org/fonts/lm/fonts/opentype/public/lm/lmmono10-regular.otf"
+      },
+      "licenseId": "license.gust-font-1.0",
+      "noticeId": "notice.latin-modern-2.005"
+    },
+    {
+      "subjectId": "font.haranoaji-mincho",
+      "resourceRevision": "1.0.0",
+      "role": "text-japanese-mincho-fallback",
+      "path": "third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf",
+      "sha256": "sha256:66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717",
+      "upstream": {
+        "project": "Harano Aji Fonts",
+        "package": "haranoaji",
+        "version": "20250811",
+        "fontVersion": "20250811",
+        "sourceURL": "https://raw.githubusercontent.com/trueroad/HaranoAjiFonts/20250811/HaranoAjiMincho-Regular.otf"
+      },
+      "licenseId": "license.ofl-1.1",
+      "noticeId": "notice.haranoaji-20250811"
+    },
+    {
+      "subjectId": "font.haranoaji-gothic",
+      "resourceRevision": "1.0.0",
+      "role": "text-japanese-gothic-fallback",
+      "path": "third_party/rendermath/fonts/HaranoAjiGothic-Medium.otf",
+      "sha256": "sha256:dfde7017fee3063b7148cce0d79b2083be4587f22cf7743f9f097424af39f5b2",
+      "upstream": {
+        "project": "Harano Aji Fonts",
+        "package": "haranoaji",
+        "version": "20250811",
+        "fontVersion": "20250811",
+        "sourceURL": "https://raw.githubusercontent.com/trueroad/HaranoAjiFonts/20250811/HaranoAjiGothic-Medium.otf"
+      },
+      "licenseId": "license.ofl-1.1",
+      "noticeId": "notice.haranoaji-20250811"
+    }
+  ]
+}
