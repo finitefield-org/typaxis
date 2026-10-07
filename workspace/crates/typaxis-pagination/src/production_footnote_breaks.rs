@@ -408,6 +408,8 @@ fn prepare_search_context(
 
 #[cfg(feature = "book-v2-staging")]
 pub use demand::book_v2::{
+    prepare_book_v2_column_page_search_counted, BookV2ColumnPageSearch,
+    BookV2ColumnPageState, BookV2ColumnPageCandidate, BookV2ColumnBodyCandidate,
     BookV2DefinitionCandidates, BookV2RankedDefinitionCandidate, prepare_book_v2_mixed_footnote_demand_search, prepare_book_v2_mixed_footnote_demand_search_counted, prepare_book_v2_definition_mixed_search, prepare_book_v2_definition_mixed_search_counted, BookV2DefinitionMixedSearch, BookV2DefinitionCandidatePart, BookV2DefinitionSelectedPart, BookV2DefinitionSourceState, BookV2DefinitionMixedCandidate,
     BookV2BodyFootnoteCandidate,
     BookV2BodyMixedStablePages, BookV2BodyPlacedHeaderVariant, BookV2BodyPlacedEquationNumber, BookV2BodySourceClosure,

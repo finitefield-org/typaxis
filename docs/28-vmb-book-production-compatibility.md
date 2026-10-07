@@ -5918,3 +5918,24 @@ sourceの同一性、workのexact／1不足、pass・source record不足と失�
 表の反復header、last_page balance、段組PDFの描画・独立受入は残る。完全なcommand
 予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入と
 未作成のSpeech／SemanticRefも継続する。段組PDFと設計全体の完了とはしない。
+
+### 14.277 全段と脚注を同じ物理ページ候補へ結ぶ（実装追補）
+
+段組用のsource flow・表の測定・ページ候補を別の型で保持する。元itemとtable ordinal、
+caption／セル／入れ子・定義・番号・名前と累積予算を既存の共通collectorへ結ぶ。
+本文／表kernelから脚注の最終fitを分け、左から右の全段に同じdemand branchを渡す。
+全参照を集めた後、元の全ページ脚注領域へ一度だけfitする。必須の新規定義の最初の
+実断片と依存関係の閉包が収まらなければ、ページ候補全体を拒否する。
+
+同じ物理ページ内でも元の表cursorを引き継ぎ、未使用段は末尾だけに許す。全段の後に
+物理page indexを一度だけ進め、脚注だけの継続でも実sourceの前進を必要とする。
+脚注と横方向に重なる段の最大使用高で共通予約し、重ならない段の高さは差し引かない。
+source cut・名前・keepを検査し、失敗した候補のworkとrecordを返金しない。
+
+[ADR-0140](../adr/ADR-0140-book-2-joint-column-page-candidates.md)と
+[実装台帳§277](28-vmb-book-production-progress.md#book-2-joint-column-candidates-design-14277)を参照。
+この型は提示されたsource cutの適合候補であり、安定配置やpaintのreceiptではない。
+自動列挙・ranking、明示改ページを含む安定ページ列、実幅feedback・反復headerのvariant、
+last_page balance、物理配置・terminal・段組PDFと独立受入は継続する。完全なcommand
+予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入と
+未作成のSpeech／SemanticRefも残る。設計全体の完了とはしない。

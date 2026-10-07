@@ -61,6 +61,14 @@ pub(super) struct Projection<'b, S: MixedSearch<'b>> {
     pub height: Length,
     pub fit: fit_kernel::Fit<S>,
 }
+pub(super) struct BodyProjection<'b, S: MixedSearch<'b>> {
+    pub end: usize,
+    pub next_table: Option<usize>,
+    pub continuation: Option<S::Cursor>,
+    pub parts: Vec<S::Part>,
+    pub height: Length,
+    pub demanded: S::State,
+}
 pub(super) fn evaluate<'b, S: MixedSearch<'b>>(
     search: &mut S,
     state: &S::State,
@@ -69,6 +77,32 @@ pub(super) fn evaluate<'b, S: MixedSearch<'b>>(
     incoming: Option<S::Cursor>,
     requests: &[S::Request],
 ) -> Result<Option<Projection<'b, S>>, ProductionBodyPaginationError> {
+    let Some(source) = evaluate_source(search, state, start, next_table, incoming, requests)? else {
+        return Ok(None);
+    };
+    let Some(fit) = fit_kernel::fit(search, source.height, source.demanded)? else {
+        return Ok(None);
+    };
+    Ok(Some(Projection {
+        end: source.end,
+        next_table: source.next_table,
+        continuation: source.continuation,
+        parts: source.parts,
+        height: source.height,
+        fit,
+    }))
+}
+
+/// Body/source selection without finalizing notes. Column-page consumers pass
+/// the demanded branch through all columns before making one physical fit.
+pub(super) fn evaluate_source<'b, S: MixedSearch<'b>>(
+    search: &mut S,
+    state: &S::State,
+    start: usize,
+    next_table: Option<usize>,
+    incoming: Option<S::Cursor>,
+    requests: &[S::Request],
+) -> Result<Option<BodyProjection<'b, S>>, ProductionBodyPaginationError> {
     let Some(source) = source_kernel::evaluate(
         &mut BodySource(search),
         state,
@@ -94,16 +128,13 @@ pub(super) fn evaluate<'b, S: MixedSearch<'b>>(
     if forced.is_some() {
         return Err(error(NodeId::new(0), E::ReceiptMismatch));
     }
-    let Some(fit) = fit_kernel::fit(search, height, demanded)? else {
-        return Ok(None);
-    };
-    Ok(Some(Projection {
+    Ok(Some(BodyProjection {
         end,
         next_table,
         continuation,
         parts,
         height,
-        fit,
+        demanded,
     }))
 }
 

@@ -24,10 +24,10 @@ impl<'s, 'p, 'a> BodyLines<'s, 'p, 'a> {
         match self {
             Self::Legacy(_) => false,
             #[cfg(feature = "book-v2-staging")]
-            Self::BookV2(lines) => lines
-                .frames()
-                .and_then(|f| f.page_plan())
-                .is_some_and(|p| p.has_source_names()),
+            Self::BookV2(lines) => lines.frames().is_some_and(|f| {
+                f.page_plan().is_some_and(|p| p.has_source_names())
+                    || f.column_plan().is_some_and(|p| p.has_source_names())
+            }),
         }
     }
 

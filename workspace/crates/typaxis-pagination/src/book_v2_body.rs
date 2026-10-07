@@ -1,5 +1,28 @@
 //! Combined source-ordered measurements under the exact successor owners.
 use super::*;
+#[path = "book_v2_column_flow.rs"]
+mod column_flow;
+pub use column_flow::*;
+
+#[derive(Clone, Copy)]
+enum SourceFramePlan<'p, 'a> {
+    Pages(&'p typaxis_syntax::book_v2::BookV2PageFramePlan<'a>),
+    Columns(&'p typaxis_syntax::book_v2::BookV2ColumnFramePlan<'a>),
+}
+impl SourceFramePlan<'_, '_> {
+    fn has_source_names(self) -> bool {
+        match self {
+            Self::Pages(plan) => plan.has_source_names(),
+            Self::Columns(plan) => plan.has_source_names(),
+        }
+    }
+    fn source_name_index(self, owner: NodeId) -> Option<usize> {
+        match self {
+            Self::Pages(plan) => plan.source_name_index(owner),
+            Self::Columns(plan) => plan.source_name_index(owner),
+        }
+    }
+}
 use typaxis_layout::book_v2::{
     BookV2FootnoteLines, BookV2InlineLineLayout, BookV2VectorBlockLayout,
 };
@@ -27,6 +50,11 @@ struct TablePageName {
     transitions: bool,
 }
 impl<'f, 's, 'p, 'a> BookV2PreparedBodyFlow<'f, 's, 'p, 'a> {
+    pub(in crate::production_body::body_flow) fn source_owner_page_name(&self, owner: NodeId) -> Option<usize> {
+        let frames = self.lines.frames()?;
+        frames.page_plan().and_then(|p| p.source_name_index(owner))
+            .or_else(|| frames.column_plan().and_then(|p| p.source_name_index(owner)))
+    }
     pub fn body_page_name_index(&self, item: usize) -> Option<usize> {
         (item < self.collected.body_end).then(|| self.source_page_name_index(item)).flatten()
     }
@@ -138,6 +166,18 @@ pub fn prepare_book_v2_body_flow_counted<'f, 's, 'p, 'a>(
     prior_records: u64,
     observed_records: &mut u64,
 ) -> Result<BookV2PreparedBodyFlow<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    prepare_body_flow_in_frames(lines, blocks, footnotes, limits, prior_records, observed_records, false)
+}
+
+fn prepare_body_flow_in_frames<'f, 's, 'p, 'a>(
+    lines: &'s BookV2InlineLineLayout<'p, 'a>,
+    blocks: Option<&'f BookV2VectorBlockLayout<'s, 'p, 'a>>,
+    footnotes: &'f BookV2FootnoteLines<'s, 'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    prior_records: u64,
+    observed_records: &mut u64,
+    columns: bool,
+) -> Result<BookV2PreparedBodyFlow<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
     *observed_records = prior_records
         .max(footnotes.record_charge())
         .max(blocks.map_or(0, |b| b.record_charge()));
@@ -156,7 +196,7 @@ pub fn prepare_book_v2_body_flow_counted<'f, 's, 'p, 'a>(
     frames
         .verify(lines.prepared(), frames.body())
         .map_err(|e| error(e.owner, E::ReceiptMismatch))?;
-    if frames.column_plan().is_some() {
+    if frames.column_plan().is_some() != columns {
         return Err(error(root, E::PendingRegion("column_pages")));
     }
     if let Some(first) = footnotes.definitions().first() {
@@ -193,7 +233,9 @@ pub fn prepare_book_v2_body_flow_counted<'f, 's, 'p, 'a>(
         )?;
         let mut source_page_names = Vec::new();
         let mut table_page_names = Vec::new();
-        if let Some(plan) = frames.page_plan().filter(|p| p.has_source_names()) {
+        let plan = frames.page_plan().map(SourceFramePlan::Pages)
+            .or_else(|| frames.column_plan().map(SourceFramePlan::Columns));
+        if let Some(plan) = plan.filter(|p| p.has_source_names()) {
             charge.take(
                 collected
                     .items.len()
@@ -373,6 +415,8 @@ pub use footnote_breaks::book_v2::{
 };
 
 pub use footnote_breaks::{
+    prepare_book_v2_column_page_search_counted, BookV2ColumnPageSearch,
+    BookV2ColumnPageState, BookV2ColumnPageCandidate, BookV2ColumnBodyCandidate,
     BookV2DefinitionCandidates, BookV2RankedDefinitionCandidate, prepare_book_v2_mixed_footnote_demand_search, prepare_book_v2_mixed_footnote_demand_search_counted, prepare_book_v2_definition_mixed_search, prepare_book_v2_definition_mixed_search_counted, BookV2DefinitionMixedSearch, BookV2DefinitionCandidatePart, BookV2DefinitionSelectedPart, BookV2DefinitionSourceState, BookV2DefinitionMixedCandidate,
     BookV2FootnoteRegionFragment, BookV2FootnoteRegionSelection,
     BookV2BodyFootnoteCandidate,

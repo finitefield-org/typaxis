@@ -1,4 +1,6 @@
 use super::*;
+#[path = "book_v2_column_page_tests.rs"]
+mod pages;
 use typaxis_core::{Length, PositiveLength};
 use typaxis_layout::book_v2::*;
 use typaxis_linebreak::JapaneseLineBreakMode;

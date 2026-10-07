@@ -92,7 +92,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             None
         }
     }
-    fn current_source_page_name(
+    pub(super) fn current_source_page_name(
         &mut self,
         item: usize,
         table: usize,
@@ -250,7 +250,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             .map(|plan| plan.named_page(state.page, name))
             .transpose()
             .map_err(|_| error(NodeId::new(0), E::PageLimit))?;
-        self.active_page_frames = selected;
+        self.active_page_frames = selected.map(Into::into);
         self.active_page_name = name;
         let previous_mismatch = self.named_mismatch.take();
         let result = (|| {
@@ -260,7 +260,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 let next_name = self.next_pending_page_name(&state.source.demand, state.name)?;
                 if next_name != name {
                     self.active_page_frames = frames.page_plan().map(|plan| plan.named_page(state.page, next_name))
-                        .transpose().map_err(|_| error(NodeId::new(0), E::PageLimit))?;
+                        .transpose().map_err(|_| error(NodeId::new(0), E::PageLimit))?.map(Into::into);
                     self.active_page_name = next_name;
                     if let Some(selected) = self.select_mixed_page_in_frames(state)? {
                         return Ok(Some(selected));

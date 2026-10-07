@@ -538,11 +538,10 @@ fn prepare_book_v2_table_search_charged_counted<'m, 'f, 's, 'p, 'a>(
             fragment_algorithm: BOOK_V2_TABLE_FRAGMENT_ALGORITHM,
             parallel_breaks: true,
             minimum_fragment_height: frames.page_plan().and_then(|plan| {
-                let minimum = if in_note {
-                    plan.minimum_footnote_height()?
-                } else {
-                    plan.minimum_body_height()
-                };
+                if in_note { plan.minimum_footnote_height() } else { Some(plan.minimum_body_height()) }
+            }).or_else(|| frames.column_plan().and_then(|plan| {
+                if in_note { plan.minimum_footnote_height() } else { Some(plan.minimum_body_height()) }
+            })).and_then(|minimum| {
                 if minimum >= region.height().get() {
                     return None;
                 }

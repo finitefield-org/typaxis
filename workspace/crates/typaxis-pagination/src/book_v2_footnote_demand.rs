@@ -6,6 +6,23 @@ use super::super::book_v2::{
 use super::*;
 use crate::production_body::body_flow::book_v2::BookV2PreparedBodyFlow;
 use kernel::DemandContent;
+#[derive(Clone, Copy)]
+struct ActivePageFrames {
+    body: Rect,
+    footnote: Option<Rect>,
+}
+impl ActivePageFrames {
+    fn body(self) -> Rect { self.body }
+    fn footnote(self) -> Option<Rect> { self.footnote }
+}
+impl From<typaxis_syntax::book_v2::BookV2PageFrames> for ActivePageFrames {
+    fn from(frames: typaxis_syntax::book_v2::BookV2PageFrames) -> Self {
+        Self { body: frames.body(), footnote: frames.footnote() }
+    }
+}
+#[path = "book_v2_column_candidates.rs"]
+mod column_candidates;
+pub use column_candidates::*;
 #[path = "book_v2_body_mixed_candidate.rs"]
 mod mixed_candidate;
 #[path = "book_v2_body_mixed_pages.rs"]
@@ -95,7 +112,7 @@ pub struct BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     maximum_passes: u16,
     maximum_reflows: u16,
     terminal_spool: u64,
-    active_page_frames: Option<typaxis_syntax::book_v2::BookV2PageFrames>,
+    active_page_frames: Option<ActivePageFrames>,
     active_page_name: Option<usize>,
     named_mismatch: Option<NodeId>,
     headers: Option<&'b crate::book_v2::BookV2TableHeaderCatalog<'b, 'f, 's, 'p, 'a>>,

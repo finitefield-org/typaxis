@@ -309,8 +309,7 @@ impl<'b, 'f, 's, 'p, 'a> DefinitionSearch<'_, 'b, 'f, 's, 'p, 'a> {
             forced,
         } = selected;
         if let Some(owner) = forced {
-            let name = self.notes.content.flow.lines().frames().and_then(|f| f.page_plan())
-                .and_then(|plan| plan.source_name_index(owner));
+            let name = self.notes.content.flow.source_owner_page_name(owner);
             if !self.accept_name(owner, name) { return Ok(None); }
         }
         let next_table = next_table.expect("definition source ordinal");

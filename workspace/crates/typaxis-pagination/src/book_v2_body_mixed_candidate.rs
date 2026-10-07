@@ -120,29 +120,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         requests: &[BookV2BodyCandidatePart<'b, 'f, 's, 'p, 'a>],
     ) -> Result<Option<BookV2BodyMixedCandidate<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError>
     {
-        self.verify_state(&state.demand)?;
-        let requested = match requests.first() {
-            Some(BookV2BodyCandidatePart::Table { cursor, .. }) => Some(*cursor),
-            _ => None,
-        };
-        if let Some(expected) = state.continuation {
-            if !requests.is_empty()
-                && requested.is_none_or(|cursor| {
-                    cursor.table_index() != expected.table_index()
-                        || cursor.offset() != expected.offset()
-                        || cursor.next_row() != expected.next_row()
-                        || cursor.is_initial() != expected.is_initial()
-                        || cursor.has_started_rows() != expected.has_started_rows()
-                        || cursor.next_caption_item() != expected.next_caption_item()
-                        || cursor.cell_progress_fingerprint()
-                            != expected.cell_progress_fingerprint()
-                })
-            {
-                return Err(error(NodeId::new(0), E::ReceiptMismatch));
-            }
-        } else if requested.is_some_and(|cursor| !cursor.is_initial()) {
-            return Err(error(NodeId::new(0), E::ReceiptMismatch));
-        }
+        self.verify_source_requests(state, requests)?;
         let Some(projection) = mixed_kernel::evaluate(
             self,
             &state.demand,
@@ -170,6 +148,37 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             fit,
             next,
         }))
+    }
+
+    pub(super) fn verify_source_requests(
+        &self,
+        state: &BookV2BodySourceState<'b, 'f, 's, 'p, 'a>,
+        requests: &[BookV2BodyCandidatePart<'b, 'f, 's, 'p, 'a>],
+    ) -> Result<(), ProductionBodyPaginationError> {
+        self.verify_state(&state.demand)?;
+        let requested = match requests.first() {
+            Some(BookV2BodyCandidatePart::Table { cursor, .. }) => Some(*cursor),
+            _ => None,
+        };
+        if let Some(expected) = state.continuation {
+            if !requests.is_empty()
+                && requested.is_none_or(|cursor| {
+                    cursor.table_index() != expected.table_index()
+                        || cursor.offset() != expected.offset()
+                        || cursor.next_row() != expected.next_row()
+                        || cursor.is_initial() != expected.is_initial()
+                        || cursor.has_started_rows() != expected.has_started_rows()
+                        || cursor.next_caption_item() != expected.next_caption_item()
+                        || cursor.cell_progress_fingerprint()
+                            != expected.cell_progress_fingerprint()
+                })
+            {
+                return Err(error(NodeId::new(0), E::ReceiptMismatch));
+            }
+        } else if requested.is_some_and(|cursor| !cursor.is_initial()) {
+            return Err(error(NodeId::new(0), E::ReceiptMismatch));
+        }
+        Ok(())
     }
 }
 

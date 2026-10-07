@@ -16793,3 +16793,37 @@ BookV2ColumnFramePlanは単段のページ計画と別の型であり、元sourc
 verification-summary.jsonは全678最終source hashes、全7 source／test変更、成功した11 commands／log hashesとCLI 189件、実test binaryとrunnerのSHA-256を対応付ける。文書3件は検証後に別hashへ記録する。既存863 PDFの独立検査・VMB 10 jobs・旧成果物とのbyte比較は§275の結果であり、この変更の検証結果として再計上しない。新しい段組PDFの受入は0件である。framesの436.53秒などの時間は観測値で、制御された性能受入ではない。
 
 同じ物理ページの全段・脚注の共通選択、元cursorと表の継続・反復header、last_page balance、実段PDFと独立検査は引き続き必要である。完全なcommand予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入、未作成のSpeech／SemanticRefも継続する。この変更を段組PDFと設計全体の完了とは扱わない。
+
+<a id="book-2-joint-column-candidates-design-14277"></a>
+## 277. 全段と脚注を同じ物理ページ候補へ結ぶ（design §14.277）
+
+0b3976aを基準として、[ADR-0140](../adr/ADR-0140-book-2-joint-column-page-candidates.md)に従い、段幅で収束した元行から専用のsource flow・表測定・物理ページ候補を構築する経路を追加した。BookV2PreparedColumnFlowとBookV2ColumnTableMeasurementsは単段の公開型へ変換できず、本文と定義のnamespace、元table ordinal、caption・セル・入れ子・名前・keepを共通collectorから保持する。既存の単段constructorによる段組frameの拒否も維持する。
+
+共通kernelの本文／表の選択を脚注の最終fitから分離した。単段は選択の直後に従来どおりfitする。BookV2ColumnPageSearchは、一つの物理ページの左から右の全段に同じdemand branchを渡し、元itemと表の実continuationを消費してから、一つの元脚注領域へ一度だけfitする。新しく参照された全定義の最初の実断片と依存関係の閉包が収まらなければ、ページ候補全体を拒否する。段ごとに脚注を完了させたり、物理page indexを進めたりしない。
+
+callerは元マスターの全段に対応するsource cutを提示し、未使用の段を末尾だけに置く。選択後は物理page indexを一度進め、脚注の継続を次の物理ページへ渡す。本文のない継続ページでも脚注の実fragmentが必要であり、空段だけでpadding pageを増やさない。元範囲と表cursorの一回消費、元名前と実masterの一致を確認し、不一致には元ownerを付ける。反復headerを新しい元本文として名前走査へ混ぜない。
+
+脚注に横方向で重なる段の最大使用高だけを共通の予約へ渡す。全幅脚注は全段の最大高を使い、片側だけに重なる脚注では他方の段の高さを差し引かない。元の本文／脚注矩形、番号・marker・gap・separatorと必須断片の規則を縮めない。全段のslotはrecordへ予約してから確保し、source・表・定義のconstructor履歴と候補のwork／recordを同じ台帳に残す。失敗した予約を追加せず、受理済みprefixと失敗した候補の消費済みworkを返金しない。候補探索中に設定したframe・名前・診断状態は終了時に復元する。
+
+新しい6 testsは、二段で参照された別定義を一つの脚注領域へ開始すること、同じ物理ページに全新規定義を開始できない候補の拒否、脚注だけの継続、片側／全幅の予約、元名前、入れ子表とcaption・rowspan・同じページ内の表continuationを確認した。元semantic leafの一回消費、別search／stateの拒否、work exact／1不足、誤った要求後のrecord／work累積と正しい再試行も検査する。原Haranoのbytes／SHA-256を固定して同じsource／cursor検査を実行した。三つの型の変換拒否をcompile-failで検査する。
+
+focused検証では不足した公開re-export、testのResult型推論とmutable borrowを修正した。名前付きfixture自身のmasterにも元columnsを明示し、先行本文のある段のtable requestは残りの容量を使用するよう期待値を修正した。InvalidTableCapacityを抑制せず、元の表・フォント・keep規則は変更していない。新しい3 source filesだけを整形し、既存の巨大ファイルを広域整形していない。
+
+証跡はworkspace/target/vmb-design/20261007/column-page-candidates/。681 compilation／source入力と全tools/*.pyの74 verifier hashesを固定し、§276との差分13 source／test filesを記録した。新規6件のfocused検査は失敗／ignored 0で成功した。run-regression-01.pyで旧syntax 79 tests＋doc-test 6件、Book /2 syntax 161 tests＋doc-test 13件、layout 70 tests＋doc-test 2件、pagination 104 tests＋doc-test 3件、workspace --all-features --tests checkが成功した。原Harano／Arialと保存済みVMB 10 jobsのbytes／SHA-256を確認して使用した。
+
+CLIの初回は320成功／3失敗／ignored 0、419 filtered out、648.19秒だった。失敗した原Haranoの表名前遷移・navigation text上限・navigation constructor上限は全て一時ファイル保存時のStorageFull（OS code 28）であり、sourceやassertionの失敗ではなかった。cli-tests-accepted-01.logとcommands-01.jsonに初回の終了code 101を保全した。空き確保前の直列再試行でも保存時に同じ失敗が発生し、cli-storage-recovery-01.logとstorage-recovery-commands-01.jsonへ保全した。実handleの終端を確認してから再試行し、観測timeoutから別runを起動していない。
+
+再生成できるworkspace/target/vmb-book-build-20260910/debug/incremental（duで17G）のみを削除し、約14GBの空きを確保した。storage-recovery-cleanup.jsonは削除対象・空き容量と、前後で全681 sourceと実test binaryのSHA-256が変わらないことを記録する。run-storage-recovery-02.pyは失敗した3件だけを元環境で直列再実行し、全て1成功／失敗・ignored 0だった。元の320件と合わせてBook /2 CLI全323 unique testsに成功結果が揃った。単一runで323成功したとは扱わず、binary全742件の実行とも扱わない。残っていた旧precomposedは4成功／外部host 1 ignoredで成功した。時間は今回の観測値であり、制御された性能受入ではない。
+
+8独立commandsと旧独立検証は全てexit code 0だった。
+
+- 共通独立検証は863 source PDFs／412 actual driver callbacks／3,300 pages／39,244 structure nodes／1,095 annotations／13 explicit unsupported inputs／7,600改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／34,108 glyph paints／118改変PDF拒否が成功した。
+- 柱3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、均一な表16 PDFs／60 pages／112改変拒否、名前遷移する表26 driver PDFs／108 pages／130改変拒否が成功した。
+- 名前付き脚注26 driver PDFs／94 pages／156改変拒否も成功した。これらは既存PDF経路の回帰であり、新しい段組PDFを含まない。
+
+全863 PDFは§275とbyte一致し、名前変更0だった。保存済みVMB table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§275と一致した。旧独立verifierの21 checksと、保存old binary出力への旧21成果物のbyte一致も成功した。
+
+verify-correspondence.pyは全681開始／終了hashes・74 verifier hashes・全13変更、原入力・10 VMB jobs、全回帰commands／logsと初回・再試行のStorageFull、cache整理、実test binary、6新規候補tests・3既存段幅testsを含む323 unique successes、8独立commandsと旧検証、全artifact対応をrun-source-correspondence.jsonへ結ぶ。検証後の文書3件は別hashへ記録する。font全suite・外部host・元全巻・著者／人手の受入は今回の結果として扱わない。
+
+この変更はcallerが提示する候補の適合判定であり、自動候補列挙／ranking、明示改ページを含む安定ページ列、実段幅への再組版feedbackと反復header variants、last_page balance、実配置・terminal・段組PDFと独立検証は継続する。private driverとPDF assemblyによる段組拒否は維持し、新しい段組PDFの受入は0件である。完全なcommand予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入、未作成のSpeech／SemanticRefも継続し、設計全体の完了とは扱わない。
