@@ -1,4 +1,6 @@
 use super::*;
+#[path = "book_v2_column_page_driver_tests.rs"]
+mod driver;
 use crate::book_v2_resources::tests::shaping_tests::{
     figures::{figure_input, JPEG, SVG},
     native_tests::native_input_with_source,

@@ -2,6 +2,9 @@
 //! receipt is issued until width feedback, balancing and placement are joined.
 use super::super::mixed_pages::MixedBoundary;
 use super::*;
+#[path = "book_v2_column_repeated_pages.rs"]
+mod repeated;
+pub use repeated::BookV2ColumnRepeatedPages;
 
 pub struct BookV2ColumnPageSequenceState<'b, 'f, 's, 'p, 'a> {
     source: BookV2ColumnPageState<'b, 'f, 's, 'p, 'a>,

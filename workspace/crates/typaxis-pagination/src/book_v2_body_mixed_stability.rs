@@ -227,14 +227,14 @@ impl<'b, 'f, 's, 'p, 'a> page_stability_kernel::StableSearch
 }
 
 impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
-    fn same_records<T: PartialEq>(
+    pub(in crate::production_body::body_flow) fn same_records<T: PartialEq>(
         &mut self,
         left: &[T],
         right: &[T],
     ) -> Result<bool, ProductionBodyPaginationError> {
         kernel::same_records(&mut self.content, left, right)
     }
-    fn same_demand(
+    pub(in crate::production_body::body_flow) fn same_demand(
         &mut self,
         left: &BookV2FootnoteDemandState<'b, 'f, 's, 'p, 'a>,
         right: &BookV2FootnoteDemandState<'b, 'f, 's, 'p, 'a>,

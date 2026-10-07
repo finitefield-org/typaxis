@@ -134,6 +134,10 @@ pub fn prepare_book_v2_column_page_search_with_headers_counted<'b, 'f, 's, 'p, '
     Ok(BookV2ColumnPageSearch { inner, plan: catalog.base().column_plan() })
 }
 impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
+    /// Original semantic graph; physical repeated headers keep separate owners.
+    pub fn source_lines(&self) -> &'s typaxis_layout::book_v2::BookV2InlineLineLayout<'p, 'a> {
+        self.inner.content.flow.lines()
+    }
     pub fn record_charge(&self) -> u64 {
         self.inner.record_charge()
     }

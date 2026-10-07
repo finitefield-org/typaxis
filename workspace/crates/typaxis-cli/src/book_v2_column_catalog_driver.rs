@@ -1,54 +1,23 @@
-//! Rebuild a sealed catalog from exact parent-width requests on one base source.
-//! The caller owns discovery/retry policy and retains this budget across retries.
-use super::{add, stage, E};
+//! Discover actual column/full-page-note header widths while every original
+//! and sibling graph stays alive. Source scopes and the budget are shared with
+//! the single-body driver; all replay/catalog owners remain column-specific.
+use super::header_catalog_driver::{
+    header_source_scope, reserve, HeaderCatalogBudget, HeaderWidthRequest,
+};
+use super::{stage, E};
 use typaxis_core::{M4EffectiveResourceLimits, NodeId, PositiveLength};
 use typaxis_layout::book_v2::*;
 use typaxis_pagination::book_v2::*;
 use typaxis_syntax::{ProductionFlowEvent as Event, ProductionFlowRegionKind as Region};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::book_v2_resources) struct HeaderWidthRequest {
-    pub table_index: usize,
-    pub owner: NodeId,
-    /// Width of the original ancestor root's parent, including for nested targets.
-    pub parent_width: PositiveLength,
-}
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(in crate::book_v2_resources) struct HeaderCatalogBudget {
-    pub work: u64,
-    pub records: u64,
-    pub line_passes: u16,
-    pub page_passes: u16,
-}
-impl HeaderCatalogBudget {
-    pub(super) fn work(&mut self, amount: u64, maximum: u64) -> Result<(), E> {
-        self.work = add(self.work, amount, maximum, "header work")?;
-        Ok(())
-    }
-    pub(super) fn storage(&mut self, amount: u64, limits: &M4EffectiveResourceLimits) -> Result<(), E> {
-        self.records = add(
-            self.records,
-            amount,
-            limits.base().get().max_fragments,
-            "header records",
-        )?;
-        Ok(())
-    }
-}
-pub(super) fn reserve<T>(values: &mut Vec<T>, count: usize) -> Result<(), E> {
-    values
-        .try_reserve_exact(count)
-        .map_err(|_| E::Limit("header allocation"))
-}
-
-pub(in crate::book_v2_resources) fn with_header_catalog<R>(
-    base: &BookV2BodyLineVariantSeed<'_>,
+pub(in crate::book_v2_resources) fn with_column_header_catalog<R>(
+    base: &BookV2ColumnLineVariantSeed<'_>,
     requests: &[HeaderWidthRequest],
     limits: &M4EffectiveResourceLimits,
     maximum_work: u64,
     budget: &mut HeaderCatalogBudget,
     use_catalog: impl FnOnce(
-        &BookV2TableHeaderCatalog<'_, '_, '_, '_, '_>,
+        &BookV2ColumnTableHeaderCatalog<'_, '_, '_, '_, '_>,
         &mut HeaderCatalogBudget,
     ) -> Result<R, E>,
 ) -> Result<R, E> {
@@ -90,14 +59,15 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
     } else {
         let mut replay = BookV2LineVariantBudget::new(maximum_work - budget.work, 0);
         let mut entered = false;
-        let result = with_budgeted_rebuilt_book_v2_body_line_variant(
-            base,
+        let result = with_budgeted_rebuilt_book_v2_column_line_variants(
+            &[base],
             &mut replay,
             budget.records,
-            |v| -> Result<_, E> {
+            |set| -> Result<_, E> {
                 entered = true;
-                budget.work(v.work_steps(), maximum_work)?;
-                budget.records = v.record_charge();
+                let v = set.variant(0).ok_or(E::Identity)?;
+                budget.work(set.work_steps(), maximum_work)?;
+                budget.records = set.record_charge();
                 let frames = v.lines().frames().ok_or(E::Identity)?;
                 let mut roots = Vec::new();
                 reserve(&mut roots, flow.tables().len())?;
@@ -278,7 +248,7 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
     seeds.extend(siblings.iter());
     let mut replay = BookV2LineVariantBudget::new(maximum_work - budget.work, 0);
     let mut entered = false;
-    let result = with_budgeted_rebuilt_book_v2_body_line_variants(
+    let result = with_budgeted_rebuilt_book_v2_column_line_variants(
         &seeds,
         &mut replay,
         budget.records,
@@ -286,9 +256,14 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
             entered = true;
             budget.work(set.work_steps(), maximum_work)?;
             budget.records = set.record_charge();
+            budget.storage(count as u64, limits)?;
+            budget.work(count as u64, maximum_work)?;
+            let mut variants = Vec::new();
+            reserve(&mut variants, count)?;
+            variants.extend(set.variants());
             let mut numbers = Vec::new();
             reserve(&mut numbers, count)?;
-            for v in set.variants() {
+            for v in &variants {
                 budget.work(1, maximum_work)?;
                 let mut records = budget.records;
                 let number = typaxis_shaping::book_v2::shape_book_v2_equation_numbers_counted(
@@ -303,7 +278,7 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
             }
             let mut blocks = Vec::new();
             reserve(&mut blocks, count)?;
-            for (v, number) in set.variants().iter().zip(&numbers) {
+            for (v, number) in variants.iter().zip(&numbers) {
                 budget.work(1, maximum_work)?;
                 let mut records = budget.records;
                 let block = prepare_book_v2_vector_blocks_counted(
@@ -319,13 +294,12 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
             }
             let mut measurements = Vec::new();
             reserve(&mut measurements, count)?;
-            for (v, block) in set.variants().iter().zip(&blocks) {
+            for (v, block) in variants.iter().zip(&blocks) {
                 budget.work(1, maximum_work)?;
                 let mut records = budget.records;
-                let flow = prepare_book_v2_body_flow_counted(
-                    v.lines(),
+                let flow = prepare_book_v2_rebuilt_column_flow_counted(
+                    v,
                     block.as_ref(),
-                    v.footnotes(),
                     limits,
                     budget.records,
                     &mut records,
@@ -333,7 +307,7 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
                 budget.records = budget.records.max(records);
                 let flow = flow.map_err(|e| stage("header body flow", e))?;
                 let measurement =
-                    prepare_book_v2_table_measurements_counted(flow, limits, &mut records);
+                    prepare_book_v2_column_table_measurements_counted(flow, limits, &mut records);
                 budget.records = budget.records.max(records);
                 let measurement = measurement.map_err(|e| stage("header tables", e))?;
                 measurements.push(measurement);
@@ -353,7 +327,7 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
                 }
                 let mut records = budget.records;
                 let mut work = 0;
-                let header = prepare_book_v2_table_header_variant_counted(
+                let header = prepare_book_v2_column_table_header_variant_counted(
                     &set,
                     &measurements[0],
                     measurement,
@@ -375,7 +349,7 @@ pub(in crate::book_v2_resources) fn with_header_catalog<R>(
             refs.extend(headers.iter());
             let mut records = budget.records;
             let mut work = 0;
-            let catalog = prepare_book_v2_table_header_catalog_counted(
+            let catalog = prepare_book_v2_column_table_header_catalog_counted(
                 &measurements[0],
                 &refs,
                 limits,
@@ -406,25 +380,24 @@ enum Discovery<R> {
 /// abandoned search, replay and request allocation remains in the caller ledger.
 /// A completed discovery is provisional: the caller still needs stable pages,
 /// source-width convergence and the full display/PDF proof.
-pub(in crate::book_v2_resources) fn with_discovered_header_catalog<R>(
-    base: &BookV2BodyLineVariantSeed<'_>,
+pub(in crate::book_v2_resources) fn with_discovered_column_header_catalog<R>(
+    base: &BookV2ColumnLineVariantSeed<'_>,
+    requests: &mut Vec<HeaderWidthRequest>,
     limits: &M4EffectiveResourceLimits,
     maximum_work: u64,
     budget: &mut HeaderCatalogBudget,
     use_catalog: impl FnOnce(
-        &BookV2TableHeaderCatalog<'_, '_, '_, '_, '_>,
+        &BookV2ColumnTableHeaderCatalog<'_, '_, '_, '_, '_>,
         &mut HeaderCatalogBudget,
     ) -> Result<R, E>,
 ) -> Result<R, E> {
     use typaxis_pagination::ProductionBodyPaginationErrorKind as P;
-    budget.storage(1, limits)?;
-    let mut requests: Vec<HeaderWidthRequest> = Vec::new();
     let mut use_catalog = Some(use_catalog);
     loop {
         if budget.page_passes >= limits.base().get().max_layout_passes {
             return Err(E::Limit("header page passes"));
         }
-        let outcome = with_header_catalog(
+        let outcome = with_column_header_catalog(
             base,
             &requests,
             limits,
@@ -438,7 +411,7 @@ pub(in crate::book_v2_resources) fn with_discovered_header_catalog<R>(
                     .ok_or(E::Limit("header page passes"))?;
                 let mut records = budget.records;
                 let mut work = 0;
-                let search = prepare_book_v2_table_body_search_with_headers_counted(
+                let search = prepare_book_v2_column_page_search_with_headers_counted(
                     catalog,
                     limits,
                     maximum_work - budget.work,
@@ -451,7 +424,7 @@ pub(in crate::book_v2_resources) fn with_discovered_header_catalog<R>(
                     budget.work(work, maximum_work)?;
                 }
                 let mut search = search.map_err(|e| stage("header discovery search", e))?;
-                let selected = search.select_mixed_pages();
+                let selected = search.select_pages();
                 budget.work(search.work_steps(), maximum_work)?;
                 budget.records = search.record_charge();
                 match selected {
@@ -495,81 +468,4 @@ pub(in crate::book_v2_resources) fn with_discovered_header_catalog<R>(
             }
         }
     }
-}
-
-/// Collect complete original header leaves, including whole tables inside the
-/// header, and the ancestor root. Storage and traversal are charged before use.
-pub(super) fn header_source_scope(
-    flow: &typaxis_syntax::book_v2::PreparedBookV2TextFlow<'_>,
-    target_owner: NodeId,
-    limits: &M4EffectiveResourceLimits,
-    maximum_work: u64,
-    budget: &mut HeaderCatalogBudget,
-) -> Result<(NodeId, Vec<NodeId>), E> {
-    budget.storage(flow.events().len() as u64, limits)?;
-    let mut owners = Vec::new();
-    reserve(&mut owners, flow.events().len())?;
-    let (mut depth, mut root, mut target, mut head) = (0usize, None, None, None);
-    let mut target_root = None;
-    for event in flow.events() {
-        budget.work(1, maximum_work)?;
-        match *event {
-            Event::Begin { owner, kind } => {
-                depth = depth.checked_add(1).ok_or(E::Identity)?;
-                if kind == Region::Table && root.is_none() {
-                    root = Some((depth, owner));
-                }
-                if owner == target_owner {
-                    if kind != Region::Table || target_root.is_some() {
-                        return Err(E::Identity);
-                    }
-                    target = Some(depth);
-                    target_root = Some(root.ok_or(E::Identity)?.1);
-                }
-                if kind == Region::TableHeadRow && target == depth.checked_sub(1) {
-                    head = Some(depth);
-                }
-                if head.is_some()
-                    && matches!(
-                        kind,
-                        Region::Paragraph
-                            | Region::Heading
-                            | Region::Figure
-                            | Region::VectorFigure
-                            | Region::DisplayMath
-                            | Region::MathVectorBlock
-                            | Region::PageBreak
-                            | Region::DescriptionTerm
-                    )
-                {
-                    owners.push(owner);
-                }
-            }
-            Event::End { .. } => {
-                if head == Some(depth) {
-                    head = None;
-                }
-                if target == Some(depth) {
-                    target = None;
-                }
-                if root.is_some_and(|r| r.0 == depth) {
-                    root = None;
-                }
-                depth = depth.checked_sub(1).ok_or(E::Identity)?;
-            }
-            _ => {}
-        }
-    }
-    if depth != 0 || root.is_some() || target.is_some() || head.is_some() {
-        return Err(E::Identity);
-    }
-    budget.work(
-        (owners.len() as u64)
-            .checked_mul(u64::from(owners.len().checked_ilog2().unwrap_or(0)) + 2)
-            .ok_or(E::Limit("header source sorting"))?,
-        maximum_work,
-    )?;
-    owners.sort_unstable();
-    owners.dedup();
-    Ok((target_root.ok_or(E::Identity)?, owners))
 }

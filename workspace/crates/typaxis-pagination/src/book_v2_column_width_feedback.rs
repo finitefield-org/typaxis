@@ -267,6 +267,43 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
         })
     }
 
+    /// Move the already reserved source-unit arrays out of a short line-graph
+    /// callback. The caller must supply the same original flow and plan, not an
+    /// equivalent reconstruction. No old graph or uncharged array copy escapes.
+    pub fn capture_source_width_feedback<'origin, 'source>(
+        &mut self,
+        feedback: BookV2ColumnWidthFeedback<'p, 'a>,
+        source: &typaxis_syntax::book_v2::PreparedBookV2TextFlow<'source>,
+        columns: &'origin BookV2ColumnFramePlan<'source>,
+    ) -> Result<BookV2ColumnWidthFeedback<'origin, 'source>, ProductionBodyPaginationError> {
+        let root = NodeId::new(0);
+        self.inner.content.step(root)?;
+        if feedback.owner != self.inner.owner_id
+            || !std::ptr::eq(feedback.plan, self.plan)
+            || !std::ptr::eq(columns, self.plan)
+            || !std::ptr::eq(source, self.inner.content.flow.lines().prepared().source_flow())
+            || !feedback.matches_source_flow(source)
+            || feedback.measurements
+                != self.inner.tables.as_ref().unwrap().measurements_fingerprint()
+        {
+            return Err(error(root, E::ReceiptMismatch));
+        }
+        Ok(BookV2ColumnWidthFeedback {
+            plan: columns,
+            owner: feedback.owner,
+            measurements: feedback.measurements,
+            source: feedback.source,
+            fingerprint: feedback.fingerprint,
+            paragraphs: feedback.paragraphs,
+            blocks: feedback.blocks,
+            block_starts: feedback.block_starts,
+            lines_match: feedback.lines_match,
+            blocks_match: feedback.blocks_match,
+            records: self.record_charge(),
+            work: self.work_steps(),
+        })
+    }
+
     /// On a width cycle, retain the original selected unit boundaries before
     /// another shaping pass. Never substitute current line ordinals for units.
     pub fn retain_paragraph_line_boundaries(

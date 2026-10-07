@@ -33,6 +33,11 @@ impl std::error::Error for BookV2ConvergenceError {
 use BookV2ConvergenceError as E;
 #[path = "book_v2_header_catalog_driver.rs"]
 pub(super) mod header_catalog_driver;
+#[path = "book_v2_column_catalog_driver.rs"]
+pub(super) mod column_catalog_driver;
+#[path = "book_v2_column_page_driver.rs"]
+pub(super) mod column_page_driver;
+pub use column_page_driver::{with_budgeted_book_v2_column_pages, BookV2ColumnPageBudget};
 #[path = "book_v2_page_region_driver.rs"]
 pub(super) mod page_region_driver;
 fn stage<T: std::error::Error + 'static>(stage: &'static str, source: T) -> E {

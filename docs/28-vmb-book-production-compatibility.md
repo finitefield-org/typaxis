@@ -6041,3 +6041,42 @@ work／recordのexact／1不足と失敗prefixも検査する。各反復に独�
 source closure・terminal・段組PDFと独立受入は継続する。private driver／PDF assemblyの段組拒否を
 維持する。完全なcommand予算・同時保持graph、公開Book /2、元全巻・5,000画像・管理host・
 制御性能・著者／人手受入と未作成のSpeech／SemanticRefも残り、設計全体の完了とはしない。
+
+<a id="book-2-column-page-convergence-design-14282"></a>
+### 14.282 元sourceと累積予算を保って段幅・ページ選択を自動収束する（実装追補）
+
+capture_source_width_feedbackは同じ元flow・column planへの参照、search ownerと測定
+fingerprintを検査し、予約済みの元unit幅・起点・行終端・block配列の所有権をcallback外へ
+移す。同内容の別flow／planへ付け替えず、未課金の配列copyや過去のgraphを保持する
+callback再帰を使わない。検査のworkと失敗までの受理済みprefixを元searchへ残す。
+
+with_budgeted_book_v2_column_pagesは元resource・native計算・source・column planを保持し、
+再shaping、実header幅の発見、全段と一つの元脚注領域のページ選択、元unit幅feedbackを
+自動で反復する。callerのrecord・work・開始済みline／page passを、全反復・途中失敗・
+再試行へ接続する。元planとnative preflightのspool prefixも保持する。幅循環の後は元selected
+lineのend_unitを引き継ぎ、行番号や新しいUTF-8 offsetへ置き換えない。
+
+段組専用のheader catalog driverは単段とsource scope・予算を共用する。seed・同時再構築
+graph・測定・variant・catalogは段組専用の型を保つ。発見済みの元table owner・親幅の
+metadataのみを同じ元flowの反復で保持し、graph自体は毎回再構築する。破棄した探索の
+予算を返金しない。元semantic leafと別ownerの反復header配置leafを区別する。
+
+共通のpage安定比較kernelで同じ不変測定から二回以上の全ページ選択を比較する。
+実段のbounds・使用高・item range・表fingerprint・元cursor、改ページ・名前・demand、
+脚注断片・候補履歴を照合する。BookV2ColumnRepeatedPagesは反復source選択の証明である。
+本文・blockの実幅と前回の元unit幅・起点が一致した後だけcallbackを呼び、callbackの
+追加消費もcallerへ戻す。単段の安定配置型への変換はcompile-failで拒否する。
+
+[ADR-0145](../adr/ADR-0145-book-2-column-page-convergence.md)と
+[実装台帳§282](28-vmb-book-production-progress.md#book-2-column-page-convergence-design-14282)を参照。
+新しい6 testsは予約済み配列の同一address、別ownerの拒否、元文字・glyph、全幅脚注、
+空anchor・未参照定義、入れ子headerの10ケース、vector／native式・画像の20ケースと原Haranoを
+検査する。累積work／record／line／page passのexact／1不足、途中失敗後の再試行を確認する。
+原Haranoの1段と1／2段混在の両方で実幅循環後の元行終端保持を確認する。大きい表は明示的な
+work上限1,000,000,000で収束を検査し、100,000,000でcallbackを呼ばず拒否する試験も維持する。
+
+last_page balance、実段の物理配置・source closure・math terminals・段組PDFと独立受入は
+継続する。Page参照の生成ラベルから最終PDFまでの外側の収束、physical byte／capacity／spoolと
+同時保持graphを含む全command予算の監査も残る。公開Book /2と4 manifests、元全巻1 package／
+1 PDF、5,000 distinct画像の実配置・元Harano全巻・管理host・制御性能・著者／人手受入と、
+未作成のSpeech／SemanticRefを補った成果物の受入は今回の範囲に含めず、設計全体の完了とはしない。
