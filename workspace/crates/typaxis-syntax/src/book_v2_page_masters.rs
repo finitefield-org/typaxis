@@ -3,6 +3,10 @@ use super::StyledBookV2Body;
 use typaxis_document_package::{WireAdvancedPageMaster, WirePageMaster, WirePageParity};
 use typaxis_style::{page_master_rule_priority, PageParity};
 
+#[path = "book_v2_column_frames.rs"]
+mod column_frames;
+pub use column_frames::*;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BookV2PageMasterError {
     PageLimit,
@@ -140,6 +144,7 @@ struct NamedFrames {
 pub struct BookV2PageFrames {
     body: typaxis_core::Rect,
     footnote: Option<typaxis_core::Rect>,
+    columns: Option<column_frames::ColumnPartition>,
 }
 impl BookV2PageFrames {
     pub fn body(self) -> typaxis_core::Rect {
@@ -241,7 +246,9 @@ pub fn prepare_book_v2_page_frame_plan<'a>(
     work: &mut u64,
     maximum: u64,
 ) -> Result<BookV2PageFramePlan<'a>, BookV2PageMasterError> {
-    prepare_frames_for_name(source, None, work, maximum, false, false)
+    prepare_frames_for_name(
+        source, None, work, maximum, false, false, false, &mut 0,
+    )
 }
 fn prepare_frames_for_name<'a>(
     source: &'a StyledBookV2Body,
@@ -250,6 +257,8 @@ fn prepare_frames_for_name<'a>(
     maximum: u64,
     allow_widths: bool,
     allow_regions: bool,
+    allow_columns: bool,
+    records: &mut u64,
 ) -> Result<BookV2PageFramePlan<'a>, BookV2PageMasterError> {
     use typaxis_core::{Length, PositiveLength, Rect};
     use BookV2PageMasterError as E;
@@ -259,7 +268,7 @@ fn prepare_frames_for_name<'a>(
         let selected = select_book_v2_page_master(source, page, name, work, maximum)?;
         let advanced = selected.advanced();
         if (!allow_regions && (advanced.header_content.is_some() || advanced.footer_content.is_some()))
-            || advanced.column_layout.is_some()
+            || (!allow_columns && advanced.column_layout.is_some())
         {
             return Err(E::UnsupportedAdvanced);
         }
@@ -295,7 +304,30 @@ fn prepare_frames_for_name<'a>(
         } else {
             None
         };
-        pages[page as usize] = Some(BookV2PageFrames { body, footnote });
+        let columns = if allow_columns {
+            // Reserve the logical templates before deriving even the compact
+            // representation. This path never allocates a count-sized vector.
+            let count = u64::from(advanced.column_layout.map_or(1, |c| c.count));
+            *work = work
+                .checked_add(count)
+                .filter(|n| *n <= maximum)
+                .ok_or(E::WorkLimit)?;
+            *records = records
+                .checked_add(count)
+                .filter(|n| *n <= source.body().limits().get().max_fragments)
+                .ok_or(E::RecordLimit)?;
+            advanced
+                .column_layout
+                .map(|layout| column_frames::ColumnPartition::new(body, layout))
+                .transpose()?
+        } else {
+            None
+        };
+        pages[page as usize] = Some(BookV2PageFrames {
+            body,
+            footnote,
+            columns,
+        });
     }
     let first = pages[0].ok_or(E::PageLimit)?;
     let mut body = first.body;
@@ -359,7 +391,9 @@ pub fn prepare_book_v2_page_frame_plan_for_flow_with_prior<'a>(
     prior_records: u64,
     prior_spool: u64,
 ) -> Result<BookV2PageFramePlan<'a>, BookV2PageMasterError> {
-    prepare_flow_frames(flow, work, maximum, prior_records, prior_spool, false, false)
+    prepare_flow_frames(
+        flow, work, maximum, prior_records, prior_spool, false, false, false, None,
+    )
 }
 /// Retain maximum-width measurement envelopes for source-aware page feedback.
 /// Tables must remeasure columns/cells and verify actual continuation widths.
@@ -370,7 +404,9 @@ pub fn prepare_book_v2_page_frame_plan_for_reflow<'a>(
     prior_records: u64,
     prior_spool: u64,
 ) -> Result<BookV2PageFramePlan<'a>, BookV2PageMasterError> {
-    prepare_flow_frames(flow, work, maximum, prior_records, prior_spool, true, false)
+    prepare_flow_frames(
+        flow, work, maximum, prior_records, prior_spool, true, false, false, None,
+    )
 }
 /// Plan body geometry for a consumer that will retain every authored page
 /// region. The PDF consumer still rejects missing region displays.
@@ -378,7 +414,9 @@ pub fn prepare_book_v2_page_frame_plan_with_regions<'a>(
     flow: &super::PreparedBookV2TextFlow<'a>, work: &mut u64, maximum: u64,
     prior_records: u64, prior_spool: u64,
 ) -> Result<BookV2PageFramePlan<'a>, BookV2PageMasterError> {
-    prepare_flow_frames(flow, work, maximum, prior_records, prior_spool, true, true)
+    prepare_flow_frames(
+        flow, work, maximum, prior_records, prior_spool, true, true, false, None,
+    )
 }
 fn prepare_flow_frames<'a>(
     flow: &super::PreparedBookV2TextFlow<'a>,
@@ -388,21 +426,37 @@ fn prepare_flow_frames<'a>(
     prior_spool: u64,
     allow_widths: bool,
     allow_regions: bool,
+    allow_columns: bool,
+    observation: Option<&mut BookV2ColumnFramePlanObservation>,
 ) -> Result<BookV2PageFramePlan<'a>, BookV2PageMasterError> {
     use crate::{ProductionFlowEvent as Event, ProductionFlowRegionKind as Region};
     use typaxis_core::{NodeId, Rect};
     use BookV2PageMasterError as E;
     let source = flow.body();
-    let mut plan = prepare_frames_for_name(source, None, work, maximum, allow_widths, allow_regions)?;
     let caps = source.body().limits().get();
+    let mut budget = column_frames::PlanBudget::new(
+        prior_records,
+        prior_spool,
+        caps.max_fragments,
+        caps.max_spool_bytes,
+        observation,
+    );
     if prior_records > caps.max_fragments {
         return Err(E::RecordLimit);
     }
     if prior_spool > caps.max_spool_bytes {
         return Err(E::SpoolLimit);
     }
-    plan.records = prior_records;
-    plan.spool = prior_spool;
+    let mut plan = prepare_frames_for_name(
+        source,
+        None,
+        work,
+        maximum,
+        allow_widths,
+        allow_regions,
+        allow_columns,
+        &mut budget.records,
+    )?;
     let step = |work: &mut u64, n: u64| -> Result<(), E> {
         *work = work
             .checked_add(n)
@@ -410,24 +464,12 @@ fn prepare_flow_frames<'a>(
             .ok_or(E::WorkLimit)?;
         Ok(())
     };
-    let record = |plan: &mut BookV2PageFramePlan<'_>, n: u64| -> Result<(), E> {
-        plan.records = plan
-            .records
-            .checked_add(n)
-            .filter(|n| *n <= caps.max_fragments)
-            .ok_or(E::RecordLimit)?;
-        Ok(())
-    };
     // The exact source flow also retains explicit break-name strings during
     // each line pass. Include that live storage and its sort in command bounds.
     let breaks = flow.named_page_breaks();
-    record(&mut plan, breaks.len() as u64)?;
+    budget.take_records(breaks.len() as u64)?;
     for (_, name) in breaks {
-        plan.spool = plan
-            .spool
-            .checked_add(name.as_str().len() as u64)
-            .filter(|n| *n <= caps.max_spool_bytes)
-            .ok_or(E::SpoolLimit)?;
+        budget.take_spool(name.as_str().len() as u64)?;
     }
     step(
         work,
@@ -512,12 +554,8 @@ fn prepare_flow_frames<'a>(
                     if let Some(index) = names.get(name) {
                         Some(*index)
                     } else {
-                        record(&mut plan, 5)?;
-                        plan.spool = plan
-                            .spool
-                            .checked_add(name.len() as u64)
-                            .filter(|n| *n <= caps.max_spool_bytes)
-                            .ok_or(E::SpoolLimit)?;
+                        budget.take_records(5)?;
+                        budget.take_spool(name.len() as u64)?;
                         let frames = prepare_frames_for_name(
                             source,
                             Some(name),
@@ -525,6 +563,8 @@ fn prepare_flow_frames<'a>(
                             maximum,
                             allow_widths,
                             allow_regions,
+                            allow_columns,
+                            &mut budget.records,
                         )?;
                         let mut owned = String::new();
                         owned
@@ -543,11 +583,11 @@ fn prepare_flow_frames<'a>(
                 } else {
                     stack.last().and_then(|s| s.1)
                 };
-                record(&mut plan, 1)?;
+                budget.take_records(1)?;
                 stack.try_reserve(1).map_err(|_| E::Allocation)?;
                 stack.push((owner, selected));
                 if let Some(index) = selected {
-                    record(&mut plan, 1)?;
+                    budget.take_records(1)?;
                     plan.requests.try_reserve(1).map_err(|_| E::Allocation)?;
                     plan.requests.push((owner, index));
                 }
@@ -615,7 +655,7 @@ fn prepare_flow_frames<'a>(
             step(work, 1)?;
         }
     }
-    plan.records -= prior_records;
-    plan.spool -= prior_spool;
+    plan.records = budget.records - prior_records;
+    plan.spool = budget.spool - prior_spool;
     Ok(plan)
 }

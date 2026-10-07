@@ -7,6 +7,9 @@ use typaxis_document_package::book_v2::{
 };
 use typaxis_document_package::DocumentPackageDecodePolicy;
 
+#[path = "book_v2_column_frame_tests.rs"]
+mod column_frame_tests;
+
 const FIXTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../samples/machine-package/staging/production-book-1/semantic-container/job/document-package.json"));
 const MATH: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),

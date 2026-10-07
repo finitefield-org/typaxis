@@ -5865,3 +5865,34 @@ Book /2 CLI全314件が成功した。合成／原Haranoの26実driver PDFs／94
 byte一致した。
 完全なcommand byte／spool／work・同時保持graph、段組、公開Book /2、元全巻・
 管理host・制御性能・著者／人手受入とSpeech／SemanticRef未作成の要件は継続する。
+
+### 14.275 元マスターから段組の実幅と位置を計画する（実装追補）
+
+単段のページ計画と別のBookV2ColumnFramePlanを追加し、元sourceのfirst／parity／名前から
+実段の矩形を求める。本文・脚注定義内の元ownerの名前要求を共通走査で保持する。
+本文幅から全gapを差し引いて整数除算し、最後の段へ端数を足す。全段は元本文の右端へ
+厳密に閉じる。正の段幅、gapと座標の算術、JSON-safeな範囲を検査する。
+段数・基本幅・端数から矩形を定数時間で求め、最大65,535段にも段数に比例する配列を
+確保しない。page cap内の到達classだけを保持し、未選択masterを計画へ混ぜない。
+
+初期測定には全到達classの最大実段幅・本文高を用い、実段幅と脚注幅の差を幅の再計算へ
+伝える。元本文全幅と、段数で分割しない元の脚注領域を別に保持する。last_page balanceは
+元の要求のままであり、採択済みreceiptではない。各classの論理段数を構築前に累積
+record／workへ予約し、名前の文字列とsource走査も共通予算へ接続する。counted constructor
+は失敗時にもcallerの履歴と受理済みrecord／spoolのprefixを返し、拒否された予約は足さない。
+
+この型から単段layoutへの変換は提供せず、既存のページ計画・private driver・PDF assembly
+の段組拒否を維持する。段組の宣言を受理して本文を全幅へ描くことは許可しない。
+[ADR-0138](../adr/ADR-0138-book-2-column-frame-plan.md)と
+[実装台帳§275](28-vmb-book-production-progress.md#book-2-column-frame-plan-design-14275)を参照。
+元入力のliteral座標、単段との混在、定義内の名前、最大段数・算術・page capの境界、
+別sourceの拒否、予算exact／1不足と失敗prefixを検査する。
+Book /2 syntax 161 tests＋13 doc-tests、旧syntax 79 tests＋6 doc-tests、layout 70 tests、
+pagination 104 tests、workspace型検査、Book /2 CLI全314件が成功した。独立検査は既存
+863 PDF／3,300 pagesに成功し、全863 PDF・保存済みVMB表2出力・旧21成果物は直前段階と
+byte一致した。新しい段組PDFを生成・受入した結果ではない。
+
+実段に応じた元cursor・再組版、同じ物理ページの全段と脚注の共通選択、改ページ・keep・
+表の継続と反復header、最終ページのbalance、実PDFの段配置と独立検証を接続する作業は
+残る。完全なcommand予算・同時保持graph、公開Book /2、元全巻・管理host・制御性能・
+著者／人手受入と未作成のSpeech／SemanticRefも継続する。段組PDFと設計全体の完了とはしない。

@@ -16752,3 +16752,27 @@ c6a38deを基準として継続した。[ADR-0137](../adr/ADR-0137-book-2-named-
 全811既存PDFは§273とbyte一致し、名前変更0だった。保存済みVMB table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§273と一致した。旧独立verifierの21 checksと、保存old binary出力への旧21成果物のbyte一致も成功した。run-source-correspondence.jsonは全674開始／終了input hashes・74 verifier hashes・全22変更、原入力・10 VMB jobs、7回帰commands／logs・CLI binaryと314 unique successes、8独立commands・旧検証・継続ページ専用改変検査と全artifact対応を結ぶ。継続ページ専用検査のcommand情報はtoolで観測した終了結果の要約である。検証後の文書3件は別hashへ記録する。
 
 名前付き脚注定義の局所検証待ちを解消した。完全なcommand byte／spool／work、他owner／codec・capacity・Unicode／backend／font一時領域、admission・同時保持graph、段組、公開Book /2、元全巻・管理host・制御性能・著者／人手受入は継続する。Speech／SemanticRef未作成、固定veraPDF／V19 hostの未受入も維持し、設計全体の完了とは扱わない。
+
+<a id="book-2-column-frame-plan-design-14275"></a>
+## 275. 元マスターに結び付く段組ページ計画（design §14.275）
+
+直前のcommit／push確認は新しい実装を伴わないno progressだった。5107760のcleanな作業ツリーと実リモートSHAを再確認し、[ADR-0138](../adr/ADR-0138-book-2-column-frame-plan.md)に従ってBook /2の段組に必要な元マスターの計画を追加した。既存columns-1の専用フローをBook /2の表・脚注の選択結果として流用していない。
+
+BookV2ColumnFramePlanは単段のページ計画と別の型であり、元source・first／parity／名前と元ownerの要求を保持する。脚注定義内の名前も共通の走査で保持する。各段を左から右へ配置し、本文幅から全gapを差し引いた整数幅と、最後の段への端数割当で元本文の右端に閉じる。正の幅、gap・座標の算術とJSON-safeな範囲を検査する。段数・基本幅・端数を圧縮して保持し、最大65,535段にも段数に比例する新しい配列を作らない。page cap内の到達classだけを計画する。
+
+初期測定には到達する実段の最大幅と本文の最大高を用い、元本文全幅も別に保持する。幅の差を再組版が必要かの判定へ伝える。元の全ページ脚注領域を段ごとに分割しない。last_page balanceは元の要求として保持し、計算済みreceiptとは扱わない。既存の単段計画・private driver・PDF assemblyの段組拒否は維持する。単段layout APIへの変換も提供しない。
+
+到達classの論理段template数を構築前にcallerのrecord／workへ予約する。共通のsource・名前のrecord／spoolを同じ台帳へ接続し、counted constructorはcaller履歴と受理済みprefixを成功・失敗の双方で返す。拒否された予約を足さず、再試行のworkを返金しない。圧縮した計画の検査を、command全体のphysical bytes・capacity・一時領域の監査の代替にはしない。
+
+新しい6 testsは元fixtureのliteral座標、first／parity／名前付きページ・単段との混在、定義内の名前、元脚注領域、最大段数、算術のinclusive境界、未到達master、page cap 1／2／3、別source、work／record／spoolのexact／1不足と失敗prefixを検査した。型の変換拒否をcompile-failで確認した。最初のcompileではPositiveLengthにOrdがないためmaxを使えず、実Lengthを比較する処理へ修正した。新しい段組fixtureはgeometryの検査であり、段組のフォント描画・物理ページ選択・PDFの受入ではない。
+
+証跡はworkspace/target/vmb-design/20261007/column-frame-plan/。最終676 compilation／source入力と74 verifier source hashesを固定し、全4 source／test変更を含めた。run-regression-01.pyの7 commandsは、旧syntax 79 tests＋doc-test 6件、Book /2 syntax 161 tests＋doc-test 13件、layout 70 tests＋doc-test 1件、pagination 104 tests、workspace --all-features --tests check、Book /2関連CLI全314 tests、旧precomposed 4成功／外部host 1 ignoredに成功した。CLIは721.11秒、失敗／ignored 0、419 filtered outであり、全733件を実行したとは扱わない。原Harano／Arialと保存済みVMB 10 jobsは既存driverの回帰で使用した。時間は今回の観測値で、制御された性能比較・受入ではない。実handleの終端を確認し、timeoutから再起動していない。
+
+- 共通独立検証は863 source PDFs／412 actual driver callbacks／3,300 pages／39,244 structure nodes／1,095 annotations／13 explicit unsupported inputs／7,600改変拒否で成功した。
+- 58 displays／48 TT＋10 CFF subsets／793 mapped glyphs／34,108 CID uses／174改変拒否と、実埋込み58 PDFs／446 pages／118改変PDF拒否が成功した。
+- 柱3 PDFs／10 pages／126 glyph paints、resource改変9件とPDF／source改変22件、均一な表16 PDFs／60 pages／112改変拒否、名前遷移する表26 driver PDFs／108 pages／130改変拒否が成功した。
+- 名前付き脚注26 driver PDFs／94 pages／156改変拒否も成功した。これらは既存PDF経路の回帰であり、新しい段組PDFを含まない。
+
+全863 PDFは§274とbyte一致し、名前変更0だった。保存済みVMB table_captionは31,046 bytes／SHA-256 40afd9a61383662e7214d3e8baed16f82185abc5ef3103df7ad0bcf731cb2879、table_alignmentは31,111 bytes／30405b9355e57a6a67c3b48677800f422ba92d39f250c2928d0b8ff9e7586c02で、どちらも§274と一致した。旧独立verifierの21 checksと、保存old binary出力への旧21成果物のbyte一致も成功した。verify-correspondence.pyは全676開始／終了hashes・74 verifier hashes・全4変更、原入力・10 VMB jobs、7回帰commands／logs・6 geometry tests・CLI binaryと314 unique successes、8独立commandsと旧検証、全artifact対応をrun-source-correspondence.jsonへ結ぶ。検証後の文書3件は別hashへ記録する。font全suite・外部host・元全巻・著者／人手の受入は今回の結果として扱わない。
+
+実段に応じた元cursor・再組版、同じ物理ページの全段・脚注の共通選択、改ページ・keep・表の継続と反復header、最後の物理ページのbalance、実段PDFと独立検証を引き続き接続する。完全なcommand byte／spool／work・同時保持graph、公開Book /2、元全巻・管理host・制御性能・著者／人手受入も継続する。Speech／SemanticRef未作成と固定veraPDF／V19 hostの未受入を維持し、設計全体を完了とは扱わない。
