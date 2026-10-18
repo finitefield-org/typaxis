@@ -1,6 +1,6 @@
 use super::*;
 #[path = "book_v2_header_math_terminal_tests.rs"]
-mod header_terminals;
+pub(in crate::book_v2_resources::tests::shaping_tests) mod header_terminals;
 #[path = "book_v2_description_math_tests.rs"]
 mod descriptions;
 use typaxis_core::{Length, NodeId, PositiveLength};

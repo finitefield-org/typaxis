@@ -96,7 +96,7 @@ impl Cff1SubsetSessionV2 {
             // Decode diagnostic-only permission and FD facts once on failure.
             // Successful encoding performs no additional source-table walk.
             if let Ok(os2) = admission.table_bytes(b"OS/2") {
-                context.permission(os2);
+                context.permission_v2(os2);
             }
             context.fd = context.gid.and_then(|gid| {
                 admission.program().fd_for_gid(gid as usize).map(u16::from)
@@ -344,7 +344,8 @@ fn build_cmap_with_charge(
         add(mul(count, 32)?, 28)?,
         add(mul(count, 160)?, 64)?,
     )?;
-    let base = build_subset_cmap_with_empty(source.base_map(), mapping, true)?;
+    let base =
+        build_subset_cmap_from_pairs(count, source.base_map().iter().copied(), mapping, true)?;
     let mut selectors: BTreeMap<u32, Vec<(u32, u16)>> = BTreeMap::new();
     if let Some(variation) = source.variation_sequences() {
         variation.visit_pairs(|scalar, selector, _| {
@@ -618,5 +619,88 @@ mod tests {
             }
             std::fs::write(format!("{path}.gids"), mapping).unwrap();
         }
+    }
+    #[test]
+    #[ignore = "requires explicit TYPAXIS_HARANO_FONT pointing to the unchanged original font"]
+    fn cff_v2_subset_original_harano_short_cmap_golden() {
+        let source: Arc<[u8]> = std::fs::read(std::env::var("TYPAXIS_HARANO_FONT").unwrap())
+            .unwrap()
+            .into();
+        let hex = |b: &[u8]| b.iter().map(|v| format!("{v:02x}")).collect::<String>();
+        assert_eq!(
+            hex(&sha256(&source)),
+            "66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717"
+        );
+        let limits = M4EffectiveResourceLimits::new(
+            typaxis_core::ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default())
+                .unwrap(),
+            M4ResourceLimits::default(),
+        )
+        .unwrap();
+        let admission = admit_sfnt_cff1_v2(source, 0, &limits).unwrap();
+        let mut selected: BTreeSet<_> = [151, 233].into_iter().map(OriginalGlyphId::new).collect();
+        for c in "日本語明朝漢字、。「」A a".chars() {
+            selected.insert(OriginalGlyphId::new(
+                admission.cmap().glyph_for_sequence(c, None).unwrap(),
+            ));
+        }
+        let mut fds = BTreeSet::new();
+        for gid in 0..admission.glyph_count() {
+            if fds.insert(admission.program().fd_for_gid(usize::from(gid)).unwrap()) {
+                selected.insert(OriginalGlyphId::new(gid));
+            }
+        }
+        let mut first_default = None;
+        let mut first_nondefault = None;
+        admission
+            .cmap()
+            .variation_sequences()
+            .unwrap()
+            .visit_pairs::<std::convert::Infallible>(|base, vs, coverage| {
+                match coverage {
+                    VariationCoverage::Default if first_default.is_none() => {
+                        first_default = Some((base, vs))
+                    }
+                    VariationCoverage::NonDefault(gid)
+                        if gid != 0 && first_nondefault.is_none() =>
+                    {
+                        first_nondefault = Some((base, vs))
+                    }
+                    _ => {}
+                }
+                Ok(())
+            })
+            .unwrap();
+        for (base, vs) in [first_default.unwrap(), first_nondefault.unwrap()] {
+            selected.insert(OriginalGlyphId::new(
+                admission
+                    .cmap()
+                    .glyph_for_sequence(
+                        char::from_u32(base).unwrap(),
+                        Some(char::from_u32(vs).unwrap()),
+                    )
+                    .unwrap(),
+            ));
+        }
+        let closure = Cff1SubsetSessionV2::close_instance_selection(
+            &admission,
+            FontFaceId::new(1),
+            FontInstanceId::new(1),
+            &selected,
+            65534,
+        )
+        .unwrap();
+        let mut session = Cff1SubsetSessionV2::from_admission(&admission);
+        let subset = session.subset(&admission, closure.clone()).unwrap();
+        assert_eq!(subset.bytes().len(), 5052);
+        assert_eq!(
+            hex(&subset.sha256()),
+            "3b9ddbc2e0415a302c95f550113ddacfcc60d2f6fb219ad7f9296753f8823463"
+        );
+        eprintln!(
+            "original short subset: {} bytes, {}",
+            subset.bytes().len(),
+            hex(&subset.sha256())
+        );
     }
 }

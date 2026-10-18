@@ -15,6 +15,7 @@ from xml.etree import ElementTree
 from pypdf import PdfReader
 from PIL import Image
 from pypdf.generic import ContentStream
+from vmb_probe_io import contained_bytes, extracted_occurrences, same_json, strict_json
 
 
 def require(ok, reason):
@@ -22,13 +23,250 @@ def require(ok, reason):
         raise ValueError(reason)
 
 
+def decimal(value):
+    result = Decimal(str(value))
+    require(result.is_finite(), 'finite PDF coordinate')
+    return result
+
+
+def fixed(value):
+    return int((decimal(value) * 65536).to_integral_value(rounding=ROUND_HALF_EVEN))
+
+
+def multiply(left, right):
+    a, b, c, d, e, f = left
+    g, h, i, j, k, l = right
+    return (a*g+c*h, b*g+d*h, a*i+c*j, b*i+d*j, a*k+c*l+e, b*k+d*l+f)
+
+
+class PagePaint:
+    """Read the scale corpus's page painting state independently of its Forms.
+
+    The accepted vocabulary deliberately excludes arbitrary page paths and text.
+    It checks visibility and source-relative anchors, not full line convergence.
+    """
+    def __init__(self, resources):
+        self.resources = resources
+        self.matrix = tuple(map(Decimal, (1, 0, 0, 1, 0, 0)))
+        self.black = True
+        self.clip = None
+        self.stack = []
+        self.in_text = False
+        self.render_mode = 0
+        self.font_size = None
+        self.text_matrix = None
+        self.text_parameters = {}
+        self.path = None
+        self.pending_clip = False
+
+    def step(self, args, op):
+        if op == b'q':
+            require(not self.in_text and not args, 'page graphics-state save')
+            self.stack.append((self.matrix, self.black, self.clip, self.render_mode,
+                               self.font_size, self.text_parameters.copy()))
+        elif op == b'Q':
+            require(not self.in_text and not args and bool(self.stack), 'page graphics-state restore')
+            (self.matrix, self.black, self.clip, self.render_mode,
+             self.font_size, self.text_parameters) = self.stack.pop()
+        elif op == b'cm':
+            require(not self.in_text and len(args) == 6, 'page matrix operands')
+            self.matrix = multiply(self.matrix, tuple(map(decimal, args)))
+        elif op in (b'g', b'rg', b'k'):
+            values = tuple(map(decimal, args))
+            require(len(values) == {b'g': 1, b'rg': 3, b'k': 4}[op], 'page fill operands')
+            self.black = values == {b'g': (Decimal(0),), b'rg': (Decimal(0),)*3,
+                                    b'k': (Decimal(0),)*3+(Decimal(1),)}[op]
+        elif op in (b'G', b'RG', b'K'):
+            require(len(args) == {b'G': 1, b'RG': 3, b'K': 4}[op], 'page stroke color operands')
+            tuple(map(decimal, args))
+        elif op == b'gs':
+            require(len(args) == 1, 'page graphics-state resource')
+            gs = self.resources['/ExtGState'][args[0]].get_object()
+            require(set(gs) <= {'/Type', '/ca', '/CA', '/BM', '/SMask'}
+                    and gs.get('/Type', '/ExtGState') == '/ExtGState'
+                    and gs.get('/ca', 1) == gs.get('/CA', 1) == 1
+                    and gs.get('/BM', '/Normal') == '/Normal'
+                    and gs.get('/SMask', '/None') == '/None', 'opaque normal page paint')
+        elif op == b're':
+            require(not self.in_text and self.path is None and len(args) == 4, 'page rectangular clip path')
+            x, y, w, h = map(decimal, args)
+            require(w > 0 and h > 0 and self.matrix[1] == self.matrix[2] == 0,
+                    'page axis-aligned clip')
+            a, _, _, d, e, f = self.matrix
+            self.path = (min(a*x+e, a*(x+w)+e), min(d*y+f, d*(y+h)+f),
+                         max(a*x+e, a*(x+w)+e), max(d*y+f, d*(y+h)+f))
+        elif op == b'W':
+            require(not args and self.path is not None, 'page clip rule')
+            self.pending_clip = True
+        elif op == b'n':
+            require(not args and self.path is not None and self.pending_clip, 'page clip commit')
+            rect = self.path
+            self.clip = rect if self.clip is None else (
+                max(rect[0], self.clip[0]), max(rect[1], self.clip[1]),
+                min(rect[2], self.clip[2]), min(rect[3], self.clip[3]))
+            self.path = None
+            self.pending_clip = False
+        elif op == b'BT':
+            require(not self.in_text and not args, 'page text start')
+            self.in_text = True
+            self.text_matrix = tuple(map(Decimal, (1, 0, 0, 1, 0, 0)))
+        elif op == b'ET':
+            require(self.in_text and not args, 'page text end')
+            self.in_text = False
+        elif op == b'Tf':
+            require(self.in_text and len(args) == 2 and args[0] in self.resources['/Font'],
+                    'page anchor font')
+            self.font_size = decimal(args[1])
+        elif op == b'Tr':
+            require(self.in_text and len(args) == 1 and decimal(args[0]) in range(8),
+                    'page text rendering mode')
+            self.render_mode = int(args[0])
+        elif op in (b'Tc', b'Tw', b'Tz', b'TL', b'Ts'):
+            require(self.in_text and len(args) == 1, 'page anchor text parameters')
+            self.text_parameters[op] = decimal(args[0])
+        elif op == b'Tm':
+            require(self.in_text and len(args) == 6, 'page anchor text matrix')
+            self.text_matrix = tuple(map(decimal, args))
+        elif op == b'Tj':
+            require(self.in_text and len(args) == 1 and getattr(args[0], 'original_bytes', None) == b'\0',
+                    'one supplemental anchor glyph')
+            require(self.render_mode == 3 and self.font_size == 1,
+                    'supplemental anchor must be invisible')
+            require(self.text_parameters == {b'Tc': 0, b'Tw': 0, b'Tz': 100, b'TL': 0, b'Ts': 0},
+                    'unmodified supplemental text parameters')
+            return ('anchor', multiply(self.matrix, self.text_matrix))
+        elif op == b'Do':
+            require(not self.in_text and self.path is None and len(args) == 1, 'page image paint')
+            require(self.black, 'black page vector paint')
+            return ('paint', self.matrix, self.clip)
+        elif op in (b'BDC', b'BMC', b'EMC'):
+            require(not self.in_text, 'marked content inside text object')
+            if op == b'BDC':
+                require(len(args) == 2 and args[0] in ('/Formula', '/Figure', '/Span')
+                        and isinstance(args[1], dict)
+                        and set(args[1]) <= {'/MCID', '/Lang', '/ActualText'},
+                        'plain source marked-content scope')
+            elif op == b'BMC':
+                require(args == ['/Artifact'], 'plain artifact scope')
+            else:
+                require(not args, 'marked-content close operands')
+        else:
+            raise ValueError(f'unsupported scale page operation {op!r}')
+        return None
+
+    def finish(self):
+        require(not self.stack and not self.in_text and self.path is None and not self.pending_clip,
+                'balanced page painting state')
+
+
+def verify_placement(want, paint, anchors, page_box, body):
+    _, matrix, clip = paint
+    a, b, c, d, x, y = matrix
+    vector = want['kind'] != 'figure'
+    require(b == c == 0 and a > 0 and d != 0, 'axis-aligned visible placement')
+    if vector:
+        require(a == 1 and d == -1, 'unit-scale vector placement')
+        w = Decimal(want['metrics']['viewport']['width']) / 65536
+        h = Decimal(want['metrics']['viewport']['height']) / 65536
+        require(len(anchors) == 1, 'one source-bound supplemental anchor')
+        expected = (w, Decimal(0), Decimal(0), h, x,
+                    y - Decimal(want['metrics']['baseline']) / 65536)
+        require(all(abs(fixed(v)-fixed(e)) <= 1 for v, e in zip(anchors[0], expected)),
+                'source viewport and baseline anchor')
+        rect = (x, y-h, x+w, y)
+    else:
+        require(d > 0 and not anchors, 'upright raster placement without text anchor')
+        rect = (x, y, x+a, y+d)
+    bounds = (Decimal(body['x']) / 65536, Decimal(page_box[3]) - Decimal(body['y']+body['height']) / 65536,
+              Decimal(body['x']+body['width']) / 65536, Decimal(page_box[3]) - Decimal(body['y']) / 65536)
+    for limit in [bounds, clip] if clip is not None else [bounds]:
+        require(fixed(rect[0]) >= fixed(limit[0])-1 and fixed(rect[1]) >= fixed(limit[1])-1
+                and fixed(rect[2]) <= fixed(limit[2])+1 and fixed(rect[3]) <= fixed(limit[3])+1,
+                'placement fully visible in body and clipping bounds')
+    return tuple(fixed(v) for v in rect)
+
+
 def occurrences(node):
     if isinstance(node, dict):
+        require(node.get('kind') in (None, 'semantic_container', 'paragraph', 'math_vector',
+                                    'math_vector_block', 'figure'), 'scale source node vocabulary')
         if node.get('kind') in ('math_vector', 'math_vector_block', 'figure'):
             yield node
         for key in ('blocks', 'children'):
             for child in node.get(key, []):
                 yield from occurrences(child)
+
+
+def verify_inputs(job, package, inventory, expected, images):
+    kind = inventory['case']
+    require(kind in ('distinct', 'mixed', 'alias'), 'scale case identity')
+    require(inventory['placements'] == (8000 if kind == 'alias' else 5000)
+            and inventory['resources'] == 5000, 'scale case counts')
+    require([i['image_id'] for i in images] == list(range(5000))
+            and all(type(i['image_id']) is int for i in images), 'dense image declarations')
+    require(len({i['expected_sha256'] for i in images}) == inventory['distinct_resources']
+            == (100 if kind == 'alias' else 5000), 'source content distinctness')
+    for i, image in enumerate(images):
+        require(image['media_type'] == ('png' if kind == 'mixed' and i >= 4952 else 'svg-safe-2'),
+                'source media type')
+        require(hashlib.sha256(contained_bytes(job, image['uri'])).hexdigest()
+                == image['expected_sha256'], 'every declared resource hash')
+    for face in package['resources']['font_faces']:
+        require(hashlib.sha256(contained_bytes(job, face['uri'])).hexdigest()
+                == face['expected_sha256'], 'declared font hash')
+    require(len(package['sources']) == 1, 'one scale source')
+    source = package['sources'][0]
+    raw = contained_bytes(job, source['uri'])
+    raw.decode('utf-8')
+    require(type(source['source_id']) is int and source['source_id'] == 0
+            and type(source['utf8_byte_length']) is int and source['utf8_byte_length'] == len(raw)
+            and source['sha256'] == hashlib.sha256(raw).hexdigest(), 'source bytes')
+    text_ids, owners = set(), set()
+    offset = 0
+    for ordinal, node in enumerate(expected):
+        require(type(node['node_id']) is int and node['node_id'] not in owners, 'unique source owner')
+        owners.add(node['node_id'])
+        require(type(node['image_id']) is int and node['image_id'] == ordinal % 5000,
+                'source image order')
+        image_id = node['image_id']
+        raster = kind == 'mixed' and image_id >= 4952
+        i = (image_id % 100 if kind == 'alias' else image_id) + 1
+        text = f'[PNG {image_id-4952}]' if raster else rf'x_{{{i}}}=\frac{{{i}}}{{{i+1}}}'
+        data = text.encode('utf-8')
+        span = {'source_id': 0, 'start_byte': offset, 'end_byte': offset+len(data)}
+        require(same_json(node['span'], span) and raw[offset:offset+len(data)+1] == data+b'\n',
+                'exact source occurrence span and bytes')
+        offset += len(data) + 1
+        require(node['kind'] == ('figure' if raster else 'math_vector' if i % 2 else 'math_vector_block'),
+                'template inline/block source kind')
+        require(node['alt'] == (text if raster else f'x subscript {i} equals {i} over {i+1}'),
+                'numeric template semantic speech')
+        if raster:
+            require(node['caption'] == [] and node['placement'] == 'block', 'scale raster source')
+            continue
+        require(node['actual_text'] is None, 'template uses semantic Alt fallback')
+        metrics = node['metrics']
+        require(all(type(metrics[k]) is int for k in ('advance', 'ascent', 'descent', 'origin_x', 'baseline'))
+                and all(type(metrics['viewport'][k]) is int for k in ('width', 'height')),
+                'integer source metrics')
+        require(metrics['advance'] > 0 and metrics['viewport']['width'] > 0
+                and metrics['ascent'] + metrics['descent'] == metrics['viewport']['height'] > 0
+                and 0 <= metrics['baseline'] <= metrics['viewport']['height'], 'source vertical metrics')
+        if node['kind'] == 'math_vector':
+            require(same_json(node['spacing'], {'before': 0, 'after': 0}), 'template source spacing')
+        else:
+            require(node['equation_number'] is None, 'template has no equation number')
+        ts = node['source_tex']['text_span']
+        require(type(ts['text_id']) is int and ts['text_id'] not in text_ids, 'unique TeX buffer')
+        text_ids.add(ts['text_id'])
+        require(type(ts['start_byte']) is int and ts['start_byte'] == 0
+                and type(ts['end_byte']) is int and ts['end_byte'] == len(data), 'exact TeX range')
+        buffer = package['text_buffers'][ts['text_id']]
+        require(same_json(buffer, {'text_id': ts['text_id'], 'utf8': text, 'mappings': [
+            {'kind': 'identity', 'source_span': span,
+             'text_range': {'start_byte': 0, 'end_byte': len(data)}}]}), 'source-to-TeX identity')
+    require(offset == len(raw) and text_ids == set(range(len(package['text_buffers']))),
+            'complete source and TeX inventory')
 
 
 def verify_form_geometry(svg, form, reader):
@@ -126,16 +364,44 @@ def verify_raster_pixels(source, image):
         return original.width * original.height
 
 
-def verify(job, pdf):
-    package_bytes = (job/'document-package.json').read_bytes()
-    package = json.loads(package_bytes)
-    inventory = json.loads((job/'probe-inventory.json').read_bytes())
+def verify(job, pdf, placement_output=None, *, extraction_tools=None, include_structure_bindings=False):
+    if placement_output is not None:
+        require(not placement_output.resolve().is_relative_to(job.resolve()),
+                'placement evidence must be outside the input package')
+        require(not placement_output.exists(), 'placement evidence already exists')
+    package_bytes = contained_bytes(job, 'document-package.json')
+    package = strict_json(package_bytes)
+    inventory = strict_json(contained_bytes(job, 'probe-inventory.json'))
     require(hashlib.sha256(package_bytes).hexdigest() == inventory['package_sha256'], 'package changed since generation')
     expected = list(occurrences(package['document']))
     require(len(expected) == inventory['placements'], 'source placement count')
     images = package['resources']['images']
     require(len(images) == 5000, '5000 declarations')
     require({n['image_id'] for n in expected} == set(range(5000)), 'every declaration must be placed')
+    verify_inputs(job, package, inventory, expected, images)
+    return verify_source_pdf(job, pdf, package, inventory, expected, placement_output,
+                             extraction_tools=extraction_tools,include_structure_bindings=include_structure_bindings)
+
+
+def verify_source_pdf(job, pdf, package, inventory, expected, placement_output=None, *,
+                      extraction_tools=None, scope='scale-probe-only',
+                      include_structure_bindings=False, strict_extractor_output=False):
+    """Join an independently validated formula-only source to actual PDF paint.
+
+    Callers own source/hash/inventory validation. The scale entry above retains
+    its fixed 5,000-input checks; the book fixture entry validates its own ledger.
+    This kernel does not accept body glyph paint or establish independent layout.
+    """
+    if placement_output is not None:
+        require(not placement_output.resolve().is_relative_to(job.resolve()),
+                'placement evidence must be outside the input package')
+        require(not placement_output.exists(), 'placement evidence already exists')
+    require(len(expected) == inventory['placements'] and bool(expected), 'complete source occurrence inventory')
+    require(len(package['resources']['images']) == inventory['resources'], 'complete source declarations')
+    package_bytes = contained_bytes(job, 'document-package.json')
+    require(same_json(strict_json(package_bytes), package), 'paint source package bytes')
+    images = package['resources']['images']
+    source_bindings = []
     reader = PdfReader(pdf, strict=True)
     root = reader.trailer['/Root']['/StructTreeRoot']
     nums = root['/ParentTree']['/Nums']
@@ -145,17 +411,36 @@ def verify(job, pdf):
     form_objects, raster_objects, observed = set(), set(), set()
     geometry_paths, geometry_segments, raster_pixels = 0, 0, 0
     extracted = []
+    placement_rows, page_rows = [], []
+    master = package['page_masters']['masters'][0]
+    require(len(package['page_masters']['masters']) == 1, 'single scale page master')
     for page_index, page in enumerate(reader.pages):
+        page_box = tuple(map(decimal, page.mediabox))
+        require(tuple(map(fixed, page_box)) == (0, 0, master['width'], master['height'])
+                and tuple(map(decimal, page.cropbox)) == page_box
+                and page.get('/Rotate', 0) == 0 and page.get('/UserUnit', 1) == 1,
+                'unchanged source page geometry')
+        require(all(k not in page for k in ('/Group', '/OC', '/AA', '/Trans'))
+                and not page.get('/Annots'),
+                'plain scale page visibility')
+        painting = PagePaint(page['/Resources'])
+        previous_rect = None
+        page_rows.append({'page_index': page_index, 'media_box': [str(v) for v in page_box]})
         parent_key = int(page['/StructParents'])
         array = parents[parent_key].get_object()
         stack, current, page_groups = [], None, 0
         for args, operator in ContentStream(page.get_contents(), reader).operations:
+            event = painting.step(args, operator)
+            if event is not None and event[0] == 'anchor':
+                require(current is not None, 'unowned supplemental anchor')
+                current['anchors'].append(event[1])
             if operator == b'BDC':
                 props = args[1]
                 outer = '/MCID' in props
                 if outer:
                     require(current is None, 'nested MCID')
-                    current = {'mcid': int(props['/MCID']), 'role': str(args[0]), 'text': [], 'paint': []}
+                    current = {'mcid': int(props['/MCID']), 'role': str(args[0]),
+                               'text': [], 'paint': [], 'anchors': [], 'painting': []}
                 if '/ActualText' in props:
                     require(current is not None, 'unowned replacement text')
                     current['text'].append(str(props['/ActualText']))
@@ -166,6 +451,7 @@ def verify(job, pdf):
                 require(current is not None, 'untagged source paint')
                 ref = page['/Resources']['/XObject'].raw_get(args[0])
                 current['paint'].append(ref)
+                current['painting'].append(event)
             elif operator == b'EMC':
                 require(bool(stack), 'unbalanced marked content')
                 if not stack.pop():
@@ -178,6 +464,14 @@ def verify(job, pdf):
                 require(current['role'] == ('/Formula' if vector else '/Figure'), 'source-order role')
                 require(current['text'] == ([want['actual_text'] or want['alt']] if vector else []), 'source-order occurrence text')
                 require(len(current['paint']) == 1, 'exactly one top-level image paint')
+                rect = verify_placement(want, current['painting'][0], current['anchors'],
+                                        page_box, master['body'])
+                require(previous_rect is None or rect[3] <= previous_rect[1]+1,
+                        'source-order nonoverlapping scale rows')
+                previous_rect = rect
+                placement_rows.append({'ordinal': index, 'node_id': want['node_id'],
+                    'image_id': want['image_id'], 'page_index': page_index, 'kind': want['kind'],
+                    'matrix': [str(v) for v in current['painting'][0][1]], 'bounds_raw': list(rect)})
                 ref = current['paint'][0]
                 obj = ref.get_object()
                 key = (ref.idnum, ref.generation)
@@ -192,7 +486,7 @@ def verify(job, pdf):
                     require(len(box) == 4 and box[:2] == [0, 0], 'Form BBox origin')
                     require(abs(box[2]-viewport['width']/65536) <= 0.000001 and abs(box[3]-viewport['height']/65536) <= 0.000001, 'Form BBox dimensions')
                     if key not in form_objects:
-                        svg = (job/image['uri']).read_bytes()
+                        svg = contained_bytes(job, image['uri'])
                         require(hashlib.sha256(svg).hexdigest() == content, 'geometry source hash')
                         paths, segments = verify_form_geometry(svg, obj, reader)
                         geometry_paths += paths
@@ -201,36 +495,74 @@ def verify(job, pdf):
                     extracted.append(want['actual_text'] or want['alt'])
                 else:
                     if key not in raster_objects:
-                        source = (job/image['uri']).read_bytes()
+                        source = contained_bytes(job, image['uri'])
                         require(hashlib.sha256(source).hexdigest() == content, 'raster source hash')
                         raster_pixels += verify_raster_pixels(source, obj)
                     raster_objects.add(key)
                 node = array[current['mcid']].get_object()
                 require(node['/S'] == current['role'] and str(node['/Alt']) == want['alt'], 'ParentTree occurrence semantics')
+                kids = node['/K']
+                require(node['/Type'] == '/StructElem' and isinstance(kids, list) and len(kids) == 1,
+                        'one occurrence structure MCR')
+                mcr = kids[0].get_object()
+                require(set(mcr) == {'/Type', '/Pg', '/MCID'} and mcr['/Type'] == '/MCR'
+                        and mcr['/MCID'] == current['mcid']
+                        and mcr.raw_get('/Pg') == page.indirect_reference, 'source paint MCR page and MCID')
                 require((parent_key, current['mcid']) not in observed, 'duplicate MCID')
                 observed.add((parent_key, current['mcid']))
+                if include_structure_bindings:
+                    element = array[current['mcid']]
+                    source_bindings.append({'node_id': want['node_id'],
+                        'structure_object': [element.idnum, element.generation],
+                        'page_object': [page.indirect_reference.idnum, page.indirect_reference.generation],
+                        'mcid': current['mcid']})
                 page_groups += 1
                 index += 1
                 current = None
         require(not stack and current is None, 'unclosed marked content')
+        painting.finish()
         require(len(array) == page_groups, 'ParentTree group count')
     require(index == len(expected), 'missing occurrence paint')
     require(len(content_to_object) == inventory['distinct_resources'], 'all distinct resources used')
-    for command in (["pdftotext", "-enc", "UTF-8", "-raw", str(pdf), "-"],
-                    ["mutool", "draw", "-q", "-F", "txt", str(pdf)]):
-        text = subprocess.run(command, check=True, capture_output=True).stdout.decode('utf-8')
-        require(''.join(text.split()) == ''.join(''.join(extracted).split()), f"full occurrence extraction: {command[0]}")
-    return {'scope': 'scale-probe-only', 'case': inventory['case'], 'pdf_sha256': hashlib.sha256(pdf.read_bytes()).hexdigest(),
-            'pages': len(reader.pages), 'declarations': 5000, 'placements': index,
+    extraction = []
+    require(extraction_tools is None or set(extraction_tools) <= {'pdftotext', 'mutool'},
+            'known extraction tool roles')
+    extraction_tools = extraction_tools or {}
+    for command in ([str(extraction_tools.get('pdftotext', 'pdftotext')), "-enc", "UTF-8", "-raw", str(pdf), "-"],
+                    [str(extraction_tools.get('mutool', 'mutool')), "draw", "-q", "-F", "txt", str(pdf)]):
+        result = subprocess.run(command, check=True, capture_output=True)
+        require(not strict_extractor_output or not result.stderr, 'unexpected extractor stderr')
+        count = extracted_occurrences(result.stdout, extracted, command[0])
+        extraction.append({'argv': command, 'occurrences': count,
+                           'stdout_bytes': len(result.stdout),
+                           'stdout_sha256': hashlib.sha256(result.stdout).hexdigest(),
+                           'stderr_sha256': hashlib.sha256(result.stderr).hexdigest(),
+                           'source_spaces_preserved': True})
+    pdf_sha256 = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    if placement_output is not None:
+        evidence = {'algorithm': 'typaxis.vmb-scale-observed-placements/1',
+                    'scope': 'Observed PDF placements after source, visibility, MCR and extraction checks; not a layout golden.',
+                    'source_package_sha256': hashlib.sha256(package_bytes).hexdigest(),
+                    'pdf_sha256': pdf_sha256, 'pages': page_rows, 'placements': placement_rows}
+        with placement_output.open('x', encoding='utf-8') as output:
+            output.write(json.dumps(evidence, sort_keys=True, separators=(',', ':'))+'\n')
+    result = {'scope': scope, 'case': inventory['case'], 'pdf_sha256': pdf_sha256,
+            'pages': len(reader.pages), 'declarations': len(images), 'placements': index,
             'forms': len(form_objects), 'raster_xobjects': len(raster_objects), 'mcids': len(observed),
             'verified_raster_pixels': raster_pixels,
             'verified_paths': geometry_paths, 'verified_source_segments': geometry_segments,
-            'extractors': ['Poppler', 'MuPDF']}
+            'verified_visible_placements': index, 'source_bound_vector_anchors': len(extracted),
+            'extractors': ['Poppler', 'MuPDF'], 'extraction': extraction}
+    if include_structure_bindings:
+        result['source_mcr_bindings'] = source_bindings
+    return result
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('job', type=Path)
     parser.add_argument('pdf', type=Path)
+    parser.add_argument('--placement-output', type=Path,
+                        help='exclusive observed-placement evidence path outside the input package')
     args = parser.parse_args()
-    print(json.dumps(verify(args.job, args.pdf), indent=2))
+    print(json.dumps(verify(args.job, args.pdf, args.placement_output), indent=2))

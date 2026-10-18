@@ -80,3 +80,89 @@ pub fn with_budgeted_book_v2_column_lines<'a, R>(
         |stable| use_stable(BookV2ConvergedColumnLines { stable }),
     )
 }
+
+/// Source-observed P0 measurements. Native math and prepaid header variants are
+/// deliberately absent. The callback receives a fresh reborrow after the local
+/// intrinsic window has been sealed; the immutable graph never borrows it.
+#[allow(clippy::too_many_arguments)]
+pub fn with_observed_book_v2_column_lines<'a, 'id, 'cells, R>(
+    policy: &BookV2ResourcePolicy<'_>,
+    flow: &PreparedBookV2TextFlow<'a>,
+    admitted: &AdmittedProductionResourceLedgerV3,
+    bindings: &BookV2VectorBindings<'_>,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: JapaneseLineBreakMode,
+    allowance: &mut BookV2ObservedBodyLineBudget,
+    accounting: &mut BookV2ObservedSourceAccounting<'id, 'cells>,
+    columns: &BookV2ColumnFramePlan<'a>,
+    source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
+    use_stable: impl FnOnce(
+        BookV2ConvergedColumnLines<'_, '_, '_>,
+        &mut BookV2ObservedSourceAccounting<'id, 'cells>,
+    ) -> R,
+) -> Result<R, BookV2ObservedBodyReshapeError> {
+    columns.verify(flow.body()).map_err(|_| {
+        error(
+            NodeId::new(0),
+            ProductionInlinePreparationErrorKind::ReceiptMismatch,
+        )
+    })?;
+    with_observed_lines_in_measured_frames(
+        policy,
+        flow,
+        admitted,
+        bindings,
+        limits,
+        japanese_mode,
+        columns.measurement_body(),
+        allowance,
+        accounting,
+        Some(MeasurementPageFrames::Columns(columns)),
+        source_widths,
+        |stable, accounting| use_stable(BookV2ConvergedColumnLines { stable }, accounting),
+    )
+}
+
+/// A single source-observed Column graph borrowing the Native result actually
+/// reserved by this same invariant caller loan. Shared Native is paid once;
+/// local graph output starts at zero and retains its genuine staged prefixes.
+#[allow(clippy::too_many_arguments)]
+pub fn with_observed_native_book_v2_column_lines<'a, 'id, 'cells, R>(
+    policy: &BookV2ResourcePolicy<'_>,
+    flow: &PreparedBookV2TextFlow<'a>,
+    admitted: &AdmittedProductionResourceLedgerV3,
+    bindings: &BookV2VectorBindings<'_>,
+    limits: &M4EffectiveResourceLimits,
+    japanese_mode: JapaneseLineBreakMode,
+    native: Option<&BookV2ObservedNativeMath<'id, '_>>,
+    allowance: &mut BookV2ObservedBodyLineBudget,
+    accounting: &mut BookV2ObservedSourceAccounting<'id, 'cells>,
+    columns: &BookV2ColumnFramePlan<'a>,
+    source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
+    use_stable: impl FnOnce(
+        BookV2ConvergedColumnLines<'_, '_, '_>,
+        &mut BookV2ObservedSourceAccounting<'id, 'cells>,
+    ) -> R,
+) -> Result<R, BookV2ObservedBodyReshapeError> {
+    columns.verify(flow.body()).map_err(|_| {
+        error(
+            NodeId::new(0),
+            ProductionInlinePreparationErrorKind::ReceiptMismatch,
+        )
+    })?;
+    with_observed_native_lines_in_measured_frames(
+        policy,
+        flow,
+        admitted,
+        bindings,
+        limits,
+        japanese_mode,
+        columns.measurement_body(),
+        native,
+        allowance,
+        accounting,
+        Some(MeasurementPageFrames::Columns(columns)),
+        source_widths,
+        |stable, accounting| use_stable(BookV2ConvergedColumnLines { stable }, accounting),
+    )
+}

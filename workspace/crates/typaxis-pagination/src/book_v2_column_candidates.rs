@@ -8,7 +8,10 @@ mod pages;
 pub use pages::*;
 #[path = "book_v2_column_placement.rs"]
 mod placement_columns;
-pub use placement_columns::{BookV2ColumnPlacedBody, BookV2ColumnPlacedHeaderVariant, BookV2ColumnPlacedPage, BookV2ColumnPlacedSequence};
+pub use placement_columns::{
+    BookV2ColumnPlacedBody, BookV2ColumnPlacedHeaderVariant, BookV2ColumnPlacedPage,
+    BookV2ColumnPlacedSequence,
+};
 #[path = "book_v2_column_stability.rs"]
 mod stable_columns;
 pub use stable_columns::BookV2ColumnStablePages;
@@ -16,6 +19,10 @@ pub use stable_columns::BookV2ColumnStablePages;
 pub struct BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
     pub(super) inner: BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>,
     pub(super) plan: &'p BookV2ColumnFramePlan<'a>,
+    pub(super) balance_candidates: u64,
+    pub(super) maximum_balance_candidates: u16,
+    pub(super) maximum_balance_spool: u64,
+    pub(super) balance_limits: [u8; 32],
 }
 pub struct BookV2ColumnPageState<'b, 'f, 's, 'p, 'a> {
     pub(super) source: BookV2BodySourceState<'b, 'f, 's, 'p, 'a>,
@@ -39,6 +46,10 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageState<'b, 'f, 's, 'p, 'a> {
     }
     pub fn definition_status(&self, index: usize) -> Option<ProductionFootnoteDemandStatus> {
         self.source.demand.status(index)
+    }
+    /// Authentic first reference from the selected source demand forest.
+    pub fn first_reference(&self, definition: usize) -> Option<NodeId> {
+        self.source.demand.first_reference(definition)
     }
     pub fn is_complete(&self) -> bool {
         self.source.is_complete()
@@ -124,6 +135,10 @@ pub fn prepare_book_v2_column_page_search_counted<'b, 'f, 's, 'p, 'a>(
     Ok(BookV2ColumnPageSearch {
         inner,
         plan: measurements.column_plan(),
+        balance_candidates: 0,
+        maximum_balance_candidates: limits.base().get().max_column_balance_candidates,
+        maximum_balance_spool: limits.base().get().max_spool_bytes,
+        balance_limits: limits.fingerprint(),
     })
 }
 /// A column-owned catalog supplies the actual header chosen in every segment.
@@ -135,14 +150,79 @@ pub fn prepare_book_v2_column_page_search_with_headers_counted<'b, 'f, 's, 'p, '
     observed_records: &mut u64,
     observed_work: &mut u64,
 ) -> Result<BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    let inner = prepare_book_v2_table_body_search_with_headers_counted(&catalog.inner,
-        limits, maximum_work, prior_records, observed_records, observed_work)?;
-    Ok(BookV2ColumnPageSearch { inner, plan: catalog.base().column_plan() })
+    let inner = prepare_book_v2_table_body_search_with_headers_counted(
+        &catalog.inner,
+        limits,
+        maximum_work,
+        prior_records,
+        observed_records,
+        observed_work,
+    )?;
+    Ok(BookV2ColumnPageSearch {
+        inner,
+        plan: catalog.base().column_plan(),
+        balance_candidates: 0,
+        maximum_balance_candidates: limits.base().get().max_column_balance_candidates,
+        maximum_balance_spool: limits.base().get().max_spool_bytes,
+        balance_limits: limits.fingerprint(),
+    })
 }
+/// Keep authored origins/widths while bounding an actual balance trial.
+/// The full-page body and note frames remain available for joint reservation.
+fn column_bounds_at_height(
+    frames: BookV2ColumnPageFrames<'_>,
+    index: u16,
+    target: Option<PositiveLength>,
+) -> Result<Rect, ProductionBodyPaginationError> {
+    let root = NodeId::new(0);
+    let bounds = frames
+        .column(index)
+        .map_err(|_| error(root, E::ReceiptMismatch))?;
+    let Some(target) = target else {
+        return Ok(bounds);
+    };
+    if target.get() > bounds.height().get() {
+        return Err(error(root, E::ReceiptMismatch));
+    }
+    Ok(Rect::new(bounds.x(), bounds.y(), bounds.width(), target))
+}
+
 impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
     /// Original semantic graph; physical repeated headers keep separate owners.
     pub fn source_lines(&self) -> &'s typaxis_layout::book_v2::BookV2InlineLineLayout<'p, 'a> {
         self.inner.content.flow.lines()
+    }
+    /// Borrow the issuing column graph's measured item metadata. These values
+    /// carry neither a source cursor nor single-body placement authority.
+    pub fn source_items(&self, definition: Option<usize>) -> Option<&[ProductionBodyFlowItem]> {
+        match definition {
+            None => Some(self.inner.content.flow.body_items()),
+            Some(index) => self.inner.content.flow.definition_items(index),
+        }
+    }
+    /// Actual body table metrics for diagnostics; no table cursor is issued.
+    pub fn source_table(&self, index: usize) -> Option<&ProductionMeasuredTable> {
+        let tables = self.inner.tables.as_ref()?;
+        (index < tables.len()).then(|| tables.table(index))
+    }
+    pub fn balance_candidates(&self) -> u64 {
+        self.balance_candidates
+    }
+    /// Carry an earlier caller's started trials into a fresh search without
+    /// refunding any candidates already begun by this search.
+    pub fn retain_prior_balance_candidates(&mut self, prior: u64) {
+        self.balance_candidates = self.balance_candidates.max(prior);
+    }
+    /// Caller storage is a lower bound; this method cannot refund reservations.
+    pub fn retain_prior_balance_spool(
+        &mut self,
+        prior: u64,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        if prior > self.maximum_balance_spool {
+            return Err(error(NodeId::new(0), E::SpoolLimit));
+        }
+        self.inner.terminal_spool = self.inner.terminal_spool.max(prior);
+        Ok(())
     }
     pub fn record_charge(&self) -> u64 {
         self.inner.record_charge()
@@ -175,7 +255,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
         requests: &[&[BookV2BodyCandidatePart<'b, 'f, 's, 'p, 'a>]],
     ) -> Result<Option<BookV2ColumnPageCandidate<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError>
     {
-        self.evaluate_page_with_blank(state, name, requests, false)
+        self.evaluate_page_with_blank(state, name, requests, false, None)
     }
     fn evaluate_page_with_blank(
         &mut self,
@@ -183,10 +263,12 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
         name: Option<usize>,
         requests: &[&[BookV2BodyCandidatePart<'b, 'f, 's, 'p, 'a>]],
         allow_blank: bool,
-    ) -> Result<Option<BookV2ColumnPageCandidate<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError> {
+        target: Option<PositiveLength>,
+    ) -> Result<Option<BookV2ColumnPageCandidate<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError>
+    {
         self.inner.verify_state(&state.source.demand)?;
         let root = NodeId::new(0);
-        if state.is_complete() && !allow_blank {
+        if state.is_complete() && !allow_blank && target.is_none() {
             return Ok(None);
         }
         if state.page >= self.inner.maximum_pages {
@@ -196,6 +278,10 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
             .plan
             .named_page(state.page, name)
             .map_err(|_| error(root, E::ReceiptMismatch))?;
+        column_bounds_at_height(frames, 0, target)?;
+        if state.is_complete() && !allow_blank {
+            return Ok(None);
+        }
         if requests.len() != usize::from(frames.column_count()) {
             return Err(error(root, E::ReceiptMismatch));
         }
@@ -203,7 +289,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
         let saved_name = self.inner.active_page_name;
         let saved_mismatch = self.inner.named_mismatch.take();
         self.inner.active_page_name = name;
-        let result = self.evaluate_in_frames(state, frames, requests, allow_blank);
+        let result = self.evaluate_in_frames(state, frames, requests, allow_blank, target);
         self.inner.active_page_frames = saved_frames;
         self.inner.active_page_name = saved_name;
         self.inner.named_mismatch = saved_mismatch;
@@ -216,6 +302,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
         frames: BookV2ColumnPageFrames<'a>,
         requests: &[&[BookV2BodyCandidatePart<'b, 'f, 's, 'p, 'a>]],
         allow_blank: bool,
+        target: Option<PositiveLength>,
     ) -> Result<Option<BookV2ColumnPageCandidate<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError>
     {
         let root = NodeId::new(0);
@@ -246,9 +333,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
                 return Err(error(root, E::ReceiptMismatch));
             }
             unused |= request.is_empty();
-            let bounds = frames
-                .column(index as u16)
-                .map_err(|_| error(root, E::ReceiptMismatch))?;
+            let bounds = column_bounds_at_height(frames, index as u16, target)?;
             self.inner.active_page_frames = Some(ActivePageFrames {
                 body: bounds,
                 footnote: frames.footnote(),
@@ -320,9 +405,14 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
                 table_end: source.table_end,
                 continuation: selected.continuation,
             };
-            closed |= selected.parts.last().and_then(|part| part.table())
+            closed |= selected
+                .parts
+                .last()
+                .and_then(|part| part.table())
                 .is_some_and(|table| table.forced_break_owner().is_some())
-                || self.outside_source_break(&source, frames.named_page_index())?.is_some();
+                || self
+                    .outside_source_break(&source, frames.named_page_index())?
+                    .is_some();
             columns.push(BookV2ColumnBodyCandidate {
                 bounds,
                 parts: selected.parts,
@@ -380,11 +470,24 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
     ) -> Result<Option<NodeId>, ProductionBodyPaginationError> {
         self.inner.content.step(NodeId::new(0))?;
         Ok((source.continuation.is_none()
-            && self.inner.tables.as_ref().unwrap().at(source.item, source.next_table).is_none()
+            && self
+                .inner
+                .tables
+                .as_ref()
+                .unwrap()
+                .at(source.item, source.next_table)
+                .is_none()
             && self.inner.source_page_name(source.item, source.next_table) == Some(name))
-            .then(|| self.inner.content.flow.body_items().get(source.item)
-                .filter(|item| item.source.is_none()).map(|item| item.owner))
-            .flatten())
+        .then(|| {
+            self.inner
+                .content
+                .flow
+                .body_items()
+                .get(source.item)
+                .filter(|item| item.source.is_none())
+                .map(|item| item.owner)
+        })
+        .flatten())
     }
     fn verify_names(
         &mut self,

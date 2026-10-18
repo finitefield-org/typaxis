@@ -47,7 +47,7 @@ pub use mixed_placement::{
 pub use mixed_stability::BookV2BodyMixedStablePages;
 #[path = "book_v2_body_source_closure.rs"]
 mod source_closure;
-pub use source_closure::BookV2BodySourceClosure;
+pub use source_closure::{BookV2BodySourceClosure, BookV2ColumnSourceClosure, BookV2SourceGraph, BookV2SourceReferenceView};
 #[path = "book_v2_paragraph_width_feedback.rs"]
 mod paragraph_width_feedback;
 pub use paragraph_width_feedback::{BookV2TableWidthSource, BookV2TableWidthPiece, BookV2TableWidthOccurrence, BookV2TableWidthOccurrences, BookV2ParagraphWidthCandidate, BookV2ParagraphWidthFeedback, BookV2ColumnWidthFeedback};
@@ -56,6 +56,11 @@ mod math_terminals;
 pub use math_terminals::{
     BookV2BodyMathSource, BookV2BodyMathTerminal, BookV2BodyMathTerminals,
     BOOK_V2_BODY_MATH_TERMINAL_ALGORITHM,
+};
+#[path = "book_v2_column_math_terminals.rs"]
+mod column_math_terminals;
+pub use column_math_terminals::{
+    BookV2ColumnMathTerminal, BookV2ColumnMathTerminals, BOOK_V2_COLUMN_MATH_TERMINAL_ALGORITHM,
 };
 
 #[path = "book_v2_body_footnote_candidate.rs"]

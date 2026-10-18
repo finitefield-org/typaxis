@@ -1,6 +1,10 @@
 //! Source-preserving reading links, Note relations and table header ownership.
 //! Unplaced definitions remain explicit; this is not their PDF authorization.
 use super::*;
+use typaxis_display_list::book_v2::{
+    BookV2BodyDisplay, BookV2BodyPaintIndex, BookV2ColumnDisplay, BookV2ColumnPaintIndex,
+    BookV2RelationDisplay, BookV2ResourceDisplay,
+};
 use typaxis_syntax::{ProductionTable, ProductionTableSection};
 pub const BOOK_V2_STRUCTURE_RELATIONS_ALGORITHM: &str = "typaxis.book-2-structure-relations/1";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -123,7 +127,55 @@ impl BookV2NoteStructure {
         self.insertion_after
     }
 }
-pub struct BookV2StructureRelations<
+pub struct BookV2StructureRelationsData<
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2RelationDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'u BookV2SourceStructureData<
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D,
+        P,
+    >,
+    nodes: Vec<BookV2RelatedStructureNode>,
+    order: Vec<usize>,
+    notes: Vec<BookV2NoteStructure>,
+    edges: Vec<BookV2NoteStructureEdge>,
+    headers: Vec<usize>,
+    related: Vec<usize>,
+    fingerprint: [u8; 32],
+    budget: Budget,
+}
+pub type BookV2StructureRelations<
     'u,
     'h,
     'n,
@@ -147,41 +199,97 @@ pub struct BookV2StructureRelations<
     's,
     'p,
     'a,
-> {
-    source: &'u BookV2SourceStructure<
-        'h,
-        'n,
-        'm,
-        'k,
-        'j,
-        'r,
-        'i,
-        't,
-        'o,
-        'z,
-        'y,
-        'x,
-        'c,
-        'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
-        'a,
-    >,
-    nodes: Vec<BookV2RelatedStructureNode>,
-    order: Vec<usize>,
-    notes: Vec<BookV2NoteStructure>,
-    edges: Vec<BookV2NoteStructureEdge>,
-    headers: Vec<usize>,
-    related: Vec<usize>,
-    fingerprint: [u8; 32],
-    budget: Budget,
-}
+> = BookV2StructureRelationsData<
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// Column relation ownership remains typed in every parent.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2StructureRelations, BookV2ColumnStructureRelations};
+/// fn body<'u, 'h, 'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnStructureRelations<'u, 'h, 'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>) -> BookV2StructureRelations<'u, 'h, 'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnStructureRelations<
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2StructureRelationsData<
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
 impl<
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2RelationDisplay<'a, Paint = P>,
+    P: Copy + Eq,
+>
+    BookV2StructureRelationsData<
         'u,
         'h,
         'n,
@@ -197,44 +305,14 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
-    >
-    BookV2StructureRelations<
-        'u,
-        'h,
-        'n,
-        'm,
-        'k,
-        'j,
-        'r,
-        'i,
-        't,
-        'o,
-        'z,
-        'y,
-        'x,
-        'c,
-        'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
-        'a,
+        D,
+        P,
     >
 {
     pub fn source(
         &self,
-    ) -> &'u BookV2SourceStructure<
+    ) -> &'u BookV2SourceStructureData<
         'h,
         'n,
         'm,
@@ -249,14 +327,9 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D,
+        P,
     > {
         self.source
     }
@@ -294,7 +367,48 @@ impl<
         self.budget.work
     }
 }
-pub struct BookV2StructureRelationBuilder<
+pub struct BookV2StructureRelationBuilderData<
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2RelationDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'u BookV2SourceStructureData<
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D,
+        P,
+    >,
+    budget: Budget,
+}
+pub type BookV2StructureRelationBuilder<
     'u,
     'h,
     'n,
@@ -318,34 +432,97 @@ pub struct BookV2StructureRelationBuilder<
     's,
     'p,
     'a,
-> {
-    source: &'u BookV2SourceStructure<
-        'h,
-        'n,
-        'm,
-        'k,
-        'j,
-        'r,
-        'i,
-        't,
-        'o,
-        'z,
-        'y,
-        'x,
-        'c,
-        'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
-        'a,
-    >,
-    budget: Budget,
-}
+> = BookV2StructureRelationBuilderData<
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// Column relation ownership remains typed in every parent.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2StructureRelationBuilder, BookV2ColumnStructureRelationBuilder};
+/// fn body<'u, 'h, 'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnStructureRelationBuilder<'u, 'h, 'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>) -> BookV2StructureRelationBuilder<'u, 'h, 'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnStructureRelationBuilder<
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2StructureRelationBuilderData<
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
 impl<
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2RelationDisplay<'a, Paint = P>,
+    P: Copy + Eq,
+>
+    BookV2StructureRelationBuilderData<
         'u,
         'h,
         'n,
@@ -361,43 +538,13 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
-    >
-    BookV2StructureRelationBuilder<
-        'u,
-        'h,
-        'n,
-        'm,
-        'k,
-        'j,
-        'r,
-        'i,
-        't,
-        'o,
-        'z,
-        'y,
-        'x,
-        'c,
-        'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
-        'a,
+        D,
+        P,
     >
 {
     pub fn new(
-        source: &'u BookV2SourceStructure<
+        source: &'u BookV2SourceStructureData<
             'h,
             'n,
             'm,
@@ -412,14 +559,9 @@ impl<
             'x,
             'c,
             'v,
-            'd,
-            'g,
-            'q,
-            'b,
-            'f,
-            's,
-            'p,
             'a,
+            D,
+            P,
         >,
         limits: &M4EffectiveResourceLimits,
         max_work: u64,
@@ -428,17 +570,74 @@ impl<
         prior_output: u64,
         prior_work: u64,
     ) -> Result<Self, E> {
+        Self::new_counted(
+            source,
+            limits,
+            max_work,
+            prior_records,
+            prior_spool,
+            prior_output,
+            prior_work,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+        )
+    }
+    /// Keep every accepted constructor reservation visible even on failure.
+    pub fn new_counted(
+        source: &'u BookV2SourceStructureData<
+            'h,
+            'n,
+            'm,
+            'k,
+            'j,
+            'r,
+            'i,
+            't,
+            'o,
+            'z,
+            'y,
+            'x,
+            'c,
+            'v,
+            'a,
+            D,
+            P,
+        >,
+        limits: &M4EffectiveResourceLimits,
+        max_work: u64,
+        prior_records: u64,
+        prior_spool: u64,
+        prior_output: u64,
+        prior_work: u64,
+        observed_records: &mut u64,
+        observed_spool: &mut u64,
+        observed_output: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<Self, E> {
+        *observed_records = prior_records.max(source.record_charge());
+        *observed_spool = prior_spool.max(source.spool_charge());
+        *observed_output = prior_output.max(source.output_charge());
+        *observed_work = prior_work.max(source.work_steps());
         let display = source.source().source().display();
         display
-            .verify_resources(display.admitted(), limits)
+            .verify_resource_selection(display.admitted(), limits)
             .map_err(|_| E::Identity)?;
+        // The completed source budget owns the already settled output. This
+        // stage adds no output credit and does not reenter a marked constructor.
         let mut budget = source.budget;
         budget.max_work = max_work;
         budget.records = budget.records.max(prior_records);
         budget.spool = budget.spool.max(prior_spool);
         budget.output = budget.output.max(prior_output);
         budget.work = budget.work.max(prior_work);
-        budget.reserve(1, 0, 0)?;
+        let reserved = budget.reserve(1, 0, 0);
+        *observed_records = budget.records;
+        *observed_spool = budget.spool;
+        *observed_output = budget.output;
+        *observed_work = budget.work;
+        reserved?;
         if budget.work > max_work {
             return Err(E::Work);
         }
@@ -459,7 +658,7 @@ impl<
     pub fn build(
         &mut self,
     ) -> Result<
-        BookV2StructureRelations<
+        BookV2StructureRelationsData<
             'u,
             'h,
             'n,
@@ -475,29 +674,24 @@ impl<
             'x,
             'c,
             'v,
-            'd,
-            'g,
-            'q,
-            'b,
-            'f,
-            's,
-            'p,
             'a,
+            D,
+            P,
         >,
         E,
     > {
         let source = self.source;
-        let closure = source.source().source().display().source().source();
-        let prepared = closure.flow();
-        let flow = prepared.lines().prepared().source_flow();
+        let display = source.source().source().display();
+        let relations = display.relation_source();
+        let flow = display.structure_source();
         let mut header_count = 0usize;
-        header_pairs(flow.tables(), &mut self.budget, |_, _, _| {
+        header_pairs(relations.tables(), &mut self.budget, |_, _, _| {
             header_count = header_count.checked_add(1).ok_or(E::Records)?;
             Ok(())
         })?;
         let n = source.nodes.len();
-        let nd = prepared.footnotes().definitions().len();
-        let ne = prepared.references().len();
+        let nd = relations.definition_count();
+        let ne = relations.reference_count();
         let nr = ne.checked_mul(2).ok_or(E::Records)?;
         let mut records = 0usize;
         let mut spool = 0usize;
@@ -555,11 +749,12 @@ impl<
         let locate = |budget: &mut Budget, owner: NodeId, slot| {
             find(&source.lookup, Key::new(owner, slot), budget)?.ok_or(E::Identity)
         };
-        for (di, definition) in prepared.footnotes().definitions().iter().enumerate() {
+        for di in 0..nd {
             self.budget.step(1)?;
-            let node = locate(&mut self.budget, definition.owner(), Slot::Source)?;
-            let link = locate(&mut self.budget, definition.owner(), Slot::FootnoteLink)?;
-            let label = locate(&mut self.budget, definition.owner(), Slot::FootnoteLabel)?;
+            let owner = relations.definition_owner(di).ok_or(E::Identity)?;
+            let node = locate(&mut self.budget, owner, Slot::Source)?;
+            let link = locate(&mut self.budget, owner, Slot::FootnoteLink)?;
+            let label = locate(&mut self.budget, owner, Slot::FootnoteLabel)?;
             if source.nodes[node].source.pdf_role() != "Note"
                 || nodes[node].parent != Some(0)
                 || nodes[link].parent != Some(node)
@@ -580,9 +775,9 @@ impl<
                 insertion_after: None,
             });
         }
-        for reference in prepared.references() {
+        for ri in 0..ne {
             self.budget.step(1)?;
-            let r = reference.source();
+            let r = relations.reference(ri).ok_or(E::Identity)?;
             let note = notes.get_mut(r.definition_index()).ok_or(E::Identity)?;
             let node = locate(&mut self.budget, r.owner(), Slot::Source)?;
             let link = locate(&mut self.budget, r.owner(), Slot::FootnoteLink)?;
@@ -642,25 +837,19 @@ impl<
                 unplaced += 1;
             }
         }
-        if unplaced != closure.unreferenced_definitions() {
+        if unplaced != relations.unreferenced_definitions() {
             return Err(E::Identity);
         }
         // The stable demand's first-reference forest roots note dependencies
         // in actually selected body content, even when definition order runs
         // backwards or later references form a cycle. It is not reconstructed
         // from the order in which page paints happen to be emitted.
-        let demand = closure
-            .stable()
-            .sequence()
-            .pages()
-            .last()
-            .ok_or(E::Identity)?
-            .next_state()
-            .source_state()
-            .demand();
+        if !relations.has_selected_demand() {
+            return Err(E::Identity);
+        }
         for di in 0..nd {
             self.budget.step(1)?;
-            let first = demand.first_reference(di);
+            let first = relations.first_reference(di);
             if first.is_some() != notes[di].painted {
                 return Err(E::Identity);
             }
@@ -788,7 +977,7 @@ impl<
                 None if i == 0 => 1,
                 None => return Err(E::Identity),
             };
-            if nodes[i].depth > flow.body().body().limits().get().max_ast_nesting_depth {
+            if nodes[i].depth > flow.max_ast_nesting_depth() {
                 return Err(E::Depth);
             }
             order.push(i);
@@ -815,7 +1004,7 @@ impl<
         if order.len() != n {
             return Err(E::Identity);
         }
-        for list in flow.lists() {
+        for list in relations.lists() {
             self.budget.step(1)?;
             let i = locate(&mut self.budget, list.owner(), Slot::Source)?;
             if source.nodes[i].source.pdf_role() != "L" {
@@ -827,7 +1016,7 @@ impl<
                 BookV2ListNumbering::Disc
             });
         }
-        header_pairs(flow.tables(), &mut self.budget, |b, cell, header| {
+        header_pairs(relations.tables(), &mut self.budget, |b, cell, header| {
             let i = locate(b, cell, Slot::Source)?;
             let h = locate(b, header, Slot::Source)?;
             if source.nodes[i].source.pdf_role() != "TD"
@@ -935,7 +1124,7 @@ impl<
                 fp = number(&mut self.budget, fp, value)?;
             }
         }
-        Ok(BookV2StructureRelations {
+        Ok(BookV2StructureRelationsData {
             source,
             nodes,
             order,
@@ -1056,3 +1245,382 @@ fn paragraph_anchor(
 #[path = "book_v2_navigation_geometry.rs"]
 mod navigation_geometry;
 pub use navigation_geometry::*;
+
+// Borrowed relation continuation: original builder fields and kernels above remain unchanged.
+/// A scoped continuation of one driver-owned source-relation builder.
+///
+/// The driver retains its original budget across normal callback return.
+/// The invariant private loan cannot replace, extract, swap, or escape that
+/// owner. Output is the inherited marked settlement; relations add no credit.
+/// This does not claim panic or unwind recovery.
+///
+/// Builds and reads the original relation builder.
+///
+/// ```
+/// use typaxis_pdf::book_v2::{BookV2ColumnStructureRelationBuilder as Builder, BookV2ColumnStructureRelations as Relations, BookV2ColumnStructureRelationContinuation as Continuation, BookV2FontStreamError};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type C<'a> = Continuation<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type V<'a> = Relations<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn rebuild<'a>(builder: &mut B<'a>) -> Result<V<'a>, BookV2FontStreamError> {
+///     builder.with_continuation(|loan| {
+///         let _ = (loan.record_charge(), loan.spool_charge(), loan.output_charge(), loan.work_steps());
+///         loan.build()
+///     })
+/// }
+/// ```
+///
+/// A raw relation builder cannot replace its continuation.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2ColumnStructureRelationBuilder as Builder, BookV2ColumnStructureRelations as Relations, BookV2ColumnStructureRelationContinuation as Continuation, BookV2FontStreamError};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type C<'a> = Continuation<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type V<'a> = Relations<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn replace<'a>(builder: &mut B<'a>, replacement: B<'a>) {
+///     builder.with_continuation(|loan| *loan = replacement);
+/// }
+/// ```
+///
+/// The mutable original owner is private.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2ColumnStructureRelationBuilder as Builder, BookV2ColumnStructureRelations as Relations, BookV2ColumnStructureRelationContinuation as Continuation, BookV2FontStreamError};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type C<'a> = Continuation<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type V<'a> = Relations<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn raw<'a>(builder: &mut B<'a>) {
+///     builder.with_continuation(|loan| { let _ = &mut loan.builder; });
+/// }
+/// ```
+///
+/// A continuation cannot escape its invariant loan.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2ColumnStructureRelationBuilder as Builder, BookV2ColumnStructureRelations as Relations, BookV2ColumnStructureRelationContinuation as Continuation, BookV2FontStreamError};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type C<'a> = Continuation<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type V<'a> = Relations<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn escape<'a>(builder: &'a mut B<'a>) -> &'a mut C<'a> {
+///     builder.with_continuation(|loan| loan)
+/// }
+/// ```
+///
+/// Two independent loans cannot be swapped.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2ColumnStructureRelationBuilder as Builder, BookV2ColumnStructureRelations as Relations, BookV2ColumnStructureRelationContinuation as Continuation, BookV2FontStreamError};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type C<'a> = Continuation<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type V<'a> = Relations<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn swap<'a>(left: &mut B<'a>, right: &mut B<'a>) {
+///     left.with_continuation(|outer| {
+///         right.with_continuation(|inner| std::mem::swap(outer, inner));
+///     });
+/// }
+/// ```
+///
+/// Nested loans may inspect each independent owner.
+///
+/// ```
+/// use typaxis_pdf::book_v2::{BookV2ColumnStructureRelationBuilder as Builder, BookV2ColumnStructureRelations as Relations, BookV2ColumnStructureRelationContinuation as Continuation, BookV2FontStreamError};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type C<'a> = Continuation<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type V<'a> = Relations<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn inspect<'a>(left: &mut B<'a>, right: &mut B<'a>) -> u64 {
+///     left.with_continuation(|outer| {
+///         right.with_continuation(|inner| outer.record_charge() + inner.record_charge())
+///     })
+/// }
+/// ```
+pub struct BookV2StructureRelationContinuationData<
+    'loan,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2RelationDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    builder: &'loan mut BookV2StructureRelationBuilderData<
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D,
+        P,
+    >,
+    invariant: std::marker::PhantomData<fn(&'loan ()) -> &'loan ()>,
+}
+pub type BookV2StructureRelationContinuation<
+    'loan,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2StructureRelationContinuationData<
+    'loan,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+pub type BookV2ColumnStructureRelationContinuation<
+    'loan,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2StructureRelationContinuationData<
+    'loan,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+impl<
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D: BookV2RelationDisplay<'a, Paint = P>,
+        P: Copy + Eq,
+    >
+    BookV2StructureRelationContinuationData<
+        '_,
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D,
+        P,
+    >
+{
+    pub fn build(
+        &mut self,
+    ) -> Result<
+        BookV2StructureRelationsData<
+            'u,
+            'h,
+            'n,
+            'm,
+            'k,
+            'j,
+            'r,
+            'i,
+            't,
+            'o,
+            'z,
+            'y,
+            'x,
+            'c,
+            'v,
+            'a,
+            D,
+            P,
+        >,
+        E,
+    > {
+        self.builder.build()
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.builder.record_charge()
+    }
+    pub fn spool_charge(&self) -> u64 {
+        self.builder.spool_charge()
+    }
+    pub fn output_charge(&self) -> u64 {
+        self.builder.output_charge()
+    }
+    pub fn work_steps(&self) -> u64 {
+        self.builder.work_steps()
+    }
+}
+impl<
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D: BookV2RelationDisplay<'a, Paint = P>,
+        P: Copy + Eq,
+    >
+    BookV2StructureRelationBuilderData<
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D,
+        P,
+    >
+{
+    /// Loan this owner without exposing a replaceable mutable budget.
+    pub fn with_continuation<R>(
+        &mut self,
+        inspect: impl for<'loan> FnOnce(
+            &mut BookV2StructureRelationContinuationData<
+                'loan,
+                'u,
+                'h,
+                'n,
+                'm,
+                'k,
+                'j,
+                'r,
+                'i,
+                't,
+                'o,
+                'z,
+                'y,
+                'x,
+                'c,
+                'v,
+                'a,
+                D,
+                P,
+            >,
+        ) -> R,
+    ) -> R {
+        let mut continuation = BookV2StructureRelationContinuationData {
+            builder: self,
+            invariant: std::marker::PhantomData,
+        };
+        inspect(&mut continuation)
+    }
+}

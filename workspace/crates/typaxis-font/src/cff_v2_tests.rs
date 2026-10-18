@@ -189,7 +189,10 @@ fn cff_v2_complete_multifd_program_counts_shared_subrs_per_declaration() {
         let f = cid_fixture(shared);
         let source: Arc<[u8]> = f.bytes.into();
         let parsed = inspect_cff1_program_v2(source.clone(), 3, 1000, 5).unwrap();
-        assert!(Arc::ptr_eq(&source, &parsed.program.source));
+        let SourceBytesV2::Slice(shared) = &parsed.program.source else {
+            panic!("slice owner changed")
+        };
+        assert!(Arc::ptr_eq(&source, shared));
         assert_eq!(parsed.font_dict_count(), 2);
         assert_eq!(parsed.global_subroutine_count(), 1);
         assert_eq!(parsed.fd_for_gid(1), Some(1));
@@ -280,11 +283,8 @@ fn cff_v2_original_harano_program_has_all_eighteen_fd_contexts() {
         hex(&p.program.fd_by_gid),
         "83ca997d6773a631791dad08bf2448ed15566a7f51b052d7776a8a364cc344e1"
     );
-    let cid_bytes = p
-        .program
-        .cid_by_gid
-        .iter()
-        .flat_map(|cid| cid.to_be_bytes())
+    let cid_bytes = (0..p.glyph_count())
+        .flat_map(|gid| p.cid_for_gid(gid).unwrap().to_be_bytes())
         .collect::<Vec<_>>();
     assert_eq!(
         hex(&cid_bytes),

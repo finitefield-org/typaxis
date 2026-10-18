@@ -917,6 +917,12 @@ fn map_common_pagination_error(
 ) -> Failure {
     use typaxis_pagination::ProductionBodyPaginationErrorKind as E;
     match error.kind {
+        #[cfg(feature = "book-v2-staging")]
+        E::ColumnBalanceLimit { .. } | E::ColumnBalanceOscillation => {
+            Failure::limit(format!("G6003: {error}"))
+        }
+        #[cfg(feature = "book-v2-staging")]
+        E::ColumnBalanceContradiction => Failure::internal(format!("I9190: {error}")),
         E::TableHeaderWidthRequired { .. } => Failure::input(error.to_string()),
         E::PageLimit
         | E::PagePassLimit
@@ -988,6 +994,7 @@ fn map_common_reshape_error(error: typaxis_layout::ProductionBodyReshapeError) -
                 | A::UnicodeLineBreak
                 | A::InvalidLineSize
                 | A::NoFeasibleLine
+                | A::InlineSizeExceeded { .. }
                 | A::Oversize(_) => (FailureKind::Input, "L5100"),
             },
             _ => (FailureKind::Input, "L5100"),
@@ -1038,22 +1045,87 @@ fn map_common_reshape_error(error: typaxis_layout::ProductionBodyReshapeError) -
                 S::Backend(_) => "shaping_backend_failed",
                 S::CffV2(_) => "cff_v2_shaping_failed",
             };
-            let text = match e.kind { S::MissingShapedGlyph { span } => Some(span), _ => None };
-            Some((e.owner, text, "production text shaping failed", "authored-text-shaping", reason))
+            let text = match e.kind {
+                S::MissingShapedGlyph { span } => Some(span),
+                _ => None,
+            };
+            Some((
+                e.owner,
+                None,
+                text,
+                "production text shaping failed",
+                "authored-text-shaping",
+                reason,
+            ))
         }
-        E::Layout(e) => Some((e.owner, None, "production inline preparation failed", "inline-preparation", "inline_preparation_failed")),
+        E::Layout(e) => match &e.kind {
+            L::Atomic(A::InlineSizeExceeded {
+                owner, source_span, ..
+            }) => Some((
+                *owner,
+                Some(*source_span),
+                None,
+                "inline item exceeds the available line width",
+                "inline-preparation",
+                "inline_size_exceeded",
+            )),
+            L::Atomic(A::NoFeasibleLine) => Some((
+                e.owner,
+                None,
+                None,
+                "no feasible production inline line",
+                "inline-preparation",
+                "no_feasible_line",
+            )),
+            _ => Some((
+                e.owner,
+                None,
+                None,
+                "production inline preparation failed",
+                "inline-preparation",
+                "inline_preparation_failed",
+            )),
+        },
         E::Feedback(_) => None, // This error does not carry a source owner.
     };
-    if let Some((owner, text, message, phase, reason)) = source {
-        let location = typaxis_diagnostics::SourceDiagnosticLocation::new(None, text, Some(owner))
-            .expect("a typed node owner makes the source location nonempty");
-        failure.processing_diagnostic = Some(typaxis_diagnostics::DiagnosticBuilder::located(
-            typaxis_diagnostics::DiagnosticCode::new(code).expect("closed production diagnostic code"),
-            typaxis_diagnostics::Severity::Error, message,
+    if let Some((owner, source_span, text, message, phase, reason)) = source {
+        let location =
+            typaxis_diagnostics::SourceDiagnosticLocation::new(source_span, text, Some(owner))
+                .expect("a typed node owner makes the source location nonempty");
+        let mut diagnostic = typaxis_diagnostics::DiagnosticBuilder::located(
+            typaxis_diagnostics::DiagnosticCode::new(code)
+                .expect("closed production diagnostic code"),
+            typaxis_diagnostics::Severity::Error,
+            message,
             typaxis_diagnostics::DiagnosticLocation::source(location),
-        ).expect("static production message is canonical")
-            .note(format!("phase={phase}; reason={reason}"))
-            .expect("closed production reason note is canonical").build());
+        )
+        .expect("static production message is canonical")
+        .note(format!("phase={phase}; reason={reason}"))
+        .expect("closed production reason note is canonical");
+        if let E::Layout(typaxis_layout::ProductionInlinePreparationError {
+            owner: paragraph,
+            kind:
+                L::Atomic(A::InlineSizeExceeded {
+                    owner,
+                    required_inline_size,
+                    maximum_inline_size,
+                    ..
+                }),
+        }) = &error
+        {
+            failure.message = format!(
+                "{code}: inline item {} requires {}; maximum supplied line width is {} (paragraph {})",
+                owner.get(), required_inline_size.get(), maximum_inline_size.get(), paragraph.get()
+            );
+            diagnostic =
+                diagnostic
+                    .note(format!(
+                "paragraph_node={}; required_inline_size_raw={}; maximum_inline_size_raw={}",
+                paragraph.get(), required_inline_size.get().raw(), maximum_inline_size.get().raw()
+            ))
+                    .expect("typed inline sizes produce canonical diagnostic text");
+        }
+        failure.processing_diagnostic = Some(diagnostic.build());
     }
     failure
 }

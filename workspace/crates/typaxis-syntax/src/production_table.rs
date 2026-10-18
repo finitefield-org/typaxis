@@ -101,6 +101,39 @@ impl ProductionTable {
         self.page_name.as_ref()
     }
 }
+#[cfg(feature = "book-v2-staging")]
+impl ProductionTable {
+    pub(super) fn try_copy_for_page_candidate(
+        &self,
+        copy: &mut super::book_v2::page_candidates::CandidateCopy<'_>,
+        permit: &mut super::book_v2::page_candidates::SourceRecordPermit,
+    ) -> Result<Self, super::book_v2::page_candidates::BookV2PageCandidateError> {
+        let mut columns = copy.vector(self.owner, self.columns.len(), permit)?;
+        for column in &self.columns {
+            copy.step(self.owner, 1)?;
+            let sizing = match &column.sizing {
+                ColumnSizing::Fixed(value) => ColumnSizing::Fixed(*value),
+                ColumnSizing::Fraction(value) => ColumnSizing::Fraction(*value),
+            };
+            columns.push(TableColumn { sizing });
+        }
+        let rows = copy.copy_slice(self.owner, &self.rows, permit)?;
+        let cells = copy.copy_slice(self.owner, &self.cells, permit)?;
+        let style = copy.style(self.owner, &self.style)?;
+        let page_name = copy.page_name(self.owner, self.page_name.as_ref())?;
+        Ok(Self {
+            owner: self.owner,
+            source_span: self.source_span,
+            caption_events: self.caption_events.as_ref().map(|r| r.start..r.end),
+            columns,
+            rows,
+            cells,
+            style,
+            page_name,
+        })
+    }
+}
+
 impl<'a, S: FlowSource<'a>> Collector<'a, S> {
     pub(super) fn table(
         &mut self,
@@ -125,6 +158,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         if columns.is_empty() || row_count == 0 {
             return Err(invalid());
         }
+        self.source.operations().step(owner, row_count as u64)?;
         let cell_count = head
             .iter()
             .chain(body)
@@ -146,10 +180,11 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
             .filter(|n| *n <= self.source.limits().get().max_fragments)
             .ok_or_else(|| failure(E::NodeLimit, owner))?;
         let mut typed = Vec::new();
-        typed
-            .try_reserve_exact(columns.len())
-            .map_err(|_| failure(E::AllocationFailure, owner))?;
+        self.source
+            .operations()
+            .grow(owner, &mut typed, columns.len(), true)?;
         for column in columns {
+            self.source.operations().step(owner, 1)?;
             let sizing = match column.get("kind").and_then(|v| v.as_str()) {
                 Some("fixed") => ColumnSizing::Fixed(
                     column
@@ -173,29 +208,42 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         }
         let mut rows = Vec::new();
         let mut cells = Vec::new();
-        rows.try_reserve_exact(row_count)
-            .map_err(|_| failure(E::AllocationFailure, owner))?;
-        cells
-            .try_reserve_exact(cell_count)
-            .map_err(|_| failure(E::AllocationFailure, owner))?;
+        self.source
+            .operations()
+            .grow(owner, &mut rows, row_count, true)?;
+        self.source
+            .operations()
+            .grow(owner, &mut cells, cell_count, true)?;
         let mut remaining = Vec::new();
-        remaining
-            .try_reserve_exact(columns.len())
-            .map_err(|_| failure(E::AllocationFailure, owner))?;
+        self.source
+            .operations()
+            .grow(owner, &mut remaining, columns.len(), true)?;
+        self.source.operations().step(owner, columns.len() as u64)?;
         remaining.resize(columns.len(), 0u16);
         for (section, source) in [
             (ProductionTableSection::Head, head.as_slice()),
             (ProductionTableSection::Body, body.as_slice()),
         ] {
-            lower_section(section, source, &mut remaining, &mut rows, &mut cells)?;
+            lower_section(
+                section,
+                source,
+                &mut remaining,
+                &mut rows,
+                &mut cells,
+                &mut self.source.operations(),
+            )?;
         }
-        let page_name = self
-            .rules.cascade_ordinary("table", block.classes())
-            .and_then(|s| s.page_name())
-            .map_err(|_| failure(E::InvalidStyle, owner))?;
-        self.tables
-            .try_reserve(1)
-            .map_err(|_| failure(E::AllocationFailure, owner))?;
+        let page_name = self.source.operations().page_name(
+            owner,
+            &self.rules,
+            &self.rules.ordinary,
+            "table",
+            block.classes(),
+            false,
+        )?;
+        self.source
+            .operations()
+            .grow(owner, &mut self.tables, 1, false)?;
         self.tables.push(ProductionTable {
             owner,
             source_span: lower_span(*span).map_err(|_| invalid())?,
@@ -215,16 +263,20 @@ fn lower_section<K>(
     remaining: &mut [u16],
     rows: &mut Vec<ProductionTableRow>,
     cells: &mut Vec<ProductionTableCell>,
+    ops: &mut SourceOps<'_>,
 ) -> Result<(), ProductionFlowError> {
     for (index, row) in source.iter().enumerate() {
         let owner = NodeId::new(row.node_id);
+        ops.step(owner, 1)?;
         let invalid = |owner| failure(ProductionFlowErrorKind::InvalidTableGrid, owner);
         let ordinal = u32::try_from(rows.len()).map_err(|_| invalid(owner))?;
         let start = u32::try_from(cells.len()).map_err(|_| invalid(owner))?;
         let mut cursor = 0;
         for cell in &row.cells {
             let cell_owner = NodeId::new(cell.node_id);
+            ops.step(cell_owner, 1)?;
             while cursor < remaining.len() && remaining[cursor] != 0 {
+                ops.step(cell_owner, 1)?;
                 cursor += 1;
             }
             let colspan = NonZeroU16::new(cell.colspan).ok_or_else(|| invalid(cell_owner))?;
@@ -233,6 +285,7 @@ fn lower_section<K>(
                 .checked_add(usize::from(colspan.get()))
                 .filter(|end| *end <= remaining.len())
                 .ok_or_else(|| invalid(cell_owner))?;
+            ops.step(cell_owner, (end - cursor) as u64)?;
             if index
                 .checked_add(usize::from(rowspan.get()))
                 .is_none_or(|end| end > source.len())
@@ -240,6 +293,7 @@ fn lower_section<K>(
             {
                 return Err(invalid(cell_owner));
             }
+            ops.step(cell_owner, (end - cursor) as u64)?;
             remaining[cursor..end].fill(rowspan.get());
             cells.push(ProductionTableCell {
                 owner: cell_owner,
@@ -251,10 +305,12 @@ fn lower_section<K>(
             });
             cursor = end;
         }
+        ops.step(owner, remaining.len() as u64)?;
         if remaining.contains(&0) {
             return Err(invalid(owner));
         }
         for n in remaining.iter_mut() {
+            ops.step(owner, 1)?;
             *n -= 1;
         }
         rows.push(ProductionTableRow {

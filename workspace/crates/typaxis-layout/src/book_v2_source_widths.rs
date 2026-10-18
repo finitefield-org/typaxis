@@ -209,6 +209,31 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
     consumed: &mut u64,
     observed_records: &mut u64,
 ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
+    layout_source_width_lines_counted_with_record_limit(
+        prepared,
+        envelopes,
+        assignments,
+        maximum_work,
+        prior_records,
+        consumed,
+        observed_records,
+        prepared.output_record_limit,
+        BookV2NativeRecordOrigin::Retained,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn layout_source_width_lines_counted_with_record_limit<'p, 'a>(
+    prepared: &'p BookV2PreparedInlines<'a>,
+    envelopes: &[PositiveLength],
+    assignments: &BookV2SourceWidthAssignments<'_, '_>,
+    maximum_work: u64,
+    prior_records: u64,
+    consumed: &mut u64,
+    observed_records: &mut u64,
+    record_limit: u64,
+    native_origin: BookV2NativeRecordOrigin,
+) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
     *observed_records = prior_records;
     let mut projected_records = prior_records;
     let mut remaining = maximum_work;
@@ -225,13 +250,13 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
         // These binding records and width slots are charged by the shared projection.
         // Check their capacity before allocating the temporary binding vector.
         let mut records = prior_records
-            .checked_add(prepared.native_math().map_or(0, |m| m.record_charge()))
-            .filter(|n| *n <= prepared.output_record_limit)
+            .checked_add(native_origin.records(prepared))
+            .filter(|n| *n <= record_limit.min(prepared.output_record_limit))
             .ok_or_else(|| error(root, E::UnitLimit))?;
         *observed_records = records;
         records = records
             .checked_add(assignments.widths.len() as u64)
-            .filter(|n| *n <= prepared.output_record_limit)
+            .filter(|n| *n <= record_limit.min(prepared.output_record_limit))
             .ok_or_else(|| error(root, E::UnitLimit))?;
         *observed_records = records;
         let step = |remaining: &mut u64, owner| {
@@ -256,7 +281,7 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
                 }
                 records = records
                     .checked_add(ends.len() as u64)
-                    .filter(|n| *n <= prepared.output_record_limit)
+                    .filter(|n| *n <= record_limit.min(prepared.output_record_limit))
                     .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
                 *observed_records = records;
             }
@@ -269,7 +294,7 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
                 }
                 records = records
                     .checked_add(widths.len() as u64)
-                    .filter(|n| *n <= prepared.output_record_limit)
+                    .filter(|n| *n <= record_limit.min(prepared.output_record_limit))
                     .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
                 *observed_records = records;
             }
@@ -350,7 +375,7 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
                 .map_err(|e| error(p.owner(), E::Atomic(e)))?,
             ));
         }
-        let mut lines = layout_with_source_widths_counted(
+        let mut lines = layout_with_source_widths_counted_and_limit(
             prepared,
             envelopes,
             remaining,
@@ -358,6 +383,8 @@ pub(super) fn layout_source_width_lines_counted<'p, 'a>(
             Some(&bindings),
             &mut projected,
             &mut projected_records,
+            record_limit,
+            native_origin,
         )?;
         lines.projection.candidate_steps = lines
             .projection

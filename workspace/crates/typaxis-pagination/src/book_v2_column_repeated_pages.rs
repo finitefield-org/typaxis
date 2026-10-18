@@ -1,5 +1,6 @@
 //! Repeated immutable column selections. This proof covers source cuts and
-//! candidate geometry, not balancing, physical placement or PDF authorization.
+//! candidate geometry and selected balance receipts; physical placement and PDF
+//! authorization require their own proofs.
 use super::*;
 use crate::production_body::body_flow::book_v2::BookV2TableCursor;
 
@@ -33,6 +34,47 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
             sequence: result.sequence,
             passes: result.passes,
         })
+    }
+    /// A positive final requesting page must carry its actual balance proof.
+    /// Earlier pages, notes-only pages and forced blank suffixes retain no proof.
+    pub(in crate::production_body::body_flow) fn verify_balanced_selection(
+        &mut self,
+        sequence: &BookV2ColumnPageSequence<'b, 'f, 's, 'p, 'a>,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        if !self.plan.requests_last_page_balance() { return Ok(()); }
+        let root = NodeId::new(0);
+        let mut eligible = None;
+        for (index, page) in sequence.pages().iter().enumerate().rev() {
+            self.inner.content.step(root)?;
+            let mut body = page.balance().is_some_and(|receipt| receipt.initial_extent() > Length::ZERO);
+            for column in page.candidate().columns() {
+                self.inner.content.step(root)?;
+                body |= column.used_height() > Length::ZERO;
+            }
+            if body || page.candidate().footnotes().is_some_and(|n| !n.fragments().is_empty()) {
+                eligible = Some(index);
+                break;
+            }
+        }
+        for (index, page) in sequence.pages().iter().enumerate() {
+            self.inner.content.step(root)?;
+            self.verify_balance_page(page)?;
+            let mut positive = false;
+            for column in page.candidate().columns() {
+                self.inner.content.step(root)?;
+                positive |= column.used_height() > Length::ZERO;
+                if page.balance().is_some_and(|receipt| column.bounds().height() != receipt.selected_height()) {
+                    return Err(error(root, E::ReceiptMismatch));
+                }
+            }
+            let required = eligible == Some(index)
+                && page.candidate().frames().requires_last_page_balance()
+                && (positive || page.balance().is_some_and(|receipt| receipt.initial_extent() > Length::ZERO));
+            if page.balance().is_some() != required {
+                return Err(error(root, E::ColumnBalanceContradiction));
+            }
+        }
+        Ok(())
     }
     pub(in crate::production_body::body_flow) fn same_column_selections(
         &mut self,
@@ -69,6 +111,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
                 || lp.named_page() != rp.named_page()
                 || lp.forced_break() != rp.forced_break()
                 || lp.candidate_attempts() != rp.candidate_attempts()
+                || lp.balance().map(|b| b.fingerprint()) != rp.balance().map(|b| b.fingerprint())
                 || lnext.next_item() != rnext.next_item()
                 || lnext.next_table_index() != rnext.next_table_index()
                 || cursor(lnext.table_continuation()) != cursor(rnext.table_continuation())
@@ -185,7 +228,9 @@ impl<'b, 'f, 's, 'p, 'a> page_stability_kernel::StableSearch
         self.inner.content.charge.take(1, NodeId::new(0))
     }
     fn select(&mut self) -> Result<Self::Sequence, ProductionBodyPaginationError> {
-        self.select_pages()
+        let sequence = self.select_balanced_pages()?;
+        self.verify_balanced_selection(&sequence)?;
+        Ok(sequence)
     }
     fn same(
         &mut self,

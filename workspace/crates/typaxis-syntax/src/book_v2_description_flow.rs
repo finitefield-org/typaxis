@@ -53,6 +53,33 @@ impl<'a> BookV2DescriptionItem<'a> {
     }
 }
 
+impl BookV2DescriptionList {
+    pub(super) fn try_copy_for_page_candidate(
+        &self,
+        copy: &mut super::book_v2::page_candidates::CandidateCopy<'_>,
+    ) -> Result<Self, super::book_v2::page_candidates::BookV2PageCandidateError> {
+        let style = copy.style(self.owner, &self.style)?;
+        let page_name = copy.page_name(self.owner, self.page_name.as_ref())?;
+        Ok(Self {
+            owner: self.owner,
+            style,
+            page_name,
+        })
+    }
+}
+impl<'a> BookV2DescriptionItem<'a> {
+    pub(super) fn copy_for_page_candidate(&self) -> Self {
+        Self {
+            owner: self.owner,
+            list_index: self.list_index,
+            item_index: self.item_index,
+            term_paragraph_index: self.term_paragraph_index,
+            source_span: self.source_span,
+            language: self.language,
+        }
+    }
+}
+
 impl<'a, P, N> SourceTextFlow<'a, P, N> {
     pub fn description_lists(&self) -> &[BookV2DescriptionList] {
         &self.description_lists
@@ -77,13 +104,23 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
             .descriptions
             .as_ref()
             .ok_or_else(|| failure(ProductionFlowErrorKind::DescriptionListStaging, owner))?;
-        let style =
-            cascade_staging_semantic_descendant_style("paragraph", classes, list_rules, parent)
-                .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
-        let page_name = list_rules
-            .cascade_basic_document("paragraph", classes)
-            .and_then(|s| s.page_name())
-            .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
+        let style = self.source.operations().descendant(
+            owner,
+            &self.rules,
+            "paragraph",
+            classes,
+            list_rules,
+            parent,
+            true,
+        )?;
+        let page_name = self.source.operations().page_name(
+            owner,
+            &self.rules,
+            list_rules,
+            "paragraph",
+            classes,
+            true,
+        )?;
         self.begin(owner, Kind::DescriptionList)?;
         if (self.description_lists.len() as u64)
             .checked_add(self.description_items.len() as u64)
@@ -93,12 +130,12 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         }
         let list_index = u32::try_from(self.description_lists.len())
             .map_err(|_| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
-        self.description_lists
-            .try_reserve(1)
-            .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+        self.source
+            .operations()
+            .grow(owner, &mut self.description_lists, 1, false)?;
         self.description_lists.push(BookV2DescriptionList {
             owner,
-            style: style.clone(),
+            style: self.source.operations().copy_style(owner, &style)?,
             page_name,
         });
         for (index, item) in items.iter().enumerate() {
@@ -118,9 +155,9 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                 .map_err(|_| failure(ProductionFlowErrorKind::ReceiptMismatch, item_owner))?;
             let language = self.language(item_owner)?;
             self.source.reserve_records(item_owner, 1)?;
-            self.description_items
-                .try_reserve(1)
-                .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, item_owner))?;
+            self.source
+                .operations()
+                .grow(item_owner, &mut self.description_items, 1, false)?;
             self.description_items.push(BookV2DescriptionItem {
                 owner: item_owner,
                 list_index,
@@ -148,20 +185,28 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
             .descriptions
             .as_ref()
             .ok_or_else(|| failure(ProductionFlowErrorKind::DescriptionListStaging, owner))?;
-        let style = cascade_staging_semantic_descendant_style(
+        let style = self.source.operations().descendant(
+            owner,
+            &self.rules,
             "paragraph",
             &term.classes,
             rules,
             Some(parent),
-        )
-        .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
-        let page_name = rules
-            .cascade_basic_document("paragraph", &term.classes)
-            .and_then(|s| s.page_name())
-            .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
+            true,
+        )?;
+        let page_name = self.source.operations().page_name(
+            owner,
+            &self.rules,
+            rules,
+            "paragraph",
+            &term.classes,
+            true,
+        )?;
         self.begin(owner, ProductionFlowRegionKind::DescriptionTerm)?;
         let mut items = Vec::new();
-        self.inlines(&term.children, self.language(owner)?, &mut items)?;
+        let language = self.language(owner)?;
+        self.inlines(&term.children, language, &mut items)?;
+        self.source.operations().step(owner, items.len() as u64)?;
         let needs_font = items.iter().any(|i| {
             matches!(i.content, ProductionInlineContent::Text { utf8, .. } if !utf8.is_empty())
                 || matches!(
@@ -178,9 +223,9 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         }
         let index = u32::try_from(self.paragraphs.len())
             .map_err(|_| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
-        self.paragraphs
-            .try_reserve(1)
-            .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+        self.source
+            .operations()
+            .grow(owner, &mut self.paragraphs, 1, false)?;
         self.paragraphs.push(ProductionTextParagraph {
             owner,
             style,

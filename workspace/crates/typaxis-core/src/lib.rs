@@ -1813,7 +1813,8 @@ impl ValidatedM4ResourceLimits {
 pub struct M4EffectiveResourceLimits {
     base: ValidatedResourceLimits,
     extension: ValidatedM4ResourceLimits,
-    canonical_jcs: String,
+    // Immutable cached serialization is shared by owned receipt clones.
+    canonical_jcs: std::sync::Arc<String>,
     fingerprint: [u8; 32],
 }
 
@@ -1857,7 +1858,7 @@ impl M4EffectiveResourceLimits {
         Ok(Self {
             base,
             extension,
-            canonical_jcs,
+            canonical_jcs: std::sync::Arc::new(canonical_jcs),
             fingerprint,
         })
     }
@@ -2341,6 +2342,23 @@ mod canonical_tests;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn m4_receipt_clones_share_immutable_canonical_bytes_and_retain_ownership() {
+        let base = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let original = M4EffectiveResourceLimits::defaults_for(&base);
+        let cloned = original.clone();
+        let independent = M4EffectiveResourceLimits::defaults_for(&base);
+        assert!(std::sync::Arc::ptr_eq(&original.canonical_jcs, &cloned.canonical_jcs));
+        assert!(!std::sync::Arc::ptr_eq(&original.canonical_jcs, &independent.canonical_jcs));
+        assert_eq!(original, independent);
+        assert_eq!(std::sync::Arc::strong_count(&cloned.canonical_jcs), 2);
+        drop(original);
+        assert_eq!(std::sync::Arc::strong_count(&cloned.canonical_jcs), 1);
+        assert_eq!(cloned.canonical_jcs(), independent.canonical_jcs());
+        assert_eq!(cloned.base(), &base);
+        assert_eq!(sha256(cloned.canonical_jcs().as_bytes()), cloned.fingerprint());
+    }
+
     use super::*;
     use std::str::FromStr;
 

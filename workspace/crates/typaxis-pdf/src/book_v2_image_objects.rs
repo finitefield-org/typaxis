@@ -1,7 +1,11 @@
 //! Actual image/Form object fragments; global numbering and page/semantic
 //! closure remain the responsibility of the complete document owner.
 use super::*;
-use crate::{image_encoding, ObjectId};
+use crate::{ObjectId, image_encoding};
+use typaxis_display_list::book_v2::{
+    BookV2BodyDisplay, BookV2BodyPaintIndex, BookV2ColumnDisplay, BookV2ColumnPaintIndex,
+    BookV2ResourceDisplay,
+};
 use typaxis_resources::{ImageColorSpace, ImageEncoding};
 pub const BOOK_V2_IMAGE_OBJECTS_ALGORITHM: &str = "typaxis.book-2-image-objects/1";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -36,8 +40,70 @@ impl BookV2ImageObject {
         self.range.clone()
     }
 }
-pub struct BookV2ImageObjects<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'j BookV2VectorPrograms<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub type BookV2ImageObjects<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2ImageObjectsData<
+        'j,
+        'r,
+        'i,
+        'v,
+        'a,
+        BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2BodyPaintIndex,
+    >;
+/// Column stages retain their authentic source display and typed paint index.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2ImageObjects, BookV2ColumnImageObjects};
+/// fn body<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnImageObjects<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>)
+///     -> BookV2ImageObjects<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnImageObjects<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2ImageObjectsData<
+        'j,
+        'r,
+        'i,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+pub type BookV2ImageObjectBuilder<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2ImageObjectBuilderData<
+        'j,
+        'r,
+        'i,
+        'v,
+        'a,
+        BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2BodyPaintIndex,
+    >;
+/// Column stages retain their authentic source display and typed paint index.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2ImageObjectBuilder, BookV2ColumnImageObjectBuilder};
+/// fn body<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnImageObjectBuilder<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>)
+///     -> BookV2ImageObjectBuilder<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnImageObjectBuilder<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2ImageObjectBuilderData<
+        'j,
+        'r,
+        'i,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+pub struct BookV2ImageObjectsData<
+    'j,
+    'r,
+    'i,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'j BookV2VectorProgramsData<'r, 'i, 'v, 'a, D, P>,
     objects: Vec<BookV2ImageObject>,
     images: Vec<Range<usize>>,
     bytes: Vec<u8>,
@@ -45,10 +111,10 @@ pub struct BookV2ImageObjects<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
     fingerprint: [u8; 32],
     budget: Budget,
 }
-impl<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2ImageObjects<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+impl<'j, 'r, 'i, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>
+    BookV2ImageObjectsData<'j, 'r, 'i, 'v, 'a, D, P>
 {
-    pub fn source(&self) -> &'j BookV2VectorPrograms<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn source(&self) -> &'j BookV2VectorProgramsData<'r, 'i, 'v, 'a, D, P> {
         self.source
     }
     pub fn objects(&self) -> &[BookV2ImageObject] {
@@ -85,19 +151,27 @@ impl<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         self.budget.work
     }
 }
-pub struct BookV2ImageObjectBuilder<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'j BookV2VectorPrograms<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2ImageObjectBuilderData<
+    'j,
+    'r,
+    'i,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'j BookV2VectorProgramsData<'r, 'i, 'v, 'a, D, P>,
     first: u32,
     count: usize,
     credit: usize,
     credit_available: bool,
     budget: Budget,
 }
-impl<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2ImageObjectBuilder<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+impl<'j, 'r, 'i, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>
+    BookV2ImageObjectBuilderData<'j, 'r, 'i, 'v, 'a, D, P>
 {
     pub fn new(
-        source: &'j BookV2VectorPrograms<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        source: &'j BookV2VectorProgramsData<'r, 'i, 'v, 'a, D, P>,
         first: u32,
         limits: &M4EffectiveResourceLimits,
         max_work: u64,
@@ -106,21 +180,55 @@ impl<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         prior_output: u64,
         prior_work: u64,
     ) -> Result<Self, E> {
-        let display = source.source().source().display();
-        display
-            .verify_resources(display.admitted(), limits)
-            .map_err(|_| E::Identity)?;
-        let base = limits.base().get();
-        let records = prior_records
-            .max(source.record_charge())
-            .checked_add(1)
-            .ok_or(E::Records)?;
+        Self::new_counted(
+            source,
+            first,
+            limits,
+            max_work,
+            prior_records,
+            prior_spool,
+            prior_output,
+            prior_work,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+        )
+    }
+    /// Return accepted constructor charges even when a later cap rejects the builder.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_counted(
+        source: &'j BookV2VectorProgramsData<'r, 'i, 'v, 'a, D, P>,
+        first: u32,
+        limits: &M4EffectiveResourceLimits,
+        max_work: u64,
+        prior_records: u64,
+        prior_spool: u64,
+        prior_output: u64,
+        prior_work: u64,
+        observed_records: &mut u64,
+        observed_spool: &mut u64,
+        observed_output: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<Self, E> {
+        let records = prior_records.max(source.record_charge());
         let spool = prior_spool.max(source.spool_charge());
         let output = prior_output.max(source.output_charge());
         let work = prior_work.max(source.work_steps());
-        if records > base.max_fragments {
-            return Err(E::Records);
-        }
+        *observed_records = records;
+        *observed_spool = spool;
+        *observed_output = output;
+        *observed_work = work;
+        let display = source.source().source().display();
+        display
+            .verify_resource_selection(display.admitted(), limits)
+            .map_err(|_| E::Identity)?;
+        let base = limits.base().get();
+        let records = records
+            .checked_add(1)
+            .filter(|n| *n <= base.max_fragments)
+            .ok_or(E::Records)?;
+        *observed_records = records;
         if spool > base.max_spool_bytes {
             return Err(E::Spool);
         }
@@ -140,35 +248,46 @@ impl<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             output,
             work,
         };
-        let mut count = 0usize;
-        let mut credit = 0usize;
-        for index in 0..source.source().source().images().len() {
-            budget.step(1)?;
-            let n = match (source.source().program(index), source.program(index)) {
-                (Some(r), None) => 1 + usize::from(r.alpha_mask().is_some()),
-                (None, Some(v)) => {
-                    credit = credit.checked_add(v.content().len()).ok_or(E::Output)?;
-                    for state in 0..v.states().len() {
-                        budget.step(1)?;
-                        credit = credit
-                            .checked_add(v.state_dictionary(state).ok_or(E::Identity)?.len())
-                            .ok_or(E::Output)?;
+        let result = (|| -> Result<(usize, usize), E> {
+            let mut count = 0usize;
+            let mut credit = 0usize;
+            for index in 0..source.source().source().images().len() {
+                budget.step(1)?;
+                let n = match (source.source().program(index), source.program(index)) {
+                    (Some(r), None) => 1 + usize::from(r.alpha_mask().is_some()),
+                    (None, Some(v)) => {
+                        credit = credit.checked_add(v.content().len()).ok_or(E::Output)?;
+                        for state in 0..v.states().len() {
+                            budget.step(1)?;
+                            credit = credit
+                                .checked_add(v.state_dictionary(state).ok_or(E::Identity)?.len())
+                                .ok_or(E::Output)?;
+                        }
+                        v.states().len().checked_add(1).ok_or(E::Objects)?
                     }
-                    v.states().len().checked_add(1).ok_or(E::Objects)?
-                }
-                _ => return Err(E::Identity),
-            };
-            count = count.checked_add(n).ok_or(E::Objects)?;
-        }
-        let next = u64::from(first)
-            .checked_add(count as u64)
-            .ok_or(E::Objects)?;
-        if first == 0 || next > u64::from(u32::MAX) || next - 1 > u64::from(base.max_pdf_objects) {
-            return Err(E::Objects);
-        }
-        if credit as u64 > source.output_charge() {
-            return Err(E::Identity);
-        }
+                    _ => return Err(E::Identity),
+                };
+                count = count.checked_add(n).ok_or(E::Objects)?;
+            }
+            let next = u64::from(first)
+                .checked_add(count as u64)
+                .ok_or(E::Objects)?;
+            if first == 0
+                || next > u64::from(u32::MAX)
+                || next - 1 > u64::from(base.max_pdf_objects)
+            {
+                return Err(E::Objects);
+            }
+            if credit as u64 > source.output_charge() {
+                return Err(E::Identity);
+            }
+            Ok((count, credit))
+        })();
+        *observed_records = budget.records;
+        *observed_spool = budget.spool;
+        *observed_output = budget.output;
+        *observed_work = budget.work;
+        let (count, credit) = result?;
         Ok(Self {
             source,
             first,
@@ -190,9 +309,7 @@ impl<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
     pub fn work_steps(&self) -> u64 {
         self.budget.work
     }
-    pub fn build(
-        &mut self,
-    ) -> Result<BookV2ImageObjects<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>, E> {
+    pub fn build(&mut self) -> Result<BookV2ImageObjectsData<'j, 'r, 'i, 'v, 'a, D, P>, E> {
         let n = self.source.source().source().images().len();
         let metadata = self
             .count
@@ -278,7 +395,7 @@ impl<'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             b[8..].copy_from_slice(&(r.end as u64).to_be_bytes());
             fp = self.budget.fold(fp, &b)?;
         }
-        Ok(BookV2ImageObjects {
+        Ok(BookV2ImageObjectsData {
             source: self.source,
             objects,
             images,
@@ -300,8 +417,8 @@ fn stream(out: &mut Encoder<'_>, bytes: &[u8]) -> Result<(), E> {
     out.extend(bytes)?;
     out.extend(b"\nendstream")
 }
-fn encode(
-    source: &BookV2VectorPrograms<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
+fn encode<'a, D: BookV2ResourceDisplay<'a>, P: Copy>(
+    source: &BookV2VectorProgramsData<'_, '_, '_, 'a, D, P>,
     first: u32,
     out: &mut Encoder<'_>,
     mut objects: Option<&mut Vec<BookV2ImageObject>>,

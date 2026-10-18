@@ -4,6 +4,11 @@ use std::fmt;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use typaxis_core::{HostPath, PortablePath};
+mod logical_candidate;
+mod prepared_path;
+pub(crate) use prepared_path::PreparedReadPath;
+#[cfg(test)]
+mod candidate_identity_tests;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct FileIdentity {
@@ -138,7 +143,7 @@ impl AdmittedRoot {
         let mut current = None;
 
         for (index, component) in components[..parent_count].iter().enumerate() {
-            match open_directory_component(self, current.as_ref(), component) {
+            match open_directory_component(self, current.as_ref(), *component) {
                 Err(HostAdmissionError::UnsafeCandidate) => {
                     return resolve_parent_leaf_path(&portable_host_path(
                         &self.canonical_path,
@@ -164,13 +169,23 @@ impl AdmittedRoot {
         })
     }
 
+    /// Compare against the retained identity without allocating another suffix.
+    /// Aliased parents use a bounded scratch path and borrowed suffix too.
+    pub(crate) fn candidate_identity_matches(
+        &self,
+        path: &PortablePath,
+        expected: &CandidatePathIdentity,
+    ) -> Result<bool, HostAdmissionError> {
+        PreparedReadPath::new(path)?.candidate_identity_matches(self, path, expected)
+    }
+
     pub(crate) fn open_candidate(
         &self,
         path: &PortablePath,
     ) -> Result<Option<OpenedCandidate>, HostAdmissionError> {
         #[cfg(any(target_os = "android", target_os = "linux"))]
         {
-            match open_candidate_with_openat2(self, path) {
+            match open_candidate_with_openat2(self, path.as_str()) {
                 Err(Openat2Failure::Unavailable) => open_candidate_component_walker(self, path),
                 Err(Openat2Failure::Admission(error)) => Err(error),
                 Ok(opened) => Ok(opened),
@@ -206,7 +221,7 @@ fn snapshot_directory(
 fn open_directory_component(
     root: &AdmittedRoot,
     current: Option<&File>,
-    component: &str,
+    component: impl rustix::path::Arg,
 ) -> Result<Option<File>, HostAdmissionError> {
     use rustix::fs::{openat, Mode, OFlags};
 
@@ -231,8 +246,6 @@ fn open_candidate_component_walker(
     root: &AdmittedRoot,
     path: &PortablePath,
 ) -> Result<Option<OpenedCandidate>, HostAdmissionError> {
-    use rustix::fs::{openat, Mode, OFlags};
-
     let mut components = path.as_str().split('/').peekable();
     let mut current = None;
     while let Some(component) = components.next() {
@@ -244,19 +257,28 @@ fn open_candidate_component_walker(
             continue;
         }
 
-        let flags = OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK;
-        let opened = match current.as_ref() {
-            Some(directory) => openat(directory, component, flags, Mode::empty()),
-            None => openat(&root.directory, component, flags, Mode::empty()),
-        };
-        let descriptor = match opened {
-            Ok(descriptor) => descriptor,
-            Err(error) if error == rustix::io::Errno::NOENT => return Ok(None),
-            Err(_) => return Err(HostAdmissionError::UnsafeCandidate),
-        };
-        return opened_regular_file(descriptor.into());
+        return open_regular_component(root, current.as_ref(), component);
     }
     Err(HostAdmissionError::UnsafeCandidate)
+}
+
+fn open_regular_component(
+    root: &AdmittedRoot,
+    current: Option<&File>,
+    component: impl rustix::path::Arg,
+) -> Result<Option<OpenedCandidate>, HostAdmissionError> {
+    use rustix::fs::{openat, Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK;
+    let opened = match current {
+        Some(directory) => openat(directory, component, flags, Mode::empty()),
+        None => openat(&root.directory, component, flags, Mode::empty()),
+    };
+    let descriptor = match opened {
+        Ok(descriptor) => descriptor,
+        Err(error) if error == rustix::io::Errno::NOENT => return Ok(None),
+        Err(_) => return Err(HostAdmissionError::UnsafeCandidate),
+    };
+    opened_regular_file(descriptor.into())
 }
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
@@ -268,13 +290,13 @@ enum Openat2Failure {
 #[cfg(any(target_os = "android", target_os = "linux"))]
 fn open_candidate_with_openat2(
     root: &AdmittedRoot,
-    path: &PortablePath,
+    path: impl rustix::path::Arg,
 ) -> Result<Option<OpenedCandidate>, Openat2Failure> {
     use rustix::fs::{openat2, Mode, OFlags, ResolveFlags};
 
     let descriptor = match openat2(
         &root.directory,
-        path.as_str(),
+        path,
         OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
         Mode::empty(),
         ResolveFlags::BENEATH | ResolveFlags::NO_MAGICLINKS | ResolveFlags::NO_SYMLINKS,
@@ -391,10 +413,10 @@ mod tests {
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    struct TempTree(PathBuf);
+    pub(super) struct TempTree(pub(super) PathBuf);
 
     impl TempTree {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             static NEXT: AtomicU64 = AtomicU64::new(0);
             let path = std::env::temp_dir().join(format!(
                 "typaxis-host-platform-{}-{}",

@@ -6,7 +6,7 @@ mod unix;
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 pub(crate) use unix::{
     admit_root, resolve_write_target, AdmittedRoot, CandidatePathIdentity, FileIdentity,
-    FileSnapshot,
+    FileSnapshot, PreparedReadPath,
 };
 
 pub(crate) const CONTAINED_OPEN_AVAILABLE: bool = cfg!(any(

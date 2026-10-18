@@ -34,27 +34,42 @@ impl<'a> ProductionFootnoteMarkerShape<'a> {
     }
 }
 
-pub(super) fn shape_markers<'a>(
+pub(super) fn shape_markers<'a, S: Storage>(
     flow: BodyFlow<'a>,
     admitted: BodyFonts<'_>,
     limits: &M4EffectiveResourceLimits,
     output_records: &mut u64,
     maximum_records: Option<u64>,
+    storage: &mut S,
 ) -> Result<Vec<ProductionFootnoteMarkerShape<'a>>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let mut result = Vec::new();
     for (index, source) in flow_call!(flow, footnote_definitions()).iter().enumerate() {
         let owner = source.owner();
+        storage.owner(owner);
+        storage.work(1).map_err(|e| error(owner, E::Backend(e)))?;
         let style = flow_call!(flow, footnote_marker_style(index))
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+        let (provenance, text) = if S::OBSERVED {
+            flow_call!(
+                flow,
+                footnote_marker_with_work(owner, &mut |n| storage.work(n))
+            )
+            .map_err(|e| error(owner, E::Backend(e)))?
+            .ok_or_else(|| error(owner, E::ReceiptMismatch))?
+        } else {
+            let text = flow_call!(flow, footnote_marker_text(owner))
+                .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+            let provenance = flow_call!(flow, footnote_marker_provenance(owner))
+                .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+            (provenance, text)
+        };
         let glyphs = shape_generated_marker(
             GeneratedMarkerInput {
                 owner,
                 index,
-                text: flow_call!(flow, footnote_marker_text(owner))
-                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
-                provenance: flow_call!(flow, footnote_marker_provenance(owner))
-                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
+                text,
+                provenance,
                 families: style
                     .font_families()
                     .ok_or_else(|| error(owner, E::MissingTextStyle))?,
@@ -67,10 +82,9 @@ pub(super) fn shape_markers<'a>(
             limits,
             output_records,
             maximum_records,
+            storage,
         )?;
-        result
-            .try_reserve(1)
-            .map_err(|_| error(owner, E::AllocationFailure))?;
+        body_reserve_one(&mut result, storage, Site::FootnoteMarkers, owner)?;
         result.push(ProductionFootnoteMarkerShape {
             source,
             definition_index: u32::try_from(index).map_err(|_| error(owner, E::OutputLimit))?,

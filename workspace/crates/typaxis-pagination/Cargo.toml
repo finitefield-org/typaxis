@@ -9,7 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-book-v2-staging = ["typaxis-layout/book-v2-staging", "typaxis-syntax/book-v2-staging"]
+book-v2-staging = ["typaxis-layout/book-v2-staging", "typaxis-syntax/book-v2-staging", "typaxis-shaping/book-v2-staging"]
 staging-fixtures = ["typaxis-layout/staging-fixtures"]
 
 [dependencies]
@@ -20,6 +20,7 @@ typaxis-diagnostics = { path = "../typaxis-diagnostics" }
 typaxis-text = { path = "../typaxis-text" }
 typaxis-document = { path = "../typaxis-document" }
 typaxis-syntax = { path = "../typaxis-syntax" }
+typaxis-shaping = { path = "../typaxis-shaping" }
 
 [dev-dependencies]
 typaxis-linebreak = { path = "../typaxis-linebreak" }

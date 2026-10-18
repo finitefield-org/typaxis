@@ -3,8 +3,11 @@
 use crate::font_encoding::{self, Sink};
 use std::ops::Range;
 use typaxis_core::{sha256, M4EffectiveResourceLimits};
-use typaxis_display_list::book_v2::BookV2FontUseText;
-use typaxis_resources::book_v2::{BookV2CidPlans, BookV2FontClosureKind};
+use typaxis_display_list::book_v2::{
+    BookV2BodyDisplay, BookV2BodyPaintIndex, BookV2ColumnDisplay, BookV2ColumnPaintIndex,
+    BookV2FontUseText, BookV2ResourceDisplay,
+};
+use typaxis_resources::book_v2::{BookV2CidPlansData, BookV2FontClosureKind};
 
 pub const BOOK_V2_FONT_STREAMS_ALGORITHM: &str = "typaxis.book-2-font-streams/1";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,18 +49,55 @@ impl BookV2FontStream {
         self.kind
     }
 }
-pub struct BookV2FontStreams<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'z BookV2CidPlans<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2FontStreamsData<
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'z BookV2CidPlansData<'y, 'x, 'c, 'v, 'a, D, P>,
     fonts: Vec<BookV2FontStream>,
     actual_text: Vec<Option<Range<usize>>>,
     bytes: Vec<u8>,
     fingerprint: [u8; 32],
     budget: Budget,
 }
-impl<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontStreams<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+pub type BookV2FontStreams<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2FontStreamsData<
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2BodyPaintIndex,
+    >;
+/// Column ownership remains in every font encoding parent.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2FontStreams, BookV2ColumnFontStreams};
+/// fn body<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnFontStreams<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>) -> BookV2FontStreams<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnFontStreams<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2FontStreamsData<
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+impl<'z, 'y, 'x, 'c, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>
+    BookV2FontStreamsData<'z, 'y, 'x, 'c, 'v, 'a, D, P>
 {
-    pub fn source(&self) -> &'z BookV2CidPlans<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn source(&self) -> &'z BookV2CidPlansData<'y, 'x, 'c, 'v, 'a, D, P> {
         self.source
     }
     pub fn fonts(&self) -> &[BookV2FontStream] {
@@ -171,8 +211,8 @@ impl Sink for Encoder<'_> {
         Ok(())
     }
 }
-fn encode(
-    source: &BookV2CidPlans<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
+fn encode<'y, 'x, 'c, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>(
+    source: &BookV2CidPlansData<'y, 'x, 'c, 'v, 'a, D, P>,
     output: &mut Encoder<'_>,
     mut fonts: Option<&mut Vec<BookV2FontStream>>,
     mut actual: Option<&mut Vec<Option<Range<usize>>>>,
@@ -238,15 +278,52 @@ fn encode(
     }
     Ok(())
 }
-pub struct BookV2FontStreamBuilder<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'z BookV2CidPlans<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2FontStreamBuilderData<
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'z BookV2CidPlansData<'y, 'x, 'c, 'v, 'a, D, P>,
     budget: Budget,
 }
-impl<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontStreamBuilder<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+pub type BookV2FontStreamBuilder<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2FontStreamBuilderData<
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2BodyPaintIndex,
+    >;
+/// Column ownership remains in every font encoding parent.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2FontStreamBuilder, BookV2ColumnFontStreamBuilder};
+/// fn body<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnFontStreamBuilder<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>) -> BookV2FontStreamBuilder<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnFontStreamBuilder<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2FontStreamBuilderData<
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+impl<'z, 'y, 'x, 'c, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>
+    BookV2FontStreamBuilderData<'z, 'y, 'x, 'c, 'v, 'a, D, P>
 {
     pub fn new(
-        source: &'z BookV2CidPlans<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        source: &'z BookV2CidPlansData<'y, 'x, 'c, 'v, 'a, D, P>,
         limits: &M4EffectiveResourceLimits,
         max_work: u64,
         prior_records: u64,
@@ -254,9 +331,41 @@ impl<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         prior_output: u64,
         prior_work: u64,
     ) -> Result<Self, E> {
+        Self::new_counted(
+            source,
+            limits,
+            max_work,
+            prior_records,
+            prior_spool,
+            prior_output,
+            prior_work,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_counted(
+        source: &'z BookV2CidPlansData<'y, 'x, 'c, 'v, 'a, D, P>,
+        limits: &M4EffectiveResourceLimits,
+        max_work: u64,
+        prior_records: u64,
+        prior_spool: u64,
+        prior_output: u64,
+        prior_work: u64,
+        observed_records: &mut u64,
+        observed_spool: &mut u64,
+        observed_output: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<Self, E> {
+        *observed_records = prior_records.max(source.record_charge());
+        *observed_spool = prior_spool.max(source.spool_charge());
+        *observed_output = prior_output;
+        *observed_work = prior_work.max(source.work_steps());
         let display = source.source().source().selection().display();
         display
-            .verify_resources(display.admitted(), limits)
+            .verify_resource_selection(display.admitted(), limits)
             .map_err(|_| E::Identity)?;
         let base = limits.base().get();
         let records = prior_records
@@ -268,6 +377,7 @@ impl<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         if records > base.max_fragments {
             return Err(E::Records);
         }
+        *observed_records = records;
         if spool > base.max_spool_bytes {
             return Err(E::Spool);
         }
@@ -303,9 +413,7 @@ impl<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
     pub fn work_steps(&self) -> u64 {
         self.budget.work
     }
-    pub fn build(
-        &mut self,
-    ) -> Result<BookV2FontStreams<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>, E> {
+    pub fn build(&mut self) -> Result<BookV2FontStreamsData<'z, 'y, 'x, 'c, 'v, 'a, D, P>, E> {
         let source = self.source;
         let slots = source
             .fonts()
@@ -390,7 +498,7 @@ impl<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             }
             fingerprint = self.budget.fold(fingerprint, &b)?;
         }
-        Ok(BookV2FontStreams {
+        Ok(BookV2FontStreamsData {
             source,
             fonts,
             actual_text,

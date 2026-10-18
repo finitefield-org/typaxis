@@ -227,15 +227,22 @@ fn covered_lines(
 impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     pub(super) fn close_header_page_copies(
         &mut self,
-        page: &BookV2BodyMixedPlacedPage<'_, 'b, 'f, 's, 'p, 'a>,
+        page: SourceClosurePage<'_, '_, 'b, 'f, 's, 'p, 'a>,
         sources: &OriginalHeaderSources,
         visits: &mut [SourceVisit],
     ) -> Result<usize, ProductionBodyPaginationError> {
         let root = NodeId::new(0);
         let mut next = 0usize;
         let mut last = None;
-        let mut scans = page.selection().candidate().parts().len();
-        if let Some(notes) = page.selection().candidate().footnotes() {
+        let mut scans = 0usize;
+        for (_, parts) in page.body_regions() {
+            if matches!(page, SourceClosurePage::Columns(_)) {
+                self.content.step(root)?;
+            }
+            scans = scans.checked_add(parts.len())
+                .ok_or_else(|| error(root, E::FragmentLimit))?;
+        }
+        if let Some(notes) = page.footnotes() {
             for note in notes.fragments() {
                 self.content.step(root)?;
                 scans = scans
@@ -369,23 +376,21 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 }
                 Ok(())
             };
-        for part in page.selection().candidate().parts() {
+        for (bounds, part) in page.body_parts() {
             if let Some(selected) = part.table() {
                 table(
                     selected,
-                    add(page.selection().body_bounds().y(), part.top(), root)?,
+                    add(bounds.y(), part.top(), root)?,
                     None,
                 )?;
             }
         }
-        if let Some(notes) = page.selection().candidate().footnotes() {
+        if let Some(notes) = page.footnotes() {
             for note in notes.fragments() {
                 if let Some(mixed) = note.fragment().mixed() {
                     let origin = add(
                         add(
-                            page.selection()
-                                .candidate()
-                                .footnote_bounds()
+                            page.footnote_bounds()
                                 .ok_or_else(|| error(root, E::ReceiptMismatch))?
                                 .y(),
                             Length::from_raw(typaxis_layout::FOOTNOTE_SEPARATOR_BAND_RAW)

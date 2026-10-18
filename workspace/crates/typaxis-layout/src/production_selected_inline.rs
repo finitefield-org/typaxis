@@ -119,7 +119,7 @@ pub enum ProductionPlacedInline<'p, 'a> {
     Vector(ProductionPlacedInlineVector),
     Math(ProductionPlacedInlineMath<'p>),
     #[cfg(feature = "book-v2-staging")]
-    BookV2Math(crate::book_v2::BookV2PlacedInlineMath<'p,'p>),
+    BookV2Math(crate::book_v2::BookV2PlacedInlineMath<'p, 'p>),
     Break(ProductionExplicitBreak),
 }
 
@@ -329,7 +329,10 @@ pub(super) fn layout_with_record_base<'p, 'a>(
             native_math: prepared.native_math().map(InlineNativeMath::Legacy),
             figure_count: prepared.figures.len(),
             fingerprint: prepared.fingerprint(),
-        }, inline_sizes, max_candidate_steps, record_base,
+        },
+        inline_sizes,
+        max_candidate_steps,
+        record_base,
         PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM,
     )?;
     Ok(ProductionInlineLineLayout {
@@ -366,7 +369,12 @@ pub(super) fn project_lines<'p, 'a>(
     algorithm: &str,
 ) -> Result<LineProjection<'p, 'a>, ProductionInlinePreparationError> {
     project_lines_with_source_widths(
-        prepared, inline_sizes, max_candidate_steps, record_base, algorithm, None,
+        prepared,
+        inline_sizes,
+        max_candidate_steps,
+        record_base,
+        algorithm,
+        None,
     )
 }
 pub(super) fn project_lines_with_source_widths<'p, 'a>(
@@ -378,8 +386,13 @@ pub(super) fn project_lines_with_source_widths<'p, 'a>(
     source_widths: Option<&[Option<typaxis_linebreak::ProductionInlineSourceWidths<'_>>]>,
 ) -> Result<LineProjection<'p, 'a>, ProductionInlinePreparationError> {
     project_lines_counted(
-        prepared, inline_sizes, max_candidate_steps, record_base,
-        algorithm, source_widths, &mut 0,
+        prepared,
+        inline_sizes,
+        max_candidate_steps,
+        record_base,
+        algorithm,
+        source_widths,
+        &mut 0,
     )
 }
 #[allow(clippy::too_many_arguments)]
@@ -392,7 +405,16 @@ pub(super) fn project_lines_counted<'p, 'a>(
     source_widths: Option<&[Option<typaxis_linebreak::ProductionInlineSourceWidths<'_>>]>,
     consumed_steps: &mut u64,
 ) -> Result<LineProjection<'p, 'a>, ProductionInlinePreparationError> {
-    project_lines_counted_with_records(prepared, inline_sizes, max_candidate_steps, record_base, algorithm, source_widths, consumed_steps, &mut 0)
+    project_lines_counted_with_records(
+        prepared,
+        inline_sizes,
+        max_candidate_steps,
+        record_base,
+        algorithm,
+        source_widths,
+        consumed_steps,
+        &mut 0,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -406,6 +428,32 @@ pub(super) fn project_lines_counted_with_records<'p, 'a>(
     consumed_steps: &mut u64,
     observed_records: &mut u64,
 ) -> Result<LineProjection<'p, 'a>, ProductionInlinePreparationError> {
+    let native_record_base = prepared.native_math.map_or(0, |m| m.record_charge());
+    project_lines_counted_with_records_and_native_base(
+        prepared,
+        inline_sizes,
+        max_candidate_steps,
+        record_base,
+        algorithm,
+        source_widths,
+        consumed_steps,
+        observed_records,
+        native_record_base,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn project_lines_counted_with_records_and_native_base<'p, 'a>(
+    prepared: LineInputs<'p, 'a>,
+    inline_sizes: &[PositiveLength],
+    max_candidate_steps: u64,
+    record_base: u64,
+    algorithm: &str,
+    source_widths: Option<&[Option<typaxis_linebreak::ProductionInlineSourceWidths<'_>>]>,
+    consumed_steps: &mut u64,
+    observed_records: &mut u64,
+    native_record_base: u64,
+) -> Result<LineProjection<'p, 'a>, ProductionInlinePreparationError> {
     *consumed_steps = 0;
     *observed_records = record_base;
     let mut remaining = prepared.max_fragments;
@@ -418,7 +466,7 @@ pub(super) fn project_lines_counted_with_records<'p, 'a>(
         remaining = prepared
             .max_fragments
             .checked_sub(record_base)
-            .and_then(|n| n.checked_sub(prepared.native_math.map_or(0, |m| m.record_charge())))
+            .and_then(|n| n.checked_sub(native_record_base))
             .ok_or_else(|| error(root, E::UnitLimit))?;
         if let Some(widths) = source_widths {
             if widths.len() != prepared.paragraphs.len() {

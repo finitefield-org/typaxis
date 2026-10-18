@@ -88,6 +88,22 @@ fn directory_end(bytes: &[u8], start: usize) -> Option<usize> {
 }
 
 pub(super) fn diagnose_font_container(bytes: &[u8], face: u32) -> FontContainerFailure {
+    match diagnose_font_container_with_work(bytes, face, &mut |_, _| {
+        Ok::<_, std::convert::Infallible>(())
+    }) {
+        Ok(value) => value,
+        Err(error) => match error {},
+    }
+}
+
+pub(super) fn diagnose_font_container_with_work<E>(
+    bytes: &[u8],
+    face: u32,
+    work: &mut impl FnMut(typaxis_font::CffSfntWorkPointV2, u64) -> Result<(), E>,
+) -> Result<FontContainerFailure, E> {
+    use super::font_media_budget::point;
+    use typaxis_font::CffSfntStageV2 as S;
+    work(point(S::DeclaredMediaDiagnosticHeader, 0), 64)?;
     use FontContainerFailureReason::*;
     let mut result = FontContainerFailure {
         reason: MalformedContainer,
@@ -101,37 +117,41 @@ pub(super) fn diagnose_font_container(bytes: &[u8], face: u32) -> FontContainerF
     let start = if collection {
         result.font_byte = Some(4);
         if !matches!(read_be_u32(bytes, 4), Ok(0x0001_0000 | 0x0002_0000)) {
-            return result;
+            return Ok(result);
         }
         result.font_byte = Some(8);
         let Ok(count) = read_be_u32(bytes, 8) else {
-            return result;
+            return Ok(result);
         };
         if count == 0 {
-            return result;
+            return Ok(result);
         }
         if count > 4096 {
             result.reason = InspectionLimit;
-            return result;
+            return Ok(result);
         }
         let end = 12 + count as usize * 4;
         if bytes.get(12..end).is_none() {
-            return result;
+            return Ok(result);
         }
         // Prove that every listed index has a bounded directory. The 4,096
         // ceiling is diagnostic work only; it cannot reject an accepted font.
         let mut selected = None;
         for index in 0..count {
+            work(
+                point(S::DeclaredMediaDiagnosticFace, 12 + index as usize * 4),
+                128,
+            )?;
             let position = 12 + index as usize * 4;
             let Ok(offset) = read_be_u32(bytes, position) else {
-                return result;
+                return Ok(result);
             };
             let Ok(offset) = usize::try_from(offset) else {
-                return result;
+                return Ok(result);
             };
             result.font_byte = Some(position as u64);
             if directory_end(bytes, offset).is_none() {
-                return result;
+                return Ok(result);
             }
             if index == face {
                 selected = Some(offset);
@@ -141,21 +161,21 @@ pub(super) fn diagnose_font_container(bytes: &[u8], face: u32) -> FontContainerF
         let Some(selected) = selected else {
             result.reason = InvalidFaceIndex;
             result.font_byte = None;
-            return result;
+            return Ok(result);
         };
         selected
     } else {
         if !matches!(bytes.get(..4), Some(b"OTTO" | b"\0\x01\0\0")) {
-            return result;
+            return Ok(result);
         }
         if directory_end(bytes, 0).is_none() {
-            return result;
+            return Ok(result);
         }
         result.face_count = Some(1);
         if face != 0 {
             result.reason = InvalidFaceIndex;
             result.font_byte = None;
-            return result;
+            return Ok(result);
         }
         0
     };
@@ -165,19 +185,20 @@ pub(super) fn diagnose_font_container(bytes: &[u8], face: u32) -> FontContainerF
             result.selected_outline = Some("cff");
             if collection {
                 result.reason = UnsupportedOutline;
-                return result;
+                return Ok(result);
             }
         }
         Some(b"\0\x01\0\0") => result.selected_outline = Some("truetype"),
         _ => {
             result.reason = UnsupportedOutline;
-            return result;
+            return Ok(result);
         }
     }
     result.reason = InvalidOutlineTables;
     result.font_byte = None;
     if let Some(end) = directory_end(bytes, start) {
         for record in (start + 12..end).step_by(16) {
+            work(point(S::DeclaredMediaDiagnosticRecord, record), 64)?;
             if bytes.get(record..record + 4) == Some(b"CFF2") {
                 result.reason = UnsupportedOutline;
                 result.table_tag = Some(*b"CFF2");
@@ -187,7 +208,7 @@ pub(super) fn diagnose_font_container(bytes: &[u8], face: u32) -> FontContainerF
             }
         }
     }
-    result
+    Ok(result)
 }
 
 #[cfg(test)]

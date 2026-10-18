@@ -294,6 +294,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
             return Err(error(owner, E::TableHeaderOversize));
         }
         if header.height() > available {
+            self.kernel.probe_capacity_event(header.height())?;
             return Ok(None);
         }
         // Restore even when selection fails. Work and retained candidates remain

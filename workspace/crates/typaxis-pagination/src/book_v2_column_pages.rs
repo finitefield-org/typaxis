@@ -5,6 +5,9 @@ use super::*;
 #[path = "book_v2_column_repeated_pages.rs"]
 mod repeated;
 pub use repeated::BookV2ColumnRepeatedPages;
+#[path = "book_v2_column_balance.rs"]
+mod balance;
+pub use balance::{BookV2ColumnBalanceCandidate, BookV2ColumnBalanceReceipt, BookV2ColumnBalanceRejection, BOOK_V2_COLUMN_BALANCE_ALGORITHM};
 
 pub struct BookV2ColumnPageSequenceState<'b, 'f, 's, 'p, 'a> {
     source: BookV2ColumnPageState<'b, 'f, 's, 'p, 'a>,
@@ -28,6 +31,7 @@ pub struct BookV2ColumnPageSelection<'b, 'f, 's, 'p, 'a> {
     forced: Option<NodeId>,
     attempts: u32,
     name: Option<&'p str>,
+    balance: Option<BookV2ColumnBalanceReceipt>,
 }
 impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSelection<'b, 'f, 's, 'p, 'a> {
     pub fn candidate(&self) -> &BookV2ColumnPageCandidate<'b, 'f, 's, 'p, 'a> {
@@ -48,6 +52,9 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSelection<'b, 'f, 's, 'p, 'a> {
     pub fn named_page(&self) -> Option<&'p str> {
         self.name
     }
+    pub fn balance(&self) -> Option<&BookV2ColumnBalanceReceipt> {
+        self.balance.as_ref()
+    }
 }
 /// A source-contiguous physical sequence is still distinct from a single-body
 /// stable placement receipt.
@@ -67,6 +74,19 @@ pub struct BookV2ColumnPageSequence<'b, 'f, 's, 'p, 'a> {
 impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSequence<'b, 'f, 's, 'p, 'a> {
     pub fn pages(&self) -> &[BookV2ColumnPageSelection<'b, 'f, 's, 'p, 'a>] {
         &self.pages
+    }
+    pub(super) fn entry_state(
+        &self,
+        index: usize,
+    ) -> Option<&BookV2ColumnPageSequenceState<'b, 'f, 's, 'p, 'a>> {
+        if index >= self.pages.len() {
+            return None;
+        }
+        Some(if index == 0 {
+            &self.initial
+        } else {
+            self.pages[index - 1].next_state()
+        })
     }
     pub fn measurements_fingerprint(&self) -> [u8; 32] {
         self.measurements
@@ -104,6 +124,41 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
             table_end: source.table_end,
             continuation: source.continuation,
         })
+    }
+    pub(super) fn same_sequence_source_endpoint(
+        &mut self,
+        left: &BookV2ColumnPageSequenceState<'b, 'f, 's, 'p, 'a>,
+        right: &BookV2ColumnPageSequenceState<'b, 'f, 's, 'p, 'a>,
+    ) -> Result<bool, ProductionBodyPaginationError> {
+        self.inner.verify_state(&left.source.source.demand)?;
+        self.inner.verify_state(&right.source.source.demand)?;
+        self.inner.content.step(NodeId::new(0))?;
+        let cursor = |c: Option<BookV2TableCursor<'b, 'f, 's, 'p, 'a>>| {
+            c.map(|c| {
+                (
+                    c.table_index(),
+                    c.offset(),
+                    c.next_row(),
+                    c.is_initial(),
+                    c.has_started_rows(),
+                    c.next_caption_item(),
+                    c.cell_progress_fingerprint(),
+                )
+            })
+        };
+        let a = &left.source.source;
+        let b = &right.source.source;
+        if left.page_index() != right.page_index()
+            || left.empty_page != right.empty_page
+            || left.name != right.name
+            || a.item != b.item
+            || a.next_table != b.next_table
+            || a.table_end != b.table_end
+            || cursor(a.continuation) != cursor(b.continuation)
+        {
+            return Ok(false);
+        }
+        self.inner.same_demand(&a.demand, &b.demand)
     }
     fn alternatives(
         &mut self,
@@ -161,7 +216,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
         let saved_mismatch = self.inner.named_mismatch.take();
         let mut attempts = 0;
         let result = (|| {
-            if let Some(page) = self.select_in_frames(state, name, &mut attempts)? {
+            if let Some(page) = self.select_in_frames(state, name, &mut attempts, None, None, None)? {
                 return Ok(Some(page));
             }
             if !state.source.source.demand.pending.is_empty() {
@@ -169,7 +224,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
                     .inner
                     .next_pending_page_name(&state.source.source.demand, state.name)?;
                 if next != name {
-                    if let Some(page) = self.select_in_frames(state, next, &mut attempts)? {
+                    if let Some(page) = self.select_in_frames(state, next, &mut attempts, None, None, None)? {
                         return Ok(Some(page));
                     }
                 }
@@ -184,11 +239,64 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
         self.inner.named_mismatch = saved_mismatch;
         result
     }
+    /// Ranked nonterminal fits remain trial branches. Accept only the original
+    /// baseline's exact source, demand, name and forced-blank endpoint.
+    pub(super) fn select_page_to_endpoint_at_height(
+        &mut self,
+        state: &BookV2ColumnPageSequenceState<'b, 'f, 's, 'p, 'a>,
+        name: Option<usize>,
+        target: PositiveLength,
+        attempts: &mut u32,
+        endpoint: &BookV2ColumnPageSequenceState<'b, 'f, 's, 'p, 'a>,
+    ) -> Result<(Option<BookV2ColumnPageSelection<'b, 'f, 's, 'p, 'a>>, Option<BookV2ColumnPageSelection<'b, 'f, 's, 'p, 'a>>), ProductionBodyPaginationError>
+    {
+        let mut first_nonterminal = None;
+        let terminal = self.select_page_in_trial(state, name, target, attempts, Some(endpoint), Some(&mut first_nonterminal))?;
+        Ok((terminal, first_nonterminal))
+    }
+    fn select_page_in_trial(
+        &mut self,
+        state: &BookV2ColumnPageSequenceState<'b, 'f, 's, 'p, 'a>,
+        name: Option<usize>,
+        target: PositiveLength,
+        attempts: &mut u32,
+        endpoint: Option<&BookV2ColumnPageSequenceState<'b, 'f, 's, 'p, 'a>>,
+        first_nonterminal: Option<&mut Option<BookV2ColumnPageSelection<'b, 'f, 's, 'p, 'a>>>,
+    ) -> Result<Option<BookV2ColumnPageSelection<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError>
+    {
+        self.inner.verify_state(&state.source.source.demand)?;
+        if let Some(endpoint) = endpoint {
+            self.inner.verify_state(&endpoint.source.source.demand)?;
+        }
+        let root = NodeId::new(0);
+        if state.page_index() >= self.inner.maximum_pages {
+            return Err(error(root, E::PageLimit));
+        }
+        let frames = self
+            .plan
+            .named_page(state.page_index(), name)
+            .map_err(|_| error(root, E::ReceiptMismatch))?;
+        column_bounds_at_height(frames, 0, Some(target))?;
+        if state.is_complete() {
+            return Ok(None);
+        }
+        let saved_frames = self.inner.active_page_frames;
+        let saved_name = self.inner.active_page_name;
+        let saved_mismatch = self.inner.named_mismatch.take();
+        let result = self.select_in_frames(state, name, attempts, Some(target), endpoint, first_nonterminal);
+        self.inner.active_page_frames = saved_frames;
+        self.inner.active_page_name = saved_name;
+        self.inner.named_mismatch = saved_mismatch;
+        result
+    }
     fn select_in_frames(
         &mut self,
         state: &BookV2ColumnPageSequenceState<'b, 'f, 's, 'p, 'a>,
         name: Option<usize>,
         attempts: &mut u32,
+        target: Option<PositiveLength>,
+        endpoint: Option<&BookV2ColumnPageSequenceState<'b, 'f, 's, 'p, 'a>>,
+        mut first_nonterminal: Option<&mut Option<BookV2ColumnPageSelection<'b, 'f, 's, 'p, 'a>>>,
     ) -> Result<Option<BookV2ColumnPageSelection<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError>
     {
         let root = NodeId::new(0);
@@ -207,9 +315,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
         let source = self.fork_source(&state.source.source)?;
         let first = self.alternatives(
             source,
-            frames
-                .column(0)
-                .map_err(|_| error(root, E::ReceiptMismatch))?,
+            column_bounds_at_height(frames, 0, target)?,
             frames.footnote(),
             empty_allowed,
         )?;
@@ -237,9 +343,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
                 continue;
             };
             self.inner.active_page_frames = Some(ActivePageFrames {
-                body: frames
-                    .column(column as u16)
-                    .map_err(|_| error(root, E::ReceiptMismatch))?,
+                body: column_bounds_at_height(frames, column as u16, target)?,
                 footnote: frames.footnote(),
             });
             if let Some(expected) = expected {
@@ -294,9 +398,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
                 if !closed && column + 1 < usize::from(frames.column_count()) {
                     let next = self.alternatives(
                         source,
-                        frames
-                            .column((column + 1) as u16)
-                            .map_err(|_| error(root, E::ReceiptMismatch))?,
+                        column_bounds_at_height(frames, (column + 1) as u16, target)?,
                         frames.footnote(),
                         true,
                     )?;
@@ -330,7 +432,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
                 );
             }
             let candidate =
-                match self.evaluate_page_with_blank(&state.source, name, &requests, allow_blank) {
+                match self.evaluate_page_with_blank(&state.source, name, &requests, allow_blank, target) {
                     Ok(Some(candidate)) => candidate,
                     Ok(None) => continue,
                     Err(e) if e.kind == E::PendingNamedPage => {
@@ -339,7 +441,16 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
                     }
                     Err(e) => return Err(e),
                 };
-            return self.finish_selection(candidate, *attempts, name).map(Some);
+            let selected = self.finish_selection(candidate, *attempts, name)?;
+            if let Some(endpoint) = endpoint {
+                if !self.same_sequence_source_endpoint(selected.next_state(), endpoint)? {
+                    if let Some(slot) = first_nonterminal.as_deref_mut() {
+                        if slot.is_none() { *slot = Some(selected); }
+                    }
+                    continue;
+                }
+            }
+            return Ok(Some(selected));
         }
         Ok(None)
     }
@@ -386,6 +497,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
             forced,
             attempts,
             name: name.and_then(|n| self.plan.name(n)),
+            balance: None,
         })
     }
     pub fn select_pages(
@@ -402,34 +514,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
             let selected = self
                 .select_page(state)?
                 .ok_or_else(|| error(root, E::JointPageNoFit))?;
-            let before = &state.source.source;
-            let after = &selected.next.source.source;
-            let table_progress = after.next_table > before.next_table
-                || match (before.continuation, after.continuation) {
-                    (None, Some(c)) => !c.is_initial(),
-                    (Some(a), Some(b)) => {
-                        a.offset() != b.offset()
-                            || a.next_row() != b.next_row()
-                            || a.next_caption_item() != b.next_caption_item()
-                            || a.cell_progress_fingerprint() != b.cell_progress_fingerprint()
-                            || (!a.has_started_rows() && b.has_started_rows())
-                    }
-                    (Some(_), None) => true,
-                    (None, None) => false,
-                };
-            let notes = selected
-                .candidate
-                .footnotes()
-                .is_some_and(|n| !n.fragments().is_empty());
-            if after.item < before.item
-                || after.next_table < before.next_table
-                || (after.item == before.item
-                    && !table_progress
-                    && !notes
-                    && !(state.empty_page && selected.next.is_complete()))
-            {
-                return Err(error(root, E::ReceiptMismatch));
-            }
+            self.verify_page_progress(state, &selected)?;
             self.inner.content.charge(1, root)?;
             pages
                 .try_reserve(1)
@@ -448,6 +533,94 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
             initial,
             pages,
         })
+    }
+    fn verify_page_progress(
+        &self,
+        state: &BookV2ColumnPageSequenceState<'b, 'f, 's, 'p, 'a>,
+        selected: &BookV2ColumnPageSelection<'b, 'f, 's, 'p, 'a>,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        let root = NodeId::new(0);
+        let before = &state.source.source;
+        let after = &selected.next.source.source;
+        let table_progress = after.next_table > before.next_table
+            || match (before.continuation, after.continuation) {
+                (None, Some(c)) => !c.is_initial(),
+                (Some(a), Some(b)) => {
+                    a.offset() != b.offset()
+                        || a.next_row() != b.next_row()
+                        || a.next_caption_item() != b.next_caption_item()
+                        || a.cell_progress_fingerprint() != b.cell_progress_fingerprint()
+                        || (!a.has_started_rows() && b.has_started_rows())
+                }
+                (Some(_), None) => true,
+                (None, None) => false,
+            };
+        let notes = selected
+            .candidate
+            .footnotes()
+            .is_some_and(|n| !n.fragments().is_empty());
+        if after.item < before.item
+            || after.next_table < before.next_table
+            || (after.item == before.item
+                && !table_progress
+                && !notes
+                && !(state.empty_page && selected.next.is_complete()))
+        {
+            return Err(error(root, E::ReceiptMismatch));
+        }
+        Ok(())
+    }
+    /// Replace one baseline page from its original demand parent, then rebuild
+    /// suffix snapshots. Old source-state IDs cannot certify a new page chain.
+    pub(super) fn replace_page_and_select_suffix(
+        &mut self,
+        mut sequence: BookV2ColumnPageSequence<'b, 'f, 's, 'p, 'a>,
+        index: usize,
+        selected: BookV2ColumnPageSelection<'b, 'f, 's, 'p, 'a>,
+    ) -> Result<BookV2ColumnPageSequence<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+        let root = NodeId::new(0);
+        for _ in sequence.pages() {
+            self.inner.content.step(root)?;
+        }
+        self.verify_sequence(&sequence)?;
+        let entry = sequence
+            .entry_state(index)
+            .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+        if selected.page_index() != entry.page_index() {
+            return Err(error(root, E::ReceiptMismatch));
+        }
+        selected.candidate().verify(entry.source_state())?;
+        self.verify_page_progress(entry, &selected)?;
+        if !self.same_sequence_source_endpoint(
+            selected.next_state(),
+            sequence.pages()[index].next_state(),
+        )? {
+            return Err(error(root, E::ReceiptMismatch));
+        }
+        sequence.pages.truncate(index);
+        self.inner.content.charge(1, root)?;
+        sequence.pages.push(selected);
+        loop {
+            let state = sequence.pages.last().unwrap().next_state();
+            if state.is_complete() {
+                break;
+            }
+            let selected = self
+                .select_page(state)?
+                .ok_or_else(|| error(root, E::JointPageNoFit))?;
+            self.verify_page_progress(state, &selected)?;
+            self.inner.content.charge(1, root)?;
+            sequence
+                .pages
+                .try_reserve(1)
+                .map_err(|_| error(root, E::AllocationFailure))?;
+            sequence.pages.push(selected);
+        }
+        for _ in sequence.pages() {
+            self.inner.content.step(root)?;
+        }
+        self.verify_sequence(&sequence)?;
+        Ok(sequence)
     }
     pub fn verify_sequence(
         &self,
@@ -481,6 +654,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
                 return Err(error(root, E::ReceiptMismatch));
             }
             page.candidate.verify(&entry.source)?;
+            self.verify_balance_page(page)?;
         }
         Ok(())
     }

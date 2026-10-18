@@ -95,18 +95,50 @@ impl<'x, 'c, 'a> BookV2FontProgram<'x, 'c, 'a> {
         }
     }
 }
-pub struct BookV2FontPrograms<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'x BookV2FontClosures<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2FontProgramsData<
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'x BookV2FontClosuresData<'c, 'v, 'a, D, P>,
     fonts: Vec<BookV2FontProgram<'x, 'c, 'a>>,
     fingerprint: [u8; 32],
     records: u64,
     spool: u64,
     work: u64,
 }
-impl<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontPrograms<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+pub type BookV2FontPrograms<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2FontProgramsData<
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// Shared font bytes retain their Column selection through the parent chain.
+///
+/// ```compile_fail
+/// use typaxis_resources::book_v2::{BookV2ColumnFontPrograms, BookV2FontPrograms};
+/// fn body<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+///     value: BookV2ColumnFontPrograms<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+/// ) -> BookV2FontPrograms<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnFontPrograms<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2FontProgramsData<
+        'x,
+        'c,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+impl<'x, 'c, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>
+    BookV2FontProgramsData<'x, 'c, 'v, 'a, D, P>
 {
-    pub fn source(&self) -> &'x BookV2FontClosures<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn source(&self) -> &'x BookV2FontClosuresData<'c, 'v, 'a, D, P> {
         self.source
     }
     pub fn fonts(&self) -> &[BookV2FontProgram<'x, 'c, 'a>] {
@@ -125,16 +157,11 @@ impl<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         self.work
     }
 }
-impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontSelectionBuilder<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-{
+impl<'v, 'a, D: BookV2ResourceDisplay<'a>> BookV2FontSelectionBuilderData<'v, 'a, D> {
     pub fn write_font_programs<'x, 'c>(
         &mut self,
-        closures: &'x BookV2FontClosures<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
-    ) -> Result<
-        BookV2FontPrograms<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
-        BookV2FontProgramsError,
-    > {
+        closures: &'x BookV2FontClosuresData<'c, 'v, 'a, D>,
+    ) -> Result<BookV2FontProgramsData<'x, 'c, 'v, 'a, D>, BookV2FontProgramsError> {
         self.prepare_cff_programs(closures).map_err(|e| match e {
             BookV2CffProgramError::Budget(e) => BookV2FontProgramsError::Budget(e),
             e => BookV2FontProgramsError::Evaluation(e),
@@ -173,7 +200,7 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             fingerprint = self.fold(fingerprint, &font.fingerprint())?;
             fonts.push(font);
         }
-        Ok(BookV2FontPrograms {
+        Ok(BookV2FontProgramsData {
             source: closures,
             fonts,
             fingerprint,

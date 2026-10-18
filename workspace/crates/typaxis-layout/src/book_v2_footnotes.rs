@@ -43,6 +43,20 @@ pub fn prepare_book_v2_footnote_lines_counted<'s, 'p, 'a>(
     limits: &M4EffectiveResourceLimits,
     observed_records: &mut u64,
 ) -> Result<BookV2FootnoteLines<'s, 'p, 'a>, ProductionInlinePreparationError> {
+    prepare_book_v2_footnote_lines_with_record_limit_counted(
+        lines,
+        limits,
+        observed_records,
+        lines.prepared().output_record_limit,
+    )
+}
+
+pub(super) fn prepare_book_v2_footnote_lines_with_record_limit_counted<'s, 'p, 'a>(
+    lines: &'s BookV2InlineLineLayout<'p, 'a>,
+    limits: &M4EffectiveResourceLimits,
+    observed_records: &mut u64,
+    record_limit: u64,
+) -> Result<BookV2FootnoteLines<'s, 'p, 'a>, ProductionInlinePreparationError> {
     *observed_records = lines.output_records();
     if lines.prepared().limits_fingerprint != limits.fingerprint() {
         return Err(error(
@@ -55,7 +69,7 @@ pub fn prepare_book_v2_footnote_lines_counted<'s, 'p, 'a>(
         lines.paragraphs(),
         lines.output_records(),
         limits,
-        lines.prepared().output_record_limit,
+        record_limit.min(lines.prepared().output_record_limit),
         observed_records,
     )?;
     Ok(BookV2FootnoteLines {

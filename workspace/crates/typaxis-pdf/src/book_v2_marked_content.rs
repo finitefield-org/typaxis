@@ -4,7 +4,10 @@
 use super::*;
 use crate::{semantic_anchor_encoding, ObjectId};
 use typaxis_core::{Length, Rect};
-use typaxis_display_list::book_v2::{BookV2BodyDisplay, BookV2BodyPaintIndex as Paint};
+use typaxis_display_list::book_v2::{
+    BookV2BodyDisplay, BookV2BodyPaintIndex, BookV2ColumnDisplay, BookV2ColumnPaintIndex,
+    BookV2ResourceDisplay, BookV2SemanticDisplay,
+};
 
 pub const BOOK_V2_MARKED_CONTENT_ALGORITHM: &str = "typaxis.book-2-marked-content/1";
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -125,8 +128,8 @@ fn encode_anchor_objects(
     }
     Ok(())
 }
-fn anchor(
-    display: &BookV2BodyDisplay<'_, '_, '_, '_, '_, '_, '_, '_>,
+fn anchor<'a, D: BookV2SemanticDisplay<'a>>(
+    display: &D,
     group: usize,
     g: &BookV2MarkedScope,
     replaced: bool,
@@ -141,15 +144,10 @@ fn anchor(
     let Some(usage) = display.image_use(paint).map_err(|_| E::Identity)? else {
         return Ok(None);
     };
-    let baseline = match display.paints()[paint] {
-        Paint::Math(i) => display.math().draws()[i].terminal().baseline(),
-        Paint::Image(i) => display.images().draws()[i]
-            .fragment()
-            .fragment()
-            .baseline()
-            .ok_or(E::Identity)?,
-        _ => return Err(E::Identity),
-    };
+    let baseline = display
+        .semantic_image_baseline(paint)
+        .map_err(|_| E::Identity)?
+        .ok_or(E::Identity)?;
     Ok(Some(BookV2SemanticAnchor {
         page: g.page_index(),
         group,
@@ -158,8 +156,8 @@ fn anchor(
         baseline,
     }))
 }
-fn replacement<S: Sink<Error = E>>(
-    display: &BookV2BodyDisplay<'_, '_, '_, '_, '_, '_, '_, '_>,
+fn replacement<'a, D: BookV2SemanticDisplay<'a>, S: Sink<Error = E>>(
+    display: &D,
     g: &BookV2MarkedScope,
     out: &mut S,
 ) -> Result<(), E> {
@@ -168,40 +166,28 @@ fn replacement<S: Sink<Error = E>>(
         BookV2MarkedRole::Text => font_encoding::utf16(
             out,
             g.paints().flat_map(|paint| {
-                let Paint::Text(i) = display.paints()[paint] else {
-                    unreachable!("sealed text group")
-                };
-                display.text().draws()[i].exact_text().chars()
+                display
+                    .whole_text(paint)
+                    .expect("sealed text group")
+                    .expect("sealed text group")
+                    .chars()
             }),
             true,
         )?,
-        BookV2MarkedRole::Label => {
-            let Paint::Marker(i) = display.paints()[g.paints().start] else {
-                return Err(E::Identity);
-            };
-            font_encoding::utf16(
-                out,
-                display.markers().draws()[i].source().utf8().chars(),
-                true,
-            )?;
-        }
-        BookV2MarkedRole::EquationNumber => {
-            let Paint::EquationNumber(i) = display.paints()[g.paints().start] else {
-                return Err(E::Identity);
-            };
-            font_encoding::utf16(
-                out,
-                display.numbers().draws()[i].shape().text().chars(),
-                true,
-            )?;
+        BookV2MarkedRole::Label | BookV2MarkedRole::EquationNumber => {
+            let text = display
+                .whole_text(g.paints().start)
+                .map_err(|_| E::Identity)?
+                .ok_or(E::Identity)?;
+            font_encoding::utf16(out, text.chars(), true)?;
         }
         _ => return Err(E::Identity),
     }
     out.extend(b" >> BDC\n")
 }
-fn encode(
-    scopes: &BookV2MarkedScopes<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
-    text: &BookV2TextCommands<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
+fn encode<'a, D: BookV2SemanticDisplay<'a, Paint = P>, P: Copy + Eq>(
+    scopes: &BookV2MarkedScopesData<'_, '_, '_, '_, '_, '_, 'a, D, P>,
+    text: &BookV2TextCommandsData<'_, '_, '_, '_, '_, '_, '_, 'a, D, P>,
     out: &mut Encoder<'_>,
     mut pages: Option<&mut Vec<BookV2MarkedPage>>,
     mut groups: Option<&mut Vec<Range<usize>>>,
@@ -214,7 +200,7 @@ fn encode(
     let mut group_cursor = 0;
     let mut paint_cursor = 0;
     let mut anchor_count = 0;
-    for page in 0..display.source().source().geometry().pages().len() {
+    for page in 0..display.page_count() {
         out.budget.step(1)?;
         let page_start = out.length;
         let group_start = group_cursor;
@@ -308,7 +294,7 @@ fn encode(
         }
     }
     if group_cursor != scopes.groups().len()
-        || paint_cursor != display.paints().len()
+        || paint_cursor != display.paint_count()
         || text_cursor != text.commands().len()
         || image_cursor != images.commands().len()
     {
@@ -317,7 +303,36 @@ fn encode(
     Ok(anchor_count)
 }
 
-pub struct BookV2MarkedContent<
+pub struct BookV2MarkedContentData<
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2SemanticDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'n BookV2MarkedScopesData<'m, 'k, 'j, 'r, 'i, 'v, 'a, D, P>,
+    text: &'n BookV2TextCommandsData<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>,
+    pages: Vec<BookV2MarkedPage>,
+    groups: Vec<Range<usize>>,
+    anchors: Vec<BookV2SemanticAnchor>,
+    anchor_objects: Vec<BookV2SemanticAnchorObject>,
+    body_length: usize,
+    bytes: Vec<u8>,
+    fingerprint: [u8; 32],
+    budget: Budget,
+}
+pub type BookV2MarkedContent<
     'n,
     'm,
     'k,
@@ -339,20 +354,71 @@ pub struct BookV2MarkedContent<
     's,
     'p,
     'a,
-> {
-    source: &'n BookV2MarkedScopes<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
-    text: &'n BookV2TextCommands<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
-    pages: Vec<BookV2MarkedPage>,
-    groups: Vec<Range<usize>>,
-    anchors: Vec<BookV2SemanticAnchor>,
-    anchor_objects: Vec<BookV2SemanticAnchorObject>,
-    body_length: usize,
-    bytes: Vec<u8>,
-    fingerprint: [u8; 32],
-    budget: Budget,
-}
-impl<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2MarkedContent<
+> = BookV2MarkedContentData<
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// Column semantic ownership stays in every parent.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2MarkedContent, BookV2ColumnMarkedContent};
+/// fn body<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnMarkedContent<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>) -> BookV2MarkedContent<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnMarkedContent<
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2MarkedContentData<
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+impl<
         'n,
         'm,
         'k,
@@ -366,24 +432,15 @@ impl<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's,
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
-    >
+        D: BookV2SemanticDisplay<'a, Paint = P>,
+        P: Copy + Eq,
+    > BookV2MarkedContentData<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>
 {
-    pub fn source(
-        &self,
-    ) -> &'n BookV2MarkedScopes<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn source(&self) -> &'n BookV2MarkedScopesData<'m, 'k, 'j, 'r, 'i, 'v, 'a, D, P> {
         self.source
     }
-    pub fn text(
-        &self,
-    ) -> &'n BookV2TextCommands<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn text(&self) -> &'n BookV2TextCommandsData<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P> {
         self.text
     }
     pub fn pages(&self) -> &[BookV2MarkedPage] {
@@ -433,7 +490,31 @@ impl<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's,
         self.body_length
     }
 }
-pub struct BookV2MarkedContentBuilder<
+pub struct BookV2MarkedContentBuilderData<
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2SemanticDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'n BookV2MarkedScopesData<'m, 'k, 'j, 'r, 'i, 'v, 'a, D, P>,
+    text: &'n BookV2TextCommandsData<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>,
+    budget: Budget,
+    credit_available: bool,
+    max_objects: u32,
+}
+pub type BookV2MarkedContentBuilder<
     'n,
     'm,
     'k,
@@ -455,15 +536,71 @@ pub struct BookV2MarkedContentBuilder<
     's,
     'p,
     'a,
-> {
-    source: &'n BookV2MarkedScopes<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
-    text: &'n BookV2TextCommands<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
-    budget: Budget,
-    credit_available: bool,
-    max_objects: u32,
-}
-impl<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2MarkedContentBuilder<
+> = BookV2MarkedContentBuilderData<
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// Column semantic ownership stays in every parent.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2MarkedContentBuilder, BookV2ColumnMarkedContentBuilder};
+/// fn body<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnMarkedContentBuilder<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>) -> BookV2MarkedContentBuilder<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnMarkedContentBuilder<
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2MarkedContentBuilderData<
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+impl<
         'n,
         'm,
         'k,
@@ -477,19 +614,14 @@ impl<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's,
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
-    >
+        D: BookV2SemanticDisplay<'a, Paint = P>,
+        P: Copy + Eq,
+    > BookV2MarkedContentBuilderData<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>
 {
     pub fn new(
-        source: &'n BookV2MarkedScopes<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
-        text: &'n BookV2TextCommands<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        source: &'n BookV2MarkedScopesData<'m, 'k, 'j, 'r, 'i, 'v, 'a, D, P>,
+        text: &'n BookV2TextCommandsData<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>,
         limits: &M4EffectiveResourceLimits,
         max_work: u64,
         prior_records: u64,
@@ -497,6 +629,41 @@ impl<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's,
         prior_output: u64,
         prior_work: u64,
     ) -> Result<Self, E> {
+        Self::new_counted(
+            source,
+            text,
+            limits,
+            max_work,
+            prior_records,
+            prior_spool,
+            prior_output,
+            prior_work,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+        )
+    }
+    /// Keep every accepted constructor reservation visible even on failure.
+    pub fn new_counted(
+        source: &'n BookV2MarkedScopesData<'m, 'k, 'j, 'r, 'i, 'v, 'a, D, P>,
+        text: &'n BookV2TextCommandsData<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>,
+        limits: &M4EffectiveResourceLimits,
+        max_work: u64,
+        prior_records: u64,
+        prior_spool: u64,
+        prior_output: u64,
+        prior_work: u64,
+        observed_records: &mut u64,
+        observed_spool: &mut u64,
+        observed_output: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<Self, E> {
+        *observed_records = prior_records.max(source.record_charge());
+        *observed_spool = prior_spool.max(source.spool_charge());
+        *observed_output = prior_output.max(source.output_charge());
+        *observed_work = prior_work.max(source.work_steps());
+
         let display = source.display();
         if !std::ptr::eq(display, text.display()) {
             return Err(E::Identity);
@@ -519,7 +686,7 @@ impl<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's,
         {
             return Err(E::Objects);
         }
-        let inherited = BookV2MarkedScopeBuilder::new(
+        let inherited = BookV2MarkedScopeBuilderData::new_counted(
             source.source(),
             limits,
             max_work,
@@ -527,6 +694,10 @@ impl<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's,
             prior_spool.max(source.spool_charge()),
             prior_output.max(source.output_charge()),
             prior_work.max(source.work_steps()),
+            observed_records,
+            observed_spool,
+            observed_output,
+            observed_work,
         )?;
         Ok(Self {
             source,
@@ -551,29 +722,7 @@ impl<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's,
     pub fn build(
         &mut self,
     ) -> Result<
-        BookV2MarkedContent<
-            'n,
-            'm,
-            'k,
-            'j,
-            'r,
-            'i,
-            't,
-            'o,
-            'z,
-            'y,
-            'x,
-            'c,
-            'v,
-            'd,
-            'g,
-            'q,
-            'b,
-            'f,
-            's,
-            'p,
-            'a,
-        >,
+        BookV2MarkedContentData<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>,
         E,
     > {
         let mut credit = self
@@ -611,14 +760,7 @@ impl<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's,
             .output
             .checked_sub(credit as u64)
             .ok_or(E::Identity)?;
-        let npages = self
-            .source
-            .display()
-            .source()
-            .source()
-            .geometry()
-            .pages()
-            .len();
+        let npages = self.source.display().page_count();
         let ngroups = self.source.groups().len();
         let first_anchor = self
             .text
@@ -771,7 +913,7 @@ impl<'n, 'm, 'k, 'j, 'r, 'i, 't, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's,
             }
             fingerprint = self.budget.fold(fingerprint, &b)?;
         }
-        Ok(BookV2MarkedContent {
+        Ok(BookV2MarkedContentData {
             source: self.source,
             text: self.text,
             pages,

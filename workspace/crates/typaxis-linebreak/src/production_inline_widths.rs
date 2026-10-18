@@ -77,8 +77,16 @@ pub fn break_production_inline_with_source_widths(
 ) -> Result<ProductionInlineBreak, AtomicVectorInlineError> {
     // Pay for the complete assignment, including unreachable starts, before
     // allocating a search arena. The complete assignment enters its fingerprint.
-    for _ in widths.sizes {
+    let mut maximum_inline_size = widths
+        .sizes
+        .first()
+        .copied()
+        .ok_or(AtomicVectorInlineError::InvalidBinding)?;
+    for &size in widths.sizes {
         budget.step()?;
+        if size.get() > maximum_inline_size.get() {
+            maximum_inline_size = size;
+        }
     }
     if let Some(ends) = widths.retained_ends {
         let count = widths.paragraph.units.len();
@@ -104,6 +112,7 @@ pub fn break_production_inline_with_source_widths(
         InlineWidths::Source(widths.sizes, widths.retained_ends),
         line_height,
         budget,
+        maximum_inline_size,
     )
 }
 

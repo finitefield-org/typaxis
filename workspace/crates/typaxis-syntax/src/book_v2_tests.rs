@@ -86,7 +86,12 @@ fn collect(
                     collect(&item.blocks, output);
                 }
             }
-            BookV2Block::Table { caption, head, body, .. } => {
+            BookV2Block::Table {
+                caption,
+                head,
+                body,
+                ..
+            } => {
                 collect(caption, output);
                 for row in head.iter().chain(body) {
                     for cell in &row.cells {
@@ -639,3 +644,6 @@ mod table_captions;
 
 #[path = "book_v2_table_cell_style_tests.rs"]
 mod table_cell_styles;
+
+#[path = "book_v2_initial_style_tests.rs"]
+mod initial_style_tests;

@@ -128,6 +128,7 @@ fn program() -> CffProgramInspectionV2 {
     let empty = ProgramSpan { start: 0, end: 0 };
     CffProgramInspectionV2 {
         program: CffProgramV2 {
+            source_span: None,
             source: source.into(),
             charstrings: vec![root, root],
             global_subrs: vec![global],
@@ -146,7 +147,7 @@ fn program() -> CffProgramInspectionV2 {
                 },
             ],
             fd_by_gid: vec![0, 1],
-            cid_by_gid: vec![0, 10],
+            charset: SourceCharset::Cid(vec![0, 10]),
         },
     }
 }

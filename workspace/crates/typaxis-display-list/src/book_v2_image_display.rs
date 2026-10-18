@@ -83,16 +83,54 @@ impl<'d, 'g, 'p, 'a> BookV2ImageDraw<'d, 'g, 'p, 'a> {
         self.paint
     }
 }
-pub struct BookV2ImageDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub type BookV2ImageDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2SourceImageDisplay<'d, 'g, 'p, 'a, BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>>;
+/// A column component retains its distinct terminal source owner.
+///
+/// ```compile_fail
+/// use typaxis_display_list::book_v2::{BookV2ColumnImageDisplay, BookV2ImageDisplay};
+/// fn single<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+///     value: BookV2ColumnImageDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+/// ) -> BookV2ImageDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnImageDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2SourceImageDisplay<
+    'd,
+    'g,
+    'p,
+    'a,
+    typaxis_pagination::book_v2::BookV2ColumnMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+>;
+
+pub(super) struct ImageProjection<'d, 'g, 'p, 'a> {
+    pub(super) draws: Vec<BookV2ImageDraw<'d, 'g, 'p, 'a>>,
+    pub(super) fingerprint: [u8; 32],
+}
+pub struct BookV2SourceImageDisplay<'d, 'g, 'p, 'a, S: ?Sized> {
+    source: &'d S,
     admitted: &'d AdmittedProductionResourceLedgerV3,
     draws: Vec<BookV2ImageDraw<'d, 'g, 'p, 'a>>,
     fingerprint: [u8; 32],
     records: u64,
     work: u64,
 }
-impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2ImageDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    pub fn source(&self) -> &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a> {
+impl<'d, 'g, 'p, 'a, S: ?Sized> BookV2SourceImageDisplay<'d, 'g, 'p, 'a, S> {
+    pub(super) fn from_projection(
+        source: &'d S,
+        admitted: &'d AdmittedProductionResourceLedgerV3,
+        projection: ImageProjection<'d, 'g, 'p, 'a>,
+        records: u64,
+        work: u64,
+    ) -> Self {
+        Self {
+            source,
+            admitted,
+            draws: projection.draws,
+            fingerprint: projection.fingerprint,
+            records,
+            work,
+        }
+    }
+    pub fn source(&self) -> &'d S {
         self.source
     }
     pub fn admitted(&self) -> &'d AdmittedProductionResourceLedgerV3 {
@@ -112,7 +150,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2ImageDisplay<'d, 'g, 'q, 'b, 'f, 's, 
     }
 }
 
-impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+impl<'e, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> Projector<'e, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
     /// Both passes visit immutable actual placements. The first allocates
     /// nothing; all retained draw slots are charged before the second starts.
     fn visit_images(
@@ -123,7 +161,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
         ) -> Result<(), BookV2MathDisplayError>,
     ) -> Result<(), BookV2MathDisplayError> {
         let mut index = 0usize;
-        for page in self.source.source().geometry().pages() {
+        for page in self.source.pages() {
             self.step(NodeId::new(0))?;
             for (placed, role, repeated) in page.fragments_with_roles() {
                 let fragment = placed.fragment();
@@ -131,7 +169,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                 self.step(owner)?;
                 let flow = self
                     .source
-                    .fragment_flow(index)
+                    .fragment_graph(index)
                     .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
                 let prepared = flow.lines().prepared();
                 let mut push = |this: &mut Self, source, inline, viewport| {
@@ -316,9 +354,9 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
             },
         ))
     }
-    pub fn build_images(
+    pub(super) fn collect_images(
         &mut self,
-    ) -> Result<BookV2ImageDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2MathDisplayError> {
+    ) -> Result<ImageProjection<'d, 'g, 'p, 'a>, BookV2MathDisplayError> {
         let root = NodeId::new(0);
         let mut count = 0usize;
         self.visit_images(|_, _| {
@@ -328,7 +366,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
             Ok(())
         })?;
         take(
-            &mut self.remaining,
+            &mut *self.remaining,
             count
                 .checked_add(1)
                 .ok_or_else(|| error(root, E::RecordLimit))?,
@@ -401,13 +439,24 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
             draws.push(draw);
             Ok(())
         })?;
-        Ok(BookV2ImageDisplay {
-            source: self.source,
-            admitted: self.admitted,
+        Ok(ImageProjection {
             draws,
             fingerprint: fp,
-            records: self.record_charge(),
-            work: self.work_steps(),
         })
+    }
+}
+
+impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn build_images(
+        &mut self,
+    ) -> Result<BookV2ImageDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2MathDisplayError> {
+        let projection = self.projection().collect_images()?;
+        Ok(BookV2ImageDisplay::from_projection(
+            self.source,
+            self.admitted,
+            projection,
+            self.record_charge(),
+            self.work_steps(),
+        ))
     }
 }

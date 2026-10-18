@@ -4,9 +4,8 @@
 use super::*;
 use crate::text_encoding;
 use typaxis_display_list::book_v2::{
-    BookV2BodyDisplay, BookV2BodyPaintIndex as Paint, BookV2FontUseGlyphs, BookV2MathPaint,
+    BookV2CommandDisplay, BookV2FontUseGlyphs, BookV2SourceGlyphKind,
 };
-use typaxis_display_list::ProductionNativeMathPaint as Native;
 
 pub const BOOK_V2_TEXT_COMMANDS_ALGORITHM: &str = "typaxis.book-2-text-commands/1";
 #[derive(Clone, Debug)]
@@ -30,24 +29,68 @@ impl BookV2TextCommand {
     pub fn page_index(&self) -> u32 {
         self.page
     }
+    pub fn byte_range(&self) -> Range<usize> {
+        self.range.clone()
+    }
 }
-pub struct BookV2TextCommands<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'t BookV2FontObjects<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2TextCommandsData<
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'t BookV2FontObjectsData<'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>,
     commands: Vec<BookV2TextCommand>,
     paints: Vec<Range<usize>>,
     bytes: Vec<u8>,
     fingerprint: [u8; 32],
     budget: Budget,
 }
-impl<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2TextCommands<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+pub type BookV2TextCommands<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2TextCommandsData<
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2BodyPaintIndex,
+    >;
+/// Encoded column glyphs retain their column source owner.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2TextCommands, BookV2ColumnTextCommands};
+/// fn body<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnTextCommands<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>) -> BookV2TextCommands<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnTextCommands<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2TextCommandsData<
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+impl<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>
+    BookV2TextCommandsData<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>
 {
-    pub fn source(
-        &self,
-    ) -> &'t BookV2FontObjects<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn source(&self) -> &'t BookV2FontObjectsData<'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P> {
         self.source
     }
-    pub fn display(&self) -> &'v BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn display(&self) -> &'v D {
         self.source
             .source()
             .source()
@@ -91,29 +134,20 @@ impl<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         self.budget.work
     }
 }
-fn count_commands(
-    display: &BookV2BodyDisplay<'_, '_, '_, '_, '_, '_, '_, '_>,
+fn count_commands<'a, D: BookV2CommandDisplay<'a>>(
+    display: &D,
     budget: &mut Budget,
 ) -> Result<usize, E> {
     let mut count = 0usize;
-    for paint in display.paints() {
+    for paint in 0..display.paint_count() {
         budget.step(1)?;
-        let n = match *paint {
-            Paint::Text(_) | Paint::FootnoteSeparator(_) | Paint::PageRegionText { .. } => 1,
-            Paint::Marker(i) => display.markers().draws()[i].clusters().len(),
-            Paint::EquationNumber(i) => display.numbers().draws()[i].clusters().len(),
-            Paint::Math(i) => match display.math().draws()[i].paint() {
-                BookV2MathPaint::Native(n) => n.paints().len(),
-                BookV2MathPaint::Vector(_) => 0,
-            },
-            Paint::Image(_) => 0,
-        };
+        let n = display.text_paint(paint).ok_or(E::Identity)?.slot_count();
         count = count.checked_add(n).ok_or(E::Records)?;
     }
     Ok(count)
 }
-fn encode(
-    source: &BookV2FontObjects<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
+fn encode<'o, 'z, 'y, 'x, 'c, 'v, 'a, D: BookV2CommandDisplay<'a, Paint = P>, P: Copy + Eq>(
+    source: &BookV2FontObjectsData<'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>,
     output: &mut Encoder<'_>,
     mut commands: Option<&mut Vec<BookV2TextCommand>>,
     mut paints: Option<&mut Vec<Range<usize>>>,
@@ -122,45 +156,20 @@ fn encode(
     let display = cids.source().source().selection().display();
     let mut usage_cursor = 0usize;
     let mut command_cursor = 0usize;
-    for (paint_index, paint) in display.paints().iter().enumerate() {
+    for paint_index in 0..display.paint_count() {
         output.budget.step(1)?;
         let before = command_cursor;
-        let (page, slots) = match *paint {
-            Paint::Text(i) => (display.text().draws()[i].page_index(), 1),
-            Paint::PageRegionText { region, .. } => (display.page_regions()[region].page_index(), 1),
-            Paint::Marker(i) => {
-                let d = &display.markers().draws()[i];
-                (d.fragment().fragment().page_index(), d.clusters().len())
-            }
-            Paint::EquationNumber(i) => {
-                let d = &display.numbers().draws()[i];
-                (d.placement().geometry().page_index(), d.clusters().len())
-            }
-            Paint::Math(i) => {
-                let d = &display.math().draws()[i];
-                (
-                    d.terminal().page_index(),
-                    match d.paint() {
-                        BookV2MathPaint::Native(n) => n.paints().len(),
-                        BookV2MathPaint::Vector(_) => 0,
-                    },
-                )
-            }
-            Paint::FootnoteSeparator(i) => (display.markers().separators()[i].page_index(), 1),
-            Paint::Image(_) => (0, 0),
-        };
-        for slot in 0..slots {
+        let paint = display.text_paint(paint_index).ok_or(E::Identity)?;
+        let page = paint.page_index();
+        for slot in 0..paint.slot_count() {
             output.budget.step(1)?;
             let start = output.length;
-            let rule = match *paint {
-                Paint::FootnoteSeparator(i) => Some(display.markers().separators()[i].ink()),
-                Paint::Math(i) => match display.math().draws()[i].paint() {
-                    BookV2MathPaint::Native(n) => match n.paints()[slot] {
-                        Native::Rule(r) => Some(r),
-                        _ => None,
-                    },
-                    _ => return Err(E::Identity),
-                },
+            let source_slot = display
+                .text_slot(paint_index, slot)
+                .map_err(|_| E::Identity)?
+                .ok_or(E::Identity)?;
+            let rule = match source_slot.kind() {
+                BookV2SourceGlyphKind::Rule(rect) => Some(rect),
                 _ => None,
             };
             let usage = if let Some(rect) = rule {
@@ -178,7 +187,8 @@ fn encode(
                 let usage = selected.usage();
                 if selected.paint_index() != paint_index
                     || usage.slot() != slot
-                    || usage.paint() != *paint
+                    || usage.paint() != paint.paint()
+                    || source_slot.font_slot() != Some(slot)
                     || source.font_object(cid_use.font_index()).is_none()
                 {
                     return Err(E::Identity);
@@ -205,19 +215,12 @@ fn encode(
                         }
                     }
                     BookV2FontUseGlyphs::Native(original) => {
-                        let Paint::Math(i) = *paint else {
-                            return Err(E::Identity);
-                        };
-                        let BookV2MathPaint::Native(n) = display.math().draws()[i].paint() else {
-                            return Err(E::Identity);
-                        };
-                        let Native::Glyph {
+                        let BookV2SourceGlyphKind::Native {
                             original_gid,
                             x,
                             y,
                             font_size,
-                            ..
-                        } = n.paints()[slot]
+                        } = source_slot.kind()
                         else {
                             return Err(E::Identity);
                         };
@@ -238,7 +241,7 @@ fn encode(
             if let Some(commands) = &mut commands {
                 commands.push(BookV2TextCommand {
                     paint: paint_index,
-                    slot: (!matches!(paint, Paint::FootnoteSeparator(_))).then_some(slot),
+                    slot: source_slot.font_slot(),
                     usage,
                     page,
                     range: start..output.length,
@@ -255,15 +258,73 @@ fn encode(
     }
     Ok(())
 }
-pub struct BookV2TextCommandBuilder<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'t BookV2FontObjects<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2TextCommandBuilderData<
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'t BookV2FontObjectsData<'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>,
     budget: Budget,
 }
-impl<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2TextCommandBuilder<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+pub type BookV2TextCommandBuilder<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2TextCommandBuilderData<
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2BodyPaintIndex,
+    >;
+/// Encoded column glyphs retain their column source owner.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2TextCommandBuilder, BookV2ColumnTextCommandBuilder};
+/// fn body<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnTextCommandBuilder<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>) -> BookV2TextCommandBuilder<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnTextCommandBuilder<
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2TextCommandBuilderData<
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+impl<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D: BookV2CommandDisplay<'a, Paint = P>, P: Copy + Eq>
+    BookV2TextCommandBuilderData<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>
 {
     pub fn new(
-        source: &'t BookV2FontObjects<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        source: &'t BookV2FontObjectsData<'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>,
         limits: &M4EffectiveResourceLimits,
         max_work: u64,
         prior_records: u64,
@@ -271,7 +332,35 @@ impl<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         prior_output: u64,
         prior_work: u64,
     ) -> Result<Self, E> {
-        let inherited = BookV2FontStreamBuilder::new(
+        Self::new_counted(
+            source,
+            limits,
+            max_work,
+            prior_records,
+            prior_spool,
+            prior_output,
+            prior_work,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_counted(
+        source: &'t BookV2FontObjectsData<'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>,
+        limits: &M4EffectiveResourceLimits,
+        max_work: u64,
+        prior_records: u64,
+        prior_spool: u64,
+        prior_output: u64,
+        prior_work: u64,
+        observed_records: &mut u64,
+        observed_spool: &mut u64,
+        observed_output: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<Self, E> {
+        let inherited = BookV2FontStreamBuilderData::new_counted(
             source.source().source(),
             limits,
             max_work,
@@ -279,6 +368,10 @@ impl<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             prior_spool.max(source.spool_charge()),
             prior_output.max(source.output_charge()),
             prior_work.max(source.work_steps()),
+            observed_records,
+            observed_spool,
+            observed_output,
+            observed_work,
         )?;
         Ok(Self {
             source,
@@ -299,8 +392,7 @@ impl<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
     }
     pub fn build(
         &mut self,
-    ) -> Result<BookV2TextCommands<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>, E>
-    {
+    ) -> Result<BookV2TextCommandsData<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>, E> {
         let display = self
             .source
             .source()
@@ -310,7 +402,7 @@ impl<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             .selection()
             .display();
         let count = count_commands(display, &mut self.budget)?;
-        let npaints = display.paints().len();
+        let npaints = display.paint_count();
         let records = count
             .checked_add(npaints)
             .and_then(|n| n.checked_add(1))
@@ -386,7 +478,7 @@ impl<'t, 'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             b[8..].copy_from_slice(&(range.end as u64).to_be_bytes());
             fingerprint = self.budget.fold(fingerprint, &b)?;
         }
-        Ok(BookV2TextCommands {
+        Ok(BookV2TextCommandsData {
             source: self.source,
             commands,
             paints,

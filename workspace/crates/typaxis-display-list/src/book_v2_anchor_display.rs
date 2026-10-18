@@ -59,8 +59,31 @@ impl<'g> BookV2NonpaintingLine<'g> {
         self.repeated
     }
 }
-pub struct BookV2AnchorDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub type BookV2AnchorDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2SourceAnchorDisplay<'d, 'g, 's, BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>>;
+/// A column component retains its distinct terminal source owner.
+///
+/// ```compile_fail
+/// use typaxis_display_list::book_v2::{BookV2ColumnAnchorDisplay, BookV2AnchorDisplay};
+/// fn single<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+///     value: BookV2ColumnAnchorDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+/// ) -> BookV2AnchorDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnAnchorDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2SourceAnchorDisplay<
+    'd,
+    'g,
+    's,
+    typaxis_pagination::book_v2::BookV2ColumnMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+>;
+
+pub(super) struct AnchorProjection<'g, 's> {
+    pub(super) positions: Vec<BookV2AnchorPosition<'g, 's>>,
+    pub(super) nonpainting: Vec<BookV2NonpaintingLine<'g>>,
+    pub(super) unpositioned: Vec<&'s ProductionPlacedInlineAnchor>,
+    pub(super) fingerprint: [u8; 32],
+}
+pub struct BookV2SourceAnchorDisplay<'d, 'g, 's, S: ?Sized> {
+    source: &'d S,
     positions: Vec<BookV2AnchorPosition<'g, 's>>,
     nonpainting: Vec<BookV2NonpaintingLine<'g>>,
     unpositioned: Vec<&'s ProductionPlacedInlineAnchor>,
@@ -68,8 +91,24 @@ pub struct BookV2AnchorDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
     records: u64,
     work: u64,
 }
-impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2AnchorDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    pub fn source(&self) -> &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a> {
+impl<'d, 'g, 's, S: ?Sized> BookV2SourceAnchorDisplay<'d, 'g, 's, S> {
+    pub(super) fn from_projection(
+        source: &'d S,
+        projection: AnchorProjection<'g, 's>,
+        records: u64,
+        work: u64,
+    ) -> Self {
+        Self {
+            source,
+            positions: projection.positions,
+            nonpainting: projection.nonpainting,
+            unpositioned: projection.unpositioned,
+            fingerprint: projection.fingerprint,
+            records,
+            work,
+        }
+    }
+    pub fn source(&self) -> &'d S {
         self.source
     }
     pub fn positions(&self) -> &[BookV2AnchorPosition<'g, 's>] {
@@ -93,13 +132,13 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2AnchorDisplay<'d, 'g, 'q, 'b, 'f, 's,
         self.work
     }
 }
-impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+impl<'e, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> Projector<'e, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
     fn visit_nonpainting_lines(
         &mut self,
         mut emit: impl FnMut(&mut Self, BookV2NonpaintingLine<'g>) -> Result<(), BookV2MathDisplayError>,
     ) -> Result<(), BookV2MathDisplayError> {
         let mut index = 0usize;
-        for page in self.source.source().geometry().pages() {
+        for page in self.source.pages() {
             self.step(NodeId::new(0))?;
             for (placed, role, repeated) in page.fragments_with_roles() {
                 let fragment = placed.fragment();
@@ -107,7 +146,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                 self.step(owner)?;
                 let lines = self
                     .source
-                    .fragment_flow(index)
+                    .fragment_graph(index)
                     .ok_or_else(|| error(owner, E::ReceiptMismatch))?
                     .lines();
                 if let ProductionBodyFragmentSource::ParagraphLine {
@@ -163,7 +202,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
         ) -> Result<(), BookV2MathDisplayError>,
     ) -> Result<(), BookV2MathDisplayError> {
         let mut index = 0usize;
-        for page in self.source.source().geometry().pages() {
+        for page in self.source.pages() {
             self.step(NodeId::new(0))?;
             for (placed, role, repeated) in page.fragments_with_roles() {
                 let fragment = placed.fragment();
@@ -171,7 +210,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                 self.step(owner)?;
                 let lines = self
                     .source
-                    .fragment_flow(index)
+                    .fragment_graph(index)
                     .ok_or_else(|| error(owner, E::ReceiptMismatch))?
                     .lines();
                 if let ProductionBodyFragmentSource::ParagraphLine {
@@ -245,11 +284,11 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
         }
         self.fold(fp, &bytes, source.owner())
     }
-    pub fn build_anchors(
+    pub(super) fn collect_anchors(
         &mut self,
-    ) -> Result<BookV2AnchorDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2MathDisplayError> {
+    ) -> Result<AnchorProjection<'g, 's>, BookV2MathDisplayError> {
         let root = NodeId::new(0);
-        let lines = self.source.source().flow().lines();
+        let lines = self.source.original_graph().lines();
         let mut unresolved = 0usize;
         for p in lines.paragraphs() {
             self.step(p.owner())?;
@@ -281,7 +320,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
             .and_then(|n| n.checked_add(empty_count))
             .and_then(|n| n.checked_add(1))
             .ok_or_else(|| error(root, E::RecordLimit))?;
-        take(&mut self.remaining, required, root)?;
+        take(&mut *self.remaining, required, root)?;
         let mut positions = Vec::new();
         positions
             .try_reserve_exact(count)
@@ -364,14 +403,25 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
             nonpainting.push(empty);
             Ok(())
         })?;
-        Ok(BookV2AnchorDisplay {
-            source: self.source,
+        Ok(AnchorProjection {
             positions,
             nonpainting,
             unpositioned,
             fingerprint: fp,
-            records: self.record_charge(),
-            work: self.work_steps(),
         })
+    }
+}
+
+impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn build_anchors(
+        &mut self,
+    ) -> Result<BookV2AnchorDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2MathDisplayError> {
+        let projection = self.projection().collect_anchors()?;
+        Ok(BookV2AnchorDisplay::from_projection(
+            self.source,
+            projection,
+            self.record_charge(),
+            self.work_steps(),
+        ))
     }
 }

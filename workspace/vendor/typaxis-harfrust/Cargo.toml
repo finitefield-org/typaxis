@@ -1,0 +1,25 @@
+[package]
+name = "typaxis-harfrust"
+version = "0.1.1"
+edition = "2021"
+rust-version = "1.75"
+publish = false
+license = "MIT"
+description = "Private Typaxis allocation-observed Harfrust integration"
+
+[lib]
+name = "harfrust"
+
+[dependencies]
+bitflags = "2.9"
+bytemuck = { version = "1.22", features = ["extern_crate_alloc"] }
+core_maths = "0.1"
+read-fonts = { version = "=0.31.3", default-features = false, features = ["libm"] }
+smallvec = "1.14"
+
+[features]
+default = ["std"]
+std = ["read-fonts/std"]
+
+[dev-dependencies]
+harfrust-reference = { package = "harfrust", version = "=0.1.1" }

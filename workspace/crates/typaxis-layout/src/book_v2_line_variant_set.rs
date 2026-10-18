@@ -141,7 +141,9 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variants<R>(
             .try_reserve_exact(seeds.len())
             .map_err(|_| BreakError::AllocationFailure)?;
         let mut source_budget = BookV2SourceVerificationBudget::new_with_prepaid_records(
-            allowance.records, first.limits.base().get().max_fragments, graphs,
+            allowance.records,
+            first.limits.base().get().max_fragments,
+            graphs,
         );
         let mut local_records = 0;
         for (seed, inputs) in seeds.iter().zip(&inputs) {
@@ -233,4 +235,642 @@ pub fn with_budgeted_rebuilt_book_v2_body_line_variants<R>(
     })();
     allowance.work += work;
     result
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ObservedOccurrencePhase {
+    Fresh,
+    Shaped,
+    Inlined,
+    Selected,
+    Footnoted,
+    Sealed,
+}
+struct ObservedOccurrenceSlot<'id> {
+    ordinal: usize,
+    phase: ObservedOccurrencePhase,
+    request: Option<BookV2ObservedFreshGraphRequest<'id>>,
+    payment: Option<BookV2ObservedGraphPayment<'id>>,
+    key: Option<BookV2ObservedOccurrenceKey<'id>>,
+    initially_paid: u64,
+}
+impl<'id> ObservedOccurrenceSlot<'id> {
+    fn require(
+        &self,
+        ordinal: usize,
+        phase: ObservedOccurrencePhase,
+        key: BookV2ObservedOccurrenceKey<'id>,
+    ) -> Result<(), BookV2ObservedBodyReshapeError> {
+        if self.ordinal != ordinal || self.phase != phase || self.key != Some(key) {
+            return Err(BookV2ObservedAccountingError::OccurrenceState {
+                owner: NodeId::new(0),
+            }
+            .into());
+        }
+        Ok(())
+    }
+}
+struct ObservedPreparedOccurrence<'id, 'a> {
+    prepared: BookV2PreparedInlines<'a>,
+    key: BookV2ObservedOccurrenceKey<'id>,
+    ordinal: usize,
+}
+struct ObservedSelectedOccurrence<'id, 'p, 'a> {
+    lines: BookV2InlineLineLayout<'p, 'a>,
+    key: BookV2ObservedOccurrenceKey<'id>,
+    ordinal: usize,
+}
+struct ObservedVariantData<'id, 's, 'p, 'a> {
+    lines: &'s BookV2InlineLineLayout<'p, 'a>,
+    footnotes: BookV2FootnoteLines<'s, 'p, 'a>,
+    key: BookV2ObservedOccurrenceKey<'id>,
+    ordinal: usize,
+    paid_records: u64,
+}
+
+/// Immutable view of one actually rebuilt Column occurrence.
+pub struct BookV2ObservedRebuiltColumnLineVariant<'v, 'id, 's, 'p, 'a> {
+    inner: &'v ObservedVariantData<'id, 's, 'p, 'a>,
+}
+impl<'v, 'id, 's, 'p, 'a> BookV2ObservedRebuiltColumnLineVariant<'v, 'id, 's, 'p, 'a> {
+    pub fn lines(&self) -> &'s BookV2InlineLineLayout<'p, 'a> {
+        self.inner.lines
+    }
+    pub fn footnotes(&self) -> &BookV2FootnoteLines<'s, 'p, 'a> {
+        &self.inner.footnotes
+    }
+    pub fn occurrence_ordinal(&self) -> usize {
+        self.inner.ordinal
+    }
+    pub fn occurrence_key(&self) -> BookV2ObservedOccurrenceKey<'id> {
+        self.inner.key
+    }
+    pub fn paid_records(&self) -> u64 {
+        self.inner.paid_records
+    }
+    pub fn column_plan(&self) -> &'p typaxis_syntax::book_v2::BookV2ColumnFramePlan<'a> {
+        self.inner
+            .lines
+            .frames()
+            .expect("observed Column frames")
+            .column_plan()
+            .expect("observed Column plan")
+    }
+}
+/// All real graph ownership layers remain simultaneously live in this scope.
+pub struct BookV2ObservedRebuiltColumnLineVariants<'id, 's, 'p, 'a> {
+    variants: Vec<ObservedVariantData<'id, 's, 'p, 'a>>,
+    counters: [u64; 3],
+    fingerprint: [u8; 32],
+}
+impl<'id, 's, 'p, 'a> BookV2ObservedRebuiltColumnLineVariants<'id, 's, 'p, 'a> {
+    pub fn variants(
+        &self,
+    ) -> impl ExactSizeIterator<Item = BookV2ObservedRebuiltColumnLineVariant<'_, 'id, 's, 'p, 'a>>
+    {
+        self.variants
+            .iter()
+            .map(|inner| BookV2ObservedRebuiltColumnLineVariant { inner })
+    }
+    pub fn variant(
+        &self,
+        index: usize,
+    ) -> Option<BookV2ObservedRebuiltColumnLineVariant<'_, 'id, 's, 'p, 'a>> {
+        self.variants
+            .get(index)
+            .map(|inner| BookV2ObservedRebuiltColumnLineVariant { inner })
+    }
+    pub fn counters(&self) -> [u64; 3] {
+        self.counters
+    }
+    pub fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
+fn checked_sum(a: u64, b: u64) -> Result<u64, BookV2ObservedBodyReshapeError> {
+    a.checked_add(b).ok_or_else(|| {
+        BookV2ObservedAccountingError::Records {
+            owner: NodeId::new(0),
+        }
+        .into()
+    })
+}
+fn replay_growth(
+    budget: &mut BookV2ObservedLineVariantBudget,
+    before: u64,
+    after: u64,
+) -> Result<(), BookV2ObservedBodyReshapeError> {
+    budget.replay_records = checked_sum(budget.replay_records, after.saturating_sub(before))?;
+    Ok(())
+}
+pub(super) struct ObservedFamilyPreflight {
+    views: u64,
+    fingerprint: [u8; 32],
+}
+
+pub(super) fn preflight_observed_variants<'id>(
+    seeds: &[&BookV2ObservedColumnLineVariantSeed<'id, '_>],
+    budget: &mut BookV2ObservedLineVariantBudget,
+    accounting: &mut BookV2ObservedSourceAccounting<'id, '_>,
+) -> Result<ObservedFamilyPreflight, BookV2ObservedBodyReshapeError> {
+    budget.begin(
+        BookV2ObservedVariantPhase::ProtocolStorage,
+        None,
+        accounting,
+        0,
+        None,
+        None,
+    );
+    let first = &seeds.first().ok_or_else(observed_variant_mismatch)?.inner;
+    let count = observed_units(seeds.len())?;
+    budget.request(
+        accounting,
+        [
+            0,
+            0,
+            checked_sum(count.checked_mul(9).ok_or(BreakError::IterationLimit)?, 1)?,
+        ],
+    )?;
+    let mut views = 0u64;
+    let mut fingerprint = sha256(b"typaxis.book-2-line-variant-set/1");
+    for (index, column_seed) in seeds.iter().enumerate() {
+        let seed = &column_seed.inner;
+        let native_same = match (first.native, seed.native) {
+            (None, None) => true,
+            (Some(a), Some(b)) => std::ptr::eq(a, b),
+            _ => false,
+        };
+        if !std::ptr::eq(first.flow, seed.flow)
+            || !std::ptr::eq(first.policy, seed.policy)
+            || !std::ptr::eq(first.admitted, seed.admitted)
+            || !std::ptr::eq(first.bindings, seed.bindings)
+            || !std::ptr::eq(first.columns, seed.columns)
+            || first.limits != seed.limits
+            || first.mode != seed.mode
+            || !native_same
+        {
+            return Err(observed_variant_mismatch());
+        }
+        accounting.require_limit_domain(seed.limits.base())?;
+        views = checked_sum(views, observed_units(seed.contexts.paragraphs().len())?)?;
+        let mut digest = [0u8; 72];
+        digest[..32].copy_from_slice(&fingerprint);
+        digest[32..64].copy_from_slice(&seed.contexts.source_fingerprint());
+        digest[64..].copy_from_slice(&(index as u64).to_be_bytes());
+        fingerprint = sha256(&digest);
+    }
+    Ok(ObservedFamilyPreflight { views, fingerprint })
+}
+
+fn observed_protocol_storage_request<'id>(
+    occurrences: usize,
+    views: u64,
+) -> Result<[u64; 3], BookV2ObservedBodyReshapeError> {
+    let root = NodeId::new(0);
+    let count = observed_units(occurrences)?;
+    let records = checked_sum(
+        checked_sum(
+            count.checked_mul(7).ok_or(BreakError::IterationLimit)?,
+            views,
+        )?,
+        1,
+    )?;
+    let mut bytes = 0u64;
+    for value in [
+        observed_bytes::<u64>(occurrences)?,
+        observed_bytes::<ObservedOccurrenceSlot<'id>>(occurrences)?,
+        observed_bytes::<Vec<ProductionParagraphLineContext<'_>>>(occurrences)?,
+        observed_bytes::<BookV2ObservedShapedOccurrence<'id, '_>>(occurrences)?,
+        observed_bytes::<ObservedPreparedOccurrence<'id, '_>>(occurrences)?,
+        observed_bytes::<ObservedSelectedOccurrence<'id, '_, '_>>(occurrences)?,
+        observed_bytes::<ObservedVariantData<'id, '_, '_, '_>>(occurrences)?,
+        views
+            .checked_mul(std::mem::size_of::<ProductionParagraphLineContext<'_>>() as u64)
+            .ok_or(BookV2ObservedAccountingError::Spool { owner: root })?,
+    ] {
+        bytes = bytes
+            .checked_add(value)
+            .ok_or(BookV2ObservedAccountingError::Spool { owner: root })?;
+    }
+    Ok([
+        records,
+        bytes,
+        checked_sum(
+            count.checked_mul(7).ok_or(BreakError::IterationLimit)?,
+            views,
+        )?,
+    ])
+}
+
+pub(super) fn with_observed_variants<'id, 'cells, R>(
+    seeds: &[&ObservedVariantSeed<'id, '_>],
+    family: ObservedFamilyPreflight,
+    budget: &mut BookV2ObservedLineVariantBudget,
+    accounting: &mut BookV2ObservedSourceAccounting<'id, 'cells>,
+    inspect: impl FnOnce(
+        BookV2ObservedRebuiltColumnLineVariants<'id, '_, '_, '_>,
+        &mut BookV2ObservedSourceAccounting<'id, 'cells>,
+    ) -> R,
+) -> Result<R, BookV2ObservedBodyReshapeError> {
+    let root = NodeId::new(0);
+    let ObservedFamilyPreflight { views, fingerprint } = family;
+    let storage_request = observed_protocol_storage_request(seeds.len(), views)?;
+    budget.request(accounting, storage_request)?;
+    let mut bounds = Vec::new();
+    reserve_observed_protocol(
+        &mut bounds,
+        seeds.len(),
+        ObservedProtocolReserveSite::ReplayBounds,
+    )?;
+    bounds.extend(seeds.iter().map(|s| s.rebuild_records));
+    let mut slots = Vec::new();
+    reserve_observed_protocol(
+        &mut slots,
+        seeds.len(),
+        ObservedProtocolReserveSite::ReplaySlots,
+    )?;
+    for (ordinal, bound) in bounds.iter().copied().enumerate() {
+        budget.begin(
+            BookV2ObservedVariantPhase::ProtocolStorage,
+            Some(ordinal),
+            accounting,
+            0,
+            None,
+            None,
+        );
+        if budget.remaining_work() == 0 {
+            return Err(BookV2ObservedAccountingError::Work { owner: root }.into());
+        }
+        let request = accounting.reserve_graph_request(root, bound);
+        budget.complete(
+            accounting,
+            if request.is_ok() { bound } else { 0 },
+            0,
+            false,
+            request.is_ok(),
+            request.is_err(),
+        );
+        let request = request?;
+        budget.work += 1;
+        budget.replay_records = checked_sum(budget.replay_records, bound)?;
+        slots.push(ObservedOccurrenceSlot {
+            ordinal,
+            phase: ObservedOccurrencePhase::Fresh,
+            request: Some(request),
+            payment: None,
+            key: None,
+            initially_paid: bound,
+        });
+    }
+    let mut inputs = Vec::new();
+    reserve_observed_protocol(
+        &mut inputs,
+        seeds.len(),
+        ObservedProtocolReserveSite::ReplayInputsOuter,
+    )?;
+    for seed in seeds {
+        let mut row = Vec::new();
+        reserve_observed_protocol(
+            &mut row,
+            seed.contexts.paragraphs().len(),
+            ObservedProtocolReserveSite::ReplayInputViews,
+        )?;
+        row.extend(
+            seed.contexts
+                .paragraphs()
+                .iter()
+                .map(|p| ProductionParagraphLineContext {
+                    owner: p.owner(),
+                    ends: p.ends(),
+                }),
+        );
+        inputs.push(row);
+    }
+    budget.complete(accounting, 0, storage_request[0], true, true, false);
+    let mut shapes = Vec::new();
+    reserve_observed_protocol(
+        &mut shapes,
+        seeds.len(),
+        ObservedProtocolReserveSite::ReplayShapes,
+    )?;
+    for (ordinal, (seed, input)) in seeds.iter().zip(&inputs).enumerate() {
+        let slot = &mut slots[ordinal];
+        if slot.ordinal != ordinal || slot.phase != ObservedOccurrencePhase::Fresh {
+            return Err(observed_variant_mismatch());
+        }
+        budget.request(accounting, [0, 0, 1])?;
+        let before = slot.initially_paid;
+        budget.begin(
+            BookV2ObservedVariantPhase::Shape,
+            Some(ordinal),
+            accounting,
+            before,
+            None,
+            None,
+        );
+        let mut local = 0;
+        let result =
+            typaxis_shaping::book_v2::shape_book_v2_authored_text_for_observed_request_counted(
+                slot.request.take().ok_or_else(observed_variant_mismatch)?,
+                seed.policy,
+                seed.flow,
+                seed.admitted,
+                seed.limits,
+                seed.bindings.epoch(),
+                Some(input),
+                accounting,
+                &mut local,
+            );
+        let entered = super::super::observed_shape_kernel_entry_confirmed(&result, local);
+        let after = before.max(local);
+        replay_growth(budget, before, after)?;
+        budget.complete(
+            accounting,
+            after,
+            local,
+            entered,
+            result.is_ok(),
+            matches!(result, Err(BookV2ObservedShapeError::Accounting(_))),
+        );
+        let (shape, payment) = result?;
+        slot.key = Some(payment.occurrence_key());
+        slot.payment = Some(payment);
+        slot.phase = ObservedOccurrencePhase::Shaped;
+        shapes.push(shape);
+    }
+    let mut prepared = Vec::new();
+    reserve_observed_protocol(
+        &mut prepared,
+        seeds.len(),
+        ObservedProtocolReserveSite::ReplayInlines,
+    )?;
+    for (ordinal, (seed, shape)) in seeds.iter().zip(&shapes).enumerate() {
+        let slot = &mut slots[ordinal];
+        slot.require(
+            ordinal,
+            ObservedOccurrencePhase::Shaped,
+            shape.occurrence_key(),
+        )?;
+        budget.request(accounting, [0, 0, 1])?;
+        let payment = slot
+            .payment
+            .as_mut()
+            .ok_or_else(observed_variant_mismatch)?;
+        let before = payment.paid_records();
+        budget.begin(
+            BookV2ObservedVariantPhase::Inline,
+            Some(ordinal),
+            accounting,
+            before,
+            None,
+            None,
+        );
+        let mut local = 0;
+        let mut entered = false;
+        let result = prepare_observed_occurrence_inlines_counted(
+            seed.flow,
+            shape,
+            seed.admitted,
+            seed.bindings,
+            seed.limits,
+            seed.mode,
+            seed.native,
+            accounting,
+            payment,
+            &mut local,
+            &mut entered,
+        );
+        let after = payment.paid_records();
+        replay_growth(budget, before, after)?;
+        budget.complete(
+            accounting,
+            after,
+            local,
+            entered,
+            result.is_ok(),
+            matches!(result, Err(BookV2ObservedInlineError::Accounting(_))),
+        );
+        let value = result?;
+        prepared.push(ObservedPreparedOccurrence {
+            prepared: value,
+            key: shape.occurrence_key(),
+            ordinal,
+        });
+        slot.phase = ObservedOccurrencePhase::Inlined;
+    }
+    let mut selected = Vec::new();
+    reserve_observed_protocol(
+        &mut selected,
+        seeds.len(),
+        ObservedProtocolReserveSite::ReplaySelected,
+    )?;
+    for (ordinal, (seed, p)) in seeds.iter().zip(&prepared).enumerate() {
+        let slot = &mut slots[ordinal];
+        slot.require(ordinal, ObservedOccurrencePhase::Inlined, p.key)?;
+        if p.ordinal != ordinal {
+            return Err(observed_variant_mismatch());
+        }
+        let payment = slot
+            .payment
+            .as_mut()
+            .ok_or_else(observed_variant_mismatch)?;
+        let cap = payment
+            .output_record_limit(accounting)?
+            .min(p.prepared.output_record_limit);
+        let before = payment.paid_records();
+        budget.begin(
+            BookV2ObservedVariantPhase::Frames,
+            Some(ordinal),
+            accounting,
+            before,
+            Some(p.prepared.output_record_limit),
+            Some(cap),
+        );
+        let (mut work, mut local) = (0, 0);
+        let result = super::super::frames::layout_body_lines_in_measured_frames_with_record_limit(
+            &p.prepared,
+            seed.columns.measurement_body(),
+            budget.remaining_work().min(accounting.remaining_work()),
+            Some(MeasurementPageFrames::Columns(seed.columns)),
+            seed.widths,
+            &mut work,
+            &mut local,
+            cap,
+            BookV2NativeRecordOrigin::AlreadyPaid,
+        );
+        let spent = budget.request(accounting, [0, 0, work]);
+        let retained = payment.retain_actual_output(accounting, root, local);
+        replay_growth(budget, before, payment.paid_records())?;
+        budget.complete(
+            accounting,
+            payment.paid_records(),
+            local,
+            true,
+            result.is_ok() && spent.is_ok() && retained.is_ok(),
+            result.is_ok() && (retained.is_err() || spent.is_err()),
+        );
+        let lines = result?;
+        spent?;
+        retained?;
+        budget.request(accounting, [0, 0, 1])?;
+        if lines.fingerprint() != seed.contexts.source_fingerprint() {
+            return Err(observed_variant_mismatch());
+        }
+        selected.push(ObservedSelectedOccurrence {
+            lines,
+            key: p.key,
+            ordinal,
+        });
+        slot.phase = ObservedOccurrencePhase::Selected;
+    }
+    let mut variants = Vec::new();
+    reserve_observed_protocol(
+        &mut variants,
+        seeds.len(),
+        ObservedProtocolReserveSite::ReplayVariants,
+    )?;
+    for (ordinal, (seed, l)) in seeds.iter().zip(&selected).enumerate() {
+        let slot = &mut slots[ordinal];
+        slot.require(ordinal, ObservedOccurrencePhase::Selected, l.key)?;
+        if l.ordinal != ordinal {
+            return Err(observed_variant_mismatch());
+        }
+        budget.request(accounting, [0, 0, 1])?;
+        let payment = slot
+            .payment
+            .as_mut()
+            .ok_or_else(observed_variant_mismatch)?;
+        let cap = payment
+            .output_record_limit(accounting)?
+            .min(l.lines.prepared.output_record_limit);
+        let before = payment.paid_records();
+        budget.begin(
+            BookV2ObservedVariantPhase::Footnotes,
+            Some(ordinal),
+            accounting,
+            before,
+            Some(l.lines.prepared.output_record_limit),
+            Some(cap),
+        );
+        let mut local = 0;
+        let result =
+            super::super::footnote_lines::prepare_book_v2_footnote_lines_with_record_limit_counted(
+                &l.lines,
+                seed.limits,
+                &mut local,
+                cap,
+            );
+        let retained = payment.retain_actual_output(accounting, root, local);
+        replay_growth(budget, before, payment.paid_records())?;
+        budget.complete(
+            accounting,
+            payment.paid_records(),
+            local,
+            true,
+            result.is_ok() && retained.is_ok(),
+            result.is_ok() && retained.is_err(),
+        );
+        let footnotes = result?;
+        retained?;
+        if footnotes.record_charge() > seed.rebuild_records {
+            return Err(observed_variant_mismatch());
+        }
+        variants.push(ObservedVariantData {
+            lines: &l.lines,
+            footnotes,
+            key: l.key,
+            ordinal,
+            paid_records: payment.paid_records(),
+        });
+        slot.phase = ObservedOccurrencePhase::Footnoted;
+    }
+    for slot in &mut slots {
+        slot.payment
+            .as_mut()
+            .ok_or_else(observed_variant_mismatch)?
+            .seal();
+        slot.phase = ObservedOccurrencePhase::Sealed;
+    }
+    budget.begin(
+        BookV2ObservedVariantPhase::Callback,
+        None,
+        accounting,
+        0,
+        None,
+        None,
+    );
+    let value = inspect(
+        BookV2ObservedRebuiltColumnLineVariants {
+            variants,
+            counters: accounting.counters(),
+            fingerprint,
+        },
+        accounting,
+    );
+    budget.complete(accounting, 0, 0, false, true, false);
+    Ok(value)
+}
+
+#[cfg(test)]
+mod observed_p2_protocol_controls {
+    use super::*;
+
+    #[test]
+    fn observed_p2_protocol_request_arithmetic_boundaries() {
+        for (count, views) in [(0usize, 0u64), (1, 0), (3, 5)] {
+            let count64 = count as u64;
+            let bytes = count64
+                * (std::mem::size_of::<u64>()
+                    + std::mem::size_of::<ObservedOccurrenceSlot<'_>>()
+                    + std::mem::size_of::<Vec<ProductionParagraphLineContext<'_>>>()
+                    + std::mem::size_of::<BookV2ObservedShapedOccurrence<'_, '_>>()
+                    + std::mem::size_of::<ObservedPreparedOccurrence<'_, '_>>()
+                    + std::mem::size_of::<ObservedSelectedOccurrence<'_, '_, '_>>()
+                    + std::mem::size_of::<ObservedVariantData<'_, '_, '_, '_>>())
+                    as u64
+                + views * std::mem::size_of::<ProductionParagraphLineContext<'_>>() as u64;
+            assert_eq!(
+                observed_protocol_storage_request(count, views).unwrap(),
+                [7 * count64 + views + 1, bytes, 7 * count64 + views]
+            );
+        }
+        assert!(matches!(
+            checked_sum(u64::MAX, 1),
+            Err(BookV2ObservedBodyReshapeError::Accounting(
+                BookV2ObservedAccountingError::Records { .. }
+            ))
+        ));
+        assert!(matches!(
+            observed_protocol_storage_request(1, u64::MAX),
+            Err(BookV2ObservedBodyReshapeError::Accounting(
+                BookV2ObservedAccountingError::Records { .. }
+            ))
+        ));
+        let paragraph_size = std::mem::size_of::<ProductionParagraphLineContext<'_>>() as u64;
+        assert!(paragraph_size > 1);
+        let overflowing_views = u64::MAX / paragraph_size + 1;
+        assert!(matches!(
+            observed_protocol_storage_request(1, overflowing_views),
+            Err(BookV2ObservedBodyReshapeError::Accounting(
+                BookV2ObservedAccountingError::Spool { .. }
+            ))
+        ));
+        #[cfg(target_pointer_width = "64")]
+        {
+            assert!(matches!(
+                observed_protocol_storage_request(usize::MAX, 0),
+                Err(BookV2ObservedBodyReshapeError::Feedback(
+                    BreakError::IterationLimit
+                ))
+            ));
+            assert!(matches!(
+                observed_bytes::<u64>(usize::MAX),
+                Err(BookV2ObservedBodyReshapeError::Accounting(
+                    BookV2ObservedAccountingError::Spool { .. }
+                ))
+            ));
+        }
+        // Pure numeric sizing only: no impossible slice, graph or allocation.
+    }
 }

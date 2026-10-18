@@ -2,12 +2,18 @@
 //! This owner grants no public-profile or PDF/UA conformance authority.
 use super::*;
 use crate::{font_encoding, text_encoding};
+use std::sync::atomic::{AtomicU64, Ordering};
 use typaxis_core::EngineIdentity;
-use typaxis_syntax::book_v2::{
-    select_book_v2_page_master, BookV2PageMasterError, BookV2SelectedPageMaster,
-};
+use typaxis_display_list::book_v2::{BookV2AssemblyDisplay, BookV2AssemblyFrameError};
+use typaxis_syntax::book_v2::{BookV2PageMasterError, BookV2SelectedPageMaster};
 
 pub const BOOK_V2_PDF_ASSEMBLY_ALGORITHM: &str = "typaxis.book-2-pdf-assembly/1";
+static NEXT_ASSEMBLY_ATTEMPT: AtomicU64 = AtomicU64::new(1);
+
+/// Opaque identity of one assembly builder attempt. Copying this comparison
+/// token cannot construct a builder or reset its replacement credit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BookV2PdfAssemblyAttemptIdentity(u64);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BookV2PdfAssemblyError {
     Resource(E),
@@ -19,6 +25,15 @@ use BookV2PdfAssemblyError as AE;
 impl From<E> for AE {
     fn from(e: E) -> Self {
         Self::Resource(e)
+    }
+}
+impl From<BookV2AssemblyFrameError> for AE {
+    fn from(error: BookV2AssemblyFrameError) -> Self {
+        match error {
+            BookV2AssemblyFrameError::Mismatch => Self::PageFrameMismatch,
+            BookV2AssemblyFrameError::Master(error) => Self::PageMaster(error),
+            BookV2AssemblyFrameError::Work => Self::Resource(E::Work),
+        }
     }
 }
 impl std::fmt::Display for AE {
@@ -108,7 +123,7 @@ impl Plan {
     }
 }
 
-pub struct BookV2PdfAssembly<
+pub type BookV2PdfAssembly<
     'e,
     'w,
     'u,
@@ -134,8 +149,107 @@ pub struct BookV2PdfAssembly<
     's,
     'p,
     'a,
+> = BookV2PdfAssemblyData<
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// The Column assembly retains its source and physical paint family.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2PdfAssembly,BookV2ColumnPdfAssembly};
+/// fn body<'e,'w,'u,'h,'n,'m,'k,'j,'r,'i,'t,'o,'z,'y,'x,'c,'v,'d,'g,'q,'b,'f,'s,'p,'a>(value: BookV2ColumnPdfAssembly<'e,'w,'u,'h,'n,'m,'k,'j,'r,'i,'t,'o,'z,'y,'x,'c,'v,'d,'g,'q,'b,'f,'s,'p,'a>)
+/// -> BookV2PdfAssembly<'e,'w,'u,'h,'n,'m,'k,'j,'r,'i,'t,'o,'z,'y,'x,'c,'v,'d,'g,'q,'b,'f,'s,'p,'a> { value }
+/// ```
+pub type BookV2ColumnPdfAssembly<
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2PdfAssemblyData<
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+
+pub struct BookV2PdfAssemblyData<
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2AssemblyDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
 > {
-    source: &'e BookV2NavigationGeometry<
+    source: &'e BookV2NavigationGeometryData<
         'w,
         'u,
         'h,
@@ -152,14 +266,9 @@ pub struct BookV2PdfAssembly<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D,
+        P,
     >,
     bytes: Vec<u8>,
     objects: Vec<ObjectRange>,
@@ -186,16 +295,11 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D: BookV2AssemblyDisplay<'a, Paint = P>,
+        P: Copy + Eq,
     >
-    BookV2PdfAssembly<
+    BookV2PdfAssemblyData<
         'e,
         'w,
         'u,
@@ -213,19 +317,14 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D,
+        P,
     >
 {
     pub fn navigation(
         &self,
-    ) -> &'e BookV2NavigationGeometry<
+    ) -> &'e BookV2NavigationGeometryData<
         'w,
         'u,
         'h,
@@ -242,14 +341,9 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D,
+        P,
     > {
         self.source
     }
@@ -275,6 +369,17 @@ impl<
             self.bytes.get(r.offset..r.offset + r.length)
         }
     }
+    pub fn first_object(&self) -> u32 {
+        self.plan.first
+    }
+    pub fn next_object(&self) -> u32 {
+        self.plan.next
+    }
+    /// The actual byte range of an occupied object. Free IDs have no range.
+    pub fn object_range(&self, id: u32) -> Option<std::ops::Range<usize>> {
+        let range = self.objects.get(id as usize)?;
+        (range.length != 0).then_some(range.offset..range.offset + range.length)
+    }
     pub fn catalog_object(&self) -> u32 {
         self.plan.catalog()
     }
@@ -297,7 +402,7 @@ impl<
         self.budget.work
     }
 }
-pub struct BookV2PdfAssemblyBuilder<
+pub type BookV2PdfAssemblyBuilder<
     'e,
     'w,
     'u,
@@ -323,8 +428,177 @@ pub struct BookV2PdfAssemblyBuilder<
     's,
     'p,
     'a,
+> = BookV2PdfAssemblyBuilderData<
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// The Column assembly retains its source and physical paint family.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2PdfAssemblyBuilder,BookV2ColumnPdfAssemblyBuilder};
+/// fn body<'e,'w,'u,'h,'n,'m,'k,'j,'r,'i,'t,'o,'z,'y,'x,'c,'v,'d,'g,'q,'b,'f,'s,'p,'a>(value: BookV2ColumnPdfAssemblyBuilder<'e,'w,'u,'h,'n,'m,'k,'j,'r,'i,'t,'o,'z,'y,'x,'c,'v,'d,'g,'q,'b,'f,'s,'p,'a>)
+/// -> BookV2PdfAssemblyBuilder<'e,'w,'u,'h,'n,'m,'k,'j,'r,'i,'t,'o,'z,'y,'x,'c,'v,'d,'g,'q,'b,'f,'s,'p,'a> { value }
+/// ```
+pub type BookV2ColumnPdfAssemblyBuilder<
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2PdfAssemblyBuilderData<
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+
+/// A scoped continuation of one driver-owned assembly builder.
+///
+/// The constructor and mutable builder are private. Each loan has an invariant
+/// lifetime, so independent loans cannot be swapped or escape their callback.
+/// The owning builder remains outside the loan and keeps every accepted charge.
+///
+/// ```
+/// use typaxis_pdf::book_v2::{BookV2ColumnPdfAssemblyBuilder as Builder, BookV2ColumnPdfAssembly as Pdf, BookV2PdfAssemblyError};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type P<'a> = Pdf<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn rebuild<'a>(builder: &mut B<'a>) -> Result<P<'a>, BookV2PdfAssemblyError> {
+///     builder.with_continuation(|loan| {
+///         let _ = (loan.record_charge(), loan.spool_charge(), loan.output_charge(), loan.work_steps());
+///         let _ = (loan.navigation(), loan.reservation_sizes());
+///         loan.build()
+///     })
+/// }
+/// ```
+/// A raw builder cannot replace the borrowed continuation.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2ColumnPdfAssemblyBuilder as Builder, BookV2ColumnPdfAssembly as Pdf, BookV2PdfAssemblyError};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn replace<'a>(builder: &mut B<'a>, replacement: B<'a>) {
+///     builder.with_continuation(|loan| *loan = replacement);
+/// }
+/// ```
+/// The private raw builder cannot be extracted.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2ColumnPdfAssemblyBuilder as Builder, BookV2ColumnPdfAssembly as Pdf, BookV2PdfAssemblyError};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn raw<'a>(builder: &mut B<'a>) {
+///     builder.with_continuation(|loan| { let _ = &mut loan.builder; });
+/// }
+/// ```
+/// A callback cannot return its continuation loan.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2ColumnPdfAssemblyBuilder as Builder, BookV2ColumnPdfAssemblyContinuation as Continuation};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type C<'a> = Continuation<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn escape<'a>(builder: &'a mut B<'a>) -> &'a mut C<'a> {
+///     builder.with_continuation(|loan| loan)
+/// }
+/// ```
+/// Two callback loans have different invariant lifetimes.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2ColumnPdfAssemblyBuilder as Builder, BookV2ColumnPdfAssembly as Pdf, BookV2PdfAssemblyError};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn swap<'a>(left: &mut B<'a>, right: &mut B<'a>) {
+///     left.with_continuation(|outer| {
+///         right.with_continuation(|inner| std::mem::swap(outer, inner));
+///     });
+/// }
+/// ```
+/// Nested callbacks may inspect each independent builder.
+///
+/// ```
+/// use typaxis_pdf::book_v2::{BookV2ColumnPdfAssemblyBuilder as Builder, BookV2ColumnPdfAssembly as Pdf, BookV2PdfAssemblyError};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn inspect<'a>(left: &mut B<'a>, right: &mut B<'a>) -> u64 {
+///     left.with_continuation(|outer| {
+///         right.with_continuation(|inner| outer.record_charge() + inner.record_charge())
+///     })
+/// }
+/// ```
+pub struct BookV2PdfAssemblyContinuationData<
+    'loan,
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2AssemblyDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
 > {
-    source: &'e BookV2NavigationGeometry<
+    builder: &'loan mut BookV2PdfAssemblyBuilderData<
+        'e,
         'w,
         'u,
         'h,
@@ -341,18 +615,277 @@ pub struct BookV2PdfAssemblyBuilder<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D,
+        P,
+    >,
+    invariant: std::marker::PhantomData<fn(&'loan ()) -> &'loan ()>,
+}
+pub type BookV2PdfAssemblyContinuation<
+    'loan,
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2PdfAssemblyContinuationData<
+    'loan,
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+pub type BookV2ColumnPdfAssemblyContinuation<
+    'loan,
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2PdfAssemblyContinuationData<
+    'loan,
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+impl<
+        'loan,
+        'e,
+        'w,
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D: BookV2AssemblyDisplay<'a, Paint = P>,
+        P: Copy + Eq,
+    >
+    BookV2PdfAssemblyContinuationData<
+        'loan,
+        'e,
+        'w,
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D,
+        P,
+    >
+{
+    pub fn navigation(
+        &self,
+    ) -> &'e BookV2NavigationGeometryData<
+        'w,
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D,
+        P,
+    > {
+        self.builder.navigation()
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.builder.record_charge()
+    }
+    pub fn spool_charge(&self) -> u64 {
+        self.builder.spool_charge()
+    }
+    pub fn output_charge(&self) -> u64 {
+        self.builder.output_charge()
+    }
+    pub fn work_steps(&self) -> u64 {
+        self.builder.work_steps()
+    }
+    pub fn reservation_sizes(&self) -> [usize; 4] {
+        self.builder.reservation_sizes()
+    }
+    pub fn build(
+        &mut self,
+    ) -> Result<
+        BookV2PdfAssemblyData<
+            'e,
+            'w,
+            'u,
+            'h,
+            'n,
+            'm,
+            'k,
+            'j,
+            'r,
+            'i,
+            't,
+            'o,
+            'z,
+            'y,
+            'x,
+            'c,
+            'v,
+            'a,
+            D,
+            P,
+        >,
+        AE,
+    > {
+        self.builder.build()
+    }
+}
+
+pub struct BookV2PdfAssemblyBuilderData<
+    'e,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2AssemblyDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'e BookV2NavigationGeometryData<
+        'w,
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D,
+        P,
     >,
     budget: Budget,
     max_objects: u32,
     credit_available: bool,
+    attempt: BookV2PdfAssemblyAttemptIdentity,
 }
 impl<
         'e,
@@ -372,16 +905,11 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D: BookV2AssemblyDisplay<'a, Paint = P>,
+        P: Copy + Eq,
     >
-    BookV2PdfAssemblyBuilder<
+    BookV2PdfAssemblyBuilderData<
         'e,
         'w,
         'u,
@@ -399,18 +927,76 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D,
+        P,
     >
 {
+    /// Loan this builder through a nonconstructible, invariant continuation.
+    /// The callback cannot replace the raw builder or retain the loan.
+    pub fn with_continuation<R>(
+        &mut self,
+        inspect: impl for<'loan> FnOnce(
+            &mut BookV2PdfAssemblyContinuationData<
+                'loan,
+                'e,
+                'w,
+                'u,
+                'h,
+                'n,
+                'm,
+                'k,
+                'j,
+                'r,
+                'i,
+                't,
+                'o,
+                'z,
+                'y,
+                'x,
+                'c,
+                'v,
+                'a,
+                D,
+                P,
+            >,
+        ) -> R,
+    ) -> R {
+        let mut continuation = BookV2PdfAssemblyContinuationData {
+            builder: self,
+            invariant: std::marker::PhantomData,
+        };
+        inspect(&mut continuation)
+    }
+
+    /// The exact typed Navigation source of this assembly attempt.
+    pub fn navigation(
+        &self,
+    ) -> &'e BookV2NavigationGeometryData<
+        'w,
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D,
+        P,
+    > {
+        self.source
+    }
     pub fn new(
-        source: &'e BookV2NavigationGeometry<
+        source: &'e BookV2NavigationGeometryData<
             'w,
             'u,
             'h,
@@ -427,14 +1013,9 @@ impl<
             'x,
             'c,
             'v,
-            'd,
-            'g,
-            'q,
-            'b,
-            'f,
-            's,
-            'p,
             'a,
+            D,
+            P,
         >,
         limits: &M4EffectiveResourceLimits,
         max_work: u64,
@@ -443,22 +1024,63 @@ impl<
         prior_output: u64,
         prior_work: u64,
     ) -> Result<Self, AE> {
-        source
-            .source()
-            .source()
-            .source()
-            .source()
-            .display()
-            .verify_resources(
-                source
-                    .source()
-                    .source()
-                    .source()
-                    .source()
-                    .display()
-                    .admitted(),
-                limits,
-            )
+        Self::new_counted(
+            source,
+            limits,
+            max_work,
+            prior_records,
+            prior_spool,
+            prior_output,
+            prior_work,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+        )
+    }
+    /// Preserve every accepted constructor reservation, including a later work
+    /// refusal, in the supplied cumulative observations.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_counted(
+        source: &'e BookV2NavigationGeometryData<
+            'w,
+            'u,
+            'h,
+            'n,
+            'm,
+            'k,
+            'j,
+            'r,
+            'i,
+            't,
+            'o,
+            'z,
+            'y,
+            'x,
+            'c,
+            'v,
+            'a,
+            D,
+            P,
+        >,
+        limits: &M4EffectiveResourceLimits,
+        max_work: u64,
+        prior_records: u64,
+        prior_spool: u64,
+        prior_output: u64,
+        prior_work: u64,
+        observed_records: &mut u64,
+        observed_spool: &mut u64,
+        observed_output: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<Self, AE> {
+        *observed_records = prior_records.max(source.record_charge());
+        *observed_spool = prior_spool.max(source.spool_charge());
+        *observed_output = prior_output.max(source.output_charge());
+        *observed_work = prior_work.max(source.work_steps());
+        let display = source.source().source().source().source().display();
+        display
+            .verify_resource_selection(display.admitted(), limits)
             .map_err(|_| E::Identity)?;
         let mut budget = source.budget;
         budget.max_work = max_work;
@@ -466,16 +1088,32 @@ impl<
         budget.spool = budget.spool.max(prior_spool);
         budget.output = budget.output.max(prior_output);
         budget.work = budget.work.max(prior_work);
-        budget.reserve(1, 0, 0)?;
+        let reserved = budget.reserve(1, 0, 0);
+        *observed_records = budget.records;
+        *observed_spool = budget.spool;
+        *observed_output = budget.output;
+        *observed_work = budget.work;
+        reserved?;
         if budget.work > max_work {
             return Err(E::Work.into());
         }
+        let attempt = BookV2PdfAssemblyAttemptIdentity(
+            NEXT_ASSEMBLY_ATTEMPT
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .map_err(|_| E::Identity)?,
+        );
         Ok(Self {
             source,
             budget,
             max_objects: limits.base().get().max_pdf_objects,
             credit_available: true,
+            attempt,
         })
+    }
+    /// Identifies this exact builder attempt across moves and mutable loans.
+    /// It is not serialized, hashed, or transferable to a fresh builder.
+    pub fn attempt_identity(&self) -> BookV2PdfAssemblyAttemptIdentity {
+        self.attempt
     }
     pub fn record_charge(&self) -> u64 {
         self.budget.records
@@ -489,10 +1127,20 @@ impl<
     pub fn work_steps(&self) -> u64 {
         self.budget.work
     }
+    /// Actual private reservation units: selected page master, object range,
+    /// page-reference observation and optional structure-link index, in bytes.
+    pub fn reservation_sizes(&self) -> [usize; 4] {
+        [
+            std::mem::size_of::<BookV2SelectedPageMaster<'_>>(),
+            std::mem::size_of::<ObjectRange>(),
+            std::mem::size_of::<BookV2PageReferenceObservation>(),
+            std::mem::size_of::<Option<usize>>(),
+        ]
+    }
     pub fn build(
         &mut self,
     ) -> Result<
-        BookV2PdfAssembly<
+        BookV2PdfAssemblyData<
             'e,
             'w,
             'u,
@@ -510,14 +1158,9 @@ impl<
             'x,
             'c,
             'v,
-            'd,
-            'g,
-            'q,
-            'b,
-            'f,
-            's,
-            'p,
             'a,
+            D,
+            P,
         >,
         AE,
     > {
@@ -527,78 +1170,61 @@ impl<
         let marked = registry.source();
         let scopes = marked.source();
         let display = scopes.display();
-        let lines = display.source().source().flow().lines();
-        let flow = lines.prepared().source_flow();
+        let assembly = display.assembly_source();
         self.budget.step(1)?;
-        let frames = lines.frames().ok_or(AE::PageFrameMismatch)?;
-        let geometry = display.source().source().geometry();
-        if geometry.pages().len() != marked.pages().len() {
+        if !assembly.has_page_frames() {
+            return Err(AE::PageFrameMismatch);
+        }
+        if assembly.page_count() != marked.pages().len() {
             return Err(AE::PageFrameMismatch);
         }
         let pc = marked.pages().len();
         let mut page_masters = reserved::<BookV2SelectedPageMaster<'_>>(pc, &mut self.budget)?;
         let mut region_cursor = 0usize;
         for page in 0..pc {
-            let placement = geometry.pages()[page].selection();
-            let selected = select_book_v2_page_master(
-                flow.body(),
-                u32::try_from(page).map_err(|_| E::Identity)?,
-                placement.named_page(),
-                &mut self.budget.work,
-                self.budget.max_work,
-            )
-            .map_err(AE::PageMaster)?;
-            let master = selected.master();
+            u32::try_from(page).map_err(|_| E::Identity)?;
+            let selected = assembly
+                .select_page_master(page, &mut self.budget.work, self.budget.max_work)
+                .map_err(AE::PageMaster)?;
             let advanced = selected.advanced();
-            if advanced.column_layout.is_some() {
+            if !assembly.supports_page_master(selected) {
                 return Err(AE::UnsupportedPageMaster);
             }
             for (kind, content) in [
-                (typaxis_syntax::book_v2::BookV2PageRegionKind::Header, advanced.header_content.as_ref()),
-                (typaxis_syntax::book_v2::BookV2PageRegionKind::Footer, advanced.footer_content.as_ref()),
+                (
+                    typaxis_syntax::book_v2::BookV2PageRegionKind::Header,
+                    advanced.header_content.as_ref(),
+                ),
+                (
+                    typaxis_syntax::book_v2::BookV2PageRegionKind::Footer,
+                    advanced.footer_content.as_ref(),
+                ),
             ] {
                 if let Some(content) = content {
                     self.budget.step(1)?;
-                    let region = display.page_regions().get(region_cursor).ok_or(AE::UnsupportedPageMaster)?;
-                    if region.page_index() != page as u32 || region.kind() != kind || region.owner().get() != content.node_id {
+                    let region = assembly
+                        .page_region(region_cursor)
+                        .ok_or(AE::UnsupportedPageMaster)?;
+                    if region.page_index() != page as u32
+                        || region.kind() != kind
+                        || region.owner().get() != content.node_id
+                    {
                         return Err(AE::PageFrameMismatch);
                     }
                     region_cursor += 1;
                 }
             }
-            let b = placement.body_bounds();
-            if let Some(plan) = frames.page_plan() {
-                if !std::ptr::eq(plan.source(), flow.body())
-                    || frames.body() != plan.measurement_body()
-                    || plan
-                        .named_page(page as u32, placement.named_page_index())
-                        .map_err(AE::PageMaster)?
-                        .body()
-                        != b
-                    || plan
-                        .named_page(page as u32, placement.named_page_index())
-                        .map_err(AE::PageMaster)?
-                        .footnote()
-                        != placement.declared_footnote_region()
-                {
-                    return Err(AE::PageFrameMismatch);
-                }
-            } else if b != frames.body() {
-                return Err(AE::PageFrameMismatch);
-            }
-            let authored = &master.body;
-            if (
-                b.x().raw(),
-                b.y().raw(),
-                b.width().get().raw(),
-                b.height().get().raw(),
-            ) != (authored.x, authored.y, authored.width, authored.height)
-            {
-                return Err(AE::PageFrameMismatch);
-            }
+            assembly.validate_page_frame(
+                page,
+                selected,
+                &mut self.budget.work,
+                self.budget.max_work,
+            )?;
             page_masters.push(selected);
         }
-        if region_cursor != display.page_regions().len() { return Err(AE::PageFrameMismatch); }
+        if region_cursor != assembly.page_region_count() {
+            return Err(AE::PageFrameMismatch);
+        }
         let n = registry.nodes().len();
         let ac = source.rectangles().len();
         let oc = source.outline().len();
@@ -634,9 +1260,10 @@ impl<
                 return Err(E::Identity.into());
             }
         }
-        let values = flow.page_reference_values().unwrap_or(&[]);
+        let values = assembly.page_reference_values().unwrap_or(&[]);
         let mut reference_count = 0usize;
-        for paragraph in flow.paragraphs() {
+        let navigation = display.navigation_source();
+        for paragraph in navigation.paragraphs() {
             self.budget.step(1)?;
             for site in paragraph.items() {
                 self.budget.step(1)?;
@@ -794,7 +1421,7 @@ impl<
             bytes[12] = u8::from(reference.placed);
             fp = self.budget.fold(fp, &bytes)?;
         }
-        Ok(BookV2PdfAssembly {
+        Ok(BookV2PdfAssemblyData {
             source,
             bytes,
             objects,
@@ -805,8 +1432,8 @@ impl<
         })
     }
 }
-fn encode(
-    source: &BookV2NavigationGeometry<
+fn encode<'a, D: BookV2AssemblyDisplay<'a, Paint = P>, P: Copy + Eq>(
+    source: &BookV2NavigationGeometryData<
         '_,
         '_,
         '_,
@@ -823,14 +1450,9 @@ fn encode(
         '_,
         '_,
         '_,
-        '_,
-        '_,
-        '_,
-        '_,
-        '_,
-        '_,
-        '_,
-        '_,
+        'a,
+        D,
+        P,
     >,
     plan: Plan,
     names: &[usize],
@@ -844,15 +1466,9 @@ fn encode(
     let marked = registry.source();
     let scopes = marked.source();
     let display = scopes.display();
-    let flow = display
-        .source()
-        .source()
-        .flow()
-        .lines()
-        .prepared()
-        .source_flow();
-    let navigation = flow.navigation();
-    let metadata = navigation.metadata();
+    let assembly = display.assembly_source();
+    let metadata = assembly.metadata();
+    let navigation = display.navigation_source();
     let fonts = marked.text().source();
     let images = scopes.source().source();
     let pc = marked.pages().len();

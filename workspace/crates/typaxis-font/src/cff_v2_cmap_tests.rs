@@ -81,7 +81,7 @@ fn cff_v2_cmap_original_harano_base_and_resolved_sequences() {
     let data = font.data_for_tag(Tag::new(b"cmap")).unwrap();
     let p = validate_cff_cmap_v2(data.as_bytes(), font.maxp().unwrap().num_glyphs()).unwrap();
     let mut bytes = Vec::new();
-    for (&base, &gid) in &p.base {
+    for &(base, gid) in &p.base {
         bytes.extend(base.to_be_bytes());
         bytes.extend(gid.to_be_bytes());
     }
@@ -165,4 +165,79 @@ fn cff_v2_cmap_empty_base_requires_usable_nondefault_variation() {
     assert_eq!(p.glyph_for_sequence('\u{4e03}', Some('\u{e0100}')), Some(1));
     *b.last_mut().unwrap() = 0;
     assert!(validate_cff_cmap_v2(&b, 5).is_err());
+}
+
+fn budget_fixture(count: usize) -> Vec<u8> {
+    let original = fixture();
+    let mut bytes = original[..20].to_vec();
+    let size = 16 + 12 * count;
+    bytes[16..20].copy_from_slice(&((20 + size) as u32).to_be_bytes());
+    bytes.extend([0, 12, 0, 0]);
+    bytes.extend((size as u32).to_be_bytes());
+    bytes.extend(0u32.to_be_bytes());
+    bytes.extend((count as u32).to_be_bytes());
+    for index in 0..count {
+        let scalar = 0x4e00 + 2 * index as u32;
+        for value in [scalar, scalar, 1 + (index as u32 % 4)] {
+            bytes.extend(value.to_be_bytes());
+        }
+    }
+    bytes.extend(&original[48..]);
+    bytes
+}
+#[test]
+fn cff_v2_cmap_paid_search_matches_independent_mappings_and_stops_at_every_visit() {
+    let mut cases = 0;
+    let mut cutoffs = 0;
+    for count in [0usize, 1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 127] {
+        let cmap = validate_cff_cmap_v2(&budget_fixture(count), 5).unwrap();
+        let expected_map = (0..count)
+            .map(|i| (0x4e00 + 2 * i as u32, (1 + i % 4) as u16))
+            .collect::<BTreeMap<_, _>>();
+        let scalars = (0x4df0..0x4e00 + 2 * count as u32 + 5).chain([0xfe00, 0xe0100, 0x10ffff]);
+        for scalar in scalars {
+            let base = char::from_u32(scalar).unwrap();
+            for selector in [None, Some('\u{e0100}'), Some('\u{fe00}'), Some('A')] {
+                let expected = if is_selector(base) {
+                    None
+                } else {
+                    match selector {
+                        None => expected_map.get(&scalar).copied(),
+                        Some('\u{e0100}') if scalar == 0x4e03 => Some(4),
+                        Some('\u{e0100}') if (0x4e00..=0x4e02).contains(&scalar) => {
+                            expected_map.get(&scalar).copied()
+                        }
+                        _ => None,
+                    }
+                };
+                let mut visits = 0;
+                let actual = cmap
+                    .glyph_for_sequence_with_work(base, selector, &mut || {
+                        visits += 1;
+                        Ok::<_, usize>(())
+                    })
+                    .unwrap();
+                assert_eq!(actual, expected);
+                assert_eq!(cmap.glyph_for_sequence(base, selector), expected);
+                assert!(visits > 0);
+                for stop in 0..visits {
+                    let mut paid = 0;
+                    let refused = cmap.glyph_for_sequence_with_work(base, selector, &mut || {
+                        let index = paid;
+                        paid += 1;
+                        if index == stop {
+                            Err(index)
+                        } else {
+                            Ok(())
+                        }
+                    });
+                    assert_eq!(refused, Err(stop));
+                    assert_eq!(paid, stop + 1);
+                    cutoffs += 1;
+                }
+                cases += 1;
+            }
+        }
+    }
+    eprintln!("paid cmap independent cases={cases}, refusal cutoffs={cutoffs}");
 }

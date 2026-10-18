@@ -10,6 +10,23 @@ use typaxis_layout::book_v2::*;
 use typaxis_pagination::book_v2::*;
 use typaxis_syntax::{ProductionFlowEvent as Event, ProductionFlowRegionKind as Region};
 
+/// Column discovery and its consumer retain one caller's started balance
+/// trials and accepted spool across every catalog rebuild and failure.
+#[derive(Clone, Copy, Debug, Default)]
+pub(in crate::book_v2_resources) struct ColumnHeaderBudget {
+    pub balance_candidates: u64,
+    pub spool: u64,
+}
+impl ColumnHeaderBudget {
+    pub(in crate::book_v2_resources) fn observe_search(
+        &mut self,
+        search: &BookV2ColumnPageSearch<'_, '_, '_, '_, '_>,
+    ) {
+        self.balance_candidates = self.balance_candidates.max(search.balance_candidates());
+        self.spool = self.spool.max(search.terminal_spool_charge());
+    }
+}
+
 pub(in crate::book_v2_resources) fn with_column_header_catalog<R>(
     base: &BookV2ColumnLineVariantSeed<'_>,
     requests: &[HeaderWidthRequest],
@@ -376,7 +393,7 @@ enum Discovery<R> {
     Ready(R),
 }
 
-/// Discover only widths requested by actual page-search continuations. Every
+/// Discover only widths requested by actual page and balance continuations. Every
 /// abandoned search, replay and request allocation remains in the caller ledger.
 /// A completed discovery is provisional: the caller still needs stable pages,
 /// source-width convergence and the full display/PDF proof.
@@ -386,9 +403,11 @@ pub(in crate::book_v2_resources) fn with_discovered_column_header_catalog<R>(
     limits: &M4EffectiveResourceLimits,
     maximum_work: u64,
     budget: &mut HeaderCatalogBudget,
+    column_budget: &mut ColumnHeaderBudget,
     use_catalog: impl FnOnce(
         &BookV2ColumnTableHeaderCatalog<'_, '_, '_, '_, '_>,
         &mut HeaderCatalogBudget,
+        &mut ColumnHeaderBudget,
     ) -> Result<R, E>,
 ) -> Result<R, E> {
     use typaxis_pagination::ProductionBodyPaginationErrorKind as P;
@@ -424,9 +443,14 @@ pub(in crate::book_v2_resources) fn with_discovered_column_header_catalog<R>(
                     budget.work(work, maximum_work)?;
                 }
                 let mut search = search.map_err(|e| stage("header discovery search", e))?;
-                let selected = search.select_pages();
+                let selected = (|| {
+                    search.retain_prior_balance_candidates(column_budget.balance_candidates);
+                    search.retain_prior_balance_spool(column_budget.spool)?;
+                    search.select_balanced_pages()
+                })();
+                column_budget.observe_search(&search);
+                budget.records = budget.records.max(search.record_charge());
                 budget.work(search.work_steps(), maximum_work)?;
-                budget.records = search.record_charge();
                 match selected {
                     Err(e) => match e.kind {
                         P::TableHeaderWidthRequired {
@@ -440,7 +464,7 @@ pub(in crate::book_v2_resources) fn with_discovered_column_header_catalog<R>(
                         _ => Err(stage("header discovery pages", e)),
                     },
                     Ok(_) => Ok(Discovery::Ready(use_catalog.take().ok_or(E::Identity)?(
-                        catalog, budget,
+                        catalog, budget, column_budget,
                     )?)),
                 }
             },

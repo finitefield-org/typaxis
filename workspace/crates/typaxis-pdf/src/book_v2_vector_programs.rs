@@ -1,10 +1,14 @@
 //! Real reusable Form content and alpha dictionaries from selected admitted IR.
 //! Page placement, object numbers and per-occurrence semantics are later stages.
 use super::*;
-use crate::safe_vector_v2::{encoding, StagingSafeVectorPdfV2Error};
+use crate::safe_vector_v2::{StagingSafeVectorPdfV2Error, encoding};
+use typaxis_display_list::book_v2::{
+    BookV2BodyDisplay, BookV2BodyPaintIndex, BookV2ColumnDisplay, BookV2ColumnPaintIndex,
+    BookV2ResourceDisplay,
+};
 use typaxis_resources::{
-    book_v2::{BookV2RasterPrograms, BookV2SelectedImage},
     AdmittedSafeVector,
+    book_v2::{BookV2RasterProgramsData, BookV2SelectedImage},
 };
 pub const BOOK_V2_VECTOR_PROGRAMS_ALGORITHM: &str = "typaxis.book-2-vector-programs/1";
 impl From<StagingSafeVectorPdfV2Error> for E {
@@ -65,17 +69,74 @@ impl<'i, 'v> BookV2VectorProgram<'i, 'v> {
         self.fingerprint
     }
 }
-pub struct BookV2VectorPrograms<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'r BookV2RasterPrograms<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub type BookV2VectorPrograms<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2VectorProgramsData<
+        'r,
+        'i,
+        'v,
+        'a,
+        BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2BodyPaintIndex,
+    >;
+/// Column stages retain their authentic source display and typed paint index.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2VectorPrograms, BookV2ColumnVectorPrograms};
+/// fn body<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnVectorPrograms<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>)
+///     -> BookV2VectorPrograms<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnVectorPrograms<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2VectorProgramsData<
+        'r,
+        'i,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+pub type BookV2VectorProgramBuilder<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2VectorProgramBuilderData<
+        'r,
+        'i,
+        'v,
+        'a,
+        BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2BodyPaintIndex,
+    >;
+/// Column stages retain their authentic source display and typed paint index.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2VectorProgramBuilder, BookV2ColumnVectorProgramBuilder};
+/// fn body<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnVectorProgramBuilder<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>)
+///     -> BookV2VectorProgramBuilder<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnVectorProgramBuilder<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2VectorProgramBuilderData<
+        'r,
+        'i,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+pub struct BookV2VectorProgramsData<
+    'r,
+    'i,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'r BookV2RasterProgramsData<'i, 'v, 'a, D, P>,
     programs: Vec<Option<BookV2VectorProgram<'i, 'v>>>,
     prior_output: u64,
     fingerprint: [u8; 32],
     budget: Budget,
 }
-impl<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2VectorPrograms<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+impl<'r, 'i, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>
+    BookV2VectorProgramsData<'r, 'i, 'v, 'a, D, P>
 {
-    pub fn source(&self) -> &'r BookV2RasterPrograms<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn source(&self) -> &'r BookV2RasterProgramsData<'i, 'v, 'a, D, P> {
         self.source
     }
     pub fn prior_output_charge(&self) -> u64 {
@@ -100,15 +161,22 @@ impl<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         self.budget.work
     }
 }
-pub struct BookV2VectorProgramBuilder<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'r BookV2RasterPrograms<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2VectorProgramBuilderData<
+    'r,
+    'i,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'r BookV2RasterProgramsData<'i, 'v, 'a, D, P>,
     budget: Budget,
 }
-impl<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2VectorProgramBuilder<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+impl<'r, 'i, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>
+    BookV2VectorProgramBuilderData<'r, 'i, 'v, 'a, D, P>
 {
     pub fn new(
-        source: &'r BookV2RasterPrograms<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        source: &'r BookV2RasterProgramsData<'i, 'v, 'a, D, P>,
         limits: &M4EffectiveResourceLimits,
         max_work: u64,
         prior_records: u64,
@@ -116,24 +184,57 @@ impl<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         prior_output: u64,
         prior_work: u64,
     ) -> Result<Self, E> {
+        Self::new_counted(
+            source,
+            limits,
+            max_work,
+            prior_records,
+            prior_spool,
+            prior_output,
+            prior_work,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+        )
+    }
+    /// Return accepted constructor charges even when a later cap rejects the builder.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_counted(
+        source: &'r BookV2RasterProgramsData<'i, 'v, 'a, D, P>,
+        limits: &M4EffectiveResourceLimits,
+        max_work: u64,
+        prior_records: u64,
+        prior_spool: u64,
+        prior_output: u64,
+        prior_work: u64,
+        observed_records: &mut u64,
+        observed_spool: &mut u64,
+        observed_output: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<Self, E> {
+        let records = prior_records.max(source.record_charge());
+        let spool = prior_spool.max(source.spool_charge());
+        let output = prior_output;
+        let work = prior_work.max(source.work_steps());
+        *observed_records = records;
+        *observed_spool = spool;
+        *observed_output = output;
+        *observed_work = work;
         let display = source.source().display();
         display
-            .verify_resources(display.admitted(), limits)
+            .verify_resource_selection(display.admitted(), limits)
             .map_err(|_| E::Identity)?;
         let base = limits.base().get();
-        let records = prior_records
-            .max(source.record_charge())
+        let records = records
             .checked_add(1)
+            .filter(|n| *n <= base.max_fragments)
             .ok_or(E::Records)?;
-        let spool = prior_spool.max(source.spool_charge());
-        let work = prior_work.max(source.work_steps());
-        if records > base.max_fragments {
-            return Err(E::Records);
-        }
+        *observed_records = records;
         if spool > base.max_spool_bytes {
             return Err(E::Spool);
         }
-        if prior_output > base.max_output_bytes {
+        if output > base.max_output_bytes {
             return Err(E::Output);
         }
         if work > max_work {
@@ -148,7 +249,7 @@ impl<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
                 max_work,
                 records,
                 spool,
-                output: prior_output,
+                output,
                 work,
             },
         })
@@ -165,9 +266,7 @@ impl<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
     pub fn work_steps(&self) -> u64 {
         self.budget.work
     }
-    pub fn build(
-        &mut self,
-    ) -> Result<BookV2VectorPrograms<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>, E> {
+    pub fn build(&mut self) -> Result<BookV2VectorProgramsData<'r, 'i, 'v, 'a, D, P>, E> {
         let prior_output = self.budget.output;
         let source = self.source;
         let images = source.source().images();
@@ -251,7 +350,7 @@ impl<'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
                 fingerprint: fp,
             }));
         }
-        Ok(BookV2VectorPrograms {
+        Ok(BookV2VectorProgramsData {
             prior_output,
             source,
             programs,

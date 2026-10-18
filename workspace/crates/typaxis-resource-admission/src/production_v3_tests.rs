@@ -1,4 +1,15 @@
+mod font_binding_tests { include!("production_font_binding_tests.rs"); }
 use super::*;
+mod font_media_tests { include!("production_font_media_tests.rs"); }
+mod resolver_setup_tests {
+    include!("resource_resolver_setup_budget_tests.rs");
+}
+mod observed_read_tests {
+    include!("production_resource_read_tests.rs");
+}
+mod observed_ledger_tests {
+    include!("production_resource_ledger_tests.rs");
+}
 use typaxis_document::{StagingM4FontFaceDeclaration, StagingM4ImageDeclaration};
 const BODY: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -147,17 +158,24 @@ fn production_v3_original_cff_aliases_join_true_type_and_png_without_v1_receipts
         let mut resolver =
             StagingProductionResourceResolverV3::new(&declarations, &limits, profile, host.roots())
                 .unwrap();
+        let mut input_pointers=[std::ptr::null();3];
         for id in order {
             let pending = resolver
                 .read_font(host.open_font(FontFaceId::new(id)).unwrap())
                 .unwrap();
+            input_pointers[id as usize]=pending.bytes().as_ptr();
             resolver.parse_and_bind_font(pending).unwrap();
         }
         let pending = resolver
             .read_image(host.open_image(ImageResourceId::new(0)).unwrap())
             .unwrap();
         resolver.parse_and_bind_image(pending).unwrap();
-        resolver.finish().unwrap()
+        let ledger=resolver.finish().unwrap();
+        for id in [1,2] {
+            assert_eq!(ledger.fonts()[id].bytes().as_ptr(),input_pointers[id]);
+        }
+        assert_ne!(input_pointers[1],input_pointers[2]);
+        ledger
     };
     let ledger = build([2, 0, 1]);
     let instances = AdmittedProductionFontInstancesV3::from_used_faces(
@@ -274,5 +292,122 @@ fn production_v3_font_and_image_reads_share_one_aggregate_byte_limit() {
             ));
             assert!(resolver.finish().is_err());
         }
+    }
+}
+
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum InstanceRequest {
+    Faces(usize),
+    Work(u64),
+}
+#[derive(Default)]
+struct InstanceTrace {
+    requests: Vec<InstanceRequest>,
+    refuse: Option<usize>,
+}
+impl InstanceTrace {
+    fn request(&mut self, request: InstanceRequest) -> Result<(), usize> {
+        let index = self.requests.len();
+        self.requests.push(request);
+        if self.refuse == Some(index) {
+            Err(index)
+        } else {
+            Ok(())
+        }
+    }
+}
+impl ProductionFontInstanceBudgetV3 for InstanceTrace {
+    type Error = usize;
+    fn reserve_faces(&mut self, count: usize) -> Result<(), usize> {
+        self.request(InstanceRequest::Faces(count))
+    }
+    fn work(&mut self, amount: u64) -> Result<(), usize> {
+        self.request(InstanceRequest::Work(amount))
+    }
+}
+#[test]
+fn production_v3_observed_font_instances_match_authentic_order_and_stop_at_every_request() {
+    for count in [0, 1, 12] {
+        let tree = TempTree::new("observed-font-instances");
+        write_base(&tree);
+        let declarations = staging_declared_base_catalog(&StagingM4ResourceCatalog {
+            font_faces: (0..count)
+                .map(|id| StagingM4FontFaceDeclaration {
+                    font_face_id: FontFaceId::new(id),
+                    family: format!("Body-{id}"),
+                    uri: PortablePath::new("body.bin").unwrap(),
+                    face_index: 0,
+                    expected_sha256: Some(sha256(BODY)),
+                    media: FontMediaDeclaration::Declared(FontMediaType::SfntTrueTypeGlyf),
+                })
+                .collect(),
+            images: vec![],
+        })
+        .unwrap();
+        let limits = effective();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let context = host_context(tree.path(), &[]);
+        let host =
+            HostResourceAdmissionSession::new(&context, &config, declarations.resource_catalog())
+                .unwrap();
+        let mut resolver = StagingProductionResourceResolverV3::new(
+            &declarations,
+            &limits,
+            [39; 32],
+            host.roots(),
+        )
+        .unwrap();
+        for id in (0..count).rev() {
+            let pending = resolver
+                .read_font(host.open_font(FontFaceId::new(id)).unwrap())
+                .unwrap();
+            resolver.parse_and_bind_font(pending).unwrap();
+        }
+        let ledger = resolver.finish().unwrap();
+        let old = AdmittedProductionFontInstancesV3::from_used_faces(
+            &ledger,
+            (0..count).rev().map(FontFaceId::new),
+        )
+        .unwrap();
+        let mut full = InstanceTrace::default();
+        let actual =
+            AdmittedProductionFontInstancesV3::from_all_faces_with_budget(&ledger, &mut full)
+                .unwrap();
+        assert_eq!(actual.len(), count as usize);
+        assert_eq!(actual.fingerprint(), old.fingerprint());
+        for id in 0..count {
+            let a = actual
+                .resolve(typaxis_core::FontInstanceId::new(id))
+                .unwrap();
+            let o = old.resolve(typaxis_core::FontInstanceId::new(id)).unwrap();
+            assert!(std::ptr::eq(a.font(), o.font()));
+            assert!(std::ptr::eq(a.ledger(), &ledger));
+        }
+        assert_eq!(full.requests[0], InstanceRequest::Faces(count as usize));
+        assert_eq!(
+            full.requests
+                .iter()
+                .filter(|r| matches!(r, InstanceRequest::Faces(_)))
+                .count(),
+            1
+        );
+        for index in 0..full.requests.len() {
+            let mut refused = InstanceTrace {
+                refuse: Some(index),
+                ..InstanceTrace::default()
+            };
+            let error = AdmittedProductionFontInstancesV3::from_all_faces_with_budget(
+                &ledger,
+                &mut refused,
+            )
+            .unwrap_err();
+            assert!(matches!(error,ProductionFontInstanceErrorV3::Budget(i) if i==index));
+            assert_eq!(refused.requests, full.requests[..=index]);
+        }
+        eprintln!(
+            "font-instance faces={count}, refusal cutoffs={}",
+            full.requests.len()
+        );
     }
 }

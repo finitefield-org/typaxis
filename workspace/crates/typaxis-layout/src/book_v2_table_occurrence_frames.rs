@@ -177,6 +177,31 @@ impl<'p, 'a> BookV2BodyInlineFrames<'p, 'a> {
         prior_records: u64,
         owners: Option<&'f [NodeId]>,
     ) -> Result<BookV2TableOccurrenceFrames<'f, 'p, 'a>, ProductionInlinePreparationError> {
+        self.remeasure_table_parent_scoped_with_record_limit(
+            owner,
+            width,
+            maximum_work,
+            prior_records,
+            owners,
+            self.prepared.max_fragments,
+            &mut 0,
+            &mut 0,
+        )
+    }
+
+    pub(crate) fn remeasure_table_parent_scoped_with_record_limit<'f>(
+        &'f self,
+        owner: NodeId,
+        width: PositiveLength,
+        maximum_work: u64,
+        prior_records: u64,
+        owners: Option<&'f [NodeId]>,
+        record_limit: u64,
+        observed_records: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<BookV2TableOccurrenceFrames<'f, 'p, 'a>, ProductionInlinePreparationError> {
+        *observed_records = prior_records;
+        *observed_work = 0;
         use ProductionInlinePreparationErrorKind as E;
         let (additional, work) = if owners.is_some() {
             self.table_source_occurrence_projection_budget()?
@@ -189,13 +214,17 @@ impl<'p, 'a> BookV2BodyInlineFrames<'p, 'a> {
                 E::Atomic(typaxis_linebreak::AtomicVectorInlineError::CandidateLimit),
             ));
         }
-        // This caller supplies an absolute ledger, including the retained frame
-        // graph. Its ceiling is the original document limit; the preparation's
-        // local residual allowance has already bounded that graph's construction.
+        // The old wrapper passes an absolute ledger; the observed private caller
+        // passes its authenticated own graph prefix and lower current graph cap.
         let records = prior_records
             .checked_add(additional)
-            .filter(|n| *n <= self.prepared.max_fragments && prior_records >= self.record_charge())
+            .filter(|n| {
+                *n <= record_limit.min(self.prepared.max_fragments)
+                    && prior_records >= self.record_charge()
+            })
             .ok_or_else(|| error(owner, E::UnitLimit))?;
+        *observed_records = records;
+        *observed_work = work;
         let count = self.prepared.flow.tables().len();
         let mut widths = Vec::new();
         widths

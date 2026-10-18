@@ -6,8 +6,18 @@ mod page_region_display;
 pub use page_region_display::*;
 use typaxis_pagination::book_v2::{
     BookV2BodyMathSource, BookV2BodyMathTerminal, BookV2BodyMathTerminals,
+    BookV2ColumnMathTerminal, BookV2ColumnMathTerminals,
 };
 use typaxis_resource_admission::AdmittedProductionResourceLedgerV3;
+
+#[path = "book_v2_display_projection.rs"]
+mod display_projection;
+use display_projection::{Projector, SourceView};
+#[path = "book_v2_column_display.rs"]
+mod column_display;
+pub use column_display::*;
+#[path = "book_v2_display_merge.rs"]
+mod display_merge;
 
 #[path = "book_v2_text_display.rs"]
 mod text_display;
@@ -33,6 +43,24 @@ pub use font_uses::*;
 #[path = "book_v2_image_uses.rs"]
 mod image_uses;
 pub use image_uses::*;
+#[path = "book_v2_resource_display.rs"]
+mod resource_display;
+pub use resource_display::*;
+#[path = "book_v2_command_display.rs"]
+mod command_display;
+pub use command_display::*;
+#[path = "book_v2_semantic_display.rs"]
+mod semantic_display;
+pub use semantic_display::*;
+#[path = "book_v2_relation_display.rs"]
+mod relation_display;
+pub use relation_display::*;
+#[path = "book_v2_navigation_display.rs"]
+mod navigation_display;
+pub use navigation_display::*;
+#[path = "book_v2_assembly_display.rs"]
+mod assembly_display;
+pub use assembly_display::*;
 
 pub const BOOK_V2_MATH_DISPLAY_ALGORITHM: &str = "typaxis.book-2-math-display/1";
 
@@ -96,47 +124,78 @@ pub enum BookV2MathPaint {
     Vector(BookV2VectorMathPaint),
     Native(BookV2NativeMathPaint),
 }
-pub struct BookV2MathDraw<'d, 'r, 'a> {
-    terminal: &'d BookV2BodyMathTerminal<'r, 'a>,
+/// A draw retains its original physical terminal type.
+pub struct BookV2MathDrawData<'d, T> {
+    terminal: &'d T,
     paint: BookV2MathPaint,
 }
-impl<'d, 'r, 'a> BookV2MathDraw<'d, 'r, 'a> {
-    pub fn terminal(&self) -> &'d BookV2BodyMathTerminal<'r, 'a> {
+impl<'d, T> BookV2MathDrawData<'d, T> {
+    pub fn terminal(&self) -> &'d T {
         self.terminal
-    }
-    /// Original per-occurrence semantics, independent of shared image data.
-    pub fn alternative(&self) -> &str {
-        match self.terminal.source() {
-            BookV2BodyMathSource::Native(n) => &n.source().domain().speech,
-            BookV2BodyMathSource::Vector(v) => v.source().alternative().alternative(),
-        }
-    }
-    pub fn actual_text(&self) -> Option<&str> {
-        match self.terminal.source() {
-            BookV2BodyMathSource::Native(n) => Some(&n.source().domain().speech),
-            BookV2BodyMathSource::Vector(v) => v.source().alternative().resolved_actual_text(),
-        }
     }
     pub fn paint(&self) -> &BookV2MathPaint {
         &self.paint
     }
 }
-pub struct BookV2MathDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub type BookV2MathDraw<'d, 'r, 'a> = BookV2MathDrawData<'d, BookV2BodyMathTerminal<'r, 'a>>;
+/// Physical column terminals retain their distinct source proof.
+///
+/// ```compile_fail
+/// use typaxis_display_list::book_v2::{BookV2MathDraw, BookV2ColumnMathDraw};
+/// fn body<'d, 'r, 'a>(draw: BookV2ColumnMathDraw<'d, 'r, 'a>)
+///     -> BookV2MathDraw<'d, 'r, 'a> { draw }
+/// ```
+pub type BookV2ColumnMathDraw<'d, 'r, 'a> =
+    BookV2MathDrawData<'d, BookV2ColumnMathTerminal<'r, 'a>>;
+macro_rules! terminal_semantics {
+    ($terminal:ident) => {
+        impl<'d, 'r, 'a> BookV2MathDrawData<'d, $terminal<'r, 'a>> {
+            pub fn alternative(&self) -> &str {
+                match self.terminal.source() {
+                    BookV2BodyMathSource::Native(n) => &n.source().domain().speech,
+                    BookV2BodyMathSource::Vector(v) => v.source().alternative().alternative(),
+                }
+            }
+            pub fn actual_text(&self) -> Option<&str> {
+                match self.terminal.source() {
+                    BookV2BodyMathSource::Native(n) => Some(&n.source().domain().speech),
+                    BookV2BodyMathSource::Vector(v) => {
+                        v.source().alternative().resolved_actual_text()
+                    }
+                }
+            }
+        }
+    };
+}
+terminal_semantics!(BookV2BodyMathTerminal);
+terminal_semantics!(BookV2ColumnMathTerminal);
+
+pub struct BookV2SourceMathDisplay<'d, S: ?Sized, T> {
+    source: &'d S,
     admitted: &'d AdmittedProductionResourceLedgerV3,
-    draws: Vec<BookV2MathDraw<'d, 's, 'p>>,
+    draws: Vec<BookV2MathDrawData<'d, T>>,
     fingerprint: [u8; 32],
     records: u64,
     work: u64,
 }
-impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    pub fn source(&self) -> &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a> {
+pub type BookV2MathDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2SourceMathDisplay<
+    'd,
+    BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyMathTerminal<'s, 'p>,
+>;
+pub type BookV2ColumnMathDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2SourceMathDisplay<
+    'd,
+    BookV2ColumnMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnMathTerminal<'s, 'p>,
+>;
+impl<'d, S: ?Sized, T> BookV2SourceMathDisplay<'d, S, T> {
+    pub fn source(&self) -> &'d S {
         self.source
     }
     pub fn admitted(&self) -> &'d AdmittedProductionResourceLedgerV3 {
         self.admitted
     }
-    pub fn draws(&self) -> &[BookV2MathDraw<'d, 's, 'p>] {
+    pub fn draws(&self) -> &[BookV2MathDrawData<'d, T>] {
         &self.draws
     }
     pub fn fingerprint(&self) -> [u8; 32] {
@@ -148,7 +207,53 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplay<'d, 'g, 'q, 'b, 'f, 's, '
     pub fn work_steps(&self) -> u64 {
         self.work
     }
+    pub(super) fn from_projection(
+        source: &'d S,
+        admitted: &'d AdmittedProductionResourceLedgerV3,
+        data: MathProjection<'d, T>,
+        records: u64,
+        work: u64,
+    ) -> Self {
+        Self {
+            source,
+            admitted,
+            draws: data.draws,
+            fingerprint: data.fingerprint,
+            records,
+            work,
+        }
+    }
 }
+pub(super) struct MathProjection<'d, T> {
+    pub(super) draws: Vec<BookV2MathDrawData<'d, T>>,
+    pub(super) fingerprint: [u8; 32],
+}
+pub(super) trait MathTerminal<'r, 'a> {
+    fn source(&self) -> BookV2BodyMathSource<'r, 'a>;
+    fn viewport(&self) -> Option<Rect>;
+    fn origin_x(&self) -> Length;
+    fn baseline(&self) -> Length;
+}
+macro_rules! projection_terminal {
+    ($terminal:ident) => {
+        impl<'r, 'a> MathTerminal<'r, 'a> for $terminal<'r, 'a> {
+            fn source(&self) -> BookV2BodyMathSource<'r, 'a> {
+                self.source()
+            }
+            fn viewport(&self) -> Option<Rect> {
+                self.viewport()
+            }
+            fn origin_x(&self) -> Length {
+                self.origin_x()
+            }
+            fn baseline(&self) -> Length {
+                self.baseline()
+            }
+        }
+    };
+}
+projection_terminal!(BookV2BodyMathTerminal);
+projection_terminal!(BookV2ColumnMathTerminal);
 
 /// A single cumulative builder retains charges across successful, abandoned or
 /// failed projections. Prior counters account for other intervening stages.
@@ -281,24 +386,38 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
             .ok_or(BookV2MathDisplayError::WorkLimit(owner))?;
         Ok(())
     }
-    fn fold(
-        &mut self,
-        previous: [u8; 32],
-        value: &[u8],
-        owner: NodeId,
-    ) -> Result<[u8; 32], BookV2MathDisplayError> {
-        for _ in 0..(32 + value.len()).div_ceil(64) {
-            self.step(owner)?;
-        }
-        Ok(fold(previous, value))
+    fn projection(&mut self) -> Projector<'_, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+        Projector::new(
+            SourceView::Body(self.source),
+            self.admitted,
+            &mut self.remaining,
+            &mut self.work,
+            self.maximum_work,
+        )
     }
     pub fn build(
         &mut self,
     ) -> Result<BookV2MathDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2MathDisplayError> {
+        let source = self.source;
+        let data = self.projection().collect_math(source.terminals())?;
+        Ok(BookV2MathDisplay::from_projection(
+            source,
+            self.admitted,
+            data,
+            self.record_charge(),
+            self.work_steps(),
+        ))
+    }
+}
+impl<'e, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> Projector<'e, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub(super) fn collect_math<T: MathTerminal<'s, 'p>>(
+        &mut self,
+        terminals: &'d [T],
+    ) -> Result<MathProjection<'d, T>, BookV2MathDisplayError> {
         let root = NodeId::new(0);
         let source = self.source;
         let mut required = 1usize;
-        for terminal in source.terminals() {
+        for terminal in terminals {
             self.step(terminal.source().owner())?;
             let paints = match terminal.source() {
                 BookV2BodyMathSource::Native(n) => n.computation().paints().len(),
@@ -309,22 +428,22 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                 .and_then(|n| n.checked_add(paints))
                 .ok_or_else(|| error(root, E::RecordLimit))?;
         }
-        if required as u64 > self.remaining {
+        if required as u64 > *self.remaining {
             return Err(error(root, E::RecordLimit).into());
         }
         // Reserve all retained draw/paint slots before allocating the array.
         // Failures retain this reservation, including paints not yet reached.
-        take(&mut self.remaining, required, root)?;
+        take(self.remaining, required, root)?;
         let mut draws = Vec::new();
         draws
-            .try_reserve_exact(source.terminals().len())
+            .try_reserve_exact(terminals.len())
             .map_err(|_| error(root, E::AllocationFailure))?;
         self.step(root)?;
         let mut fingerprint = sha256(BOOK_V2_MATH_DISPLAY_ALGORITHM.as_bytes());
         for hash in [source.fingerprint(), self.admitted.fingerprint()] {
             fingerprint = self.fold(fingerprint, &hash, root)?;
         }
-        for terminal in source.terminals() {
+        for terminal in terminals {
             let owner = terminal.source().owner();
             self.step(owner)?;
             let paint = match terminal.source() {
@@ -406,16 +525,9 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                     }
                 }
             }
-            draws.push(BookV2MathDraw { terminal, paint });
+            draws.push(BookV2MathDrawData { terminal, paint });
         }
-        Ok(BookV2MathDisplay {
-            source,
-            admitted: self.admitted,
-            draws,
-            fingerprint,
-            records: self.record_charge(),
-            work: self.work_steps(),
-        })
+        Ok(MathProjection { draws, fingerprint })
     }
 }
 

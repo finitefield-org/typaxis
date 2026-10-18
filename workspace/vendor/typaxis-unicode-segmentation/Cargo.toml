@@ -1,0 +1,13 @@
+[package]
+name = "typaxis-unicode-segmentation"
+version = "1.12.0"
+edition = "2018"
+license = "MIT OR Apache-2.0"
+description = "Unicode segmentation 1.12.0 with fallible forward grapheme work hooks"
+
+[lib]
+name = "typaxis_unicode_segmentation"
+path = "src/lib.rs"
+
+[features]
+no_std = []

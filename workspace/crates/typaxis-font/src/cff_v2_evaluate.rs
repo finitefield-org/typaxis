@@ -98,7 +98,7 @@ impl Type2ProgramAccess for SelectedFontDict<'_> {
     }
     fn program_bytes(&self, kind: ProgramKind) -> Result<&[u8], Cff1Error> {
         self.span(kind)
-            .map(|s| s.bytes(&self.program.source))
+            .map(|s| s.bytes(self.program.bytes()))
             .ok_or(Cff1Error::InvalidCharstring)
     }
     fn reject_operator(&self, reason: Type2OperatorRejection) {

@@ -1,0 +1,23 @@
+[package]
+name = "typaxis-unicode-bidi"
+version = "0.3.18"
+edition = "2018"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+description = "Private Unicode-bidi 0.3.18 integration with fallible scratch accounting"
+publish = false
+
+[lib]
+name = "unicode_bidi"
+path = "src/lib.rs"
+
+[features]
+default = ["std", "hardcoded-data"]
+std = []
+hardcoded-data = []
+
+[lints.rust]
+unexpected_cfgs = "allow"
+
+[dev-dependencies]
+unicode-bidi-reference = { package = "unicode-bidi", version = "=0.3.18" }

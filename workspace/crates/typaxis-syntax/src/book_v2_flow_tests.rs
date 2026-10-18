@@ -563,3 +563,6 @@ fn refresh_caption_fixture_outline(data: &mut Value) {
         entry["source_node_id"] = owner(&document, entry["destination"].as_str().unwrap()).unwrap();
     }
 }
+
+#[path = "book_v2_generated_lookup_tests.rs"]
+mod generated_lookup_tests;

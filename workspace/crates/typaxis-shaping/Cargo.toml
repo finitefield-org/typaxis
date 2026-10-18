@@ -14,16 +14,24 @@ book-v2-staging = ["typaxis-syntax/book-v2-staging"]
 [dependencies]
 # The linked shaper preflight mirrors harfrust 0.1.1's private MAX_LEN_FACTOR
 # and MAX_LEN_MIN. Updating this exact pin requires reviewing those constants.
-harfrust = "=0.1.1"
+harfrust = { package = "typaxis-harfrust", version = "=0.1.1", path = "../../vendor/typaxis-harfrust" }
 read-fonts = "=0.31.3"
 # These exact releases all carry Unicode 16.0.0 tables and compile at the
 # workspace Rust 1.75 floor. Updating any pin requires a table-version audit.
-unicode-bidi = "=0.3.18"
+unicode-bidi = { package = "typaxis-unicode-bidi", version = "=0.3.18", path = "../../vendor/typaxis-unicode-bidi" }
 unicode-script = "=0.5.7"
 unicode-segmentation = "=1.12.0"
+# Independent ordinary reference remains above; observed calls use work hooks.
+typaxis-unicode-segmentation = { version = "=1.12.0", path = "../../vendor/typaxis-unicode-segmentation" }
 typaxis-core = { path = "../typaxis-core" }
 typaxis-text = { path = "../typaxis-text" }
 typaxis-font = { path = "../typaxis-font" }
 typaxis-layout-contract = { path = "../typaxis-layout-contract" }
 typaxis-resource-admission = { path = "../typaxis-resource-admission" }
 typaxis-syntax = { path = "../typaxis-syntax" }
+
+[dev-dependencies]
+typaxis-document = { path = "../typaxis-document" }
+serde_json = "=1.0.151"
+typaxis-document-package = { path = "../typaxis-document-package" }
+typaxis-machine-input = { path = "../typaxis-machine-input" }

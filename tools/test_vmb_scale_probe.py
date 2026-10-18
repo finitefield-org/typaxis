@@ -8,10 +8,130 @@ from pathlib import Path
 from PIL import Image
 from prepare_vmb_distinct_probe import png, prepare
 from verify_vmb_scale_pdf import verify, verify_form_geometry, verify_raster_pixels
+from verify_vmb_scale_pdf import PagePaint, verify_placement, verify_inputs
+from vmb_probe_io import contained_bytes, extracted_occurrences, same_json, strict_json
 from pypdf.generic import ArrayObject, DictionaryObject, NameObject, NumberObject, DecodedStreamObject
+from pypdf.generic import ContentStream
 
 
 class ScaleProbeTests(unittest.TestCase):
+    def test_json_rejects_nested_duplicate_and_nonfinite_members(self):
+        self.assertEqual(strict_json(b'{"a":[1,2]}'), {'a': [1, 2]})
+        for payload in [b'{"a":1,"a":2}', b'{"a":{"b":1,"b":2}}',
+                        b'{"a":NaN}', b'{"a":Infinity}', b'{"a":1e9999}',
+                        b'{"a":"\\ud800"}', b'["\\udfff"]']:
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                strict_json(payload)
+
+    def test_input_paths_reject_escape_absolute_and_symlink_reads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'inside').write_bytes(b'ok')
+            self.assertEqual(contained_bytes(root, 'inside'), b'ok')
+            (root/'alias').symlink_to(root/'inside')
+            for path in ['../outside', str(root/'inside'), './inside', 'x/../inside',
+                         'x//inside', 'x\\inside', 'alias']:
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    contained_bytes(root, path)
+
+    def test_extraction_preserves_source_spaces_and_unicode(self):
+        expected = ['a b', 'c d']
+        self.assertEqual(extracted_occurrences(b'\na b\n\f\nc d\n\f', expected, 'test'), 2)
+        for payload in [b'a b c d', b'a b\r\nc d', b'a b \nc d', b'a b\tc d']:
+            self.assertEqual(extracted_occurrences(payload, expected, 'test'), 2)
+        for payload in [b'ab\nc d', b'a  b\nc d', b'a\tb\nc d',
+                        b'a b\n c d', b'a b\nc d ', b'a b\nc d\nextra',
+                        b'a b  c d', b'a bc d', 'a\u00a0b\nc d'.encode()]:
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                extracted_occurrences(payload, expected, 'test')
+        with self.assertRaises(ValueError):
+            extracted_occurrences('e\u0301'.encode(), ['é'], 'test')
+        with self.assertRaises(ValueError):
+            extracted_occurrences(b'\n', [], 'test')
+
+    def page_paint_fixture(self, content=None, baseline=10):
+        stream = DecodedStreamObject()
+        stream.set_data(content or b'q 1 0 0 -1 0 100 cm '
+                        b'BT /F0 1 Tf 3 Tr 0 Tc 0 Tw 100 Tz 0 TL 0 Ts '
+                        b'20 0 0 -10 10 40 Tm <00> Tj ET '
+                        b'q 0 0 0 rg 1 0 0 1 10 30 cm /V0 Do Q Q')
+        resources = DictionaryObject({NameObject('/Font'): DictionaryObject({
+            NameObject('/F0'): DictionaryObject()})})
+        paint = PagePaint(resources)
+        anchors, images = [], []
+        for args, op in ContentStream(stream, None).operations:
+            event = paint.step(args, op)
+            if event and event[0] == 'anchor':
+                anchors.append(event[1])
+            elif event:
+                images.append(event)
+        paint.finish()
+        self.assertEqual(len(images), 1)
+        want = {'kind': 'math_vector', 'metrics': {'viewport': {'width': 20*65536,
+            'height': 10*65536}, 'baseline': baseline*65536}}
+        body = {'x': 0, 'y': 0, 'width': 100*65536, 'height': 100*65536}
+        return verify_placement(want, images[0], anchors, (0, 0, 100, 100), body)
+
+    def test_page_paint_binds_unit_scale_and_source_baseline(self):
+        self.assertEqual(self.page_paint_fixture(), tuple(v*65536 for v in [10, 60, 30, 70]))
+        with self.assertRaisesRegex(ValueError, 'baseline anchor'):
+            self.page_paint_fixture(baseline=9)
+
+    def test_page_paint_rejects_invisible_clipped_moved_and_extra_ink(self):
+        base = (b'q 1 0 0 -1 0 100 cm '
+                b'BT /F0 1 Tf 3 Tr 0 Tc 0 Tw 100 Tz 0 TL 0 Ts '
+                b'20 0 0 -10 10 40 Tm <00> Tj ET '
+                b'q 0 0 0 rg 1 0 0 1 10 30 cm /V0 Do Q Q')
+        variants = [
+            base.replace(b'0 0 0 rg', b'1 1 1 rg'),
+            base.replace(b'1 0 0 1 10 30 cm', b'0 0 0 0 10 30 cm'),
+            base.replace(b'1 0 0 1 10 30 cm', b'2 0 0 2 10 30 cm'),
+            base.replace(b'1 0 0 1 10 30 cm', b'1 0 0 1 200 30 cm'),
+            base.replace(b'1 0 0 -1 0 100 cm', b'1 0 0 -1 0 100 cm 0 0 1 1 re W n'),
+            base.replace(b'3 Tr', b'0 Tr'),
+            base.replace(b'10 40 Tm', b'11 40 Tm'),
+            base.replace(b'<00> Tj', b'<0000> Tj'),
+            base.replace(b'<00> Tj', b'<00> Tj <00> Tj'),
+            base.replace(b'/V0 Do', b'/V0 Do 0 0 2 2 re f'),
+            base.replace(b'/V0 Do', b'/OC <<>> BDC /V0 Do EMC'),
+            base+b' Q',
+        ]
+        for index, variant in enumerate(variants):
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                self.page_paint_fixture(variant)
+
+    def test_boolean_image_ids_are_not_integer_source_ids(self):
+        self.assertTrue(same_json({'a': [0, 1]}, {'a': [0, 1]}))
+        self.assertFalse(same_json({'a': [False, True]}, {'a': [0, 1]}))
+        self.assertFalse(same_json({'a': 0.0}, {'a': 0}))
+        images = [{'image_id': i} for i in range(5000)]
+        images[1]['image_id'] = True
+        with self.assertRaisesRegex(ValueError, 'dense image declarations'):
+            verify_inputs(Path('.'), {}, {'case': 'distinct', 'placements': 5000,
+                          'resources': 5000}, [], images)
+
+    def test_page_graphics_state_rejects_transparency_and_blending(self):
+        for key, value in [('/ca', NumberObject(0)), ('/BM', NameObject('/Multiply')),
+                           ('/SMask', DictionaryObject()), ('/Unknown', NumberObject(1))]:
+            resources = DictionaryObject({NameObject('/ExtGState'): DictionaryObject({
+                NameObject('/Bad'): DictionaryObject({NameObject(key): value})})})
+            paint = PagePaint(resources)
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'opaque normal'):
+                paint.step([NameObject('/Bad')], b'gs')
+
+    def test_placement_evidence_cannot_modify_inputs_or_overwrite_a_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            job = root/'job'
+            job.mkdir()
+            output = root/'observed.json'
+            output.write_text('keep')
+            with self.assertRaisesRegex(ValueError, 'outside the input package'):
+                verify(job, root/'missing.pdf', job/'new-evidence.json')
+            with self.assertRaisesRegex(ValueError, 'already exists'):
+                verify(job, root/'missing.pdf', output)
+            self.assertEqual(output.read_text(), 'keep')
+
     def geometry_fixture(self, content=None):
         svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="1pt" height="1pt" viewBox="0 0 1 1"><g fill="currentColor"><path d="M 0.25 0.5 L 1 1 Z"/><path d="M 0 0 C 0 1 1 0 1 1 Z"/></g></svg>'
         form = DecodedStreamObject()

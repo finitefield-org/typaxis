@@ -72,9 +72,43 @@ pub fn prepare_book_v2_rebuilt_column_flow_counted<'f, 's, 'p, 'a>(
     prior_records: u64,
     observed_records: &mut u64,
 ) -> Result<BookV2PreparedColumnFlow<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    prepare_body_flow_in_frames(variant.lines(), blocks, variant.footnotes(), limits,
-        prior_records, observed_records, true)
-        .map(|inner| BookV2PreparedColumnFlow { inner })
+    prepare_body_flow_in_frames(
+        variant.lines(),
+        blocks,
+        variant.footnotes(),
+        limits,
+        prior_records,
+        observed_records,
+        true,
+    )
+    .map(|inner| BookV2PreparedColumnFlow { inner })
+}
+
+/// Collect the actual observed occurrence without converting its ownership set
+/// to a legacy set. The caller retains the shared source loan across collection.
+pub fn prepare_observed_book_v2_rebuilt_column_flow_counted<'f, 'id, 's, 'p, 'a>(
+    variant: &'f typaxis_layout::book_v2::BookV2ObservedRebuiltColumnLineVariant<
+        '_,
+        'id,
+        's,
+        'p,
+        'a,
+    >,
+    blocks: Option<&'f BookV2VectorBlockLayout<'s, 'p, 'a>>,
+    limits: &M4EffectiveResourceLimits,
+    prior_records: u64,
+    observed_records: &mut u64,
+) -> Result<BookV2PreparedColumnFlow<'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
+    prepare_body_flow_in_frames(
+        variant.lines(),
+        blocks,
+        variant.footnotes(),
+        limits,
+        prior_records,
+        observed_records,
+        true,
+    )
+    .map(|inner| BookV2PreparedColumnFlow { inner })
 }
 
 /// Kept separate from single-frame table measurements so old page/PDF consumers
@@ -89,8 +123,12 @@ pub struct BookV2ColumnTableMeasurements<'f, 's, 'p, 'a> {
     pub(in crate::production_body::body_flow) inner: BookV2TableMeasurements<'f, 's, 'p, 'a>,
 }
 impl<'f, 's, 'p, 'a> BookV2ColumnTableMeasurements<'f, 's, 'p, 'a> {
-    pub fn fingerprint(&self) -> [u8; 32] { self.inner.fingerprint() }
-    pub fn item(&self, index: usize) -> Option<&ProductionBodyFlowItem> { self.inner.item(index) }
+    pub fn fingerprint(&self) -> [u8; 32] {
+        self.inner.fingerprint()
+    }
+    pub fn item(&self, index: usize) -> Option<&ProductionBodyFlowItem> {
+        self.inner.item(index)
+    }
     pub fn table_source_definition(&self, index: usize) -> Option<Option<usize>> {
         self.inner.flow().table_source_definition(index)
     }

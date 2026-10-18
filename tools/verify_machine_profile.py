@@ -485,7 +485,7 @@ def _assert_production_pass_count(layout: dict[str, Any], trace: dict[str, Any])
 
 
 def _assert_production_vector_closure(
-    expected: dict[str, Any], manifest: dict[str, Any], trace: dict[str, Any]
+    expected: dict[str, Any], manifest: dict[str, Any], trace: dict[str, Any], *, require_math: bool = True
 ) -> None:
     if expected.get("profile") != "typaxis.machine-pdf/production-book-1":
         return
@@ -585,7 +585,7 @@ def _assert_production_vector_closure(
             ):
                 raise MachineProfileError("production vector alias differs from root media")
     math_facts = children["math_vector_manifest"].get("facts")
-    if not isinstance(math_facts, list) or not math_facts:
+    if not isinstance(math_facts, list) or (require_math and not math_facts):
         raise MachineProfileError("production math-vector facts are empty")
     for fact in math_facts:
         if (

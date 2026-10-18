@@ -58,3 +58,49 @@ following text, and an alias resource carrying a distinct Figure/Alt. The existi
 pixels against the source, source-ordered raster matrices, shared Image objects,
 per-occurrence Figure/Alt/MCR/ParentTree, and rendered alpha/orientation. These
 small probes do not establish public check/build, complete-book or PDF/UA success.
+
+
+The authored engine input ledger added in checkpoint 304 consists of `cases.json`,
+`occurrences.json`, and the exact request bytes under `tex/`. Its 20 cases retain
+the five engine expressions, inline/block modes, and both original physical
+sizes. Original and admitted SVG bytes are unchanged. Each occurrence points to
+its original engine request record; these are authored fixture occurrences,
+not extracted occurrences from the original full book.
+
+`tools/vmb_book_inputs.py` checks every fixture file hash, complete case and
+occurrence sets, exact TeX/speech, source geometry and physical metrics, and the
+outer clip's five stored segments. Primary ledgers use JCS plus one LF. The
+file inventory covers every regular file below this directory except its own
+`fixture-index.json`; earlier diagnostic outputs remain historical evidence,
+not automatically approved visual expectations.
+
+`package-template.json` is an authored composition recipe with empty content.
+The three fonts under `fixture-fonts/` are byte copies of the repository's
+synthetic combined-profile test fonts. They contain empty outlines and are used
+only for formula-only check/build and structural tests. They do not prove body
+text visibility, Japanese typography, or body/formula spacing. Their hashes are
+in the template and complete fixture inventory.
+
+Compose an exclusive generated job outside this directory with:
+
+```sh
+python3 tools/prepare_vmb_book_fixtures.py --fixture-root \
+  samples/machine-package/staging/production-book-1/vmb-book \
+  --output-root workspace/target/vmb-authored-job
+```
+
+The unchanged chapter whitespace SVG remains an admission regression. The
+original book's maximum-path and maximum-segment SVGs, independent layout
+goldens, and the complete formal book runner remain separate required work.
+
+## Additional thin-stroke corpus
+
+`thin-strokes/` contains eight separately registered actual-engine fraction-rule and diagonal-negation controls. The primary twenty-case ledger and three CLI tests remain the small-engine regression corpus. The dedicated thin-stroke verifier owns the additional eight cases and their damage checks. See `thin-strokes/provenance.json` for the VMB base revision plus the retained Go overlay and source/license scope.
+
+The `chapter-layout/` support data records an authored 400-formula chapter plan
+using the unchanged 20 real-engine cases, with 200 visible ASCII equation numbers.
+It preserves original DejaVu Sans bytes and their license for the number glyphs.
+The plan is not an original-book chapter or an approved layout golden; the
+chapter gate requires independent source, glyph, paint, baseline, and page checks.
+
+The authored `mixed-body-spacing/` plan pairs the unchanged real-engine cases with original IPAex Mincho 004.01 body glyphs. It retains the unmodified font, its full license and readme, download provenance, and six explicit body/spacing plans. This is a separate fixture font; original Harano full-book acceptance remains open.

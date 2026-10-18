@@ -64,6 +64,252 @@ fn repository_root() -> PathBuf {
         .expect("repository root must be available to integration tests")
 }
 
+fn vmb_book_cli_path() -> PathBuf {
+    std::env::var_os("VMB_BOOK_TYPAXIS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_typaxis")))
+        .canonicalize()
+        .expect("the selected VMB test CLI must exist")
+}
+
+fn run_vmb_book(job: &Path, arguments: &[&OsStr]) -> Output {
+    let mut command = Command::new(vmb_book_cli_path());
+    command.current_dir(job).args(arguments);
+    for (key, _) in std::env::vars_os() {
+        if key.to_str().is_some_and(|key| key.starts_with("TYPAXIS_")) {
+            command.env_remove(key);
+        }
+    }
+    command.output().expect("the selected VMB CLI must start")
+}
+
+fn prepare_vmb_book_job(directory: &Path, test_name: &str) -> PathBuf {
+    let repository = repository_root();
+    let job = directory.join("job");
+    let prepared = Command::new("python3")
+        .arg(repository.join("tools/prepare_vmb_book_fixtures.py"))
+        .arg("--fixture-root")
+        .arg(repository.join("samples/machine-package/staging/production-book-1/vmb-book"))
+        .arg("--output-root")
+        .arg(&job)
+        .current_dir(&repository)
+        .output()
+        .expect("the fixture source composer must start");
+    assert!(
+        prepared.status.success(),
+        "VMB fixture preparation: {}",
+        String::from_utf8_lossy(&prepared.stderr)
+    );
+    let facts: serde_json::Value = serde_json::from_slice(&prepared.stdout).unwrap();
+    assert_eq!(facts["cases"], 20);
+    assert_eq!(facts["occurrences"], 20);
+    if let Some(output) = std::env::var_os("VMB_BOOK_CLI_EVIDENCE_DIR") {
+        use std::io::Write as _;
+        let binary = vmb_book_cli_path();
+        let receipt = serde_json::json!({
+            "algorithm":"typaxis.vmb-book-cli-test-invocation/1",
+            "test_name":test_name,"binary_path":binary.to_str().unwrap(),
+            "binary_sha256":sha256_hex(&fs::read(&binary).unwrap()),
+            "test_source_sha256":sha256_hex(include_bytes!("cli_end_to_end.rs")),
+            "fixture_index_sha256":facts["fixture_index_sha256"],
+            "source_cases":20,"source_occurrences":20
+        });
+        let path = PathBuf::from(output).join(format!("{test_name}.json"));
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .expect("VMB test receipt must be new");
+        file.write_all(&serde_json::to_vec(&receipt).unwrap())
+            .unwrap();
+        file.write_all(b"\n").unwrap();
+    }
+    job
+}
+
+fn run_vmb_book_check(job: &Path, diagnostics: &Path) -> Output {
+    run_vmb_book(
+        job,
+        &[
+            OsStr::new("check-package"),
+            OsStr::new("document-package.json"),
+            OsStr::new("--package-root"),
+            OsStr::new("."),
+            OsStr::new("--profile"),
+            OsStr::new("typaxis.machine-pdf/production-book-1"),
+            OsStr::new("--emit-diagnostics"),
+            diagnostics.as_os_str(),
+        ],
+    )
+}
+
+fn run_vmb_book_build(job: &Path, artifacts: &Path) -> Output {
+    fs::create_dir(artifacts).unwrap();
+    run_vmb_book(
+        job,
+        &[
+            OsStr::new("build-package"),
+            OsStr::new("document-package.json"),
+            OsStr::new("--package-root"),
+            OsStr::new("."),
+            OsStr::new("--profile"),
+            OsStr::new("typaxis.machine-pdf/production-book-1"),
+            OsStr::new("-o"),
+            artifacts.join("output.pdf").as_os_str(),
+            OsStr::new("--trace"),
+            artifacts.join("trace.json").as_os_str(),
+            OsStr::new("--emit-build-manifest"),
+            artifacts.join("manifest.json").as_os_str(),
+            OsStr::new("--emit-diagnostics"),
+            artifacts.join("diagnostics.json").as_os_str(),
+            OsStr::new("--no-compress"),
+        ],
+    )
+}
+
+#[test]
+fn vmb_book_engine_fixtures_check_and_build() {
+    let directory = TestDirectory::new();
+    let job = prepare_vmb_book_job(directory.path(), "vmb_book_engine_fixtures_check_and_build");
+    let diagnostics = directory.path().join("check-diagnostics.json");
+    let checked = run_vmb_book_check(&job, &diagnostics);
+    assert!(
+        checked.status.success(),
+        "VMB check: {}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    assert!(checked.stdout.is_empty() && checked.stderr.is_empty());
+    let first = directory.path().join("build1");
+    let second = directory.path().join("build2");
+    for artifacts in [&first, &second] {
+        let built = run_vmb_book_build(&job, artifacts);
+        assert!(
+            built.status.success(),
+            "VMB build: {}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        assert!(built.stdout.is_empty() && built.stderr.is_empty());
+        assert_eq!(
+            fs::read(&diagnostics).unwrap(),
+            fs::read(artifacts.join("diagnostics.json")).unwrap()
+        );
+    }
+    for name in [
+        "output.pdf",
+        "trace.json",
+        "manifest.json",
+        "diagnostics.json",
+    ] {
+        assert_eq!(
+            fs::read(first.join(name)).unwrap(),
+            fs::read(second.join(name)).unwrap(),
+            "VMB deterministic artifact {name}"
+        );
+    }
+    let pdf = fs::read(first.join("output.pdf")).unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(first.join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["status"], "built");
+    assert_eq!(manifest["output"]["sha256"], sha256_hex(&pdf));
+    assert_eq!(
+        manifest["output"]["page_count"],
+        decimal_after(&pdf, b"/Type /Pages /Count ")
+    );
+    let fixture =
+        repository_root().join("samples/machine-package/staging/production-book-1/vmb-book");
+    let cases: Vec<serde_json::Value> =
+        serde_json::from_slice(&fs::read(fixture.join("cases.json")).unwrap()).unwrap();
+    let occurrences: Vec<serde_json::Value> =
+        serde_json::from_slice(&fs::read(fixture.join("occurrences.json")).unwrap()).unwrap();
+    let facts = manifest["math_vector_manifest"]["facts"]
+        .as_array()
+        .unwrap();
+    assert_eq!(facts.len(), 20);
+    assert_eq!(manifest["safe_vector_manifest"]["placement_count"], 20);
+    for ((fact, case), occurrence) in facts.iter().zip(&cases).zip(&occurrences) {
+        assert_eq!(fact["node_id"], occurrence["node_id"]);
+        assert_eq!(
+            fact["alternative_sha256"],
+            sha256_hex(case["alt"].as_str().unwrap().as_bytes())
+        );
+        assert_eq!(fact["metrics"]["baseline"], case["metrics"]["baseline"]);
+        assert_eq!(fact["metrics"]["origin_x"], case["metrics"]["origin_x"]);
+        assert_eq!(
+            fact["metrics"]["viewport_width"],
+            case["metrics"]["viewport"]["width"]
+        );
+    }
+}
+
+#[test]
+fn vmb_book_engine_fixture_hash_mismatch_is_rejected() {
+    let directory = TestDirectory::new();
+    let job = prepare_vmb_book_job(
+        directory.path(),
+        "vmb_book_engine_fixture_hash_mismatch_is_rejected",
+    );
+    let package: serde_json::Value =
+        serde_json::from_slice(&fs::read(job.join("document-package.json")).unwrap()).unwrap();
+    let image = job.join(package["resources"]["images"][0]["uri"].as_str().unwrap());
+    let mut bytes = fs::read(&image).unwrap();
+    bytes.push(b'\n');
+    fs::write(image, bytes).unwrap();
+    let diagnostics = directory.path().join("check-diagnostics.json");
+    let checked = run_vmb_book_check(&job, &diagnostics);
+    let artifacts = directory.path().join("build");
+    let built = run_vmb_book_build(&job, &artifacts);
+    for output in [&checked, &built] {
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("R7100"));
+    }
+    for path in [diagnostics, artifacts.join("diagnostics.json")] {
+        let value: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(value["diagnostics"][0]["code"], "R7100");
+        assert_eq!(
+            value["diagnostics"][0]["location"]["json_pointer"],
+            "/resources/images/0"
+        );
+    }
+    assert!(!artifacts.join("output.pdf").exists());
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(artifacts.join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["status"], "failed");
+    assert!(manifest["output"].is_null());
+}
+
+#[test]
+fn vmb_book_chapter_terminal_whitespace_is_admitted() {
+    let directory = TestDirectory::new();
+    let job = prepare_vmb_book_job(
+        directory.path(),
+        "vmb_book_chapter_terminal_whitespace_is_admitted",
+    );
+    let source = fs::read(repository_root().join(
+        "samples/machine-package/staging/production-book-1/vmb-book/svg/chapter-fraction-equivalence.svg",
+    ))
+    .unwrap();
+    assert!(source.windows(3).any(|bytes| bytes == b" />"));
+    fs::write(job.join("chapter.svg"), &source).unwrap();
+    let path = job.join("document-package.json");
+    let mut package: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    package["resources"]["images"].as_array_mut().unwrap().push(serde_json::json!({
+        "image_id":20,"uri":"chapter.svg","media_type":"svg-safe-2",
+        "expected_sha256":sha256_hex(&source),"vector_provenance":{
+            "engine_id":"vmb-go-math-svg","engine_version":"2.0.0","rules_version":"vmb.math-safe-svg/1"}
+    }));
+    fs::write(path, serde_json::to_vec(&package).unwrap()).unwrap();
+    let checked = run_vmb_book_check(&job, &directory.path().join("diagnostics.json"));
+    assert!(
+        checked.status.success(),
+        "unchanged VMB chapter whitespace: {}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    assert!(checked.stdout.is_empty() && checked.stderr.is_empty());
+    // Resource admission only: the supplied chapter metrics and generic Alt
+    // are not adopted as placement or accessibility expectations.
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ManifestOutputFacts {
     sink: String,

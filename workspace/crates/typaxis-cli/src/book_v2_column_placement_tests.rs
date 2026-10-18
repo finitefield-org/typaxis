@@ -1,7 +1,15 @@
 use super::*;
+#[path = "book_v2_column_balance_tests.rs"]
+mod balance_tests;
+#[path = "book_v2_column_math_terminal_tests.rs"]
+mod math_terminals;
+#[path = "book_v2_column_display_tests.rs"]
+mod display_tests;
 use crate::book_v2_resources::with_budgeted_book_v2_column_placement as drive;
 use std::collections::BTreeSet;
 use typaxis_pagination::ProductionBodyFragmentSource as Source;
+#[path = "book_v2_column_source_closure_tests.rs"]
+mod source_closure;
 
 #[derive(Clone, Debug, PartialEq)]
 struct Geometry {
@@ -84,10 +92,18 @@ fn geometry<'b, 'f, 's, 'p, 'a>(
         );
         let mut end = 0;
         for (index, column) in page.columns().iter().enumerate() {
-            assert_eq!(
-                column.bounds(),
-                selection.candidate().frames().column(index as u16).unwrap()
-            );
+            let original = selection.candidate().frames().column(index as u16).unwrap();
+            let expected = if let Some(balance) = selection.balance() {
+                typaxis_core::Rect::new(
+                    original.x(),
+                    original.y(),
+                    original.width(),
+                    balance.selected_height(),
+                )
+            } else {
+                original
+            };
+            assert_eq!(column.bounds(), expected);
             assert_eq!(column.fragments().start, end);
             end = column.fragments().end;
             for index in column.fragments() {
@@ -409,7 +425,8 @@ fn book_v2_column_placement_retains_exact_callback_budgets_and_failed_retries() 
 }
 
 #[test]
-fn book_v2_column_placement_rejects_foreign_sequences_short_passes_and_unbalanced_pages() {
+fn book_v2_column_placement_rejects_foreign_sequences_and_short_passes_and_accepts_ordinary_balance(
+) {
     let root = Root::new();
     let caps = caps();
     let text = "Pro";
@@ -442,8 +459,9 @@ fn book_v2_column_placement_rejects_foreign_sequences_short_passes_and_unbalance
     }
     let input = physical_input(&root, data, text, None, &caps);
     let result = run(&input, &caps, 100_000_000);
-    assert!(result.0.is_err() && result.1.candidate_passes() == 0);
-    assert!(format!("{:?}", result.0).contains("column_balance"));
+    assert!(result.0.is_ok(), "{result:?}");
+    assert_eq!(result.1.candidate_passes(), 1);
+    assert!(result.1.balance_candidates() > 0);
     assert!(
         result.1.page_passes() > 0 && result.1.record_charge() > 0 && result.1.work_steps() > 0
     );

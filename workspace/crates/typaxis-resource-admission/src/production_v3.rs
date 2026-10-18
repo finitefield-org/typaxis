@@ -1,7 +1,24 @@
 //! Private-staging resource-set /3 admission. No public contract dispatch and
 //! no conversion to the legacy AdmittedResourceLedger are provided here.
 use super::*;
-use typaxis_font::{admit_sfnt_cff1_v2, Cff1AdmissionV2, Cff1FailureV2};
+#[path = "production_font_binding.rs"]
+mod binding;
+pub use binding::{ProductionFontBindingBudgetFailureV3, ProductionFontBindingBudgetResultV3, ProductionFontBindingCauseV3};
+#[path = "resource_resolver_setup_budget.rs"]
+mod resolver_setup;
+use typaxis_font::{
+    Cff1AdmissionV2, Cff1FailureV2, CffBaseCmapBudgetV2,
+};
+#[path = "production_font_instances_observed.rs"]
+mod observed_instances;
+pub use observed_instances::{ProductionFontInstanceBudgetV3, ProductionFontInstanceErrorV3};
+#[path = "production_ledger_observed.rs"]
+mod observed_ledger;
+#[path = "production_ledger_aliases_observed.rs"]
+mod observed_aliases;
+#[path = "production_ledger_families_observed.rs"]
+mod observed_families;
+pub use observed_ledger::{ProductionResourceLedgerBudgetV3,ProductionResourceLedgerBudgetFailureV3,ProductionResourceLedgerErrorV3,ProductionResourceLedgerPointV3,ProductionResourceLedgerStageV3,ProductionResourceLedgerStorageV3};
 
 pub const STAGING_PRODUCTION_RESOURCE_SET_V3: &str = "typaxis.production-book-resource-set/3";
 #[derive(Debug)]
@@ -100,7 +117,7 @@ impl AdmittedProductionFontV3 {
 /// admission. CFF /2 results have a separate map and can only finish into /3.
 pub struct StagingProductionResourceResolverV3<'roots> {
     inner: AdmittedResourceResolver<'roots>,
-    cff_fonts: BTreeMap<FontFaceId, AdmittedCff1FontV2>,
+    cff_fonts: binding::Fonts,
     profile_fingerprint: [u8; 32],
     limits: M4EffectiveResourceLimits,
 }
@@ -121,7 +138,7 @@ impl<'roots> StagingProductionResourceResolverV3<'roots> {
                 profile_fingerprint,
                 roots,
             )?,
-            cff_fonts: BTreeMap::new(),
+            cff_fonts: binding::Fonts::new(),
             profile_fingerprint,
             limits: limits.clone(),
         })
@@ -132,11 +149,25 @@ impl<'roots> StagingProductionResourceResolverV3<'roots> {
     ) -> Result<PendingResourceBytes, ProductionResourceErrorV3> {
         Ok(self.inner.read_font(source)?)
     }
+    pub fn read_font_with_budget<B: HostReadBudget>(
+        &mut self,
+        source: VerifiedResourceSource<'roots>,
+        budget: &mut B,
+    ) -> Result<PendingResourceBytes, ResourceReadError<B::Error>> {
+        self.inner.read_font_with_budget(source, budget)
+    }
     pub fn read_image(
         &mut self,
         source: VerifiedResourceSource<'roots>,
     ) -> Result<PendingResourceBytes, ProductionResourceErrorV3> {
         Ok(self.inner.read_image(source)?)
+    }
+    pub fn read_image_with_budget<B: HostReadBudget>(
+        &mut self,
+        source: VerifiedResourceSource<'roots>,
+        budget: &mut B,
+    ) -> Result<PendingResourceBytes, ResourceReadError<B::Error>> {
+        self.inner.read_image_with_budget(source, budget)
     }
     pub fn parse_and_bind_image(
         &mut self,
@@ -144,76 +175,203 @@ impl<'roots> StagingProductionResourceResolverV3<'roots> {
     ) -> Result<(), ProductionResourceErrorV3> {
         Ok(self.inner.parse_and_bind_declared_image(source)?)
     }
+    pub fn parse_and_bind_image_with_source_budget<B:SafeSvgSourceBudget>(
+        &mut self,source:PendingResourceBytes,budget:&mut B,
+    )->Result<(),SafeSvgSourceError<B::Error>>{
+        self.inner.parse_and_bind_declared_image_with_source_budget(source,budget)
+    }
     pub fn parse_and_bind_font(
         &mut self,
         source: PendingResourceBytes,
     ) -> Result<(), ProductionResourceErrorV3> {
-        self.inner.ensure_session(&source)?;
-        let id = source
+        match self.parse_and_bind_font_with_base_cmap_budget(
+            source,
+            &mut base_cmap_budget::UnobservedBaseCmap,
+        ) {
+            Ok(value) => value,
+            Err(failure) => match failure.failure.error {},
+        }
+    }
+    /// Observe base-cmap requests only, after the ordinary host/session/hash checks.
+    /// No callback is kept and no partially admitted font is published on refusal.
+    pub fn parse_and_bind_font_with_base_cmap_budget<B: CffBaseCmapBudgetV2>(
+        &mut self,
+        source: PendingResourceBytes,
+        budget: &mut B,
+    ) -> ProductionBaseCmapBudgetResultV3<(), B::Error> {
+        self.parse_and_bind_font_with_cmap_policy(source, budget, None, |bytes, face, _| Ok(font_media_budget::declared_native(bytes, face)), |source, face, limits, budget| {
+            typaxis_font::admit_sfnt_cff1_v2_owned_with_base_cmap_budget(source, face, limits, budget)
+        })
+        .map_err(
+            |(font_face_id, failure)| ProductionBaseCmapBudgetFailureV3 {
+                font_face_id,
+                failure,
+            },
+        )
+    }
+    /// Observe base and variation cmap requests after authentic host checks.
+    pub fn parse_and_bind_font_with_cmap_budget<B: typaxis_font::CffCmapBudgetV2>(
+        &mut self,
+        source: PendingResourceBytes,
+        budget: &mut B,
+    ) -> ProductionCmapBudgetResultV3<(), B::Error> {
+        self.parse_and_bind_font_with_cmap_policy(source, budget, None, |bytes, face, _| Ok(font_media_budget::declared_native(bytes, face)), |source, face, limits, budget| {
+            typaxis_font::admit_sfnt_cff1_v2_owned_with_cmap_budget(source, face, limits, budget)
+        })
+        .map_err(|(font_face_id, failure)| ProductionCmapBudgetFailureV3 {
+            font_face_id,
+            failure,
+        })
+    }
+    /// Observe SFNT preflight and cmap under the same authentic declaration.
+    pub fn parse_and_bind_font_with_admission_budget<B: typaxis_font::CffAdmissionBudgetV2>(
+        &mut self,
+        source: PendingResourceBytes,
+        budget: &mut B,
+    ) -> ProductionAdmissionBudgetResultV3<(), B::Error> {
+        self.parse_and_bind_font_with_cmap_policy(source, budget, None, font_media_budget::declared_with_budget, |source, face, limits, budget| {
+            typaxis_font::admit_sfnt_cff1_v2_owned_with_admission_budget(source, face, limits, budget)
+        })
+        .map_err(
+            |(font_face_id, failure)| ProductionAdmissionBudgetFailureV3 {
+                font_face_id,
+                failure,
+            },
+        )
+    }
+    /// Observe declaration checks/copies and fallible binding storage as well
+    /// as CFF admission. Authentic session checks precede every callback.
+    /// Refusal publishes no font; accepted storage can be reused on retry.
+    pub fn parse_and_bind_font_with_binding_budget<B>(
+        &mut self, source: PendingResourceBytes, budget: &mut B,
+    ) -> ProductionFontBindingBudgetResultV3<(), <B as CffBaseCmapBudgetV2>::Error>
+    where B: typaxis_font::CffAdmissionBudgetV2 + ResourceCatalogBudget<Error = <B as CffBaseCmapBudgetV2>::Error>,
+    {
+        let permit = if <B as ResourceCatalogBudget>::OBSERVED { Some(binding::permit::<B> as binding::Permit<_, _>) } else { None };
+        self.parse_and_bind_font_with_cmap_policy(source, budget, permit,
+            |bytes, face, budget| font_media_budget::declared_with_budget(bytes, face, budget).map_err(ProductionFontBindingCauseV3::Admission),
+            |source, face, limits, budget| typaxis_font::admit_sfnt_cff1_v2_owned_with_admission_budget(source, face, limits, budget).map_err(ProductionFontBindingCauseV3::Admission),
+        ).map_err(|(font_face_id, failure)| ProductionFontBindingBudgetFailureV3 { font_face_id, failure })
+    }
+    fn parse_and_bind_font_with_cmap_policy<C, E>(
+        &mut self,
+        source: PendingResourceBytes,
+        budget: &mut C,
+        permit: Option<binding::Permit<C, E>>,
+        attest: impl FnOnce(&[u8], u32, &mut C) -> Result<Result<AdmittedFontMediaKind, ResourceAdmissionError>, E>,
+        admit: impl FnOnce(
+            Vec<u8>,
+            u32,
+            &M4EffectiveResourceLimits,
+            &mut C,
+        ) -> FontCmapAdmissionResult<E>,
+    ) -> Result<Result<(), ProductionResourceErrorV3>, (FontFaceId, E)> {
+        macro_rules! native {
+            ($value:expr) => {
+                match $value {
+                    Ok(value) => value,
+                    Err(failure) => return Ok(Err(failure.into())),
+                }
+            };
+        }
+        native!(self.inner.ensure_session(&source));
+        let id = native!(source
             .font_face_id()
-            .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?;
-        let declaration = self
+            .ok_or(ResourceAdmissionError::ReceiptKindMismatch));
+        let declaration = native!(self
             .inner
             .declarations
             .font_faces
             .get(id.get() as usize)
             .filter(|d| d.font_face_id == id)
-            .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
+            .ok_or(ResourceAdmissionError::MissingLogicalResource));
+        macro_rules! bind {
+            ($value:expr) => {
+                match $value {
+                    Ok(value) => value,
+                    Err(ResourceCatalogError::Native(error)) => return Ok(Err(error.into())),
+                    Err(ResourceCatalogError::Budget(failure)) => return Err((id, failure.error)),
+                }
+            };
+        }
+        // Peek without changing the native failure order. Only the declared
+        // CFF path opts into this binding policy; other media retain theirs.
+        let cff = self.inner.declared_media_policy.as_ref()
+            .and_then(|p| p.fonts.get(id.get() as usize)) == Some(&FontMediaType::SfntCff1);
+        if let Some(permit) = permit.filter(|_| cff) {
+            let existing = native!(self.cff_fonts.len().checked_add(self.inner.fonts.len()).ok_or(ResourceAdmissionError::ResourceLimit));
+            bind!(binding::checks(declaration, &source, existing, &mut binding::Budget { budget, permit, id }));
+        }
         if source.uri() != &declaration.uri || source.face_index() != Some(declaration.face_index) {
-            return Err(ResourceAdmissionError::ReceiptIdentityMismatch.into());
+            return Ok(Err(ResourceAdmissionError::ReceiptIdentityMismatch.into()));
         }
         if declaration
             .expected_sha256
             .is_some_and(|h| h != source.content_hash())
         {
-            return Err(ResourceAdmissionError::ExpectedHashMismatch.into());
+            return Ok(Err(ResourceAdmissionError::ExpectedHashMismatch.into()));
         }
         if self.cff_fonts.contains_key(&id) || self.inner.fonts.contains_key(&id) {
-            return Err(ResourceAdmissionError::ConflictingLogicalResource.into());
+            return Ok(Err(
+                ResourceAdmissionError::ConflictingLogicalResource.into()
+            ));
         }
-        let media = self
+        let media = native!(self
             .inner
             .declared_media_policy
             .as_ref()
             .and_then(|p| p.fonts.get(id.get() as usize))
-            .ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?;
+            .ok_or(ResourceAdmissionError::DeclaredMediaMismatch));
         if *media != FontMediaType::SfntCff1 {
-            return Ok(self.inner.parse_and_bind_declared_sfnt(source)?);
+            return Ok(self
+                .inner
+                .parse_and_bind_declared_sfnt(source)
+                .map_err(Into::into));
         }
-        let observed = attest_declared_font_media_kind(source.bytes(), declaration.face_index)
-            .map_err(|_| {
-                ResourceAdmissionError::FontContainerDetailed(
-                    font_diagnostic::diagnose_font_container(
-                        source.bytes(),
-                        declaration.face_index,
-                    ),
-                )
-            })?;
+        let observed = native!(match attest(source.bytes(), declaration.face_index, budget) {
+            Ok(value) => value,
+            Err(failure) => return Err((id, failure)),
+        });
         if observed != AdmittedFontMediaKind::SfntCff1 {
-            return Err(ResourceAdmissionError::DeclaredMediaMismatch.into());
+            return Ok(Err(ResourceAdmissionError::DeclaredMediaMismatch.into()));
         }
-        let declaration = declaration.clone();
+        let (declaration, position) = if let Some(permit) = permit {
+            let mut observed = binding::Budget { budget, permit, id };
+            let position = bind!(self.cff_fonts.prepare(self.inner.declarations.font_faces.len(), id, &mut observed));
+            (bind!(binding::declaration(declaration, &mut observed)), Some(position))
+        } else { (declaration.clone(), None) };
         let source_hash = source.content_hash();
-        let admission =
-            admit_sfnt_cff1_v2(source.bytes.into(), declaration.face_index, &self.limits).map_err(
-                |error| ProductionResourceErrorV3::Cff {
-                    font_face_id: id,
-                    error,
-                },
-            )?;
+        let admission = match admit(source.bytes, declaration.face_index, &self.limits, budget) {
+            Ok(value) => native!(value.map_err(|error| ProductionResourceErrorV3::Cff {
+                font_face_id: id,
+                error
+            })),
+            Err(failure) => return Err((id, failure)),
+        };
         if admission.source_sha256() != source_hash {
-            return Err(ResourceAdmissionError::ReceiptIdentityMismatch.into());
+            return Ok(Err(ResourceAdmissionError::ReceiptIdentityMismatch.into()));
         }
-        self.cff_fonts.insert(
+        native!(self.cff_fonts.insert(
             id,
             AdmittedCff1FontV2 {
                 declaration,
                 admission,
             },
-        );
-        Ok(())
+            position,
+        ));
+        Ok(Ok(()))
     }
+
     pub fn finish(self) -> Result<AdmittedProductionResourceLedgerV3, ProductionResourceErrorV3> {
+        match self.finish_with_budget(&mut observed_ledger::Unobserved) {
+            Ok(value)=>Ok(value),
+            Err(ProductionResourceLedgerErrorV3::Native(error))=>Err(error),
+            Err(ProductionResourceLedgerErrorV3::Budget(failure))=>match failure.error {},
+        }
+    }
+    /// Observe alias and family indices, dense output buffers, and canonical
+    /// encoding/digest work. Earlier admission retains its separate policy.
+    pub fn finish_with_budget<B:ProductionResourceLedgerBudgetV3>(self,budget:&mut B)->Result<AdmittedProductionResourceLedgerV3,ProductionResourceLedgerErrorV3<B::Error>>{
         let inner = self.inner;
         if inner.fonts.len().checked_add(self.cff_fonts.len())
             != Some(inner.declarations.font_faces.len())
@@ -221,73 +379,73 @@ impl<'roots> StagingProductionResourceResolverV3<'roots> {
         {
             return Err(ResourceAdmissionError::MissingLogicalResource.into());
         }
-        if inner
-            .images
-            .values()
-            .enumerate()
-            .any(|(i, v)| v.image_id().get() as usize != i)
-        {
-            return Err(ResourceAdmissionError::ReceiptIdentityMismatch.into());
+        for (i,v) in inner.images.values().enumerate() {
+            observed_ledger::work(budget,observed_ledger::point(ProductionResourceLedgerStageV3::ImageIds,None,Some(v.image_id())),64)?;
+            if v.image_id().get()as usize!=i{return Err(ResourceAdmissionError::ReceiptIdentityMismatch.into());}
         }
-        let mut aliases = Vec::new();
-        aliases
-            .try_reserve_exact(inner.images.len())
-            .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
-        for image in inner.images.values() {
-            if image.admitted_safe_vector().is_some() {
-                aliases.push((image.content_hash(), image.bytes()));
-            }
-        }
-        validate_safe_vector_digest_aliases(&aliases)?;
-        drop(aliases);
-        let families = FontFamilyTable::new(
-            inner
-                .declarations
-                .font_faces
-                .iter()
-                .map(|d| (d.family.clone(), d.font_face_id))
-                .collect(),
-        )
-        .map_err(map_font_family_error)?;
-        let mut fonts = BTreeMap::new();
-        for (id, font) in inner.fonts {
-            if font.media_kind() == AdmittedFontMediaKind::SfntCff1
-                || font.cff1_admission().is_some()
-            {
-                return Err(ResourceAdmissionError::ReceiptIdentityMismatch.into());
-            }
-            fonts.insert(id, AdmittedProductionFontV3::TrueType(font));
-        }
-        for (id, font) in self.cff_fonts {
-            if fonts
-                .insert(id, AdmittedProductionFontV3::Cff1V2(font))
-                .is_some()
-            {
-                return Err(ResourceAdmissionError::ConflictingLogicalResource.into());
-            }
-        }
-        if fonts
-            .values()
-            .enumerate()
-            .any(|(i, f)| f.font_face_id().get() as usize != i)
-        {
-            return Err(ResourceAdmissionError::ReceiptIdentityMismatch.into());
-        }
+        observed_aliases::validate_images(&inner.images,budget)?;
+        let families=observed_families::families(&inner.declarations.font_faces,budget)?;
+        let fonts=observed_ledger::fonts(inner.fonts,self.cff_fonts,budget)?;
+        let images=observed_ledger::images(inner.images,budget)?;
         let mut ledger = AdmittedProductionResourceLedgerV3 {
             session: inner.session,
-            fonts: fonts.into_values().collect(),
-            images: inner.images.into_values().collect(),
+            fonts,
+            images,
             families,
             profile_fingerprint: self.profile_fingerprint,
             limits: self.limits,
             fingerprint: [0; 32],
             canonical_jcs: String::new(),
         };
-        ledger.canonical_jcs = encode(&ledger)?;
-        ledger.fingerprint = sha256(ledger.canonical_jcs.as_bytes());
+        ledger.canonical_jcs = encode(&ledger,budget)?;
+        ledger.fingerprint = observed_ledger::digest(ledger.canonical_jcs.as_bytes(),budget)?;
         Ok(ledger)
     }
 }
+/// Comparison-only identity of one authoritative resource-admission session.
+/// Retaining this token keeps the identity allocation alive; copying it neither
+/// admits resources nor constructs a resource ledger.
+///
+/// ```compile_fail
+/// use typaxis_resource_admission::ProductionResourceAdmissionSessionIdentityV3;
+/// let forged = ProductionResourceAdmissionSessionIdentityV3::default();
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProductionResourceAdmissionSessionIdentityV3(ResourceAdmissionSessionIdentity);
+
+#[cfg(test)]
+mod command_identity_tests {
+    use super::*;
+
+    #[test]
+    fn production_v3_command_identity_compares_authoritative_allocation() {
+        let original = ResourceAdmissionSessionIdentity::fresh();
+        let identity = ProductionResourceAdmissionSessionIdentityV3(original.clone());
+        assert_eq!(identity, identity.clone());
+        assert_eq!(
+            identity,
+            ProductionResourceAdmissionSessionIdentityV3(original)
+        );
+        assert_ne!(
+            identity,
+            ProductionResourceAdmissionSessionIdentityV3(ResourceAdmissionSessionIdentity::fresh())
+        );
+    }
+
+    #[test]
+    fn production_v3_command_identity_retains_allocation_after_original_drops() {
+        let original = ResourceAdmissionSessionIdentity::fresh();
+        let weak = Arc::downgrade(&original.0);
+        let identity = ProductionResourceAdmissionSessionIdentityV3(original);
+        assert!(weak.upgrade().is_some());
+        let copied = identity.clone();
+        drop(identity);
+        assert!(weak.upgrade().is_some());
+        drop(copied);
+        assert!(weak.upgrade().is_none());
+    }
+}
+
 #[derive(Debug)]
 pub struct AdmittedProductionResourceLedgerV3 {
     session: ResourceAdmissionSessionIdentity,
@@ -333,6 +491,9 @@ impl AdmittedProductionResourceLedgerV3 {
     pub fn same_session_as(&self, other: &Self) -> bool {
         self.session == other.session
     }
+    pub fn session_identity(&self) -> ProductionResourceAdmissionSessionIdentityV3 {
+        ProductionResourceAdmissionSessionIdentityV3(self.session.clone())
+    }
     pub fn fonts(&self) -> &[AdmittedProductionFontV3] {
         &self.fonts
     }
@@ -364,11 +525,14 @@ impl AdmittedProductionResourceLedgerV3 {
         STAGING_PRODUCTION_RESOURCE_SET_V3
     }
 }
-fn encode(
+fn encode<B:ProductionResourceLedgerBudgetV3>(
     ledger: &AdmittedProductionResourceLedgerV3,
-) -> Result<String, ProductionResourceErrorV3> {
+    budget:&mut B,
+) -> Result<String, ProductionResourceLedgerErrorV3<B::Error>> {
+    use std::fmt::Write;
     let mut capacity = 512usize;
     for f in &ledger.fonts {
+        observed_ledger::work(budget,observed_ledger::point(ProductionResourceLedgerStageV3::CanonicalCapacity,Some(f.font_face_id()),None),64)?;
         capacity = capacity
             .checked_add(512)
             .and_then(|n| {
@@ -387,6 +551,7 @@ fn encode(
             .ok_or(ResourceAdmissionError::ResourceLimit)?;
     }
     for image in &ledger.images {
+        observed_ledger::work(budget,observed_ledger::point(ProductionResourceLedgerStageV3::CanonicalCapacity,None,Some(image.image_id())),64)?;
         capacity = capacity
             .checked_add(512)
             .and_then(|n| {
@@ -403,10 +568,13 @@ fn encode(
         return Err(ResourceAdmissionError::ResourceLimit.into());
     }
     let mut s = String::new();
+    observed_ledger::reserve(budget,ProductionResourceLedgerStorageV3::CanonicalJcs,1,capacity,observed_ledger::point(ProductionResourceLedgerStageV3::CanonicalCapacity,None,None))?;
     s.try_reserve_exact(capacity)
         .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
     s.push_str("{\"algorithm\":\"typaxis.admitted-production-resources/3\",\"fonts\":[");
     for (i, font) in ledger.fonts.iter().enumerate() {
+        let work=font.family().len().checked_add(font.uri().as_str().len()).and_then(|n|n.checked_mul(6)).and_then(|n|n.checked_add(512)).ok_or(ResourceAdmissionError::ResourceLimit)?;
+        observed_ledger::work(budget,observed_ledger::point(ProductionResourceLedgerStageV3::CanonicalFonts,Some(font.font_face_id()),None),work as u64)?;
         if i != 0 {
             s.push(',');
         }
@@ -420,11 +588,11 @@ fn encode(
             AdmittedProductionFontV3::TrueType(_) => {}
         }
         s.push_str("\"face_index\":");
-        s.push_str(&font.face_index().to_string());
+        write!(&mut s,"{}",font.face_index()).expect("String formatting");
         s.push_str(",\"family\":");
         push_jcs_string(&mut s, font.family());
         s.push_str(",\"font_face_id\":");
-        s.push_str(&font.font_face_id().get().to_string());
+        write!(&mut s,"{}",font.font_face_id().get()).expect("String formatting");
         s.push_str(",\"media\":");
         push_jcs_string(&mut s, font.media_kind().as_str());
         s.push_str(",\"sha256\":");
@@ -435,11 +603,13 @@ fn encode(
     }
     s.push_str("],\"images\":[");
     for (i, image) in ledger.images.iter().enumerate() {
+        let work=image.uri().as_str().len().checked_mul(6).and_then(|n|n.checked_add(512)).ok_or(ResourceAdmissionError::ResourceLimit)?;
+        observed_ledger::work(budget,observed_ledger::point(ProductionResourceLedgerStageV3::CanonicalImages,None,Some(image.image_id())),work as u64)?;
         if i != 0 {
             s.push(',');
         }
         s.push_str("{\"image_id\":");
-        s.push_str(&image.image_id().get().to_string());
+        write!(&mut s,"{}",image.image_id().get()).expect("String formatting");
         s.push_str(",\"media\":");
         push_jcs_string(&mut s, image.media_kind().as_str());
         s.push_str(",\"sha256\":");
@@ -564,3 +734,16 @@ impl<'a> AdmittedProductionFontInstanceV3<'a> {
         self.ledger
     }
 }
+
+#[path = "production_base_cmap_budget.rs"]
+mod base_cmap_budget;
+pub use base_cmap_budget::{ProductionBaseCmapBudgetFailureV3, ProductionBaseCmapBudgetResultV3};
+
+#[path = "production_cmap_budget.rs"]
+mod cmap_budget;
+pub use cmap_budget::{ProductionCmapBudgetFailureV3, ProductionCmapBudgetResultV3};
+type FontCmapAdmissionResult<E> = Result<Result<Cff1AdmissionV2, Cff1FailureV2>, E>;
+
+#[path="production_admission_budget.rs"]
+mod admission_budget;
+pub use admission_budget::{ProductionAdmissionBudgetFailureV3, ProductionAdmissionBudgetResultV3};

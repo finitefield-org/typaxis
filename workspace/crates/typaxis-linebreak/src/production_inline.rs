@@ -419,6 +419,7 @@ pub fn break_production_inline(
         widths::InlineWidths::Fixed(inline_size),
         line_height,
         budget,
+        inline_size,
     )
 }
 fn break_with_widths(
@@ -426,6 +427,7 @@ fn break_with_widths(
     widths: widths::InlineWidths<'_>,
     line_height: PositiveLength,
     budget: &mut ProductionLineBreakBudget,
+    maximum_inline_size: PositiveLength,
 ) -> Result<ProductionInlineBreak, AtomicVectorInlineError> {
     let p = paragraph;
     if p.units.is_empty() {
@@ -451,6 +453,7 @@ fn break_with_widths(
     previous.resize(count, None::<usize>);
     costs[0] = Some(0);
     let mut retained_index = 0;
+    let mut oversized_item = None::<(usize, AtomicVectorInlineError)>;
     for start in 0..p.units.len() {
         let stop = if let Some(ends) = widths.retained_ends() {
             budget.step()?;
@@ -515,6 +518,17 @@ fn break_with_widths(
             // All logical advances/spacing are nonnegative; visual extrema only
             // expand, so a longer candidate cannot repair this overflow.
             if required > inline_size.get() {
+                // Reuse this paid visit. A candidate's whole width can include
+                // other content; diagnose an item only from its own ink/advance
+                // and only when it exceeds every supplied source width.
+                if oversized_item
+                    .as_ref()
+                    .map_or(true, |(old, _)| index < *old)
+                {
+                    if let Some(cause) = oversized_atomic_item(p.units[index], maximum_inline_size) {
+                        oversized_item = Some((index, cause));
+                    }
+                }
                 break;
             }
             let end = index + 1;
@@ -545,7 +559,9 @@ fn break_with_widths(
         }
     }
     if costs[p.units.len()].is_none() {
-        return Err(AtomicVectorInlineError::NoFeasibleLine);
+        return Err(
+            oversized_item.map_or(AtomicVectorInlineError::NoFeasibleLine, |(_, cause)| cause)
+        );
     }
     let mut line_count = u64::from(p.units.is_empty());
     if line_count > budget.remaining_lines {
@@ -708,6 +724,45 @@ fn break_with_widths(
         lines,
         fingerprint: sha256(canonical.as_bytes()),
         canonical_jcs: canonical,
+    })
+}
+
+fn oversized_atomic_item(
+    unit: ProductionInlineLogicalUnit,
+    maximum_inline_size: PositiveLength,
+) -> Option<AtomicVectorInlineError> {
+    let (owner, source_span, advance, left, right) = match unit {
+        ProductionInlineLogicalUnit::Vector(item) => {
+            let metrics = item.metrics();
+            (
+                item.node_id(),
+                item.source_span(),
+                metrics.advance().get(),
+                metrics.origin_x(),
+                metrics.viewport_right_from_pen(),
+            )
+        }
+        ProductionInlineLogicalUnit::Math(item) => (
+            item.owner(),
+            item.source_span(),
+            item.advance().get(),
+            item.left(),
+            item.right(),
+        ),
+        ProductionInlineLogicalUnit::Text(_) | ProductionInlineLogicalUnit::Break(_) => {
+            return None
+        }
+    };
+    let width = right
+        .max(advance)
+        .max(Length::ZERO)
+        .checked_sub(left.min(Length::ZERO))?;
+    let required_inline_size = NonNegativeLength::new(width)?;
+    (width > maximum_inline_size.get()).then_some(AtomicVectorInlineError::InlineSizeExceeded {
+        owner,
+        source_span,
+        required_inline_size,
+        maximum_inline_size,
     })
 }
 

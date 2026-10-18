@@ -682,6 +682,14 @@ pub enum AtomicVectorInlineError {
     InvalidLineSize,
     NoFeasibleLine,
     Oversize(NodeId),
+    /// A visited atomic item cannot fit even the largest supplied line width.
+    /// The source span belongs to the item, independently of its paragraph.
+    InlineSizeExceeded {
+        owner: NodeId,
+        source_span: SourceSpan,
+        required_inline_size: NonNegativeLength,
+        maximum_inline_size: PositiveLength,
+    },
     SelectionLimit,
     CandidateLimit,
     ArithmeticOverflow,
@@ -705,6 +713,18 @@ impl std::fmt::Display for AtomicVectorInlineError {
                 formatter,
                 "L5100: inline vector {} exceeds an empty line",
                 owner.get()
+            ),
+            Self::InlineSizeExceeded {
+                owner,
+                required_inline_size,
+                maximum_inline_size,
+                ..
+            } => write!(
+                formatter,
+                "L5100: inline item {} requires {} raw units; maximum inline size is {}",
+                owner.get(),
+                required_inline_size.get().raw(),
+                maximum_inline_size.get().raw()
             ),
             Self::SelectionLimit => {
                 formatter.write_str("L5110: atomic vector selected line limit exceeded")
@@ -1252,6 +1272,165 @@ mod tests {
     }
 
     #[test]
+    fn production_width_failure_retains_atomic_span_and_exact_ink_extent() {
+        for (advance, origin, viewport, required) in [
+            (10, -3, 17, 17),
+            (20, -3, 17, 23),
+            (10, 6, 3, 10),
+            (10, 6, 12, 18),
+        ] {
+            let item = vector(2, advance, 4, 1, origin, 4, viewport, 5, 0, 0);
+            let p = ProductionInlineParagraph::itemize_with_breaks(
+                NodeId::new(1),
+                vec![ProductionInlineLogicalUnit::Vector(item)],
+                vec![],
+                JapaneseLineBreakMode::Normal,
+            )
+            .unwrap();
+            let mut exact = ProductionLineBreakBudget::new(1, 1);
+            let selected =
+                break_production_inline(&p, positive(required), positive(5), &mut exact).unwrap();
+            assert_eq!(
+                selected.lines()[0].required_inline_size(),
+                nonnegative(required)
+            );
+            assert_eq!((exact.remaining_steps(), exact.remaining_lines()), (0, 0));
+            let mut narrow = ProductionLineBreakBudget::new(1, 1);
+            let Err(cause) =
+                break_production_inline(&p, positive(required - 1), positive(5), &mut narrow)
+            else {
+                panic!("oversized item was accepted")
+            };
+            assert_eq!(
+                cause,
+                AtomicVectorInlineError::InlineSizeExceeded {
+                    owner: item.node_id(),
+                    source_span: item.source_span(),
+                    required_inline_size: nonnegative(required),
+                    maximum_inline_size: positive(required - 1),
+                }
+            );
+            assert_eq!((narrow.remaining_steps(), narrow.remaining_lines()), (0, 1));
+        }
+    }
+
+    #[test]
+    fn production_width_failure_respects_all_supplied_source_widths() {
+        let first = vector(2, 10, 4, 1, -3, 4, 17, 5, 0, 0);
+        let last = vector(4, 10, 4, 1, 0, 4, 10, 5, 0, 0);
+        let control =
+            ProductionExplicitBreak::new(NodeId::new(3), first.source_span(), BreakKind::Mandatory)
+                .unwrap();
+        let p = ProductionInlineParagraph::itemize_with_breaks(
+            NodeId::new(1),
+            vec![
+                ProductionInlineLogicalUnit::Vector(first),
+                ProductionInlineLogicalUnit::Break(control),
+                ProductionInlineLogicalUnit::Vector(last),
+            ],
+            vec![],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        let small = [positive(16), positive(16), positive(10)];
+        let result = break_production_inline_with_source_widths(
+            &ProductionInlineSourceWidths::new(&p, &small).unwrap(),
+            positive(5),
+            &mut ProductionLineBreakBudget::new(100, 10),
+        );
+        assert!(
+            matches!(result, Err(AtomicVectorInlineError::InlineSizeExceeded {
+            owner, required_inline_size, maximum_inline_size, ..
+        }) if owner==first.node_id() && required_inline_size==nonnegative(17) && maximum_inline_size==positive(16))
+        );
+        // The broad bound includes unselected starts. Do not claim that this
+        // item exceeds every supplied width when an unused width is larger.
+        let unused_wide = [positive(16), positive(100), positive(10)];
+        assert!(matches!(
+            break_production_inline_with_source_widths(
+                &ProductionInlineSourceWidths::new(&p, &unused_wide).unwrap(),
+                positive(5),
+                &mut ProductionLineBreakBudget::new(100, 10)
+            ),
+            Err(AtomicVectorInlineError::NoFeasibleLine)
+        ));
+        let fits = [positive(17), positive(16), positive(10)];
+        let selected = break_production_inline_with_source_widths(
+            &ProductionInlineSourceWidths::new(&p, &fits).unwrap(),
+            positive(5),
+            &mut ProductionLineBreakBudget::new(100, 10),
+        )
+        .unwrap();
+        assert_eq!(selected.lines().len(), 2);
+    }
+
+    #[test]
+    fn production_width_failure_does_not_attribute_joint_width_to_a_fitting_item() {
+        let item = vector(2, 10, 4, 1, 0, 4, 10, 5, 0, 0);
+        let p = ProductionInlineParagraph::itemize_with_breaks(
+            NodeId::new(1),
+            vec![
+                text('A', 5).into(),
+                ProductionInlineLogicalUnit::Vector(item),
+            ],
+            vec![ProductionTextClusterRange {
+                start_unit: 0,
+                end_unit: 1,
+            }],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        assert!(matches!(
+            break_production_inline(
+                &p,
+                positive(10),
+                positive(5),
+                &mut ProductionLineBreakBudget::new(100, 10)
+            ),
+            Err(AtomicVectorInlineError::NoFeasibleLine)
+        ));
+        let selected = break_production_inline(
+            &p,
+            positive(15),
+            positive(5),
+            &mut ProductionLineBreakBudget::new(100, 10),
+        )
+        .unwrap();
+        assert_eq!(selected.lines()[0].required_inline_size(), nonnegative(15));
+    }
+
+    #[test]
+    fn production_width_failure_requires_a_paid_visit_and_preserves_limit_priority() {
+        let item = vector(2, 10, 4, 1, -3, 4, 17, 5, 0, 0);
+        let p = ProductionInlineParagraph::itemize_with_breaks(
+            NodeId::new(1),
+            vec![ProductionInlineLogicalUnit::Vector(item)],
+            vec![],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        let mut budget = ProductionLineBreakBudget::new(0, 1);
+        assert!(matches!(
+            break_production_inline(&p, positive(16), positive(5), &mut budget),
+            Err(AtomicVectorInlineError::CandidateLimit)
+        ));
+        assert_eq!((budget.remaining_steps(), budget.remaining_lines()), (0, 1));
+        let widths = [positive(16)];
+        let binding = ProductionInlineSourceWidths::new(&p, &widths).unwrap();
+        let mut budget = ProductionLineBreakBudget::new(1, 1);
+        assert!(matches!(
+            break_production_inline_with_source_widths(&binding, positive(5), &mut budget),
+            Err(AtomicVectorInlineError::CandidateLimit)
+        ));
+        let mut budget = ProductionLineBreakBudget::new(2, 1);
+        assert!(matches!(
+            break_production_inline_with_source_widths(&binding, positive(5), &mut budget),
+            Err(AtomicVectorInlineError::InlineSizeExceeded { .. })
+        ));
+        assert_eq!((budget.remaining_steps(), budget.remaining_lines()), (0, 1));
+    }
+
+    #[test]
     fn production_explicit_breaks_remove_vector_spacing_only_at_selected_edges() {
         use ProductionInlineLogicalUnit as U;
         let control = |kind| {
@@ -1503,7 +1682,10 @@ mod tests {
         assert_eq!(line.line().occurrences()[0].pen_x.raw(), 0);
         assert!(matches!(
             break_production_inline(&p, positive(11), positive(10), &mut budget),
-            Err(AtomicVectorInlineError::NoFeasibleLine)
+            Err(AtomicVectorInlineError::InlineSizeExceeded {
+                owner, source_span, required_inline_size, maximum_inline_size,
+            }) if owner == item.node_id() && source_span == item.source_span()
+                && required_inline_size == nonnegative(12) && maximum_inline_size == positive(11)
         ));
     }
 

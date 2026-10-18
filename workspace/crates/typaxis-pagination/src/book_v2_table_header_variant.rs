@@ -157,8 +157,17 @@ pub fn prepare_book_v2_table_header_variant_counted<'m, 'f, 's, 'p, 'a>(
     observed_records: &mut u64,
     observed_work: &mut u64,
 ) -> Result<BookV2TableHeaderVariant<'m, 'f, 's, 'p, 'a>, ProductionBodyPaginationError> {
-    prepare_header_variant_in_graphs(set, base, variant, table_index, limits,
-        maximum_work, prior_records, observed_records, observed_work)
+    prepare_header_variant_in_graphs(
+        set,
+        base,
+        variant,
+        table_index,
+        limits,
+        maximum_work,
+        prior_records,
+        observed_records,
+        observed_work,
+    )
 }
 pub(super) trait HeaderLineGraphs {
     fn record_charge(&self) -> u64;
@@ -167,17 +176,45 @@ pub(super) trait HeaderLineGraphs {
     fn line(&self, index: usize) -> Option<&BookV2InlineLineLayout<'_, '_>>;
 }
 impl HeaderLineGraphs for BookV2RebuiltBodyLineVariants<'_, '_, '_> {
-    fn record_charge(&self) -> u64 { self.record_charge() }
-    fn fingerprint(&self) -> [u8; 32] { self.fingerprint() }
-    fn len(&self) -> usize { self.variants().len() }
+    fn record_charge(&self) -> u64 {
+        self.record_charge()
+    }
+    fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint()
+    }
+    fn len(&self) -> usize {
+        self.variants().len()
+    }
     fn line(&self, index: usize) -> Option<&BookV2InlineLineLayout<'_, '_>> {
         self.variants().get(index).map(|v| v.lines())
     }
 }
 impl HeaderLineGraphs for BookV2RebuiltColumnLineVariants<'_, '_, '_> {
-    fn record_charge(&self) -> u64 { self.record_charge() }
-    fn fingerprint(&self) -> [u8; 32] { self.fingerprint() }
-    fn len(&self) -> usize { self.variants().len() }
+    fn record_charge(&self) -> u64 {
+        self.record_charge()
+    }
+    fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint()
+    }
+    fn len(&self) -> usize {
+        self.variants().len()
+    }
+    fn line(&self, index: usize) -> Option<&BookV2InlineLineLayout<'_, '_>> {
+        self.variant(index).map(|v| v.lines())
+    }
+}
+impl HeaderLineGraphs
+    for typaxis_layout::book_v2::BookV2ObservedRebuiltColumnLineVariants<'_, '_, '_, '_>
+{
+    fn record_charge(&self) -> u64 {
+        self.counters()[0]
+    }
+    fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint()
+    }
+    fn len(&self) -> usize {
+        self.variants().len()
+    }
     fn line(&self, index: usize) -> Option<&BookV2InlineLineLayout<'_, '_>> {
         self.variant(index).map(|v| v.lines())
     }
@@ -211,7 +248,9 @@ pub(super) fn prepare_header_variant_in_graphs<'m, 'f, 's, 'p, 'a>(
         let (mut has_base, mut has_variant) = (false, false);
         for index in 0..set.len() {
             step(2)?;
-            let lines = set.line(index).ok_or_else(|| error(root, E::ReceiptMismatch))?;
+            let lines = set
+                .line(index)
+                .ok_or_else(|| error(root, E::ReceiptMismatch))?;
             has_base |= std::ptr::eq(base.flow().lines(), lines);
             has_variant |= std::ptr::eq(variant.flow().lines(), lines);
         }

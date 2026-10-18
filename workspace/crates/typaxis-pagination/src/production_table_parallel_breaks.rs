@@ -12,6 +12,63 @@ pub(super) struct CellContinuation {
     fingerprint: [u8; 32],
 }
 impl TableBreakKernel<'_> {
+    pub(in crate::production_body::body_flow) fn capacity_row_remaining(
+        &mut self, cursor: &TablePosition,
+    ) -> Result<Option<Length>, ProductionBodyPaginationError> {
+        self.work.take(1, self.input.table.owner)?;
+        match cursor.cells {
+            Some(index) => self.cell_states.get(index)
+                .filter(|s| s.fingerprint == cursor.cell_fingerprint)
+                .map(|s| s.row_remaining)
+                .ok_or_else(|| error(self.input.table.owner, E::ReceiptMismatch)),
+            None if cursor.cell_fingerprint == [0; 32] => Ok(None),
+            None => Err(error(self.input.table.owner, E::ReceiptMismatch)),
+        }
+    }
+    /// Original cell item counts, excluding the remaining physical row band.
+    /// This view exists only for private capacity proofs; it creates no cursor.
+    pub(in crate::production_body::body_flow) fn visit_capacity_cell_positions(
+        &mut self,
+        cursor: &TablePosition,
+        mut visit: impl FnMut(usize, usize) -> Result<(), ProductionBodyPaginationError>,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        let table = self.input.table;
+        let owner = table.owner;
+        self.work.take(1, owner)?;
+        if let Some(index) = cursor.cells {
+            let state = self.cell_states.get(index)
+                .filter(|s| s.fingerprint == cursor.cell_fingerprint)
+                .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+            if state.next.len() != table.cells.len() {
+                return Err(error(owner, E::ReceiptMismatch));
+            }
+            for (i, &next) in state.next.iter().enumerate() {
+                self.work.take(1, table.cells[i].owner)?;
+                if next > table.cells[i].content.len() {
+                    return Err(error(table.cells[i].owner, E::ReceiptMismatch));
+                }
+                visit(i, next)?;
+            }
+        } else {
+            if cursor.cell_fingerprint != [0; 32] {
+                return Err(error(owner, E::ReceiptMismatch));
+            }
+            for (i, (source, cell)) in self.input.source.cells().iter().zip(&table.cells).enumerate() {
+                self.work.take(u64::from(cell.content.len().checked_ilog2().unwrap_or(0)) + 2, cell.owner)?;
+                let next = if !cursor.header_seen {
+                    0
+                } else {
+                    let origin = table.rows[source.row() as usize].top;
+                    let before = cursor.offset.checked_sub(origin)
+                        .ok_or_else(|| error(cell.owner, E::ArithmeticOverflow))?
+                        .max(Length::ZERO);
+                    cell.content.partition_point(|c| c.end <= before)
+                };
+                visit(i, next)?;
+            }
+        }
+        Ok(())
+    }
     fn cell_positions(
         &mut self,
         cursor: &TablePosition,
@@ -61,6 +118,7 @@ impl TableBreakKernel<'_> {
         }
         self.charge.take(2, owner)?;
         self.work.take(next.len() as u64, owner)?;
+        self.probe_capacity_spool(capacity as u64)?;
         let mut bytes = Vec::new();
         bytes
             .try_reserve_exact(capacity)
@@ -185,6 +243,7 @@ impl TableBreakKernel<'_> {
         {
             // A genuinely empty body still owns its first header once.
             let with_header = add(used, self.paint_header_height(), owner)?;
+            self.probe_capacity_event(with_header)?;
             if with_header > available {
                 return Ok(None);
             }
@@ -243,6 +302,7 @@ impl TableBreakKernel<'_> {
             }
             if !header_reserved {
                 let with_header = add(used, self.paint_header_height(), owner)?;
+                self.probe_capacity_event(with_header)?;
                 if with_header > available {
                     break;
                 }
@@ -268,6 +328,7 @@ impl TableBreakKernel<'_> {
                         .checked_sub(offset)
                         .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
                     if height > cut {
+                        self.probe_capacity_event(add(used, height, owner)?)?;
                         break;
                     }
                     let ProductionTableContentSource::FlowItem(item) = child.source else {
@@ -293,6 +354,7 @@ impl TableBreakKernel<'_> {
                 for (index, child) in cell.content.iter().enumerate().skip(start) {
                     self.work.take(1, cell.owner)?;
                     if child.end > limit {
+                        self.probe_capacity_event(add(used, child.end.checked_sub(offset).ok_or_else(|| error(cell.owner, E::ArithmeticOverflow))?, cell.owner)?)?;
                         break;
                     }
                     let ProductionTableContentSource::FlowItem(item) = child.source else {

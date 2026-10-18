@@ -233,11 +233,75 @@ mod tests;
 #[derive(Debug)]
 pub struct StyledBookV2Body {
     body: PreparedBookV2Body,
-    containers: BTreeMap<NodeId, typaxis_style::book_v2::BookV2SemanticContainerComputedStyle>,
-    vectors: BTreeMap<NodeId, PrecomposedVectorComputedStyleReceipt>,
-    math: BTreeMap<NodeId, StagingMathComputedStyle>,
+    containers: StyleRegistry<typaxis_style::book_v2::BookV2SemanticContainerComputedStyle>,
+    vectors: StyleRegistry<PrecomposedVectorComputedStyleReceipt>,
+    math: StyleRegistry<StagingMathComputedStyle>,
+}
+enum StyleRegistry<T> {
+    Legacy(BTreeMap<NodeId, T>),
+    Counted(Vec<(NodeId, T)>),
+}
+impl<T: std::fmt::Debug> std::fmt::Debug for StyleRegistry<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Legacy(values) => std::fmt::Debug::fmt(values, f),
+            Self::Counted(values) => f
+                .debug_map()
+                .entries(values.iter().map(|(key, value)| (key, value)))
+                .finish(),
+        }
+    }
+}
+impl<T> StyleRegistry<T> {
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        match self {
+            Self::Legacy(v) => v.len(),
+            Self::Counted(v) => v.len(),
+        }
+    }
+    fn get(&self, node: &NodeId) -> Option<&T> {
+        match self {
+            Self::Legacy(values) => values.get(node),
+            Self::Counted(values) => values
+                .binary_search_by_key(node, |(owner, _)| *owner)
+                .ok()
+                .map(|i| &values[i].1),
+        }
+    }
 }
 impl StyledBookV2Body {
+    pub(in crate::semantic_container) fn container_style_with_work<E>(
+        &self,
+        owner: NodeId,
+        charge: &mut impl FnMut(u64) -> Result<(), E>,
+    ) -> Result<Option<&typaxis_style::book_v2::BookV2SemanticContainerComputedStyle>, E> {
+        match &self.containers {
+            StyleRegistry::Legacy(values) => {
+                for (key, value) in values {
+                    charge(1)?;
+                    if *key == owner {
+                        return Ok(Some(value));
+                    }
+                }
+                Ok(None)
+            }
+            StyleRegistry::Counted(values) => {
+                let (mut start, mut end) = (0, values.len());
+                while start < end {
+                    let i = start + (end - start) / 2;
+                    charge(1)?;
+                    match values[i].0.cmp(&owner) {
+                        std::cmp::Ordering::Less => start = i + 1,
+                        std::cmp::Ordering::Greater => end = i,
+                        std::cmp::Ordering::Equal => return Ok(Some(&values[i].1)),
+                    }
+                }
+                Ok(None)
+            }
+        }
+    }
+
     pub const fn body(&self) -> &PreparedBookV2Body {
         &self.body
     }
@@ -292,11 +356,75 @@ pub fn style_book_v2_body(
     }
     Ok(StyledBookV2Body {
         body,
+        containers: StyleRegistry::Legacy(containers),
+        vectors: StyleRegistry::Legacy(vectors),
+        math: StyleRegistry::Legacy(math),
+    })
+}
+
+/// Prepare the complete initial style stage using caller-owned accepted R/S/W.
+/// Storage bytes count concrete requested Vec/String payloads, not allocator
+/// capacity or a full-command physical-memory high-water mark. Body decoding,
+/// source admission, shaping and later source reconstructions remain separate.
+pub fn style_book_v2_body_counted<E>(
+    body: PreparedBookV2Body,
+    charge: &mut impl FnMut(u64, u64, u64) -> Result<(), E>,
+) -> Result<StyledBookV2Body, BookV2InitialStyleError<E>> {
+    let mut context = initial_style::Context::counted(charge);
+    let rules = initial_style::lower(body.wire.style_sheet(), &body.limits, true, &mut context)?;
+    let mut counts = [0; 2];
+    initial_style::census(&body.document.blocks, &mut counts, &mut context)?;
+    for footnote in &body.document.footnotes {
+        context.step()?;
+        initial_style::census(&footnote.blocks, &mut counts, &mut context)?;
+    }
+    let mut containers = initial_style::CountedRegistry::new(counts[0], &mut context)?;
+    let mut vectors = initial_style::CountedRegistry::new(counts[1], &mut context)?;
+    let mut math = initial_style::CountedRegistry::new(body.math.len(), &mut context)?;
+    initial_style::collect(
+        cascade_book_kind,
+        Some(book_style_kind),
+        &body.document.blocks,
+        &rules,
+        None,
+        &body.math,
+        &mut containers,
+        &mut vectors,
+        &mut math,
+        &mut context,
+    )?;
+    for footnote in &body.document.footnotes {
+        context.step()?;
+        initial_style::collect(
+            cascade_book_kind,
+            Some(book_style_kind),
+            &footnote.blocks,
+            &rules,
+            None,
+            &body.math,
+            &mut containers,
+            &mut vectors,
+            &mut math,
+            &mut context,
+        )?;
+    }
+    context.step()?;
+    if math.0.len() != body.math.len() {
+        return Err(BookV2InitialStyleError::Syntax(
+            StagingSemanticSyntaxError::ReceiptMismatch,
+        ));
+    }
+    let containers = StyleRegistry::Counted(containers.finish(&mut context)?);
+    let vectors = StyleRegistry::Counted(vectors.finish(&mut context)?);
+    let math = StyleRegistry::Counted(math.finish(&mut context)?);
+    Ok(StyledBookV2Body {
+        body,
         containers,
         vectors,
         math,
     })
 }
+pub use super::initial_style::BookV2InitialStyleError;
 
 fn cascade_book_kind(
     kind: BookV2SemanticContainerKind,
@@ -304,9 +432,16 @@ fn cascade_book_kind(
     sheet: &StyleSheet,
     parent: Option<&SemanticContainerInheritanceStyle>,
 ) -> Result<typaxis_style::book_v2::BookV2SemanticContainerComputedStyle, StyleValidationError> {
+    let kind = book_style_kind(kind);
+    typaxis_style::book_v2::cascade_book_v2_semantic_container_style(kind, classes, sheet, parent)
+}
+
+fn book_style_kind(
+    kind: BookV2SemanticContainerKind,
+) -> typaxis_style::book_v2::BookV2SemanticContainerStyleKind {
     use typaxis_style::book_v2::BookV2SemanticContainerStyleKind as S;
     use BookV2SemanticContainerKind as D;
-    let kind = match kind {
+    match kind {
         D::Result => S::Result,
         D::Proof => S::Proof,
         D::Exercise => S::Exercise,
@@ -323,8 +458,7 @@ fn cascade_book_kind(
         D::Choice => S::Choice,
         D::Hint => S::Hint,
         D::Assumption => S::Assumption,
-    };
-    typaxis_style::book_v2::cascade_book_v2_semantic_container_style(kind, classes, sheet, parent)
+    }
 }
 
 impl AsRef<StagingM4MathNode> for PreparedBookMath {
@@ -334,26 +468,31 @@ impl AsRef<StagingM4MathNode> for PreparedBookMath {
 }
 
 pub use crate::book_navigation::book_v2::{
-    prepare_book_v2_navigation, prepare_book_v2_navigation_counted,
-    BookV2NavigationPreparationError, BookV2LanguageNodeKind, BookV2ReferenceTarget,
-    PreparedBookV2Language, PreparedBookV2LanguageChild, PreparedBookV2Navigation,
+    prepare_book_v2_navigation, prepare_book_v2_navigation_counted, BookV2LanguageNodeKind,
+    BookV2NavigationPreparationError, BookV2ReferenceTarget, PreparedBookV2Language,
+    PreparedBookV2LanguageChild, PreparedBookV2Navigation,
 };
 
 pub use super::production_flow::book_v2::{
-    prepare_book_v2_text_flow, prepare_book_v2_text_flow_with_page_references,
-    prepare_book_v2_text_flow_counted, prepare_book_v2_text_flow_with_page_references_counted,
-    BookV2SourceVerificationBudget, PreparedBookV2TextFlow, BOOK_V2_TEXT_FLOW_ALGORITHM,
-    prepare_book_v2_page_region_text_flow, prepare_book_v2_page_region_text_flow_counted,
-    BookV2PageRegionTextFlow, BookV2PageRegionKind,
-    BOOK_V2_PAGE_REGION_FLOW_ALGORITHM,
+    prepare_book_v2_page_reference_candidate_counted, prepare_book_v2_page_region_text_flow,
+    prepare_book_v2_page_region_text_flow_counted,
+    prepare_book_v2_page_region_text_flow_observed_counted, prepare_book_v2_text_flow,
+    prepare_book_v2_text_flow_counted, prepare_book_v2_text_flow_observed_counted,
+    prepare_book_v2_text_flow_with_page_references,
+    prepare_book_v2_text_flow_with_page_references_counted,
+    prepare_book_v2_text_flow_with_page_references_observed_counted, BookV2ObservedSourceFlowError,
+    BookV2ObservedSourceFlowObservation, BookV2PageCandidateError, BookV2PageCandidateObservation,
+    BookV2PageRegionKind, BookV2PageRegionTextFlow, BookV2SourceVerificationBudget,
+    PreparedBookV2TextFlow, BOOK_V2_PAGE_REGION_FLOW_ALGORITHM, BOOK_V2_TEXT_FLOW_ALGORITHM,
 };
 pub use super::production_flow::{BookV2DescriptionItem, BookV2DescriptionList};
 
 #[path = "book_v2_source.rs"]
 mod source;
 pub use source::{
-    prepare_admitted_book_v2_body, BookV2MappingFailure, BookV2SourceFailure,
-    BookV2SourcePreparationError, SourceAdmittedBookV2Body,
+    prepare_admitted_book_v2_body, prepare_admitted_book_v2_body_with_counted_style,
+    BookV2CountedSourceStyleError, BookV2CountedSourceStyleFailure, BookV2MappingFailure,
+    BookV2SourceFailure, BookV2SourcePreparationError, SourceAdmittedBookV2Body,
 };
 
 #[path = "book_v2_structure.rs"]

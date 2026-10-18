@@ -35,20 +35,58 @@ impl BookV2FontObject {
         self.range.clone()
     }
 }
-pub struct BookV2FontObjects<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'o BookV2FontStreams<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2FontObjectsData<
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'o BookV2FontStreamsData<'z, 'y, 'x, 'c, 'v, 'a, D, P>,
     objects: Vec<BookV2FontObject>,
     bytes: Vec<u8>,
     first: u32,
     fingerprint: [u8; 32],
     budget: Budget,
 }
-impl<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontObjects<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+pub type BookV2FontObjects<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2FontObjectsData<
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2BodyPaintIndex,
+    >;
+/// A column font object contribution retains its column display owner.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2FontObjects, BookV2ColumnFontObjects};
+/// fn body<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnFontObjects<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>) -> BookV2FontObjects<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnFontObjects<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2FontObjectsData<
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+impl<'o, 'z, 'y, 'x, 'c, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>
+    BookV2FontObjectsData<'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>
 {
-    pub fn source(
-        &self,
-    ) -> &'o BookV2FontStreams<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn source(&self) -> &'o BookV2FontStreamsData<'z, 'y, 'x, 'c, 'v, 'a, D, P> {
         self.source
     }
     pub fn objects(&self) -> &[BookV2FontObject] {
@@ -98,8 +136,8 @@ fn ids(first: u32) -> Result<FontObjectIds, E> {
         auxiliary: id(5)?,
     })
 }
-fn encode_objects(
-    source: &BookV2FontStreams<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
+fn encode_objects<'z, 'y, 'x, 'c, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>(
+    source: &BookV2FontStreamsData<'z, 'y, 'x, 'c, 'v, 'a, D, P>,
     first: u32,
     out: &mut Encoder<'_>,
     mut objects: Option<&mut Vec<BookV2FontObject>>,
@@ -186,17 +224,57 @@ fn encode_objects(
     }
     Ok(())
 }
-pub struct BookV2FontObjectBuilder<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'o BookV2FontStreams<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2FontObjectBuilderData<
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'o BookV2FontStreamsData<'z, 'y, 'x, 'c, 'v, 'a, D, P>,
     first: u32,
     credit_available: bool,
     budget: Budget,
 }
-impl<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontObjectBuilder<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+pub type BookV2FontObjectBuilder<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2FontObjectBuilderData<
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2BodyPaintIndex,
+    >;
+/// A column font object contribution retains its column display owner.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2FontObjectBuilder, BookV2ColumnFontObjectBuilder};
+/// fn body<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnFontObjectBuilder<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>) -> BookV2FontObjectBuilder<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnFontObjectBuilder<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2FontObjectBuilderData<
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+impl<'o, 'z, 'y, 'x, 'c, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>
+    BookV2FontObjectBuilderData<'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>
 {
     pub fn new(
-        source: &'o BookV2FontStreams<'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        source: &'o BookV2FontStreamsData<'z, 'y, 'x, 'c, 'v, 'a, D, P>,
         first_object: u32,
         limits: &M4EffectiveResourceLimits,
         max_work: u64,
@@ -205,7 +283,37 @@ impl<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         prior_output: u64,
         prior_work: u64,
     ) -> Result<Self, E> {
-        let inherited = BookV2FontStreamBuilder::new(
+        Self::new_counted(
+            source,
+            first_object,
+            limits,
+            max_work,
+            prior_records,
+            prior_spool,
+            prior_output,
+            prior_work,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_counted(
+        source: &'o BookV2FontStreamsData<'z, 'y, 'x, 'c, 'v, 'a, D, P>,
+        first_object: u32,
+        limits: &M4EffectiveResourceLimits,
+        max_work: u64,
+        prior_records: u64,
+        prior_spool: u64,
+        prior_output: u64,
+        prior_work: u64,
+        observed_records: &mut u64,
+        observed_spool: &mut u64,
+        observed_output: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<Self, E> {
+        let inherited = BookV2FontStreamBuilderData::new_counted(
             source.source(),
             limits,
             max_work,
@@ -213,6 +321,10 @@ impl<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             prior_spool.max(source.spool_charge()),
             prior_output.max(source.output_charge()),
             prior_work.max(source.work_steps()),
+            observed_records,
+            observed_spool,
+            observed_output,
+            observed_work,
         )?;
         let count = source.fonts().len().checked_mul(6).ok_or(E::Objects)?;
         // Also keep the exclusive next-object number representable.
@@ -244,9 +356,7 @@ impl<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
     pub fn work_steps(&self) -> u64 {
         self.budget.work
     }
-    pub fn build(
-        &mut self,
-    ) -> Result<BookV2FontObjects<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>, E> {
+    pub fn build(&mut self) -> Result<BookV2FontObjectsData<'o, 'z, 'y, 'x, 'c, 'v, 'a, D, P>, E> {
         let count = self.source.fonts().len().checked_mul(6).ok_or(E::Objects)?;
         let metadata = count
             .checked_mul(std::mem::size_of::<BookV2FontObject>())
@@ -319,7 +429,7 @@ impl<'o, 'z, 'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             data[28] = object.role as u8;
             fingerprint = self.budget.fold(fingerprint, &data)?;
         }
-        Ok(BookV2FontObjects {
+        Ok(BookV2FontObjectsData {
             source: self.source,
             objects,
             bytes,

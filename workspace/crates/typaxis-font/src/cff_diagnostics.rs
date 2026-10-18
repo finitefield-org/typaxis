@@ -233,9 +233,19 @@ impl FontFailureContext {
         self.position_is_end = false;
     }
     pub(super) fn permission(&mut self, bytes: &[u8]) {
+        self.permission_with(bytes, embedding_permission);
+    }
+    pub(super) fn permission_v2(&mut self, bytes: &[u8]) {
+        self.permission_with(bytes, embedding_permission_v2);
+    }
+    fn permission_with(
+        &mut self,
+        bytes: &[u8],
+        policy: fn(u16) -> Result<Cff1EmbeddingPermission, Cff1Error>,
+    ) {
         self.embedding = match parse_os2(bytes) {
             Ok(os2) => {
-                if embedding_permission(os2.fs_type).is_ok() {
+                if policy(os2.fs_type).is_ok() {
                     FontEmbeddingStatus::Allowed(os2.fs_type)
                 } else {
                     FontEmbeddingStatus::Denied(os2.fs_type)

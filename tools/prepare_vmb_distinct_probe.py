@@ -14,6 +14,7 @@ import zlib
 from pathlib import Path
 from decimal import Decimal, ROUND_HALF_EVEN
 from xml.etree import ElementTree as ET
+from vmb_probe_io import contained_bytes, strict_json
 
 
 def require(ok, reason):
@@ -26,8 +27,8 @@ def digest(data):
 
 
 def verify(root):
-    index_bytes = (root / 'fixture-index.json').read_bytes()
-    index = json.loads(index_bytes)
+    index_bytes = contained_bytes(root, 'fixture-index.json')
+    index = strict_json(index_bytes)
     require(index['algorithm'] == 'vmb.typaxis-engine-fixtures/1', 'index algorithm')
     require(index['rules_version'] == 'vmb.typaxis-safe-svg/1', 'adapter rules')
     require(len(index['cases']) == 5000, 'exact expression count')
@@ -40,8 +41,8 @@ def verify(root):
         require(case['speech'] == f'x subscript {i} equals {i} over {i+1}', f'speech {i}')
         require(case['font_size_raw'] == 720896, '11pt font size')
         require(case['source_svg'] == stem+'.source.svg' and case['derived_svg'] == stem+'-720896.svg', 'file names')
-        source = (root / case['source_svg']).read_bytes()
-        derived = (root / case['derived_svg']).read_bytes()
+        source = contained_bytes(root, case['source_svg'])
+        derived = contained_bytes(root, case['derived_svg'])
         require(digest(source) == case['source_sha256'] and digest(derived) == case['derived_sha256'], 'file hashes')
         artifact = case['engine_artifact']
         require(artifact['SVG_SHA256'] == 'sha256:'+digest(source), 'engine raw SVG binding')
@@ -92,7 +93,7 @@ def prepare(root, output, kind, index, result):
             data, uri, media, case = png(i-4952), f'raster-{i-4952:02d}.png', 'png', None
         else:
             case = index['cases'][i % 100 if kind == 'alias' else i]
-            data, uri, media = (root/case['derived_svg']).read_bytes(), f'math-{i:04d}.svg', 'svg-safe-2'
+            data, uri, media = contained_bytes(root, case['derived_svg']), f'math-{i:04d}.svg', 'svg-safe-2'
         (output/uri).write_bytes(data)
         image = {'image_id': i, 'uri': uri, 'media_type': media, 'expected_sha256': digest(data)}
         if case is not None:

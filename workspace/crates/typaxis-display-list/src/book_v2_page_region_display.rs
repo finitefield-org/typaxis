@@ -107,10 +107,12 @@ impl<'a> BookV2PageRegionDisplay<'a> {
     pub fn work_steps(&self) -> u64 {
         self.work
     }
-    pub(crate) fn owned_records(&self) -> u64 {
+    /// Records retained by this owned projection, excluding its caller prefix.
+    pub fn owned_records(&self) -> u64 {
         self.owned_records
     }
-    pub(crate) fn projection_work(&self) -> u64 {
+    /// Actual projection work, excluding source and line preparation.
+    pub fn projection_work(&self) -> u64 {
         self.projection_work
     }
     pub fn verify_resources(

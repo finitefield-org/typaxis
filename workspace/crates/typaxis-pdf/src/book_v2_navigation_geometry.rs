@@ -3,7 +3,8 @@
 use super::*;
 use typaxis_core::{Length, PositiveLength, Rect};
 use typaxis_display_list::book_v2::{
-    BookV2BodyDisplay, BookV2BodyPaintIndex as Paint, BookV2MathPaint,
+    BookV2BodyDisplay, BookV2BodyPaintIndex, BookV2ColumnDisplay, BookV2ColumnPaintIndex,
+    BookV2NavigationDisplay, BookV2ResourceDisplay,
 };
 use typaxis_syntax::{
     ProductionInlineLinkTarget as LinkTarget, ProductionInlineReference as Reference,
@@ -172,7 +173,7 @@ impl FirstBounds {
         }
     }
 }
-pub struct BookV2NavigationGeometry<
+pub type BookV2NavigationGeometry<
     'w,
     'u,
     'h,
@@ -197,8 +198,101 @@ pub struct BookV2NavigationGeometry<
     's,
     'p,
     'a,
+> = BookV2NavigationGeometryData<
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// Column navigation retains its physical source family.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2NavigationGeometry,BookV2ColumnNavigationGeometry};
+/// fn body<'w,'u,'h,'n,'m,'k,'j,'r,'i,'t,'o,'z,'y,'x,'c,'v,'d,'g,'q,'b,'f,'s,'p,'a>(value:BookV2ColumnNavigationGeometry<'w,'u,'h,'n,'m,'k,'j,'r,'i,'t,'o,'z,'y,'x,'c,'v,'d,'g,'q,'b,'f,'s,'p,'a>) -> BookV2NavigationGeometry<'w,'u,'h,'n,'m,'k,'j,'r,'i,'t,'o,'z,'y,'x,'c,'v,'d,'g,'q,'b,'f,'s,'p,'a> { value }
+/// ```
+pub type BookV2ColumnNavigationGeometry<
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2NavigationGeometryData<
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+pub struct BookV2NavigationGeometryData<
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2NavigationDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
 > {
-    source: &'w BookV2StructureRelations<
+    source: &'w BookV2StructureRelationsData<
         'u,
         'h,
         'n,
@@ -214,14 +308,9 @@ pub struct BookV2NavigationGeometry<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D,
+        P,
     >,
     destinations: Vec<BookV2NavigationDestination<'w>>,
     links: Vec<BookV2NavigationLink<'w>>,
@@ -248,16 +337,11 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D: BookV2NavigationDisplay<'a, Paint = P>,
+        P: Copy + Eq,
     >
-    BookV2NavigationGeometry<
+    BookV2NavigationGeometryData<
         'w,
         'u,
         'h,
@@ -274,19 +358,14 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D,
+        P,
     >
 {
     pub fn source(
         &self,
-    ) -> &'w BookV2StructureRelations<
+    ) -> &'w BookV2StructureRelationsData<
         'u,
         'h,
         'n,
@@ -302,14 +381,9 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D,
+        P,
     > {
         self.source
     }
@@ -344,7 +418,7 @@ impl<
         self.budget.work
     }
 }
-pub struct BookV2NavigationGeometryBuilder<
+pub type BookV2NavigationGeometryBuilder<
     'w,
     'u,
     'h,
@@ -369,8 +443,101 @@ pub struct BookV2NavigationGeometryBuilder<
     's,
     'p,
     'a,
+> = BookV2NavigationGeometryBuilderData<
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// Column navigation retains its physical source family.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2NavigationGeometryBuilder,BookV2ColumnNavigationGeometryBuilder};
+/// fn body<'w,'u,'h,'n,'m,'k,'j,'r,'i,'t,'o,'z,'y,'x,'c,'v,'d,'g,'q,'b,'f,'s,'p,'a>(value:BookV2ColumnNavigationGeometryBuilder<'w,'u,'h,'n,'m,'k,'j,'r,'i,'t,'o,'z,'y,'x,'c,'v,'d,'g,'q,'b,'f,'s,'p,'a>) -> BookV2NavigationGeometryBuilder<'w,'u,'h,'n,'m,'k,'j,'r,'i,'t,'o,'z,'y,'x,'c,'v,'d,'g,'q,'b,'f,'s,'p,'a> { value }
+/// ```
+pub type BookV2ColumnNavigationGeometryBuilder<
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2NavigationGeometryBuilderData<
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+pub struct BookV2NavigationGeometryBuilderData<
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2NavigationDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
 > {
-    source: &'w BookV2StructureRelations<
+    source: &'w BookV2StructureRelationsData<
         'u,
         'h,
         'n,
@@ -386,14 +553,9 @@ pub struct BookV2NavigationGeometryBuilder<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D,
+        P,
     >,
     budget: Budget,
 }
@@ -414,16 +576,11 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D: BookV2NavigationDisplay<'a, Paint = P>,
+        P: Copy + Eq,
     >
-    BookV2NavigationGeometryBuilder<
+    BookV2NavigationGeometryBuilderData<
         'w,
         'u,
         'h,
@@ -440,18 +597,13 @@ impl<
         'x,
         'c,
         'v,
-        'd,
-        'g,
-        'q,
-        'b,
-        'f,
-        's,
-        'p,
         'a,
+        D,
+        P,
     >
 {
     pub fn new(
-        source: &'w BookV2StructureRelations<
+        source: &'w BookV2StructureRelationsData<
             'u,
             'h,
             'n,
@@ -467,14 +619,9 @@ impl<
             'x,
             'c,
             'v,
-            'd,
-            'g,
-            'q,
-            'b,
-            'f,
-            's,
-            'p,
             'a,
+            D,
+            P,
         >,
         limits: &M4EffectiveResourceLimits,
         max_work: u64,
@@ -483,9 +630,60 @@ impl<
         prior_output: u64,
         prior_work: u64,
     ) -> Result<Self, NE> {
+        Self::new_counted(
+            source,
+            limits,
+            max_work,
+            prior_records,
+            prior_spool,
+            prior_output,
+            prior_work,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+        )
+    }
+    /// Preserve every accepted constructor reservation on failure.
+    pub fn new_counted(
+        source: &'w BookV2StructureRelationsData<
+            'u,
+            'h,
+            'n,
+            'm,
+            'k,
+            'j,
+            'r,
+            'i,
+            't,
+            'o,
+            'z,
+            'y,
+            'x,
+            'c,
+            'v,
+            'a,
+            D,
+            P,
+        >,
+        limits: &M4EffectiveResourceLimits,
+        max_work: u64,
+        prior_records: u64,
+        prior_spool: u64,
+        prior_output: u64,
+        prior_work: u64,
+        observed_records: &mut u64,
+        observed_spool: &mut u64,
+        observed_output: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<Self, NE> {
+        *observed_records = prior_records.max(source.record_charge());
+        *observed_spool = prior_spool.max(source.spool_charge());
+        *observed_output = prior_output.max(source.output_charge());
+        *observed_work = prior_work.max(source.work_steps());
         let display = source.source().source().source().display();
         display
-            .verify_resources(display.admitted(), limits)
+            .verify_resource_selection(display.admitted(), limits)
             .map_err(|_| E::Identity)?;
         let mut budget = source.budget;
         budget.max_work = max_work;
@@ -493,7 +691,12 @@ impl<
         budget.spool = budget.spool.max(prior_spool);
         budget.output = budget.output.max(prior_output);
         budget.work = budget.work.max(prior_work);
-        budget.reserve(1, 0, 0)?;
+        let reserved = budget.reserve(1, 0, 0);
+        *observed_records = budget.records;
+        *observed_spool = budget.spool;
+        *observed_output = budget.output;
+        *observed_work = budget.work;
+        reserved?;
         if budget.work > max_work {
             return Err(E::Work.into());
         }
@@ -511,10 +714,14 @@ impl<
     pub fn work_steps(&self) -> u64 {
         self.budget.work
     }
+    /// Actual private reservation unit for diagnostic counter replay.
+    pub fn reservation_sizes(&self) -> [usize; 1] {
+        [std::mem::size_of::<Option<FirstBounds>>()]
+    }
     pub fn build(
         &mut self,
     ) -> Result<
-        BookV2NavigationGeometry<
+        BookV2NavigationGeometryData<
             'w,
             'u,
             'h,
@@ -531,14 +738,9 @@ impl<
             'x,
             'c,
             'v,
-            'd,
-            'g,
-            'q,
-            'b,
-            'f,
-            's,
-            'p,
             'a,
+            D,
+            P,
         >,
         NE,
     > {
@@ -547,14 +749,7 @@ impl<
         let marked = registry.source();
         let scopes = marked.source();
         let display = scopes.display();
-        let flow = display
-            .source()
-            .source()
-            .flow()
-            .lines()
-            .prepared()
-            .source_flow();
-        let navigation = flow.navigation();
+        let navigation = display.navigation_source();
         let n = registry.nodes().len();
         let na = navigation.anchors().len();
         let nd = relations.notes().len();
@@ -564,7 +759,7 @@ impl<
             .and_then(|v| v.checked_add(ne))
             .ok_or(E::Records)?;
         let mut lc = ne;
-        for p in flow.paragraphs() {
+        for p in navigation.paragraphs() {
             self.budget.step(1)?;
             for site in p.items() {
                 self.budget.step(1)?;
@@ -625,7 +820,7 @@ impl<
         let locate = |owner, slot, b: &mut Budget| {
             find(&registry.lookup, Key::new(owner, slot), b)?.ok_or(E::Identity)
         };
-        for p in flow.paragraphs() {
+        for p in navigation.paragraphs() {
             self.budget.step(1)?;
             for site in p.items() {
                 self.budget.step(1)?;
@@ -703,21 +898,23 @@ impl<
         // A real empty line has source geometry without paint or an MCID. Use
         // its selected line box for source destinations, never link rectangles.
         // The original header owns the destination; repeated copies do not.
-        for empty in display.anchors().nonpainting_lines() {
+        for empty_index in 0..display.navigation_nonpainting_line_count() {
             self.budget.step(1)?;
+            let empty = display
+                .navigation_nonpainting_line(empty_index)
+                .ok_or(E::Identity)?;
             if empty.repeated_header() {
                 continue;
             }
-            let fragment = empty.fragment().fragment();
             let value = FirstBounds {
-                page: fragment.page_index(),
+                page: empty.page_index(),
                 fragment: empty.fragment_index(),
-                bounds: fragment.bounds(),
+                bounds: empty.bounds(),
             };
             let mut cursor = Some(
                 find(
                     &registry.lookup,
-                    Key::new(fragment.owner(), Slot::Source),
+                    Key::new(empty.owner(), Slot::Source),
                     &mut self.budget,
                 )?
                 .ok_or(E::Identity)?,
@@ -807,12 +1004,13 @@ impl<
                 d.position = first[node].map(FirstBounds::position);
             }
         }
-        for a in display.anchors().positions() {
+        for anchor_index in 0..display.navigation_anchor_count() {
             self.budget.step(1)?;
+            let a = display.navigation_anchor(anchor_index).ok_or(E::Identity)?;
             if a.repeated_header() {
                 continue;
             }
-            let owner = a.anchor().source().owner();
+            let owner = a.owner();
             let mut found = false;
             for d in &mut destinations[..na] {
                 self.budget.step(1)?;
@@ -821,7 +1019,7 @@ impl<
                         return Err(E::Identity.into());
                     }
                     d.position = Some(BookV2NavigationPosition {
-                        page: a.fragment().fragment().page_index(),
+                        page: a.page_index(),
                         fragment: a.fragment_index(),
                         x: a.x(),
                         y: a.baseline(),
@@ -992,7 +1190,7 @@ impl<
             }
             fp = string_hash(&mut self.budget, fp, &entry.label)?;
         }
-        Ok(BookV2NavigationGeometry {
+        Ok(BookV2NavigationGeometryData {
             source: relations,
             destinations,
             links,
@@ -1068,28 +1266,17 @@ fn union(a: Rect, b: Rect) -> Result<Rect, E> {
         PositiveLength::new(bottom.checked_sub(y).ok_or(E::Identity)?).ok_or(E::Identity)?,
     ))
 }
-fn group_bounds(
-    display: &BookV2BodyDisplay<'_, '_, '_, '_, '_, '_, '_, '_>,
+fn group_bounds<'a, D: BookV2NavigationDisplay<'a>>(
+    display: &D,
     group: &BookV2MarkedScope,
     b: &mut Budget,
 ) -> Result<Option<Rect>, E> {
     let mut bounds = None;
     for pi in group.paints() {
         b.step(1)?;
-        let next = match display.paints()[pi] {
-            Paint::Text(i) => display.text().draws()[i].logical_bounds(),
-            Paint::Marker(i) => Some(display.markers().draws()[i].placement().bounds()),
-            Paint::Math(i) => Some(match display.math().draws()[i].paint() {
-                BookV2MathPaint::Native(n) => n.bounds(),
-                BookV2MathPaint::Vector(v) => v.viewport(),
-            }),
-            Paint::Image(i) => Some(display.images().draws()[i].paint().viewport()),
-            Paint::EquationNumber(i) => {
-                Some(display.numbers().draws()[i].placement().geometry().bounds())
-            }
-            Paint::FootnoteSeparator(_) => return Err(E::Identity),
-            Paint::PageRegionText { .. } => return Err(E::Identity),
-        };
+        let next = display
+            .navigation_paint_bounds(pi)
+            .map_err(|_| E::Identity)?;
         if let Some(next) = next {
             bounds = Some(match bounds {
                 None => next,
@@ -1110,3 +1297,328 @@ fn string_hash(b: &mut Budget, mut fp: [u8; 32], s: &str) -> Result<[u8; 32], E>
 #[path = "book_v2_pdf_assembly.rs"]
 mod pdf_assembly;
 pub use pdf_assembly::*;
+
+/// A navigation continuation keeps the completed relation budget with its owner.
+/// Navigation builds preserve the already settled marked output charge.
+///
+/// ```
+/// use typaxis_pdf::book_v2::{BookV2ColumnNavigationGeometryBuilder as Builder, BookV2ColumnNavigationGeometry as Geometry, BookV2NavigationGeometryError};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type N<'a> = Geometry<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn build<'a>(builder: &mut B<'a>) -> Result<N<'a>, BookV2NavigationGeometryError> {
+///     builder.with_continuation(|loan| {
+///         let _ = (loan.record_charge(), loan.spool_charge(), loan.output_charge(), loan.work_steps());
+///         loan.build()
+///     })
+/// }
+/// ```
+/// A fresh raw builder cannot replace the continuation.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::BookV2ColumnNavigationGeometryBuilder as Builder;
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn replace<'a>(builder: &mut B<'a>, fresh: B<'a>) {
+///     builder.with_continuation(|loan| *loan = fresh);
+/// }
+/// ```
+/// The original raw builder remains private.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::BookV2ColumnNavigationGeometryBuilder as Builder;
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn raw<'a>(builder: &mut B<'a>) {
+///     builder.with_continuation(|loan| { let _ = &mut loan.builder; });
+/// }
+/// ```
+/// The fresh continuation loan cannot escape its callback.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2ColumnNavigationGeometryBuilder as Builder, BookV2ColumnNavigationGeometryContinuation as Continuation};
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// type C<'a> = Continuation<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn escape<'a>(builder: &'a mut B<'a>) -> &'a mut C<'a> {
+///     builder.with_continuation(|loan| loan)
+/// }
+/// ```
+/// Independent loans cannot exchange their invariant continuations.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::BookV2ColumnNavigationGeometryBuilder as Builder;
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn swap<'a>(left: &mut B<'a>, right: &mut B<'a>) {
+///     left.with_continuation(|outer| {
+///         right.with_continuation(|inner| std::mem::swap(outer, inner));
+///     });
+/// }
+/// ```
+/// Nested callbacks may inspect both genuine owners.
+///
+/// ```
+/// use typaxis_pdf::book_v2::BookV2ColumnNavigationGeometryBuilder as Builder;
+/// type B<'a> = Builder<'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a, 'a>;
+/// fn inspect<'a>(left: &mut B<'a>, right: &mut B<'a>) -> u64 {
+///     left.with_continuation(|outer| {
+///         right.with_continuation(|inner| outer.record_charge() + inner.record_charge())
+///     })
+/// }
+/// ```
+pub struct BookV2NavigationGeometryContinuationData<
+    'loan,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2NavigationDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    builder: &'loan mut BookV2NavigationGeometryBuilderData<
+        'w,
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D,
+        P,
+    >,
+    invariant: std::marker::PhantomData<fn(&'loan ()) -> &'loan ()>,
+}
+pub type BookV2ColumnNavigationGeometryContinuation<
+    'loan,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> = BookV2NavigationGeometryContinuationData<
+    'loan,
+    'w,
+    'u,
+    'h,
+    'n,
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    't,
+    'o,
+    'z,
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+impl<
+        'loan,
+        'w,
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D: BookV2NavigationDisplay<'a, Paint = P>,
+        P: Copy + Eq,
+    >
+    BookV2NavigationGeometryContinuationData<
+        'loan,
+        'w,
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D,
+        P,
+    >
+{
+    pub fn record_charge(&self) -> u64 {
+        self.builder.record_charge()
+    }
+    pub fn spool_charge(&self) -> u64 {
+        self.builder.spool_charge()
+    }
+    pub fn output_charge(&self) -> u64 {
+        self.builder.output_charge()
+    }
+    pub fn work_steps(&self) -> u64 {
+        self.builder.work_steps()
+    }
+    pub fn reservation_sizes(&self) -> [usize; 1] {
+        self.builder.reservation_sizes()
+    }
+    pub fn build(
+        &mut self,
+    ) -> Result<
+        BookV2NavigationGeometryData<
+            'w,
+            'u,
+            'h,
+            'n,
+            'm,
+            'k,
+            'j,
+            'r,
+            'i,
+            't,
+            'o,
+            'z,
+            'y,
+            'x,
+            'c,
+            'v,
+            'a,
+            D,
+            P,
+        >,
+        NE,
+    > {
+        self.builder.build()
+    }
+}
+impl<
+        'w,
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D: BookV2NavigationDisplay<'a, Paint = P>,
+        P: Copy + Eq,
+    >
+    BookV2NavigationGeometryBuilderData<
+        'w,
+        'u,
+        'h,
+        'n,
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        't,
+        'o,
+        'z,
+        'y,
+        'x,
+        'c,
+        'v,
+        'a,
+        D,
+        P,
+    >
+{
+    /// Loan navigation operations while retaining this original builder.
+    pub fn with_continuation<R>(
+        &mut self,
+        inspect: impl for<'loan> FnOnce(
+            &mut BookV2NavigationGeometryContinuationData<
+                'loan,
+                'w,
+                'u,
+                'h,
+                'n,
+                'm,
+                'k,
+                'j,
+                'r,
+                'i,
+                't,
+                'o,
+                'z,
+                'y,
+                'x,
+                'c,
+                'v,
+                'a,
+                D,
+                P,
+            >,
+        ) -> R,
+    ) -> R {
+        let mut continuation = BookV2NavigationGeometryContinuationData {
+            builder: self,
+            invariant: std::marker::PhantomData,
+        };
+        inspect(&mut continuation)
+    }
+}

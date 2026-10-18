@@ -1,7 +1,23 @@
 //! Closed successor container style kinds. The cascade shares the established
 //! precedence/inheritance engine and retains the selected kind in its result.
 
+pub use super::initial_style::{
+    book_v2_inheritance_styles_equal_counted, cascade_book_v2_basic_page_name_counted,
+    cascade_book_v2_document_page_name_counted,
+};
+pub use super::initial_style::{
+    cascade_book_v2_container_kind_counted, cascade_book_v2_descendant_style_counted,
+    cascade_book_v2_display_math_style_counted, cascade_book_v2_semantic_container_style_counted,
+    cascade_book_v2_vector_style_counted, close_book_v2_inline_math_style_counted,
+    validate_book_v2_basic_styles_counted, validate_book_v2_document_styles_counted,
+    validate_book_v2_style_shape_counted, validate_book_v2_vector_styles_counted,
+    BookV2StylePreparationError,
+};
 use super::*;
+
+#[path = "book_v2_source_style_copy.rs"]
+mod source_style_copy;
+pub use source_style_copy::BookV2StyleCopyError;
 
 /// Closed book-2 vocabulary. Each kind is retained through nested block slots;
 /// no successor kind is coerced into a result, proof, or exercise.

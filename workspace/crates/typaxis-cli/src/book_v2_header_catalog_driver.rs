@@ -25,7 +25,11 @@ impl HeaderCatalogBudget {
         self.work = add(self.work, amount, maximum, "header work")?;
         Ok(())
     }
-    pub(super) fn storage(&mut self, amount: u64, limits: &M4EffectiveResourceLimits) -> Result<(), E> {
+    pub(super) fn storage(
+        &mut self,
+        amount: u64,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), E> {
         self.records = add(
             self.records,
             amount,
@@ -506,13 +510,61 @@ pub(super) fn header_source_scope(
     maximum_work: u64,
     budget: &mut HeaderCatalogBudget,
 ) -> Result<(NodeId, Vec<NodeId>), E> {
-    budget.storage(flow.events().len() as u64, limits)?;
-    let mut owners = Vec::new();
-    reserve(&mut owners, flow.events().len())?;
+    header_source_scope_in_mode(
+        flow,
+        target_owner,
+        &mut LegacyHeaderScope {
+            budget,
+            limits,
+            maximum_work,
+        },
+    )
+}
+
+pub(super) trait HeaderScopeAccounting {
+    fn owners(&mut self, count: usize) -> Result<Vec<NodeId>, E>;
+    fn work(&mut self, count: u64) -> Result<(), E>;
+    fn sort(&mut self, owners: &mut Vec<NodeId>) -> Result<(), E>;
+}
+struct LegacyHeaderScope<'a> {
+    budget: &'a mut HeaderCatalogBudget,
+    limits: &'a M4EffectiveResourceLimits,
+    maximum_work: u64,
+}
+impl HeaderScopeAccounting for LegacyHeaderScope<'_> {
+    fn owners(&mut self, count: usize) -> Result<Vec<NodeId>, E> {
+        self.budget.storage(count as u64, self.limits)?;
+        let mut owners = Vec::new();
+        reserve(&mut owners, count)?;
+        Ok(owners)
+    }
+    fn work(&mut self, count: u64) -> Result<(), E> {
+        self.budget.work(count, self.maximum_work)
+    }
+    fn sort(&mut self, owners: &mut Vec<NodeId>) -> Result<(), E> {
+        self.budget.work(
+            (owners.len() as u64)
+                .checked_mul(u64::from(owners.len().checked_ilog2().unwrap_or(0)) + 2)
+                .ok_or(E::Limit("header source sorting"))?,
+            self.maximum_work,
+        )?;
+        owners.sort_unstable();
+        owners.dedup();
+        Ok(())
+    }
+}
+
+/// One traversal owns the source-scope algorithm for both accounting paths.
+pub(super) fn header_source_scope_in_mode(
+    flow: &typaxis_syntax::book_v2::PreparedBookV2TextFlow<'_>,
+    target_owner: NodeId,
+    budget: &mut impl HeaderScopeAccounting,
+) -> Result<(NodeId, Vec<NodeId>), E> {
+    let mut owners = budget.owners(flow.events().len())?;
     let (mut depth, mut root, mut target, mut head) = (0usize, None, None, None);
     let mut target_root = None;
     for event in flow.events() {
-        budget.work(1, maximum_work)?;
+        budget.work(1)?;
         match *event {
             Event::Begin { owner, kind } => {
                 depth = depth.checked_add(1).ok_or(E::Identity)?;
@@ -563,13 +615,6 @@ pub(super) fn header_source_scope(
     if depth != 0 || root.is_some() || target.is_some() || head.is_some() {
         return Err(E::Identity);
     }
-    budget.work(
-        (owners.len() as u64)
-            .checked_mul(u64::from(owners.len().checked_ilog2().unwrap_or(0)) + 2)
-            .ok_or(E::Limit("header source sorting"))?,
-        maximum_work,
-    )?;
-    owners.sort_unstable();
-    owners.dedup();
+    budget.sort(&mut owners)?;
     Ok((target_root.ok_or(E::Identity)?, owners))
 }

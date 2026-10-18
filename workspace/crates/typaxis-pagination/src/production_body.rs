@@ -86,6 +86,12 @@ pub enum ProductionBodyPaginationErrorKind {
     Oversize,
     PageLimit,
     PagePassLimit,
+    #[cfg(feature = "book-v2-staging")]
+    ColumnBalanceLimit { limit: u16, observed: u64 },
+    #[cfg(feature = "book-v2-staging")]
+    ColumnBalanceOscillation,
+    #[cfg(feature = "book-v2-staging")]
+    ColumnBalanceContradiction,
     InvalidFootnoteCapacity,
     FootnoteSearchLimit,
     TableSearchLimit,
@@ -303,6 +309,7 @@ struct Frame {
     owner: NodeId,
     start: usize,
     container: Option<ComputedMachineBlockStyle>,
+    forced_only_container: bool,
     vector: Option<usize>,
     figure: Option<usize>,
     marker: Option<usize>,
@@ -735,6 +742,7 @@ fn collect_items_shared(
                     owner,
                     start: items.len(),
                     container: None,
+                    forced_only_container: false,
                     vector: None,
                     figure: None,
                     marker: None,
@@ -873,6 +881,11 @@ fn collect_items_shared(
                             return Err(error(owner, E::PendingContainerIndent));
                         }
                         frame.container = Some(style);
+                        // A Book /2 semantic container may contain only authored
+                        // forced boundaries. Keep those original items and their
+                        // wrapper margins without inventing a physical fragment.
+                        #[cfg(feature = "book-v2-staging")]
+                        { frame.forced_only_container = matches!(lines, BodyLines::BookV2(_)); }
                     }
                     Region::DisplayMath => {
                         let block = lines
@@ -1103,12 +1116,19 @@ fn collect_items_shared(
                 }
                 if let Some(style) = frame.container {
                     let first = (frame.start..items.len())
-                        .find(|i| items[*i].source.is_some())
-                        .ok_or_else(|| error(owner, E::EmptyParagraph))?;
-                    let last = (frame.start..items.len())
-                        .rev()
-                        .find(|i| items[*i].source.is_some())
-                        .unwrap();
+                        .find(|i| items[*i].source.is_some());
+                    let (first, last) = if let Some(first) = first {
+                        (first, (frame.start..items.len()).rev()
+                            .find(|i| items[*i].source.is_some()).unwrap())
+                    } else if frame.forced_only_container && frame.start < items.len() {
+                        // The scan proves that this nonempty range consists only
+                        // of original PageBreak items (the sole source=None kind).
+                        // Their mandatory page semantics suppress physical margin
+                        // consumption, while wrap retains the authored values.
+                        (frame.start, items.len() - 1)
+                    } else {
+                        return Err(error(owner, E::EmptyParagraph));
+                    };
                     tables.wrap(
                         &mut items,
                         frame.table_cursor,

@@ -221,7 +221,7 @@ fn check(vector: bool, font: Option<&[u8]>, contextual: bool, raster_empty: bool
     }
 }
 
-fn header_fixture(vector: bool, contextual: bool, raster_empty: bool, notes: bool) -> (Value, &'static [u8]) {
+pub(in crate::book_v2_resources::tests::shaping_tests) fn header_fixture(vector: bool, contextual: bool, raster_empty: bool, notes: bool) -> (Value, &'static [u8]) {
     let mut data = if vector {
         super::super::vector_tests::equations::blocks::block_data("center", true)
     } else {
@@ -302,7 +302,7 @@ fn header_fixture(vector: bool, contextual: bool, raster_empty: bool, notes: boo
     (data,text)
 }
 
-fn renumber(v: &mut Value, next: &mut u32) {
+pub(in crate::book_v2_resources::tests::shaping_tests) fn renumber(v: &mut Value, next: &mut u32) {
     if v.get("node_id").is_some() {
         v["node_id"] = (*next).into();
         *next += 1;
@@ -311,6 +311,7 @@ fn renumber(v: &mut Value, next: &mut u32) {
         "blocks",
         "children",
         "items",
+        "caption",
         "head",
         "body",
         "cells",

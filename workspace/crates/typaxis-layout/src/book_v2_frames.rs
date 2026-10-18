@@ -163,11 +163,25 @@ pub fn prepare_book_v2_body_inline_frames_counted<'p, 'a>(
     body: Rect,
     observed_records: &mut u64,
 ) -> Result<BookV2BodyInlineFrames<'p, 'a>, ProductionInlinePreparationError> {
+    prepare_book_v2_body_inline_frames_with_record_limit_counted(
+        prepared,
+        body,
+        observed_records,
+        prepared.output_record_limit,
+    )
+}
+
+fn prepare_book_v2_body_inline_frames_with_record_limit_counted<'p, 'a>(
+    prepared: &'p BookV2PreparedInlines<'a>,
+    body: Rect,
+    observed_records: &mut u64,
+    record_limit: u64,
+) -> Result<BookV2BodyInlineFrames<'p, 'a>, ProductionInlinePreparationError> {
     let projection = list_frames::project_frames_counted(
         InlineFlow::BookV2(prepared.flow),
         prepared.shaped.list_markers(),
         prepared.shaped.footnote_markers(),
-        prepared.output_record_limit,
+        record_limit.min(prepared.output_record_limit),
         prepared.fingerprint(),
         body,
         BOOK_V2_BODY_FRAMES_ALGORITHM,
@@ -263,6 +277,32 @@ pub(super) fn layout_body_lines_in_measured_frames<'p, 'a>(
     consumed: &mut u64,
     observed_records: &mut u64,
 ) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
+    layout_body_lines_in_measured_frames_with_record_limit(
+        prepared,
+        body,
+        max_candidate_steps,
+        page_plan,
+        source_widths,
+        consumed,
+        observed_records,
+        prepared.output_record_limit,
+        BookV2NativeRecordOrigin::Retained,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn layout_body_lines_in_measured_frames_with_record_limit<'p, 'a>(
+    prepared: &'p BookV2PreparedInlines<'a>,
+    body: Rect,
+    max_candidate_steps: u64,
+    page_plan: Option<MeasurementPageFrames<'p, 'a>>,
+    source_widths: Option<&BookV2SourceWidthAssignments<'_, '_>>,
+    consumed: &mut u64,
+    observed_records: &mut u64,
+    record_limit: u64,
+    native_origin: BookV2NativeRecordOrigin,
+) -> Result<BookV2InlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
+    let record_limit = record_limit.min(prepared.output_record_limit);
     *consumed = 0;
     *observed_records = 0;
     let mut frames = if let Some(plan) = page_plan {
@@ -278,7 +318,7 @@ pub(super) fn layout_body_lines_in_measured_frames<'p, 'a>(
                 InlineFlow::BookV2(prepared.flow),
                 prepared.shaped.list_markers(),
                 prepared.shaped.footnote_markers(),
-                prepared.output_record_limit,
+                record_limit,
                 prepared.fingerprint(),
                 body,
                 plan.footnote(),
@@ -293,7 +333,12 @@ pub(super) fn layout_body_lines_in_measured_frames<'p, 'a>(
             table_measurements: None,
         }
     } else {
-        prepare_book_v2_body_inline_frames_counted(prepared, body, observed_records)?
+        prepare_book_v2_body_inline_frames_with_record_limit_counted(
+            prepared,
+            body,
+            observed_records,
+            record_limit,
+        )?
     };
     if let Some(assignments) = source_widths {
         for pass in [
@@ -305,20 +350,28 @@ pub(super) fn layout_body_lines_in_measured_frames<'p, 'a>(
             let mut spent = 0;
             let remaining = max_candidate_steps - *consumed;
             let result = match pass {
-                FrameWidthPass::Tables => {
-                    frames.apply_table_widths(assignments, remaining, &mut spent, observed_records)
-                }
-                FrameWidthPass::Blocks => {
-                    frames.apply_block_widths(assignments, remaining, &mut spent)
-                }
-                FrameWidthPass::BlockStarts => {
-                    frames.apply_block_starts(assignments, remaining, &mut spent)
-                }
-                FrameWidthPass::UnitStarts => frames.apply_source_unit_starts(
+                FrameWidthPass::Tables => frames.apply_table_widths_with_record_limit(
                     assignments,
                     remaining,
                     &mut spent,
                     observed_records,
+                    record_limit,
+                ),
+                FrameWidthPass::Blocks => frames.apply_block_widths_with_record_limit(
+                    assignments,
+                    remaining,
+                    &mut spent,
+                    record_limit,
+                ),
+                FrameWidthPass::BlockStarts => {
+                    frames.apply_block_starts(assignments, remaining, &mut spent)
+                }
+                FrameWidthPass::UnitStarts => frames.apply_source_unit_starts_with_record_limit(
+                    assignments,
+                    remaining,
+                    &mut spent,
+                    observed_records,
+                    record_limit,
                 ),
             };
             *observed_records = (*observed_records).max(frames.record_charge());
@@ -345,7 +398,7 @@ pub(super) fn layout_body_lines_in_measured_frames<'p, 'a>(
     widths.extend(frames.paragraphs().iter().map(|f| f.width()));
     let mut projected = 0;
     let result = if let Some(assignments) = source_widths {
-        super::source_widths::layout_source_width_lines_counted(
+        super::source_widths::layout_source_width_lines_counted_with_record_limit(
             prepared,
             &widths,
             assignments,
@@ -353,9 +406,11 @@ pub(super) fn layout_body_lines_in_measured_frames<'p, 'a>(
             frames.record_charge(),
             &mut projected,
             observed_records,
+            record_limit,
+            native_origin,
         )
     } else {
-        layout_with_source_widths_counted(
+        layout_with_source_widths_counted_and_limit(
             prepared,
             &widths,
             remaining_work,
@@ -363,6 +418,8 @@ pub(super) fn layout_body_lines_in_measured_frames<'p, 'a>(
             None,
             &mut projected,
             observed_records,
+            record_limit,
+            native_origin,
         )
     };
     *consumed += projected;
@@ -392,6 +449,21 @@ impl BookV2BodyInlineFrames<'_, '_> {
         maximum_work: u64,
         consumed: &mut u64,
     ) -> Result<u64, ProductionInlinePreparationError> {
+        self.apply_block_widths_with_record_limit(
+            assignments,
+            maximum_work,
+            consumed,
+            self.prepared.output_record_limit,
+        )
+    }
+
+    fn apply_block_widths_with_record_limit(
+        &mut self,
+        assignments: &BookV2SourceWidthAssignments<'_, '_>,
+        maximum_work: u64,
+        consumed: &mut u64,
+        record_limit: u64,
+    ) -> Result<u64, ProductionInlinePreparationError> {
         let mut work = 0u64;
         let result = (|| {
             use typaxis_syntax::{
@@ -410,7 +482,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
                 .projection
                 .record_charge
                 .checked_add(widths.len() as u64)
-                .filter(|n| *n <= self.prepared.output_record_limit)
+                .filter(|n| *n <= record_limit.min(self.prepared.output_record_limit))
                 .ok_or_else(|| error(root, E::UnitLimit))?;
             self.block_measurements
                 .try_reserve_exact(widths.len())

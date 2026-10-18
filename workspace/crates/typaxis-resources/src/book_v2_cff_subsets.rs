@@ -62,12 +62,10 @@ impl<'x, 'c, 'a> BookV2CffSubset<'x, 'c, 'a> {
         self.work
     }
 }
-impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontSelectionBuilder<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-{
+impl<'v, 'a, D: BookV2ResourceDisplay<'a>> BookV2FontSelectionBuilderData<'v, 'a, D> {
     pub fn write_cff_font<'x, 'c>(
         &mut self,
-        closures: &'x BookV2FontClosures<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        closures: &'x BookV2FontClosuresData<'c, 'v, 'a, D>,
         index: usize,
     ) -> Result<BookV2CffSubset<'x, 'c, 'a>, BookV2CffSubsetError> {
         if !std::ptr::eq(self.display, closures.selection().display()) {
@@ -118,7 +116,10 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         self.cff_session = Some(session);
         let program = result.map_err(|e| match failure {
             Some(e) => BookV2CffSubsetError::Budget(e),
-            None => BookV2CffSubsetError::FontDetailed { font_face_id, failure: e },
+            None => BookV2CffSubsetError::FontDetailed {
+                font_face_id,
+                failure: e,
+            },
         })?;
         self.closure_charge(0, 0, 1)?;
         let mut fingerprint = sha256(BOOK_V2_CFF_SUBSET_ALGORITHM.as_bytes());

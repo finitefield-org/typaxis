@@ -55,6 +55,110 @@ struct Trial<'m, 'f, 's, 'p, 'a> {
     named_boundary: bool,
 }
 impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
+    pub(super) fn append_nested_capacity_cursor(
+        &mut self, cursor: TablePosition, out: &mut capacity_groups::ProofBytes<'_>,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        let table = &self.measurements.tables()[self.table_index];
+        let owner = table.owner;
+        let count = table.cells.len() + usize::from(table.caption.is_some());
+        self.kernel.work.take(1, owner)?;
+        let (remaining, page_name) = if let Some(index) = cursor.cells {
+            let state = self.nested.as_ref().unwrap().states.get(index)
+                .filter(|s| s.fingerprint == cursor.cell_fingerprint && s.cells.len() == count)
+                .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+            (state.remaining, state.page_name)
+        } else {
+            if cursor.cell_fingerprint != [0; 32] { return Err(error(owner, E::ReceiptMismatch)); }
+            (None, None)
+        };
+        out.write(&[u8::from(remaining.is_some()), u8::from(page_name.is_some()), u8::from(self.named_transitions)], owner)?;
+        out.write(&remaining.map_or(0, |n| n.raw()).to_be_bytes(), owner)?;
+        out.number(page_name.unwrap_or(0), owner)?;
+        out.number(count, owner)?;
+        for i in 0..count {
+            self.kernel.work.take(1, owner)?;
+            let position = cursor.cells.map_or(Cell { next: 0, child: None }, |s| self.nested.as_ref().unwrap().states[s].cells[i]);
+            out.number(position.next, owner)?;
+            out.write(&[u8::from(position.child.is_some())], owner)?;
+            if let Some(child_cursor) = position.child {
+                let nested = self.nested.as_mut().unwrap();
+                self.kernel.work.take(nested.children.len() as u64 + 1, owner)?;
+                let child = nested.children.iter_mut().find(|c| c.table_index == child_cursor.table_index)
+                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                std::mem::swap(&mut self.kernel.charge, &mut child.kernel.charge);
+                std::mem::swap(&mut self.kernel.work.used, &mut child.kernel.work.used);
+                let result = child.append_capacity_cursor(&child_cursor, out);
+                std::mem::swap(&mut self.kernel.charge, &mut child.kernel.charge);
+                std::mem::swap(&mut self.kernel.work.used, &mut child.kernel.work.used);
+                result?;
+            }
+        }
+        Ok(())
+    }
+    /// A fixed original topology makes componentwise source comparisons exact.
+    /// Completed children contribute their full original positions, future
+    /// children zero positions, and active children their real cached cursors.
+    pub(super) fn append_nested_capacity_atoms(
+        &mut self,
+        mode: capacity_groups::AtomMode,
+        out: &mut capacity_groups::ProofBytes<'_>,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        use capacity_groups::AtomMode;
+        let table = &self.measurements.tables()[self.table_index];
+        let owner = table.owner;
+        let state = match mode {
+            AtomMode::Cursor(p) => {
+                if let Some(index) = p.cells {
+                    let retained = self.nested.as_ref().unwrap().states.get(index)
+                        .filter(|s| s.fingerprint == p.cell_fingerprint)
+                        .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                    if retained.cells.len() != table.cells.len() + usize::from(table.caption.is_some()) {
+                        return Err(error(owner, E::ReceiptMismatch));
+                    }
+                    Some(index)
+                } else {
+                    if p.cell_fingerprint != [0; 32] { return Err(error(owner, E::ReceiptMismatch)); }
+                    None
+                }
+            }
+            _ => None,
+        };
+        for (i, (cell_owner, contents)) in table.cells.iter().enumerate()
+            .map(|(i, c)| (i, (c.owner, c.content.as_slice())))
+            .chain(table.caption.iter().map(|c| (table.cells.len(), (owner, c.content.as_slice())))) {
+            self.kernel.work.take(1, cell_owner)?;
+            let position = match mode {
+                AtomMode::Complete => Cell { next: contents.len(), child: None },
+                AtomMode::Empty => Cell { next: 0, child: None },
+                AtomMode::Cursor(_) => state.map_or(Cell { next: 0, child: None }, |s| self.nested.as_ref().unwrap().states[s].cells[i]),
+            };
+            if position.next > contents.len() { return Err(error(cell_owner, E::ReceiptMismatch)); }
+            out.number(position.next, cell_owner)?;
+            for (index, content) in contents.iter().enumerate() {
+                self.kernel.work.take(1, cell_owner)?;
+                let ProductionTableContentSource::Table(child_index) = content.source else { continue; };
+                let child_mode = if index < position.next { AtomMode::Complete }
+                    else if index == position.next {
+                        match position.child {
+                            Some(c) if c.table_index == child_index && std::ptr::eq(c.measurements, self.measurements) => AtomMode::Cursor(c.position),
+                            Some(_) => return Err(error(cell_owner, E::ReceiptMismatch)),
+                            None => AtomMode::Empty,
+                        }
+                    } else { AtomMode::Empty };
+                let nested = self.nested.as_mut().unwrap();
+                self.kernel.work.take(nested.children.len() as u64 + 1, cell_owner)?;
+                let child = nested.children.iter_mut().find(|c| c.table_index == child_index)
+                    .ok_or_else(|| error(cell_owner, E::ReceiptMismatch))?;
+                std::mem::swap(&mut self.kernel.charge, &mut child.kernel.charge);
+                std::mem::swap(&mut self.kernel.work.used, &mut child.kernel.work.used);
+                let result = child.append_capacity_atoms(child_mode, out);
+                std::mem::swap(&mut self.kernel.charge, &mut child.kernel.charge);
+                std::mem::swap(&mut self.kernel.work.used, &mut child.kernel.work.used);
+                result?;
+            }
+        }
+        Ok(())
+    }
     pub(super) fn prepare_nested(
         &mut self,
         limits: &M4EffectiveResourceLimits,
@@ -168,6 +272,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
         index: usize,
         before: Option<BookV2TableCursor<'m, 'f, 's, 'p, 'a>>,
         capacity: Length,
+        origin: Length,
     ) -> Result<
         Option<BookV2TableFragmentSelection<'m, 'f, 's, 'p, 'a>>,
         ProductionBodyPaginationError,
@@ -186,7 +291,16 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
         let previous_reservation = child.kernel.reserved_by_parent;
         child.frame_page_name = self.frame_page_name;
         child.kernel.reserved_by_parent = true;
+        let previous_probe = child.kernel.capacity_probe;
         let result = (|| {
+            child.kernel.capacity_probe = match self.kernel.capacity_probe {
+                Some(probe) => Some(kernel::CapacityProbe::new(probe.available.checked_sub(origin)
+                    .filter(|v| *v >= Length::ZERO)
+                    .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
+                    probe.prior_spool.checked_add(probe.retained_spool).ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
+                    probe.maximum_spool)),
+                None => None,
+            };
             let cursor = match before {
                 Some(c) => c,
                 None => child.begin()?,
@@ -195,9 +309,19 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
         })();
         child.frame_page_name = previous_name;
         child.kernel.reserved_by_parent = previous_reservation;
+        let observed_probe = child.kernel.capacity_probe;
+        child.kernel.capacity_probe = previous_probe;
         std::mem::swap(&mut self.kernel.charge, &mut child.kernel.charge);
         std::mem::swap(&mut self.kernel.work.used, &mut child.kernel.work.used);
-        result
+        if let Some(probe) = observed_probe { self.kernel.probe_capacity_spool(probe.retained_spool)?; }
+        let selected = result?;
+        if let Some(probe) = observed_probe {
+            if !probe.complete {
+                if let Some(parent) = &mut self.kernel.capacity_probe { parent.complete = false; }
+            }
+            if let Some(next) = probe.next { self.kernel.probe_capacity_event(add(origin, next, owner)?)?; }
+        }
+        Ok(selected)
     }
     fn leaf(
         &mut self,
@@ -310,6 +434,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
                             .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
                         let end = add(top, height, owner)?;
                         if end > cell_capacity {
+                            self.kernel.probe_capacity_event(end)?;
                             break;
                         }
                         let relative = content
@@ -353,13 +478,14 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
                         };
                         let origin = add(top, gap, owner)?;
                         if origin > cell_capacity {
+                            self.kernel.probe_capacity_event(origin)?;
                             break;
                         }
                         let available = cell_capacity
                             .checked_sub(origin)
                             .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
                         let Some(mut selected) =
-                            self.child_fragment(index, before_child, available)?
+                            self.child_fragment(index, before_child, available, origin)?
                         else {
                             break;
                         };
@@ -370,6 +496,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
                         if selected.after().is_terminal()
                             && add(selected.used_height(), trailing, owner)? > available
                         {
+                            self.kernel.probe_capacity_event(add(origin, add(selected.used_height(), trailing, owner)?, owner)?)?;
                             let Some(smaller) = available
                                 .checked_sub(trailing)
                                 .filter(|v| *v >= Length::ZERO)
@@ -377,7 +504,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
                                 break;
                             };
                             let Some(earlier) =
-                                self.child_fragment(index, before_child, smaller)?
+                                self.child_fragment(index, before_child, smaller, origin)?
                             else {
                                 break;
                             };
@@ -386,6 +513,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
                         let terminal = selected.after().is_terminal();
                         let mut end = add(origin, selected.used_height(), owner)?;
                         if terminal && add(end, trailing, owner)? > cell_capacity {
+                            self.kernel.probe_capacity_event(add(end, trailing, owner)?)?;
                             break;
                         }
                         for range in selected.semantic_leaf_ranges() {
@@ -593,6 +721,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
         let mut header_forced = false;
         if cursor.header_seen && self.kernel.header_rows > 0 && trial.row < table.rows.len() {
             if self.kernel.paint_header_height() > capacity {
+                self.kernel.probe_capacity_event(self.kernel.paint_header_height())?;
                 return Ok(trial);
             }
             self.repeat_header(&mut trial.projection)?;
@@ -713,6 +842,7 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
         }
         self.kernel.charge.take(2, owner)?;
         self.kernel.work.take(cells.len() as u64, owner)?;
+        self.kernel.probe_capacity_spool(size as u64)?;
         let mut bytes = Vec::new();
         bytes
             .try_reserve_exact(size)

@@ -16,6 +16,10 @@ pub use cff_programs::*;
 mod truetype_subsets;
 use std::collections::BTreeSet;
 pub use truetype_subsets::*;
+use typaxis_display_list::book_v2::{
+    BookV2BodyDisplay, BookV2BodyPaintIndex, BookV2ColumnDisplay, BookV2ColumnPaintIndex,
+    BookV2ResourceDisplay,
+};
 use typaxis_font::{Cff1GlyphClosureV2, Cff1SubsetSessionV2, SubsetGlyphId};
 use typaxis_resource_admission::AdmittedProductionFontV3;
 
@@ -99,18 +103,44 @@ impl Iterator for BookV2ClosedGlyphs<'_> {
     }
 }
 impl ExactSizeIterator for BookV2ClosedGlyphs<'_> {}
-pub struct BookV2FontClosures<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    selection: &'c BookV2FontSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2FontClosuresData<
+    'c,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    selection: &'c BookV2FontSelectionData<'v, 'a, D, P>,
     fonts: Vec<BookV2ClosedFont<'c, 'a>>,
     fingerprint: [u8; 32],
     records: u64,
     spool: u64,
     work: u64,
 }
-impl<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontClosures<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-{
-    pub fn selection(&self) -> &'c BookV2FontSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+pub type BookV2FontClosures<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2FontClosuresData<
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// The original Column display remains part of the closure's type.
+///
+/// ```compile_fail
+/// use typaxis_resources::book_v2::{BookV2ColumnFontClosures, BookV2FontClosures};
+/// fn body<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+///     value: BookV2ColumnFontClosures<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+/// ) -> BookV2FontClosures<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnFontClosures<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2FontClosuresData<
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+impl<'c, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy> BookV2FontClosuresData<'c, 'v, 'a, D, P> {
+    pub fn selection(&self) -> &'c BookV2FontSelectionData<'v, 'a, D, P> {
         self.selection
     }
     pub fn fonts(&self) -> &[BookV2ClosedFont<'c, 'a>] {
@@ -129,10 +159,13 @@ impl<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         self.work
     }
 }
-impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontSelectionBuilder<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-{
-    pub(super) fn closure_charge(&mut self, records: usize, bytes: usize, work: usize) -> Result<(), E> {
+impl<'v, 'a, D: BookV2ResourceDisplay<'a>> BookV2FontSelectionBuilderData<'v, 'a, D> {
+    pub(super) fn closure_charge(
+        &mut self,
+        records: usize,
+        bytes: usize,
+        work: usize,
+    ) -> Result<(), E> {
         let records = self
             .records
             .checked_add(records as u64)
@@ -155,9 +188,8 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
     }
     pub fn prepare_font_closures<'c>(
         &mut self,
-        selection: &'c BookV2FontSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
-    ) -> Result<BookV2FontClosures<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2FontClosureError>
-    {
+        selection: &'c BookV2FontSelectionData<'v, 'a, D>,
+    ) -> Result<BookV2FontClosuresData<'c, 'v, 'a, D>, BookV2FontClosureError> {
         if !std::ptr::eq(self.display, selection.display()) {
             return Err(E::Identity.into());
         }
@@ -225,7 +257,7 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
                             return Err(match failure {
                                 Some(e) => e.into(),
                                 None => BookV2FontClosureError::TrueType(e),
-                            })
+                            });
                         }
                     }
                 }
@@ -289,7 +321,7 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             fingerprint = self.fold(fingerprint, &fp)?;
             fonts.push(font);
         }
-        Ok(BookV2FontClosures {
+        Ok(BookV2FontClosuresData {
             selection,
             fonts,
             fingerprint,

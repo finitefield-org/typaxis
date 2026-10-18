@@ -4,6 +4,9 @@
 #[doc(hidden)]
 pub mod book_v2;
 
+#[path = "book_v2_initial_style_counted.rs"]
+mod initial_style;
+
 use core::num::{NonZeroU32, NonZeroU64};
 use std::collections::{BTreeMap, BTreeSet};
 use typaxis_core::{
@@ -59,26 +62,11 @@ pub fn validate_precomposed_vector_selector(selector: &str) -> Result<(), Select
 }
 
 fn validate_selector_for(selector: &str, block_types: &[&str]) -> Result<(), SelectorError> {
-    let mut components = selector.split('.');
-    let block_type = components.next().unwrap_or_default();
-    if !block_types.contains(&block_type) {
-        return Err(SelectorError::InvalidBlockType);
-    }
-    let mut classes = BTreeSet::new();
-    let mut previous: Option<&str> = None;
-    for class in components {
-        if !is_style_identifier(class) {
-            return Err(SelectorError::InvalidClass);
-        }
-        if !classes.insert(class) {
-            return Err(SelectorError::DuplicateClass);
-        }
-        if previous.is_some_and(|value| value > class) {
-            return Err(SelectorError::NonCanonicalClassOrder);
-        }
-        previous = Some(class);
-    }
-    Ok(())
+    initial_style::validate_selector(selector, block_types, &mut initial_style::Context::legacy())
+        .map_err(|error| match initial_style::legacy_error(error) {
+            StyleValidationError::InvalidSelector(error) => error,
+            _ => unreachable!("selector kernel"),
+        })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -148,21 +136,12 @@ impl StyleSheet {
     /// Validates both the 1.2 tagged-value domain and the immutable
     /// `basic-document-1` selector/property coverage table.
     pub fn validate_basic_document_styles(&self) -> Result<(), StyleValidationError> {
-        self.validate_contract_for(true, STYLEABLE_BLOCK_TYPES)?;
-        for rule in &self.rules {
-            let block_type = rule.selector.split('.').next().unwrap_or_default();
-            if BasicStyleBlockKind::from_str(block_type).is_none() {
-                return Err(StyleValidationError::InapplicableProperty);
-            }
-            for declaration in &rule.declarations {
-                let property = BasicStyleProperty::from_str(&declaration.name)
-                    .ok_or(StyleValidationError::UnknownProperty)?;
-                if !property.applies_to_str(block_type) {
-                    return Err(StyleValidationError::InapplicableProperty);
-                }
-            }
-        }
-        Ok(())
+        initial_style::validate_sheet(
+            self,
+            initial_style::Domain::Basic,
+            &mut initial_style::Context::legacy(),
+        )
+        .map_err(initial_style::legacy_error)
     }
 
     /// Validates the private `table-1` style domain without widening the
@@ -176,37 +155,12 @@ impl StyleSheet {
         &self,
         named_tables: bool,
     ) -> Result<(), StyleValidationError> {
-        self.validate_contract_for(true, STYLEABLE_BLOCK_TYPES)?;
-        for rule in &self.rules {
-            let block_type = rule.selector.split('.').next().unwrap_or_default();
-            if block_type != "table" && BasicStyleBlockKind::from_str(block_type).is_none() {
-                return Err(StyleValidationError::InapplicableProperty);
-            }
-            for declaration in &rule.declarations {
-                let property = BasicStyleProperty::from_str(&declaration.name)
-                    .ok_or(StyleValidationError::UnknownProperty)?;
-                let applies = if block_type == "table" {
-                    property.applies_to_table()
-                } else {
-                    BasicStyleBlockKind::from_str(block_type)
-                        .is_some_and(|block| property.applies_to(block))
-                };
-                if !applies {
-                    return Err(StyleValidationError::InapplicableProperty);
-                }
-                if !named_tables
-                    && block_type == "table"
-                    && property == BasicStyleProperty::Page
-                    && !matches!(
-                        &declaration.value,
-                        StyleValue::Keyword(value) if value == "auto"
-                    )
-                {
-                    return Err(StyleValidationError::InvalidPageProperty);
-                }
-            }
-        }
-        Ok(())
+        initial_style::validate_sheet(
+            self,
+            initial_style::Domain::Table(named_tables),
+            &mut initial_style::Context::legacy(),
+        )
+        .map_err(initial_style::legacy_error)
     }
 
     /// Validates the shared declaration/tag/graph shape while admitting both
@@ -216,7 +170,12 @@ impl StyleSheet {
     pub fn validate_staging_precomposed_vector_style_shape(
         &self,
     ) -> Result<(), StyleValidationError> {
-        self.validate_contract_for(true, STAGING_PRECOMPOSED_VECTOR_STYLEABLE_BLOCK_TYPES)
+        initial_style::validate_sheet(
+            self,
+            initial_style::Domain::Shape,
+            &mut initial_style::Context::legacy(),
+        )
+        .map_err(initial_style::legacy_error)
     }
 
     fn validate_contract_for(
@@ -224,111 +183,13 @@ impl StyleSheet {
         staging_1_2: bool,
         block_types: &[&str],
     ) -> Result<(), StyleValidationError> {
-        let mut by_id = BTreeMap::new();
-        for (index, rule) in self.rules.iter().enumerate() {
-            if rule.source_order
-                != u32::try_from(index).map_err(|_| StyleValidationError::SourceOrderMismatch)?
-            {
-                return Err(StyleValidationError::SourceOrderMismatch);
-            }
-            validate_selector_for(&rule.selector, block_types)
-                .map_err(StyleValidationError::InvalidSelector)?;
-            for declaration in &rule.declarations {
-                if !valid_declaration_name(&declaration.name) {
-                    return Err(StyleValidationError::InvalidDeclarationName);
-                }
-                match declaration.name.as_str() {
-                    "font_family"
-                        if !matches!(
-                            &declaration.value,
-                            StyleValue::FontFamilyList(families)
-                                if valid_font_family_list(families)
-                        ) =>
-                    {
-                        return Err(StyleValidationError::InvalidDeclarationValue)
-                    }
-                    "font_size" | "line_height"
-                        if !matches!(
-                            declaration.value,
-                            StyleValue::Length(value)
-                                if value.raw() > 0
-                                    && value.raw() <= JSON_SAFE_INTEGER_MAX
-                        ) =>
-                    {
-                        return Err(StyleValidationError::InvalidDeclarationValue)
-                    }
-                    "page" if !valid_page_value(&declaration.value) => {
-                        return Err(StyleValidationError::InvalidPageProperty)
-                    }
-                    "space_before" | "space_after" | "start_indent" | "end_indent"
-                        if staging_1_2
-                            && !matches!(
-                                declaration.value,
-                                StyleValue::Length(value)
-                                    if value.raw() >= 0
-                                        && value.raw() <= JSON_SAFE_INTEGER_MAX
-                            ) =>
-                    {
-                        return Err(StyleValidationError::InvalidDeclarationValue)
-                    }
-                    "text_align"
-                        if staging_1_2
-                            && !matches!(
-                                &declaration.value,
-                                StyleValue::Keyword(value)
-                                    if matches!(value.as_str(), "start" | "end" | "center")
-                            ) =>
-                    {
-                        return Err(StyleValidationError::InvalidDeclarationValue)
-                    }
-                    "width"
-                        if staging_1_2
-                            && !matches!(
-                                &declaration.value,
-                                StyleValue::Keyword(value) if value == "auto"
-                            )
-                            && !matches!(
-                                declaration.value,
-                                StyleValue::Length(value)
-                                    if value.raw() > 0
-                                        && value.raw() <= JSON_SAFE_INTEGER_MAX
-                            ) =>
-                    {
-                        return Err(StyleValidationError::InvalidDeclarationValue)
-                    }
-                    "keep_with_next" | "keep_caption"
-                        if staging_1_2 && !matches!(declaration.value, StyleValue::Boolean(_)) =>
-                    {
-                        return Err(StyleValidationError::InvalidDeclarationValue)
-                    }
-                    "font_family" | "font_size" | "line_height" | "page" => {}
-                    "space_before" | "space_after" | "start_indent" | "end_indent"
-                    | "text_align" | "width" | "keep_with_next" | "keep_caption"
-                        if staging_1_2 => {}
-                    _ => return Err(StyleValidationError::UnknownProperty),
-                }
-            }
-            if by_id.insert(&rule.style_id, rule).is_some() {
-                return Err(StyleValidationError::DuplicateStyleId);
-            }
-        }
-
-        for rule in &self.rules {
-            if let Some(parent) = rule.extends.as_ref() {
-                if !by_id.contains_key(parent) {
-                    return Err(StyleValidationError::UnknownParent);
-                }
-                let mut path = BTreeSet::new();
-                let mut current = Some(&rule.style_id);
-                while let Some(style_id) = current {
-                    if !path.insert(style_id) {
-                        return Err(StyleValidationError::InheritanceCycle);
-                    }
-                    current = by_id.get(style_id).and_then(|style| style.extends.as_ref());
-                }
-            }
-        }
-        Ok(())
+        initial_style::validate_contract(
+            self,
+            staging_1_2,
+            block_types,
+            &mut initial_style::Context::legacy(),
+        )
+        .map_err(initial_style::legacy_error)
     }
 }
 
@@ -348,40 +209,22 @@ fn valid_page_value(value: &StyleValue) -> bool {
     }
 }
 
-fn valid_font_family_list(families: &[String]) -> bool {
-    if families.is_empty() {
-        return false;
-    }
-    let mut unique = BTreeSet::new();
-    families.iter().all(|family| {
-        !family.trim().is_empty()
-            && !family.chars().any(char::is_control)
-            && unique.insert(family.as_str())
-    })
-}
-
-fn selector_parts(selector: &str) -> Result<(&str, BTreeSet<&str>), SelectorError> {
-    selector_parts_for(selector, STYLEABLE_BLOCK_TYPES)
-}
-
-fn selector_parts_for<'a>(
-    selector: &'a str,
-    block_types: &[&str],
-) -> Result<(&'a str, BTreeSet<&'a str>), SelectorError> {
-    validate_selector_for(selector, block_types)?;
-    let mut components = selector.split('.');
-    let block_type = components.next().unwrap_or_default();
-    Ok((block_type, components.collect()))
-}
-
 pub fn selector_matches(
     selector: &str,
     block_type: &str,
     classes: &[String],
 ) -> Result<bool, SelectorError> {
-    let (selector_type, selector_classes) = selector_parts(selector)?;
-    let target_classes: BTreeSet<&str> = classes.iter().map(String::as_str).collect();
-    Ok(selector_type == block_type && selector_classes.is_subset(&target_classes))
+    initial_style::selector_matches(
+        selector,
+        block_type,
+        classes,
+        false,
+        &mut initial_style::Context::legacy(),
+    )
+    .map_err(|error| match initial_style::legacy_error(error) {
+        StyleValidationError::InvalidSelector(error) => error,
+        _ => unreachable!("selector kernel"),
+    })
 }
 
 fn precomposed_vector_selector_matches(
@@ -389,10 +232,17 @@ fn precomposed_vector_selector_matches(
     block_type: &str,
     classes: &[String],
 ) -> Result<bool, SelectorError> {
-    let (selector_type, selector_classes) =
-        selector_parts_for(selector, PRECOMPOSED_VECTOR_STYLEABLE_BLOCK_TYPES)?;
-    let target_classes: BTreeSet<&str> = classes.iter().map(String::as_str).collect();
-    Ok(selector_type == block_type && selector_classes.is_subset(&target_classes))
+    initial_style::selector_matches(
+        selector,
+        block_type,
+        classes,
+        true,
+        &mut initial_style::Context::legacy(),
+    )
+    .map_err(|error| match initial_style::legacy_error(error) {
+        StyleValidationError::InvalidSelector(error) => error,
+        _ => unreachable!("selector kernel"),
+    })
 }
 
 /// Immutable registry identity bound into every computed M2 block-style
@@ -897,37 +747,12 @@ pub fn precomposed_vector_style_property_descriptor(
 
 impl StyleSheet {
     pub fn validate_precomposed_vector_styles(&self) -> Result<(), StyleValidationError> {
-        self.validate_contract_for(true, PRECOMPOSED_VECTOR_STYLEABLE_BLOCK_TYPES)?;
-        let by_id: BTreeMap<&StyleId, &StyleRule> = self
-            .rules
-            .iter()
-            .map(|rule| (&rule.style_id, rule))
-            .collect();
-        for rule in &self.rules {
-            let selector_kind = PrecomposedVectorStyleKind::from_str(
-                rule.selector.split('.').next().unwrap_or_default(),
-            )
-            .ok_or(StyleValidationError::InvalidSelector(
-                SelectorError::InvalidBlockType,
-            ))?;
-            let mut current = Some(rule);
-            while let Some(origin) = current {
-                for declaration in &origin.declarations {
-                    let property = PrecomposedVectorStyleProperty::from_str(&declaration.name)
-                        .ok_or(StyleValidationError::UnknownProperty)?;
-                    if precomposed_vector_style_property_descriptor(selector_kind, property)
-                        .is_none()
-                    {
-                        return Err(StyleValidationError::InapplicableProperty);
-                    }
-                }
-                current = origin
-                    .extends
-                    .as_ref()
-                    .and_then(|parent| by_id.get(parent).copied());
-            }
-        }
-        Ok(())
+        initial_style::validate_sheet(
+            self,
+            initial_style::Domain::Vector,
+            &mut initial_style::Context::legacy(),
+        )
+        .map_err(initial_style::legacy_error)
     }
 }
 
@@ -1215,19 +1040,14 @@ fn cascade_semantic_container_style_kind<K>(
     sheet: &StyleSheet,
     parent: Option<&SemanticContainerInheritanceStyle>,
 ) -> Result<ComputedSemanticContainerStyle<K>, StyleValidationError> {
-    sheet.validate_basic_document_styles()?;
-    let computed = sheet.cascade_validated(BasicStyleBlockKind::Paragraph.as_str(), classes)?;
-    let inheritance = close_semantic_inheritance_style(&computed, parent)?;
-    if inheritance.block_style.width() != MachineFigureWidth::Auto
-        || !inheritance.block_style.keep_caption()
-    {
-        return Err(StyleValidationError::InapplicableProperty);
-    }
-    Ok(ComputedSemanticContainerStyle {
+    initial_style::semantic(
         semantic_kind,
-        page_name: computed.page_name()?,
-        inheritance,
-    })
+        classes,
+        sheet,
+        parent,
+        &mut initial_style::Context::legacy(),
+    )
+    .map_err(initial_style::legacy_error)
 }
 
 /// Computes the inheritance context of an ordinary block that owns a nested
@@ -1239,57 +1059,23 @@ pub fn cascade_staging_semantic_descendant_style(
     sheet: &StyleSheet,
     parent: Option<&SemanticContainerInheritanceStyle>,
 ) -> Result<SemanticContainerInheritanceStyle, StyleValidationError> {
-    sheet.validate_table_document_styles()?;
-    if block_type != "table" && BasicStyleBlockKind::from_str(block_type).is_none() {
-        return Err(StyleValidationError::InvalidSelector(
-            SelectorError::InvalidBlockType,
-        ));
-    }
-    let computed = sheet.cascade_validated(block_type, classes)?;
-    close_semantic_inheritance_style(&computed, parent)
+    initial_style::descendant(
+        block_type,
+        classes,
+        sheet,
+        parent,
+        false,
+        &mut initial_style::Context::legacy(),
+    )
+    .map_err(initial_style::legacy_error)
 }
 
 fn close_semantic_inheritance_style(
     computed: &ComputedStyle,
     parent: Option<&SemanticContainerInheritanceStyle>,
 ) -> Result<SemanticContainerInheritanceStyle, StyleValidationError> {
-    let font_families = match computed
-        .properties
-        .get(BasicStyleProperty::FontFamily.as_str())
-    {
-        Some(StyleValue::FontFamilyList(families)) if valid_font_family_list(families) => {
-            Some(families.clone())
-        }
-        None => parent.and_then(|parent| parent.font_families.clone()),
-        Some(_) => return Err(StyleValidationError::InvalidDeclarationValue),
-    };
-    let positive = |property: BasicStyleProperty, inherited: Option<PositiveLength>| match computed
-        .properties
-        .get(property.as_str())
-    {
-        Some(StyleValue::Length(value)) => PositiveLength::new(*value)
-            .map(Some)
-            .ok_or(StyleValidationError::InvalidDeclarationValue),
-        None => Ok(inherited),
-        Some(_) => Err(StyleValidationError::InvalidDeclarationValue),
-    };
-    Ok(SemanticContainerInheritanceStyle {
-        block_style: close_machine_block_style(
-            computed,
-            parent
-                .map(SemanticContainerInheritanceStyle::block_style)
-                .as_ref(),
-        )?,
-        font_size: positive(
-            BasicStyleProperty::FontSize,
-            parent.and_then(SemanticContainerInheritanceStyle::font_size),
-        )?,
-        line_height: positive(
-            BasicStyleProperty::LineHeight,
-            parent.and_then(SemanticContainerInheritanceStyle::line_height),
-        )?,
-        font_families,
-    })
+    initial_style::inheritance(computed, parent, &mut initial_style::Context::legacy())
+        .map_err(initial_style::legacy_error)
 }
 
 impl StyleSheet {
@@ -1301,112 +1087,21 @@ impl StyleSheet {
         classes: &[String],
         parent: Option<&SemanticContainerInheritanceStyle>,
     ) -> Result<PrecomposedVectorComputedStyleReceipt, StyleValidationError> {
-        self.validate_precomposed_vector_styles()?;
-        let computed = self.cascade_precomposed_vector_validated(kind.as_str(), classes)?;
-        let inheritance = close_semantic_inheritance_style(&computed, parent)?;
-        if inheritance.block_style.width != MachineFigureWidth::Auto {
-            return Err(StyleValidationError::InapplicableProperty);
-        }
-        let page_name = computed.page_name()?;
-        let supplement = match kind {
-            PrecomposedVectorStyleKind::MathVectorBlock => {
-                PrecomposedVectorStyleSupplement::EquationNumber(
-                    PrecomposedVectorEquationNumberTextStyle {
-                        font_families: inheritance.font_families,
-                        font_size: inheritance.font_size,
-                        line_height: inheritance.line_height,
-                    },
-                )
-            }
-            PrecomposedVectorStyleKind::VectorFigure => {
-                PrecomposedVectorStyleSupplement::FigureCaption {
-                    keep_caption: inheritance.block_style.keep_caption,
-                }
-            }
-        };
-        let mut receipt = PrecomposedVectorComputedStyleReceipt {
-            registry_version: PRECOMPOSED_VECTOR_STYLE_REGISTRY_VERSION,
+        initial_style::vector(
+            self,
             kind,
-            block: inheritance.block_style,
-            page_name,
-            supplement,
-            canonical_jcs: String::new(),
-            fingerprint: [0; 32],
-            _binding: PrecomposedVectorStyleBinding,
-        };
-        receipt.canonical_jcs = encode_precomposed_vector_computed_style(&receipt);
-        receipt.fingerprint = sha256(receipt.canonical_jcs.as_bytes());
-        receipt
-            .verify_for(kind)
-            .map_err(|_| StyleValidationError::InapplicableProperty)?;
-        Ok(receipt)
+            classes,
+            parent,
+            &mut initial_style::Context::legacy(),
+        )
+        .map_err(initial_style::legacy_error)
     }
 }
 
 fn encode_precomposed_vector_computed_style(
     receipt: &PrecomposedVectorComputedStyleReceipt,
 ) -> String {
-    let mut output = String::from("{\"algorithm\":");
-    push_jcs_string(&mut output, PRECOMPOSED_VECTOR_STYLE_REGISTRY_VERSION);
-    output.push_str(",\"end_indent\":");
-    output.push_str(&receipt.block.end_indent.get().raw().to_string());
-    match &receipt.supplement {
-        PrecomposedVectorStyleSupplement::EquationNumber(style) => {
-            output.push_str(",\"equation_number_text\":{\"font_families\":");
-            match &style.font_families {
-                Some(families) => {
-                    output.push('[');
-                    for (index, family) in families.iter().enumerate() {
-                        if index > 0 {
-                            output.push(',');
-                        }
-                        push_jcs_string(&mut output, family);
-                    }
-                    output.push(']');
-                }
-                None => output.push_str("null"),
-            }
-            output.push_str(",\"font_size\":");
-            push_optional_positive_length(&mut output, style.font_size);
-            output.push_str(",\"line_height\":");
-            push_optional_positive_length(&mut output, style.line_height);
-            output.push('}');
-        }
-        PrecomposedVectorStyleSupplement::FigureCaption { keep_caption } => {
-            output.push_str(",\"keep_caption\":");
-            output.push_str(if *keep_caption { "true" } else { "false" });
-        }
-    }
-    output.push_str(",\"keep_with_next\":");
-    output.push_str(if receipt.block.keep_with_next {
-        "true"
-    } else {
-        "false"
-    });
-    output.push_str(",\"kind\":");
-    push_jcs_string(&mut output, receipt.kind.as_str());
-    output.push_str(",\"page\":");
-    match &receipt.page_name {
-        Some(page) => push_jcs_string(&mut output, page.as_str()),
-        None => output.push_str("null"),
-    }
-    output.push_str(",\"space_after\":");
-    output.push_str(&receipt.block.space_after.get().raw().to_string());
-    output.push_str(",\"space_before\":");
-    output.push_str(&receipt.block.space_before.get().raw().to_string());
-    output.push_str(",\"start_indent\":");
-    output.push_str(&receipt.block.start_indent.get().raw().to_string());
-    output.push_str(",\"text_align\":");
-    push_jcs_string(&mut output, receipt.block.text_align.as_str());
-    output.push('}');
-    output
-}
-
-fn push_optional_positive_length(output: &mut String, value: Option<PositiveLength>) {
-    match value {
-        Some(value) => output.push_str(&value.get().raw().to_string()),
-        None => output.push_str("null"),
-    }
+    initial_style::legacy_vector_canonical(receipt)
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -1474,19 +1169,13 @@ pub fn cascade_staging_display_math_style(
     sheet: &StyleSheet,
     parent: Option<&SemanticContainerInheritanceStyle>,
 ) -> Result<StagingMathComputedStyle, StyleValidationError> {
-    sheet.validate_basic_document_styles()?;
-    let computed = sheet.cascade_validated(BasicStyleBlockKind::Paragraph.as_str(), classes)?;
-    let inheritance = close_semantic_inheritance_style(&computed, parent)?;
-    if inheritance.block_style.width() != MachineFigureWidth::Auto
-        || !inheritance.block_style.keep_caption()
-    {
-        return Err(StyleValidationError::InapplicableProperty);
-    }
-    close_staging_math_style(
-        StagingMathStyleKind::Display,
-        inheritance,
-        computed.page_name()?,
+    initial_style::display_math(
+        classes,
+        sheet,
+        parent,
+        &mut initial_style::Context::legacy(),
     )
+    .map_err(initial_style::legacy_error)
 }
 
 fn close_staging_math_style(
@@ -1494,24 +1183,13 @@ fn close_staging_math_style(
     inheritance: SemanticContainerInheritanceStyle,
     page_name: Option<PageName>,
 ) -> Result<StagingMathComputedStyle, StyleValidationError> {
-    let font_families = inheritance
-        .font_families
-        .filter(|families| valid_font_family_list(families))
-        .ok_or(StyleValidationError::MissingTextProperty)?;
-    let font_size = inheritance
-        .font_size
-        .ok_or(StyleValidationError::MissingTextProperty)?;
-    let line_height = inheritance
-        .line_height
-        .ok_or(StyleValidationError::MissingTextProperty)?;
-    Ok(StagingMathComputedStyle {
+    initial_style::math_close(
         kind,
-        block: inheritance.block_style,
-        font_families,
-        font_size,
-        line_height,
+        inheritance,
         page_name,
-    })
+        &mut initial_style::Context::legacy(),
+    )
+    .map_err(initial_style::legacy_error)
 }
 
 /// Complete computed style for a generated list marker. Marker shaping uses
@@ -1683,43 +1361,8 @@ fn close_machine_block_style(
     computed: &ComputedStyle,
     parent: Option<&ComputedMachineBlockStyle>,
 ) -> Result<ComputedMachineBlockStyle, StyleValidationError> {
-    let nonnegative = |name: &str| match computed.properties.get(name) {
-        None => Ok(NonNegativeLength::ZERO),
-        Some(StyleValue::Length(value)) => {
-            NonNegativeLength::new(*value).ok_or(StyleValidationError::InvalidDeclarationValue)
-        }
-        Some(_) => Err(StyleValidationError::InvalidDeclarationValue),
-    };
-    let text_align = match computed
-        .properties
-        .get(BasicStyleProperty::TextAlign.as_str())
-    {
-        Some(StyleValue::Keyword(value)) => match value.as_str() {
-            "start" => MachineTextAlign::Start,
-            "end" => MachineTextAlign::End,
-            "center" => MachineTextAlign::Center,
-            _ => return Err(StyleValidationError::InvalidDeclarationValue),
-        },
-        None => parent
-            .map(|style| style.text_align)
-            .unwrap_or(MachineTextAlign::Start),
-        Some(_) => return Err(StyleValidationError::InvalidDeclarationValue),
-    };
-    let boolean = |name: &str, initial: bool| match computed.properties.get(name) {
-        None => Ok(initial),
-        Some(StyleValue::Boolean(value)) => Ok(*value),
-        Some(_) => Err(StyleValidationError::InvalidDeclarationValue),
-    };
-    Ok(ComputedMachineBlockStyle {
-        space_before: nonnegative(BasicStyleProperty::SpaceBefore.as_str())?,
-        space_after: nonnegative(BasicStyleProperty::SpaceAfter.as_str())?,
-        start_indent: nonnegative(BasicStyleProperty::StartIndent.as_str())?,
-        end_indent: nonnegative(BasicStyleProperty::EndIndent.as_str())?,
-        text_align,
-        width: computed.basic_figure_width()?,
-        keep_with_next: computed.basic_keep_with_next()?,
-        keep_caption: boolean(BasicStyleProperty::KeepCaption.as_str(), true)?,
-    })
+    initial_style::block(computed, parent, &mut initial_style::Context::legacy())
+        .map_err(initial_style::legacy_error)
 }
 
 impl StyleSheet {
@@ -1828,68 +1471,29 @@ impl StyleSheet {
         self.cascade_validated_with(block_type, classes, selector_matches)
     }
 
-    fn cascade_precomposed_vector_validated(
-        &self,
-        block_type: &str,
-        classes: &[String],
-    ) -> Result<ComputedStyle, StyleValidationError> {
-        self.cascade_validated_with(block_type, classes, precomposed_vector_selector_matches)
-    }
-
     fn cascade_validated_with(
         &self,
         block_type: &str,
         classes: &[String],
         matches_selector: fn(&str, &str, &[String]) -> Result<bool, SelectorError>,
     ) -> Result<ComputedStyle, StyleValidationError> {
-        let by_id: BTreeMap<&StyleId, &StyleRule> = self
-            .rules
-            .iter()
-            .map(|rule| (&rule.style_id, rule))
-            .collect();
-        let mut winners: BTreeMap<String, CascadeWinner> = BTreeMap::new();
-        for matched in &self.rules {
-            if !matches_selector(&matched.selector, block_type, classes)
-                .map_err(StyleValidationError::InvalidSelector)?
-            {
-                continue;
-            }
-            let class_count = cascade_priority_index(matched.selector.matches('.').count())?;
-            let specificity = (0, class_count, 1);
-            let mut chain = vec![matched];
-            let mut current = matched.extends.as_ref();
-            while let Some(parent) = current {
-                let rule = by_id
-                    .get(parent)
-                    .ok_or(StyleValidationError::UnknownParent)?;
-                chain.push(rule);
-                current = rule.extends.as_ref();
-            }
-            chain.reverse();
-            for (depth, origin) in chain.iter().enumerate() {
-                for (declaration_order, declaration) in origin.declarations.iter().enumerate() {
-                    let key = (
-                        declaration.important,
-                        specificity,
-                        matched.source_order,
-                        cascade_priority_index(depth)?,
-                        cascade_priority_index(declaration_order)?,
-                    );
-                    let replace = winners
-                        .get(&declaration.name)
-                        .map_or(true, |(winner, _)| key > *winner);
-                    if replace {
-                        winners.insert(declaration.name.clone(), (key, declaration.value.clone()));
-                    }
-                }
-            }
+        let vector = std::ptr::fn_addr_eq(
+            matches_selector,
+            precomposed_vector_selector_matches
+                as fn(&str, &str, &[String]) -> Result<bool, SelectorError>,
+        );
+        match initial_style::cascade(
+            self,
+            block_type,
+            classes,
+            vector,
+            &mut initial_style::Context::legacy(),
+        )
+        .map_err(initial_style::legacy_error)?
+        {
+            initial_style::Values::Legacy(values) => Ok(values),
+            initial_style::Values::Counted(_) => unreachable!("legacy property storage"),
         }
-        Ok(ComputedStyle {
-            properties: winners
-                .into_iter()
-                .map(|(name, (_, value))| (name, value))
-                .collect(),
-        })
     }
 }
 

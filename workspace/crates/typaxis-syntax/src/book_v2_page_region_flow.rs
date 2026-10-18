@@ -1,4 +1,5 @@
 //! Original header/footer text, kept separate from the semantic body flow.
+use super::super::source_ops::{ObservedSourceState, OverlayCarrierPermit, SourceOps};
 use super::*;
 use crate::book_v2::BookV2SelectedPageMaster;
 use typaxis_document_package::{WirePageRegion, WirePageRegionBlock, WirePageRegionInline};
@@ -53,6 +54,9 @@ impl<'a> BookV2PageRegionTextFlow<'a> {
     pub fn source(&self) -> &'a WirePageRegion {
         self.region
     }
+    /// Inclusive legacy source slots: earlier caller records plus one region
+    /// owner, four slots per paragraph and one per inline. The observed entry
+    /// separately publishes additional Style carriers and requested storage.
     pub fn record_charge(&self) -> u64 {
         self.records
     }
@@ -98,6 +102,154 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
     observed_records: &mut u64,
 ) -> Result<BookV2PageRegionTextFlow<'a>, ProductionFlowError> {
     *observed_records = prior_records;
+    let mut preparation = RegionPreparation {
+        mode: RegionOperations::Legacy(observed_records),
+        records: prior_records,
+    };
+    prepare_region(selected, kind, navigation, &mut preparation)
+}
+
+/// Prepare one authentic selected running region with cumulative records,
+/// requested storage bytes and work. Every accepted prefix is published on
+/// every Result. The logical region slots remain distinct from additional
+/// Style-owned carriers; this is not an allocator heap measurement.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_book_v2_page_region_text_flow_observed_counted<'a>(
+    selected: BookV2SelectedPageMaster<'a>,
+    kind: BookV2PageRegionKind,
+    navigation: &'a PreparedBookV2Navigation<'a>,
+    prior_records: u64,
+    prior_spool: u64,
+    prior_work: u64,
+    maximum_records: u64,
+    maximum_work: u64,
+    observed: &mut BookV2ObservedSourceFlowObservation,
+) -> Result<BookV2PageRegionTextFlow<'a>, BookV2ObservedSourceFlowError> {
+    let limits = selected.source().body().limits();
+    let mut state = ObservedSourceState::new(
+        [prior_records, prior_spool, prior_work],
+        [
+            maximum_records.min(limits.get().max_fragments),
+            limits.get().max_spool_bytes,
+            maximum_work,
+        ],
+    );
+    let result = {
+        let mut preparation = RegionPreparation {
+            mode: RegionOperations::Observed(&mut state),
+            records: prior_records,
+        };
+        prepare_region(selected, kind, navigation, &mut preparation)
+    };
+    *observed = state.progress;
+    result.map_err(|error| state.finish_error(error))
+}
+
+enum RegionOperations<'s> {
+    Legacy(&'s mut u64),
+    Observed(&'s mut ObservedSourceState),
+}
+struct RegionPreparation<'s> {
+    mode: RegionOperations<'s>,
+    // The unchanged inclusive legacy region record charge. Full observed R
+    // additionally includes actual lowered/copied Style carriers.
+    records: u64,
+}
+impl RegionPreparation<'_> {
+    fn operations(&mut self) -> SourceOps<'_> {
+        match &mut self.mode {
+            RegionOperations::Legacy(_) => SourceOps::legacy(),
+            RegionOperations::Observed(state) => SourceOps::Observed(state),
+        }
+    }
+    fn reserve(
+        &mut self,
+        owner: NodeId,
+        count: u64,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<(), ProductionFlowError> {
+        match &mut self.mode {
+            RegionOperations::Legacy(observed) => {
+                let records = self
+                    .records
+                    .checked_add(count)
+                    .filter(|n| *n <= limits.get().max_fragments)
+                    .ok_or_else(|| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
+                **observed = records;
+                self.records = records;
+            }
+            RegionOperations::Observed(state) => {
+                // Full observed R is at least this legacy inclusive logical
+                // count; its checked reservation owns the budget error.
+                state.logical(owner, count)?;
+                self.records = self
+                    .records
+                    .checked_add(count)
+                    .ok_or_else(|| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
+            }
+        }
+        Ok(())
+    }
+}
+struct RegionFlowSource<'a, 's, 'p> {
+    body: &'a StyledBookV2Body,
+    navigation: &'a PreparedBookV2Navigation<'a>,
+    preparation: &'p mut RegionPreparation<'s>,
+}
+impl<'a> FlowSource<'a> for RegionFlowSource<'a, '_, '_> {
+    type Kind = typaxis_document_package::book_v2::WireBookV2SemanticContainerKind;
+    fn limits(&self) -> &'a ValidatedResourceLimits {
+        self.body.body().limits()
+    }
+    fn operations(&mut self) -> SourceOps<'_> {
+        self.preparation.operations()
+    }
+    fn container_inheritance(
+        &mut self,
+        owner: NodeId,
+    ) -> Result<Option<&'a SemanticContainerInheritanceStyle>, ProductionFlowError> {
+        match &mut self.preparation.mode {
+            RegionOperations::Legacy(_) => Ok(self
+                .body
+                .container_style(owner)
+                .map(|s| s.inheritance_style())),
+            RegionOperations::Observed(state) => self
+                .body
+                .container_style_with_work(owner, &mut |work| state.charge(owner, 0, 0, work))
+                .map(|s| s.map(|s| s.inheritance_style())),
+        }
+    }
+    fn language(&mut self, owner: NodeId) -> Result<Option<&'a str>, ProductionFlowError> {
+        match &mut self.preparation.mode {
+            RegionOperations::Legacy(_) => Ok(self
+                .navigation
+                .language(owner)
+                .map(|r| r.effective_language())),
+            RegionOperations::Observed(_) => {
+                let values = self.navigation.languages();
+                let index =
+                    self.operations()
+                        .find(owner, values, |r| r.node_id().cmp(&owner), |_| 0)?;
+                Ok(index.map(|i| values[i].effective_language()))
+            }
+        }
+    }
+    fn anchors(&self) -> &'a [(AnchorId, NodeId)] {
+        self.navigation.anchors()
+    }
+    // The named complete region preflight already paid every paragraph/site/
+    // event slot. Collector event reservations retain the legacy no-op here;
+    // observed Style carriers cannot consume or reuse those logical slots.
+}
+
+fn prepare_region<'a>(
+    selected: BookV2SelectedPageMaster<'a>,
+    kind: BookV2PageRegionKind,
+    navigation: &'a PreparedBookV2Navigation<'a>,
+    preparation: &mut RegionPreparation<'_>,
+) -> Result<BookV2PageRegionTextFlow<'a>, ProductionFlowError> {
+    preparation.operations().step(NodeId::new(0), 0)?;
+    preparation.operations().step(NodeId::new(0), 1)?;
     let body = selected.source();
     navigation
         .verify_for(body)
@@ -110,13 +262,10 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
     let owner = NodeId::new(region.node_id);
     let limits = body.body().limits();
     let fail = || failure(ProductionFlowErrorKind::NodeLimit, owner);
-    let mut records = prior_records
-        .checked_add(1)
-        .filter(|n| *n <= limits.get().max_fragments)
-        .ok_or_else(fail)?;
-    *observed_records = records;
+    preparation.reserve(owner, 1, limits)?;
     let mut nodes = 1u64;
     for block in &region.blocks {
+        preparation.operations().step(owner, 1)?;
         let children = match block {
             WirePageRegionBlock::Paragraph { children, .. }
             | WirePageRegionBlock::Heading { children, .. } => children,
@@ -127,18 +276,20 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
             .filter(|n| *n <= limits.get().max_ast_nodes)
             .ok_or_else(fail)?;
         // One paragraph, its three events, and every inline site.
-        records = records
-            .checked_add(4)
-            .and_then(|n| n.checked_add(children.len() as u64))
-            .filter(|n| *n <= limits.get().max_fragments)
-            .ok_or_else(fail)?;
-        *observed_records = records;
+        let count = 4u64.checked_add(children.len() as u64).ok_or_else(fail)?;
+        preparation.reserve(owner, count, limits)?;
     }
-    let rules = lower_semantic_style_rules_version(body.body().wire().style_sheet(), limits, true)
-        .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
+    let rules =
+        preparation
+            .operations()
+            .lower_at(owner, body.body().wire().style_sheet(), limits, true)?;
     let mut collector = Collector {
         // Region slots have already been reserved by the region preflight.
-        source: BookV2FlowSource { body, navigation, records: None },
+        source: RegionFlowSource {
+            body,
+            navigation,
+            preparation,
+        },
         rules,
         buffers: body.body().wire().text_buffers(),
         events: Vec::new(),
@@ -159,6 +310,7 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
         node_charge: 1,
     };
     for block in &region.blocks {
+        collector.source.operations().step(owner, 1)?;
         let (id, classes, children, kind) = match block {
             WirePageRegionBlock::Paragraph {
                 node_id,
@@ -188,10 +340,12 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
         let style = collector.ordinary(owner, kind.as_str(), classes, None)?;
         let inherited = collector.language(owner)?;
         let mut items = Vec::new();
-        items
-            .try_reserve_exact(children.len())
-            .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+        collector
+            .source
+            .operations()
+            .grow(owner, &mut items, children.len(), true)?;
         for child in children {
+            collector.source.operations().step(owner, 1)?;
             let (id, span) = match child {
                 WirePageRegionInline::Text { node_id, span, .. }
                 | WirePageRegionInline::SoftBreak { node_id, span }
@@ -212,6 +366,11 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
             };
             let content = match child {
                 WirePageRegionInline::Text { text_span, .. } => {
+                    // Eight closed metadata visits cover buffer lookup/ID,
+                    // range metadata and the two UTF-8 boundary checks before
+                    // those actions; the retained source text is never copied
+                    // or fully scanned here.
+                    collector.source.operations().step(owner, 8)?;
                     let buffer = collector
                         .buffers
                         .get(text_span.text_id as usize)
@@ -237,6 +396,7 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
                 WirePageRegionInline::SoftBreak { .. } => ProductionInlineContent::SoftBreak,
                 WirePageRegionInline::HardBreak { .. } => ProductionInlineContent::HardBreak,
             };
+            collector.source.operations().step(owner, 1)?;
             items.push(ProductionInlineSite {
                 owner,
                 source_span,
@@ -246,6 +406,10 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
                 link_target: None,
             });
         }
+        collector
+            .source
+            .operations()
+            .step(owner, items.len() as u64)?;
         if items
             .iter()
             .any(|i| matches!(i.content,ProductionInlineContent::Text{utf8,..} if !utf8.is_empty()))
@@ -258,10 +422,11 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
         let index = u32::try_from(collector.paragraphs.len())
             .map_err(|_| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
         collector
-            .paragraphs
-            .try_reserve(1)
-            .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+            .source
+            .operations()
+            .grow(owner, &mut collector.paragraphs, 1, false)?;
         // A page-region paragraph never selects a new body page.
+        collector.source.operations().step(owner, 1)?;
         collector.paragraphs.push(ProductionTextParagraph {
             owner,
             style,
@@ -271,15 +436,52 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
         collector.event(ProductionFlowEvent::Paragraph { index }, owner)?;
         collector.end(owner)?;
     }
+    // Fixed stack identity, not the main body SourceFlow canonical writer.
+    // Work uses byte visits plus SHA input blocks and one finalization unit.
+    let hash_work = |length: usize| {
+        (length as u64)
+            .checked_add((length as u64).div_ceil(64))
+            .and_then(|n| n.checked_add(1))
+            .ok_or_else(|| failure(ProductionFlowErrorKind::NodeLimit, owner))
+    };
+    // Pay both zero initialization and the101 subsequent identity writes.
+    collector.source.operations().step(owner, 202)?;
     let mut identity = [0u8; 101];
+    collector
+        .source
+        .operations()
+        .step(owner, hash_work(BOOK_V2_PAGE_REGION_FLOW_ALGORITHM.len())?)?;
     identity[..32].copy_from_slice(&sha256(BOOK_V2_PAGE_REGION_FLOW_ALGORITHM.as_bytes()));
     identity[32..64].copy_from_slice(&body.body().canonical_jcs_sha256());
+    collector
+        .source
+        .operations()
+        .step(owner, hash_work(selected.master().master_id.len())?)?;
     identity[64..96].copy_from_slice(&sha256(selected.master().master_id.as_bytes()));
     identity[96] = match kind {
         BookV2PageRegionKind::Header => 0,
         BookV2PageRegionKind::Footer => 1,
     };
     identity[97..].copy_from_slice(&region.node_id.to_be_bytes());
+    // Empty overlay hashing is a global preparation operation. Its shared
+    // SourceOps budget/allocation failures use NodeId0, unlike the region-owned
+    // stylesheet lowering above; its source TextLimit maps to this region.
+    let generated = collector
+        .source
+        .operations()
+        .overlay(
+            Vec::new(),
+            limits,
+            navigation.retained_text_bytes(),
+            OverlayCarrierPermit::after_named_reservation(0),
+        )
+        .map_err(|_| failure(ProductionFlowErrorKind::TextLimit, owner))?;
+    collector
+        .source
+        .operations()
+        .step(owner, hash_work(identity.len())?)?;
+    let fingerprint = sha256(&identity);
+    let records = collector.source.preparation.records;
     let flow = SourceTextFlow {
         package: body,
         navigation: &(),
@@ -297,14 +499,9 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
         footnote_definitions: Vec::new(),
         footnote_base_style: None,
         page_reference_values: None,
-        generated: typaxis_text::GeneratedTextOverlay::new(
-            Vec::new(),
-            limits,
-            navigation.retained_text_bytes(),
-        )
-        .map_err(|_| failure(ProductionFlowErrorKind::TextLimit, owner))?,
+        generated,
         text_bytes: collector.text_bytes,
-        fingerprint: sha256(&identity),
+        fingerprint,
     };
     Ok(BookV2PageRegionTextFlow {
         flow,
@@ -315,3 +512,7 @@ pub fn prepare_book_v2_page_region_text_flow_counted<'a>(
         records,
     })
 }
+
+#[cfg(test)]
+#[path = "book_v2_page_region_source_observed_tests.rs"]
+mod observed_tests;

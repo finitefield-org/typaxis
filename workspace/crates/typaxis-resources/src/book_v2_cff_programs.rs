@@ -31,9 +31,7 @@ impl std::error::Error for BookV2CffProgramError {
         }
     }
 }
-impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontSelectionBuilder<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-{
+impl<'v, 'a, D: BookV2ResourceDisplay<'a>> BookV2FontSelectionBuilderData<'v, 'a, D> {
     pub fn cff_program_statistics(&self) -> BookV2CffProgramStatistics {
         // The session is only taken during an exclusive mutable method call.
         let session = self.cff_session.as_ref().expect("owned CFF session");
@@ -45,7 +43,7 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
     }
     pub fn prepare_cff_programs(
         &mut self,
-        closures: &BookV2FontClosures<'_, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        closures: &BookV2FontClosuresData<'_, 'v, 'a, D>,
     ) -> Result<BookV2CffProgramStatistics, BookV2CffProgramError> {
         if !std::ptr::eq(self.display, closures.selection().display()) {
             return Err(E::Identity.into());

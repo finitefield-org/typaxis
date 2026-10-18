@@ -9,6 +9,24 @@ impl BookV2BodyInlineFrames<'_, '_> {
         consumed: &mut u64,
         observed_records: &mut u64,
     ) -> Result<u64, ProductionInlinePreparationError> {
+        self.apply_table_widths_with_record_limit(
+            assignments,
+            maximum_work,
+            consumed,
+            observed_records,
+            self.prepared.output_record_limit,
+        )
+    }
+
+    pub(super) fn apply_table_widths_with_record_limit(
+        &mut self,
+        assignments: &BookV2SourceWidthAssignments<'_, '_>,
+        maximum_work: u64,
+        consumed: &mut u64,
+        observed_records: &mut u64,
+        record_limit: u64,
+    ) -> Result<u64, ProductionInlinePreparationError> {
+        let record_limit = record_limit.min(self.prepared.output_record_limit);
         let mut work = 0u64;
         let result = (|| {
             use ProductionInlinePreparationErrorKind as E;
@@ -37,9 +55,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
             let projected = retained
                 .checked_add(scratch)
                 .ok_or_else(|| error(root, E::UnitLimit))?;
-            let remaining_records = self
-                .prepared
-                .output_record_limit
+            let remaining_records = record_limit
                 .checked_sub(retained)
                 .filter(|remaining| *remaining >= projected)
                 .ok_or_else(|| error(root, E::UnitLimit))?;
@@ -93,7 +109,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
             rebound.record_charge = rebound
                 .record_charge
                 .checked_add(retained)
-                .filter(|n| *n <= self.prepared.output_record_limit)
+                .filter(|n| *n <= record_limit)
                 .ok_or_else(|| error(root, E::UnitLimit))?;
             self.table_measurements = Some(std::mem::replace(&mut self.projection, rebound));
             Ok(work)

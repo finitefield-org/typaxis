@@ -2,10 +2,12 @@
 use super::*;
 use crate::book_v2::{BookV2BoundVector, BookV2InlineLineLayout};
 use typaxis_shaping::book_v2::BookV2EquationNumberShapes;
+use typaxis_shaping::book_v2::{BookV2ObservedAccountingError, BookV2ObservedSourceAccounting};
 use typaxis_syntax::{ProductionFlowEvent as Event, ProductionFlowRegionKind as Region};
 pub const BOOK_V2_VECTOR_BLOCK_ALGORITHM: &str = "typaxis.book-2-vector-blocks/1";
 #[derive(Debug)]
 pub enum BookV2VectorBlockError {
+    ObservedAccounting(BookV2ObservedAccountingError),
     ReceiptMismatch(NodeId),
     MissingFrames,
     OutputLimit,
@@ -159,6 +161,47 @@ pub fn prepare_book_v2_vector_blocks_counted<'s, 'p, 'a>(
     prior_records: u64,
     observed_records: &mut u64,
 ) -> Result<Option<BookV2VectorBlockLayout<'s, 'p, 'a>>, BookV2VectorBlockError> {
+    prepare_blocks_kernel(
+        lines,
+        numbers,
+        limits,
+        prior_records,
+        observed_records,
+        None,
+    )
+}
+
+/// Reserve this stage's block vector on the actual command. Shared shape and
+/// line storage remains owned by those stages; no capacity claim is made here.
+pub fn prepare_book_v2_vector_blocks_with_observed_storage<'s, 'p, 'a>(
+    lines: &'s BookV2InlineLineLayout<'p, 'a>,
+    numbers: Option<&'s BookV2EquationNumberShapes<'a>>,
+    limits: &M4EffectiveResourceLimits,
+    accounting: &mut BookV2ObservedSourceAccounting<'_, '_>,
+) -> Result<Option<BookV2VectorBlockLayout<'s, 'p, 'a>>, BookV2VectorBlockError> {
+    accounting
+        .require_limit_domain(limits.base())
+        .map_err(BookV2VectorBlockError::ObservedAccounting)?;
+    let prior = accounting.counters()[0];
+    let mut observed = prior;
+    prepare_blocks_kernel(
+        lines,
+        numbers,
+        limits,
+        prior,
+        &mut observed,
+        Some(accounting),
+    )
+}
+
+fn prepare_blocks_kernel<'s, 'p, 'a>(
+    lines: &'s BookV2InlineLineLayout<'p, 'a>,
+    numbers: Option<&'s BookV2EquationNumberShapes<'a>>,
+    limits: &M4EffectiveResourceLimits,
+    prior_records: u64,
+    observed_records: &mut u64,
+    mut accounting: Option<&mut BookV2ObservedSourceAccounting<'_, '_>>,
+) -> Result<Option<BookV2VectorBlockLayout<'s, 'p, 'a>>, BookV2VectorBlockError> {
     *observed_records = prior_records
         .max(lines.output_records())
         .max(numbers.map_or(0, |n| n.record_charge()));
@@ -173,6 +216,10 @@ pub fn prepare_book_v2_vector_blocks_counted<'s, 'p, 'a>(
             .map_err(|e| E::ReceiptMismatch(e.owner))?;
     }
     let flow = prepared.source_flow();
+    if let Some(a) = accounting.as_deref_mut() {
+        a.debit(NodeId::new(0), [0, 0, flow.events().len() as u64])
+            .map_err(E::ObservedAccounting)?;
+    }
     let count = flow
         .events()
         .iter()
@@ -202,6 +249,10 @@ pub fn prepare_book_v2_vector_blocks_counted<'s, 'p, 'a>(
         .checked_add(numbers.map_or(0, |n| n.retained_records()))
         .ok_or(E::OutputLimit)?;
     *observed_records = base;
+    if let Some(a) = accounting.as_deref_mut() {
+        a.debit_records(NodeId::new(0), base - prior_records)
+            .map_err(E::ObservedAccounting)?;
+    }
     let record_charge = base
         .checked_add(1)
         .and_then(|n| n.checked_add(count as u64))
@@ -209,6 +260,20 @@ pub fn prepare_book_v2_vector_blocks_counted<'s, 'p, 'a>(
         .filter(|n| *n <= limits.base().get().max_fragments)
         .ok_or(E::OutputLimit)?;
     *observed_records = record_charge;
+    if let Some(a) = accounting.as_deref_mut() {
+        a.debit_records(NodeId::new(0), record_charge - base)
+            .map_err(E::ObservedAccounting)?;
+        let bytes = count
+            .checked_mul(std::mem::size_of::<BookV2VectorBlock<'_>>())
+            .and_then(|n| u64::try_from(n).ok())
+            .ok_or(E::ObservedAccounting(
+                BookV2ObservedAccountingError::Spool {
+                    owner: NodeId::new(0),
+                },
+            ))?;
+        a.debit(NodeId::new(0), [0, bytes, flow.events().len() as u64])
+            .map_err(E::ObservedAccounting)?;
+    }
     let mut blocks = Vec::new();
     blocks
         .try_reserve_exact(count)

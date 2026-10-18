@@ -2,8 +2,8 @@
 pub use super::super::number_geometry::ProductionEquationNumberCluster;
 use super::*;
 use typaxis_pagination::book_v2::BookV2BodyPlacedEquationNumber;
-use typaxis_shaping::book_v2::{book_v2_equation_number_font, BookV2EquationNumberShape};
 use typaxis_shaping::ProductionBodyFont;
+use typaxis_shaping::book_v2::{BookV2EquationNumberShape, book_v2_equation_number_font};
 
 pub const BOOK_V2_NUMBER_DISPLAY_ALGORITHM: &str = "typaxis.book-2-number-display/1";
 
@@ -27,16 +27,61 @@ impl<'g, 's, 'a> BookV2EquationNumberDraw<'g, 's, 'a> {
         &self.clusters
     }
 }
-pub struct BookV2EquationNumberDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub type BookV2EquationNumberDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2SourceEquationNumberDisplay<
+        'd,
+        'g,
+        's,
+        'a,
+        BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    >;
+/// A column component retains its distinct terminal source owner.
+///
+/// ```compile_fail
+/// use typaxis_display_list::book_v2::{BookV2ColumnEquationNumberDisplay, BookV2EquationNumberDisplay};
+/// fn single<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+///     value: BookV2ColumnEquationNumberDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+/// ) -> BookV2EquationNumberDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnEquationNumberDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2SourceEquationNumberDisplay<
+        'd,
+        'g,
+        's,
+        'a,
+        typaxis_pagination::book_v2::BookV2ColumnMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    >;
+
+pub(super) struct EquationNumberProjection<'g, 's, 'a> {
+    pub(super) draws: Vec<BookV2EquationNumberDraw<'g, 's, 'a>>,
+    pub(super) fingerprint: [u8; 32],
+}
+pub struct BookV2SourceEquationNumberDisplay<'d, 'g, 's, 'a, S: ?Sized> {
+    source: &'d S,
     admitted: &'d AdmittedProductionResourceLedgerV3,
     draws: Vec<BookV2EquationNumberDraw<'g, 's, 'a>>,
     fingerprint: [u8; 32],
     records: u64,
     work: u64,
 }
-impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2EquationNumberDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    pub fn source(&self) -> &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a> {
+impl<'d, 'g, 's, 'a, S: ?Sized> BookV2SourceEquationNumberDisplay<'d, 'g, 's, 'a, S> {
+    pub(super) fn from_projection(
+        source: &'d S,
+        admitted: &'d AdmittedProductionResourceLedgerV3,
+        projection: EquationNumberProjection<'g, 's, 'a>,
+        records: u64,
+        work: u64,
+    ) -> Self {
+        Self {
+            source,
+            admitted,
+            draws: projection.draws,
+            fingerprint: projection.fingerprint,
+            records,
+            work,
+        }
+    }
+    pub fn source(&self) -> &'d S {
         self.source
     }
     pub fn admitted(&self) -> &'d AdmittedProductionResourceLedgerV3 {
@@ -55,7 +100,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2EquationNumberDisplay<'d, 'g, 'q, 'b,
         self.work
     }
 }
-impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+impl<'e, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> Projector<'e, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
     fn number_shape(
         &mut self,
         placement: &BookV2BodyPlacedEquationNumber,
@@ -64,7 +109,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
         let owner = geometry.owner();
         let numbers = self
             .source
-            .fragment_flow(geometry.fragment_index() as usize)
+            .fragment_graph(geometry.fragment_index() as usize)
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?
             .blocks()
             .and_then(|b| b.numbers())
@@ -113,13 +158,12 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
         }
         Ok((required, count))
     }
-    pub fn build_equation_numbers(
+    pub(super) fn collect_equation_numbers(
         &mut self,
-    ) -> Result<BookV2EquationNumberDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2MathDisplayError>
-    {
+    ) -> Result<EquationNumberProjection<'g, 's, 'a>, BookV2MathDisplayError> {
         let root = NodeId::new(0);
         let source = self.source;
-        let pages = source.source().geometry().pages();
+        let pages = source.pages();
         let mut required = 1usize;
         let mut count = 0usize;
         for page in pages {
@@ -138,7 +182,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
         }
         // All retained clusters and temporary run/glyph arrays are reserved
         // before allocation. Neither successful disposal nor failure refunds it.
-        take(&mut self.remaining, required, root)?;
+        take(&mut *self.remaining, required, root)?;
         let mut draws = Vec::new();
         draws
             .try_reserve_exact(count)
@@ -241,13 +285,22 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                 });
             }
         }
-        Ok(BookV2EquationNumberDisplay {
-            source,
-            admitted: self.admitted,
-            draws,
-            fingerprint,
-            records: self.record_charge(),
-            work: self.work_steps(),
-        })
+        Ok(EquationNumberProjection { draws, fingerprint })
+    }
+}
+
+impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn build_equation_numbers(
+        &mut self,
+    ) -> Result<BookV2EquationNumberDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2MathDisplayError>
+    {
+        let projection = self.projection().collect_equation_numbers()?;
+        Ok(BookV2EquationNumberDisplay::from_projection(
+            self.source,
+            self.admitted,
+            projection,
+            self.record_charge(),
+            self.work_steps(),
+        ))
     }
 }

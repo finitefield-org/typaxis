@@ -1201,6 +1201,12 @@ impl MathComputationReceipt {
         parsed: &ParsedMathReceipt,
         face: MathFontFace<'_>,
     ) -> Result<(), MathComputationError> {
+        self.verify_for_math_fingerprint(parsed,face.math_table_fingerprint())
+    }
+    pub fn verify_sealed_cff_v2(&self,parsed:&ParsedMathReceipt,face:typaxis_font::CffMathFontFaceV2<'_>)->Result<(),MathComputationError>{
+        self.verify_for_math_fingerprint(parsed,face.math_table_fingerprint())
+    }
+    fn verify_for_math_fingerprint(&self,parsed:&ParsedMathReceipt,math_fingerprint:[u8;32])->Result<(),MathComputationError>{
         parsed
             .verify()
             .map_err(|_| MathComputationError::ParsedReceipt)?;
@@ -1210,13 +1216,13 @@ impl MathComputationReceipt {
         let canonical_jcs = encode_computation(
             parsed.fingerprint(),
             input,
-            face.math_table_fingerprint(),
+            math_fingerprint,
             self.dimensions,
             math_vector_fingerprint(&self.paints),
             self.layout_work,
         );
         if self.parsed_fingerprint != parsed.fingerprint()
-            || self.math_table_fingerprint != face.math_table_fingerprint()
+            || self.math_table_fingerprint != math_fingerprint
             || self.paints.is_empty()
             || self.dimensions.advance <= 0
             || self.dimensions.ascent <= 0
@@ -1236,6 +1242,12 @@ pub fn compute_math(
     face: MathFontFace<'_>,
     input: MathComputationInput,
 ) -> Result<MathComputationReceipt, MathComputationError> {
+    let mut face=face;
+    compute_math_kernel(parsed,&mut face,input)
+}
+fn compute_math_kernel<F: cff_v2::FontAccess>(
+    parsed:&ParsedMathReceipt,face:&mut F,input:MathComputationInput,
+)->Result<MathComputationReceipt,MathComputationError>{
     parsed
         .verify()
         .map_err(|_| MathComputationError::ParsedReceipt)?;
@@ -1267,9 +1279,9 @@ pub fn compute_math(
         return Err(MathComputationError::ReceiptMismatch);
     }
     let axis = scale_font_units(
-        i64::from(face.constants().axis_height()),
+        i64::from(context.face.constants().axis_height()),
         input.font_size_raw,
-        face.units_per_em(),
+        context.face.units_per_em(),
     )?;
     if !portable_integer(axis) {
         return Err(MathComputationError::ArithmeticOverflow);
@@ -1289,7 +1301,7 @@ pub fn compute_math(
     let canonical_jcs = encode_computation(
         parsed.fingerprint(),
         input,
-        face.math_table_fingerprint(),
+        context.face.math_table_fingerprint(),
         dimensions,
         vector_fingerprint,
         layout_work,
@@ -1298,7 +1310,7 @@ pub fn compute_math(
         parsed_fingerprint: parsed.fingerprint(),
         kind: input.kind,
         font_size_raw: input.font_size_raw,
-        math_table_fingerprint: face.math_table_fingerprint(),
+        math_table_fingerprint: context.face.math_table_fingerprint(),
         dimensions,
         paints: result.paints,
         vector_fingerprint,
@@ -1459,8 +1471,8 @@ fn validate_portable_geometry(value: &LayoutBox) -> Result<(), MathComputationEr
     Ok(())
 }
 
-struct LayoutContext<'a> {
-    face: MathFontFace<'a>,
+struct LayoutContext<'a,F> {
+    face: &'a mut F,
     kind: MathNodeKind,
     root_size: i64,
     logical_ordinal: u32,
@@ -1509,7 +1521,7 @@ struct LayoutBox {
     italic_correction: i64,
 }
 
-impl LayoutContext<'_> {
+impl<F:cff_v2::FontAccess> LayoutContext<'_,F> {
     fn size_for_level(&self, level: u8) -> Result<i64, MathComputationError> {
         let percent = match level {
             0 => return Ok(self.root_size),
@@ -2419,3 +2431,7 @@ mod tests {
         assert!(display_sum.dimensions().ascent() > inline_sum.dimensions().ascent());
     }
 }
+
+#[path = "cff_v2.rs"]
+mod cff_v2;
+pub use cff_v2::{compute_math_cff_v2,CffMathProviderV2,CffMathComputationErrorV2};

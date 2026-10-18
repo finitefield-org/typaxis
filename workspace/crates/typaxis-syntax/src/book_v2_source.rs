@@ -58,8 +58,67 @@ pub fn prepare_admitted_book_v2_body(
     input: AdmittedBookV2Input,
     limits: &ValidatedResourceLimits,
 ) -> Result<SourceAdmittedBookV2Body, BookV2SourcePreparationError> {
+    prepare_with_style(input, limits, style_book_v2_body).map_err(|(failure, provenance)| {
+        let failure = match failure {
+            PreparationFailure::Source(error) => error,
+            PreparationFailure::Style(error) => BookV2SourceFailure::Body(error),
+        };
+        BookV2SourcePreparationError {
+            failure,
+            provenance: Box::new(provenance),
+        }
+    })
+}
+
+#[derive(Debug)]
+pub enum BookV2CountedSourceStyleFailure<E> {
+    Source(BookV2SourceFailure),
+    Style(BookV2InitialStyleError<E>),
+}
+/// Provenance moves into this error; the style failure path creates no new Box.
+#[derive(Debug)]
+pub struct BookV2CountedSourceStyleError<E> {
+    failure: BookV2CountedSourceStyleFailure<E>,
+    provenance: BookV2InputProvenance,
+}
+impl<E> BookV2CountedSourceStyleError<E> {
+    pub const fn failure(&self) -> &BookV2CountedSourceStyleFailure<E> {
+        &self.failure
+    }
+    pub const fn provenance(&self) -> &BookV2InputProvenance {
+        &self.provenance
+    }
+}
+/// Invoke counted styling at the authentic initial source-admission join.
+/// Source checks and body preparation precede the style stage and are separate
+/// allocation scopes. The accepted style observer survives every later error.
+pub fn prepare_admitted_book_v2_body_with_counted_style<E>(
+    input: AdmittedBookV2Input,
+    limits: &ValidatedResourceLimits,
+    charge: &mut impl FnMut(u64, u64, u64) -> Result<(), E>,
+) -> Result<SourceAdmittedBookV2Body, BookV2CountedSourceStyleError<E>> {
+    prepare_with_style(input, limits, |body| {
+        style_book_v2_body_counted(body, charge)
+    })
+    .map_err(|(failure, provenance)| BookV2CountedSourceStyleError {
+        provenance,
+        failure: match failure {
+            PreparationFailure::Source(e) => BookV2CountedSourceStyleFailure::Source(e),
+            PreparationFailure::Style(e) => BookV2CountedSourceStyleFailure::Style(e),
+        },
+    })
+}
+enum PreparationFailure<E> {
+    Source(BookV2SourceFailure),
+    Style(E),
+}
+fn prepare_with_style<E>(
+    input: AdmittedBookV2Input,
+    limits: &ValidatedResourceLimits,
+    style: impl FnOnce(PreparedBookV2Body) -> Result<StyledBookV2Body, E>,
+) -> Result<SourceAdmittedBookV2Body, (PreparationFailure<E>, BookV2InputProvenance)> {
     let (decoded, sources, provenance) = input.into_parts();
-    let prepare = || -> Result<StyledBookV2Body, BookV2SourceFailure> {
+    let prepare = || -> Result<StyledBookV2Body, PreparationFailure<E>> {
         let progress = provenance.progress();
         if provenance.limits() != limits
             || decoded.limits() != limits
@@ -86,17 +145,21 @@ pub fn prepare_admitted_book_v2_body(
                         || hex_sha(facts.sha256()) != declared.sha256
                 })
         {
-            return Err(BookV2SourceFailure::ReceiptMismatch);
+            return Err(PreparationFailure::Source(
+                BookV2SourceFailure::ReceiptMismatch,
+            ));
         }
-        let body = prepare_book_v2_body(decoded, limits).map_err(BookV2SourceFailure::Body)?;
+        let body = prepare_book_v2_body(decoded, limits)
+            .map_err(|e| PreparationFailure::Source(BookV2SourceFailure::Body(e)))?;
         validate_sources(
             body.wire().text_buffers(),
             body.wire().document(),
             body.wire().advanced_page_masters(),
             &sources,
             limits,
-        )?;
-        style_book_v2_body(body).map_err(BookV2SourceFailure::Body)
+        )
+        .map_err(PreparationFailure::Source)?;
+        style(body).map_err(PreparationFailure::Style)
     };
     match prepare() {
         Ok(styled) => Ok(SourceAdmittedBookV2Body {
@@ -104,10 +167,7 @@ pub fn prepare_admitted_book_v2_body(
             sources,
             provenance,
         }),
-        Err(failure) => Err(BookV2SourcePreparationError {
-            failure,
-            provenance: Box::new(provenance),
-        }),
+        Err(failure) => Err((failure, provenance)),
     }
 }
 fn hex_sha(hash: [u8; 32]) -> String {

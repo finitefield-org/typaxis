@@ -149,8 +149,31 @@ impl BookV2FootnoteSeparatorDraw {
         self.ink
     }
 }
-pub struct BookV2MarkerDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub type BookV2MarkerDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2SourceMarkerDisplay<'d, 'g, 's, 'a, BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>>;
+/// A column component retains its distinct terminal source owner.
+///
+/// ```compile_fail
+/// use typaxis_display_list::book_v2::{BookV2ColumnMarkerDisplay, BookV2MarkerDisplay};
+/// fn single<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+///     value: BookV2ColumnMarkerDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+/// ) -> BookV2MarkerDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnMarkerDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2SourceMarkerDisplay<
+    'd,
+    'g,
+    's,
+    'a,
+    typaxis_pagination::book_v2::BookV2ColumnMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+>;
+
+pub(super) struct MarkerProjection<'g, 's, 'a> {
+    pub(super) draws: Vec<BookV2MarkerDraw<'g, 's, 'a>>,
+    pub(super) separators: Vec<BookV2FootnoteSeparatorDraw>,
+    pub(super) fingerprint: [u8; 32],
+}
+pub struct BookV2SourceMarkerDisplay<'d, 'g, 's, 'a, S: ?Sized> {
+    source: &'d S,
     admitted: &'d AdmittedProductionResourceLedgerV3,
     draws: Vec<BookV2MarkerDraw<'g, 's, 'a>>,
     separators: Vec<BookV2FootnoteSeparatorDraw>,
@@ -158,8 +181,25 @@ pub struct BookV2MarkerDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
     records: u64,
     work: u64,
 }
-impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MarkerDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    pub fn source(&self) -> &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a> {
+impl<'d, 'g, 's, 'a, S: ?Sized> BookV2SourceMarkerDisplay<'d, 'g, 's, 'a, S> {
+    pub(super) fn from_projection(
+        source: &'d S,
+        admitted: &'d AdmittedProductionResourceLedgerV3,
+        projection: MarkerProjection<'g, 's, 'a>,
+        records: u64,
+        work: u64,
+    ) -> Self {
+        Self {
+            source,
+            admitted,
+            draws: projection.draws,
+            separators: projection.separators,
+            fingerprint: projection.fingerprint,
+            records,
+            work,
+        }
+    }
+    pub fn source(&self) -> &'d S {
         self.source
     }
     pub fn admitted(&self) -> &'d AdmittedProductionResourceLedgerV3 {
@@ -181,7 +221,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MarkerDisplay<'d, 'g, 'q, 'b, 'f, 's,
         self.work
     }
 }
-impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+impl<'e, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> Projector<'e, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
     fn marker_source(
         &mut self,
         placement: BookV2MarkerPlacement<'_>,
@@ -192,7 +232,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
             .ok_or_else(|| error(NodeId::new(0), E::RecordLimit))?;
         let shaped = self
             .source
-            .fragment_flow(index)
+            .fragment_graph(index)
             .ok_or_else(|| error(NodeId::new(0), E::ReceiptMismatch))?
             .lines()
             .prepared()
@@ -239,12 +279,12 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
         }
         Ok(records)
     }
-    pub fn build_markers(
+    pub(super) fn collect_markers(
         &mut self,
-    ) -> Result<BookV2MarkerDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2MathDisplayError> {
+    ) -> Result<MarkerProjection<'g, 's, 'a>, BookV2MathDisplayError> {
         let root = NodeId::new(0);
         let source = self.source;
-        let pages = source.source().geometry().pages();
+        let pages = source.pages();
         let mut required = 1usize;
         let mut count = 0usize;
         let mut separator_count = 0usize;
@@ -274,7 +314,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                     .ok_or_else(|| error(root, E::RecordLimit))?;
             }
         }
-        take(&mut self.remaining, required, root)?;
+        take(&mut *self.remaining, required, root)?;
         let mut draws = Vec::new();
         draws
             .try_reserve_exact(count)
@@ -285,8 +325,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
             .map_err(|_| error(root, E::AllocationFailure))?;
         let parsed = u32::try_from(
             source
-                .source()
-                .flow()
+                .original_graph()
                 .lines()
                 .prepared()
                 .source_flow()
@@ -326,7 +365,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                     .get(local)
                     .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
                 let page_index = fragment.fragment().page_index();
-                if page_index != page.selection().page_index() {
+                if page_index != page.page_index() {
                     return Err(error(owner, E::ReceiptMismatch).into());
                 }
                 match placement {
@@ -454,7 +493,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                 let before_fragment = offset
                     .checked_add(first.ok_or_else(|| error(root, E::ReceiptMismatch))?)
                     .ok_or_else(|| error(root, E::RecordLimit))?;
-                let page = page.selection().page_index();
+                let page = page.page_index();
                 let mut bytes = [0u8; 44];
                 bytes[..4].copy_from_slice(&page.to_be_bytes());
                 bytes[4..12].copy_from_slice(&(before_fragment as u64).to_be_bytes());
@@ -470,14 +509,25 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                 .checked_add(page.fragments().len())
                 .ok_or_else(|| error(root, E::RecordLimit))?;
         }
-        Ok(BookV2MarkerDisplay {
-            source,
-            admitted: self.admitted,
+        Ok(MarkerProjection {
             draws,
             separators,
             fingerprint,
-            records: self.record_charge(),
-            work: self.work_steps(),
         })
+    }
+}
+
+impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn build_markers(
+        &mut self,
+    ) -> Result<BookV2MarkerDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2MathDisplayError> {
+        let projection = self.projection().collect_markers()?;
+        Ok(BookV2MarkerDisplay::from_projection(
+            self.source,
+            self.admitted,
+            projection,
+            self.record_charge(),
+            self.work_steps(),
+        ))
     }
 }

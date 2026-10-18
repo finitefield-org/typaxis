@@ -4,6 +4,9 @@
 //! Canonical list and footnote labels use the generated text namespace.
 //! Footnote placement remains pending even after its inline marker is shaped.
 use super::*;
+#[path = "production_shape_digest.rs"]
+mod digest;
+use digest::Digest;
 use typaxis_core::{M4EffectiveResourceLimits, Sha256};
 use typaxis_syntax::{
     ProductionInlineContent, ProductionTextFlow, ProductionTextParagraph,
@@ -13,6 +16,11 @@ use typaxis_syntax::{
 #[path = "production_text_inputs.rs"]
 mod inputs;
 use inputs::{flow_call, BodyFlow, BodyFonts};
+use crate::shared_shape_storage::{self as shared_storage, NoStorage, Site, Storage};
+
+#[cfg(feature = "book-v2-staging")]
+#[path = "production_text_storage.rs"]
+mod observed_storage;
 
 #[cfg(feature = "book-v2-staging")]
 #[path = "book_v2_text.rs"]
@@ -364,16 +372,72 @@ fn shape_document_with_record_limit_counted<'a>(
     maximum_records: Option<u64>,
     output_records: &mut u64,
 ) -> Result<BodyShapeOutput<'a>, ProductionTextShapeError> {
+    shape_document_with_storage(
+        flow,
+        admitted,
+        limits,
+        epoch,
+        lines,
+        algorithm,
+        maximum_records,
+        output_records,
+        &mut NoStorage,
+    )
+}
+
+#[cfg(feature = "book-v2-staging")]
+struct BodyShapeRequest<'a, 'font, 'context> {
+    flow: BodyFlow<'a>,
+    admitted: BodyFonts<'font>,
+    limits: &'context M4EffectiveResourceLimits,
+    epoch: [u8; 32],
+    lines: Option<&'context [ProductionParagraphLineContext<'context>]>,
+    algorithm: &'context str,
+    maximum_records: Option<u64>,
+}
+#[cfg(feature = "book-v2-staging")]
+impl<'a> BodyShapeRequest<'a, '_, '_> {
+    fn shape(self, records: &mut u64) -> Result<BodyShapeOutput<'a>, ProductionTextShapeError> {
+        shape_document_with_record_limit_counted(
+            self.flow,
+            self.admitted,
+            self.limits,
+            self.epoch,
+            self.lines,
+            self.algorithm,
+            self.maximum_records,
+            records,
+        )
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn shape_document_with_storage<'a, S: Storage>(
+    flow: BodyFlow<'a>,
+    admitted: BodyFonts<'_>,
+    limits: &M4EffectiveResourceLimits,
+    epoch: [u8; 32],
+    lines: Option<&[ProductionParagraphLineContext<'_>]>,
+    algorithm: &str,
+    maximum_records: Option<u64>,
+    output_records: &mut u64,
+    storage: &mut S,
+) -> Result<BodyShapeOutput<'a>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let root = NodeId::new(0);
     *output_records = 0;
+    storage.owner(root);
     let mut line_context_fingerprint = None;
     if let Some(contexts) = lines {
         if contexts.len() != flow_call!(flow, paragraphs()).len() {
             return Err(error(root, E::InvalidLineContext));
         }
-        let mut hash = sha256(b"typaxis.production-line-context/1");
+        let mut hash = digest::hash(root, b"typaxis.production-line-context/1", storage)?;
         for (context, paragraph) in contexts.iter().zip(flow_call!(flow, paragraphs())) {
+            storage.owner(paragraph.owner());
+            storage
+                .work(1)
+                .map_err(|e| error(paragraph.owner(), E::Backend(e)))?;
             if context.owner != paragraph.owner() {
                 return Err(error(paragraph.owner(), E::InvalidLineContext));
             }
@@ -386,21 +450,31 @@ fn shape_document_with_record_limit_counted<'a>(
             record[..32].copy_from_slice(&hash);
             record[32..36].copy_from_slice(&context.owner.get().to_be_bytes());
             record[36..].copy_from_slice(&(context.ends.len() as u64).to_be_bytes());
-            hash = sha256(&record);
+            hash = digest::hash(context.owner, &record, storage)?;
             for end in context.ends {
                 let mut record = [0u8; 36];
                 record[..32].copy_from_slice(&hash);
                 record[32..].copy_from_slice(&end.to_be_bytes());
-                hash = sha256(&record);
+                hash = digest::hash(context.owner, &record, storage)?;
             }
         }
         line_context_fingerprint = Some(hash);
     }
     let mut paragraphs = Vec::new();
+    body_reserve::<ProductionBodyParagraphShape<'a>, _>(
+        storage,
+        Site::BodyParagraphs,
+        flow_call!(flow, paragraphs()).len(),
+        root,
+    )?;
     paragraphs
         .try_reserve_exact(flow_call!(flow, paragraphs()).len())
         .map_err(|_| error(root, E::AllocationFailure))?;
     for (index, paragraph) in flow_call!(flow, paragraphs()).iter().enumerate() {
+        storage.owner(paragraph.owner());
+        storage
+            .work(1)
+            .map_err(|e| error(paragraph.owner(), E::Backend(e)))?;
         paragraphs.push(shape_paragraph(
             flow,
             paragraph,
@@ -409,10 +483,25 @@ fn shape_document_with_record_limit_counted<'a>(
             output_records,
             lines.map(|contexts| contexts[index].ends),
             maximum_records,
+            storage,
         )?);
     }
-    let list_markers = list_markers::shape_markers(flow, admitted, limits, output_records, maximum_records)?;
-    let footnote_markers = footnote_markers::shape_markers(flow, admitted, limits, output_records, maximum_records)?;
+    let list_markers = list_markers::shape_markers(
+        flow,
+        admitted,
+        limits,
+        output_records,
+        maximum_records,
+        storage,
+    )?;
+    let footnote_markers = footnote_markers::shape_markers(
+        flow,
+        admitted,
+        limits,
+        output_records,
+        maximum_records,
+        storage,
+    )?;
     // Preserve the checked size arithmetic, then stream the already sealed
     // paragraph and marker digests without retaining another document buffer.
     let _capacity = paragraphs
@@ -423,31 +512,40 @@ fn shape_document_with_record_limit_counted<'a>(
         .checked_mul(32)
         .and_then(|n| n.checked_add(256))
         .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
-    let mut bytes = Sha256::new();
-    bytes.update(&sha256(algorithm.as_bytes()));
-    bytes.update(&flow_call!(flow, fingerprint()));
-    bytes.update(&admitted.fingerprint());
-    bytes.update(&limits.fingerprint());
-    bytes.update(&epoch);
+    let mut bytes = Digest::new(root, storage)?;
+    bytes.hash_into(algorithm.as_bytes())?;
+    bytes.update(&flow_call!(flow, fingerprint()))?;
+    bytes.update(&admitted.fingerprint())?;
+    bytes.update(&limits.fingerprint())?;
+    bytes.update(&epoch)?;
     let shaper = ShaperIdentity::linked_reference();
-    bytes.update(&sha256(shaper.backend().as_bytes()));
-    bytes.update(&sha256(shaper.version().as_bytes()));
-    bytes.update(&output_records.to_be_bytes());
+    bytes.hash_into(shaper.backend().as_bytes())?;
+    bytes.hash_into(shaper.version().as_bytes())?;
+    bytes.update(&output_records.to_be_bytes())?;
     for paragraph in &paragraphs {
-        bytes.update(&paragraph.fingerprint);
+        bytes.owner(paragraph.owner);
+        bytes.update(&paragraph.fingerprint)?;
     }
     for marker in &list_markers {
-        bytes.update(&marker.fingerprint());
+        bytes.owner(marker.source().owner());
+        bytes.update(&marker.fingerprint())?;
     }
     for marker in &footnote_markers {
-        bytes.update(&marker.fingerprint());
+        bytes.owner(marker.source().owner());
+        bytes.update(&marker.fingerprint())?;
     }
-    let mut fingerprint = bytes.finish();
+    let mut fingerprint = bytes.finish()?;
     if let Some(context) = line_context_fingerprint {
         let mut record = [0u8; 64];
         record[..32].copy_from_slice(&fingerprint);
         record[32..].copy_from_slice(&context);
-        fingerprint = sha256(&record);
+        fingerprint = digest::hash(
+            lines
+                .and_then(|contexts| contexts.last())
+                .map_or(root, |context| context.owner),
+            &record,
+            storage,
+        )?;
     }
     Ok(BodyShapeOutput {
         line_context_fingerprint,
@@ -459,7 +557,8 @@ fn shape_document_with_record_limit_counted<'a>(
     })
 }
 
-fn shape_paragraph<'a>(
+#[allow(clippy::too_many_arguments)]
+fn shape_paragraph<'a, S: Storage>(
     flow: BodyFlow<'a>,
     paragraph: &ProductionTextParagraph<'a>,
     admitted: BodyFonts<'_>,
@@ -467,42 +566,67 @@ fn shape_paragraph<'a>(
     output_records: &mut u64,
     line_ends: Option<&[u32]>,
     maximum_records: Option<u64>,
+    storage: &mut S,
 ) -> Result<ProductionBodyParagraphShape<'a>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let owner = paragraph.owner();
+    storage.owner(owner);
     let maximum = limits.base().get().max_shaping_context_bytes;
-    let (context, ranges) = paragraph_context(flow, paragraph, maximum)?;
+    let (context, ranges) = paragraph_context(flow, paragraph, maximum, storage)?;
     if let Some(ends) = line_ends {
         if ends.last().copied().unwrap_or(0) as usize != context.len()
-            || (context.len() > 0 && ends.is_empty())
-            || ends.windows(2).any(|w| w[0] > w[1])
+            || (!context.is_empty() && ends.is_empty())
         {
             return Err(error(owner, E::InvalidLineContext));
         }
-        let mut boundaries = UnicodeSegmentation::grapheme_indices(context.as_str(), true)
-            .map(|(i, _)| i)
-            .chain(std::iter::once(context.len()))
-            .peekable();
-        for end in ends {
-            let end = *end as usize;
-            while boundaries.peek().is_some_and(|v| *v < end) {
-                boundaries.next();
+        for pair in ends.windows(2) {
+            storage.work(1).map_err(|e| error(owner, E::Backend(e)))?;
+            if pair[0] > pair[1] {
+                return Err(error(owner, E::InvalidLineContext));
             }
-            if boundaries.peek() != Some(&end) {
+        }
+        let mut boundaries = crate::shared_grapheme_storage::Boundaries::new(&context, storage)
+            .map_err(|e| error(owner, E::Backend(e)))?;
+        for end in ends {
+            storage.work(1).map_err(|e| error(owner, E::Backend(e)))?;
+            let end = *end as usize;
+            while boundaries
+                .peek(storage)
+                .map_err(|e| error(owner, E::Backend(e)))?
+                .is_some_and(|v| v < end)
+            {
+                boundaries
+                    .advance(storage)
+                    .map_err(|e| error(owner, E::Backend(e)))?;
+            }
+            if boundaries
+                .peek(storage)
+                .map_err(|e| error(owner, E::Backend(e)))?
+                != Some(end)
+            {
                 return Err(error(owner, E::InvalidLineContext));
             }
         }
     }
     let mut pending_references = Vec::new();
+    body_reserve::<NodeId, _>(
+        storage,
+        Site::BodyReferences,
+        paragraph.items().len(),
+        owner,
+    )?;
     pending_references
         .try_reserve_exact(paragraph.items().len())
         .map_err(|_| error(owner, E::AllocationFailure))?;
     let mut has_text = false;
     for site in paragraph.items() {
+        storage.work(1).map_err(|e| error(owner, E::Backend(e)))?;
         match site.content() {
             ProductionInlineContent::Reference | ProductionInlineContent::FootnoteReference => {
                 pending_references.push(site.owner());
-                has_text |= site_text(flow, site).is_some_and(|(_, text)| !text.is_empty());
+                has_text |= site_text_with_storage(flow, site, storage)
+                    .map_err(|e| error(owner, E::Backend(e)))?
+                    .is_some_and(|(_, text)| !text.is_empty());
             }
             ProductionInlineContent::Text { utf8, .. } => has_text |= !utf8.is_empty(),
             _ => (),
@@ -511,7 +635,8 @@ fn shape_paragraph<'a>(
     let (paragraph_level, specs) = if context.is_empty() {
         (BidiLevel::LTR, Vec::new())
     } else {
-        itemize_run_specs(&context).map_err(|e| error(owner, E::Itemization(e)))?
+        shared_storage::itemize_run_specs_with_storage(&context, storage)
+            .map_err(|e| error(owner, E::Itemization(e)))?
     };
     let mut result = ProductionBodyParagraphShape {
         owner,
@@ -529,15 +654,20 @@ fn shape_paragraph<'a>(
         let size = style
             .font_size()
             .ok_or_else(|| error(owner, E::MissingTextStyle))?;
-        let face_id = admitted
-            .font_families()
-            .resolve(families)
-            .map_err(|_| error(owner, E::MissingSelectedFont))?;
-        let font = admitted
-            .font(face_id)
-            .ok_or_else(|| error(owner, E::MissingSelectedFont))?;
-        let face = harfrust::FontRef::from_index(font.bytes(), font.face_index())
-            .map_err(|_| error(owner, E::InvalidFontMetrics))?;
+        let (face_id, font) = admitted
+            .select_with_storage(families, storage)
+            .map_err(|kind| error(owner, kind))?;
+        let face =
+            crate::font_reader::read_with_tables(font.bytes(), font.face_index(), 1, storage)
+                .map_err(|e| {
+                    error(
+                        owner,
+                        match e {
+                            LinkedShaperError::InvalidFontOrFace => E::InvalidFontMetrics,
+                            e => E::Backend(e),
+                        },
+                    )
+                })?;
         let hhea = face
             .hhea()
             .map_err(|_| error(owner, E::InvalidFontMetrics))?;
@@ -558,28 +688,47 @@ fn shape_paragraph<'a>(
         // itemized runs again for every source site in a long paragraph.
         let mut cursor = 0;
         for (index, (site, &(start, end))) in paragraph.items().iter().zip(&ranges).enumerate() {
-            let Some((site_source, utf8)) = site_text(flow, site) else {
+            storage.owner(owner);
+            storage.work(1).map_err(|e| error(owner, E::Backend(e)))?;
+            let Some((site_source, utf8)) = site_text_with_storage(flow, site, storage)
+                .map_err(|e| error(owner, E::Backend(e)))?
+            else {
                 continue;
             };
             if utf8.is_empty() {
                 continue;
             }
-            font.coverage(utf8)
+            storage.owner(site.owner());
+            font.coverage_with_storage(utf8, storage)
                 .map_err(|kind| error(site.owner(), kind))?;
-            while cursor < specs.len() && specs[cursor].end as usize <= start {
+            while cursor < specs.len() {
+                storage
+                    .work(1)
+                    .map_err(|e| error(site.owner(), E::Backend(e)))?;
+                if specs[cursor].end as usize > start {
+                    break;
+                }
                 cursor += 1;
             }
-            for spec in specs[cursor..]
-                .iter()
-                .take_while(|spec| (spec.start as usize) < end)
-            {
+            for spec in &specs[cursor..] {
+                storage
+                    .work(1)
+                    .map_err(|e| error(site.owner(), E::Backend(e)))?;
+                if spec.start as usize >= end {
+                    break;
+                }
                 let mut run_start = start.max(spec.start as usize);
                 let spec_end = end.min(spec.end as usize);
                 while run_start < spec_end {
+                    storage
+                        .work(1)
+                        .map_err(|e| error(site.owner(), E::Backend(e)))?;
                     let (context_start, context_end) = match line_ends {
                         None => (0, context.len()),
                         Some(ends) => {
-                            let line = ends.partition_point(|end| *end as usize <= run_start);
+                            let line =
+                                crate::shared_text_work::line_index(ends, run_start, storage)
+                                    .map_err(|e| error(site.owner(), E::Backend(e)))?;
                             let end = *ends
                                 .get(line)
                                 .ok_or_else(|| error(owner, E::InvalidLineContext))?
@@ -612,9 +761,10 @@ fn shape_paragraph<'a>(
                         u32::try_from(result.runs.len())
                             .map_err(|_| error(site.owner(), E::ArithmeticOverflow))?,
                     );
-                    font.run_coverage(run_text, &context[run_end..context_end])
+                    font.run_coverage(run_text, &context[run_end..context_end], storage)
                         .map_err(|kind| error(site.owner(), kind))?;
                     let mut budget = ShapeOutputBudget::new(maximum);
+                    storage.owner(site.owner());
                     let run = shape_linked_with_record_limit(
                         LinkedBackendInput {
                             run_id,
@@ -636,23 +786,31 @@ fn shape_paragraph<'a>(
                             max_output_records: maximum,
                         },
                         &mut budget,
-                        site.owner(), output_records, maximum_records,
+                        site.owner(),
+                        output_records,
+                        maximum_records,
+                        storage,
                     )?;
                     let expected = ExpectedGlyphRun {
                         run_id,
                         font: font.instance_id(),
                         bidi_level: spec.bidi_level,
                         source,
-                        utf8_boundaries: utf8_boundaries(source, run_text)
-                            .ok_or_else(|| error(site.owner(), E::ReceiptMismatch))?,
+                        utf8_boundaries: shared_storage::utf8_boundaries_with_storage(
+                            source, run_text, storage,
+                        )
+                        .map_err(|_| error(site.owner(), E::ReceiptMismatch))?,
                         glyph_count: font.metadata().glyph_count,
                         max_output_records: maximum,
                     };
-                    if !budget.matches_output(&run) || validate_glyph_run(&expected, &run).is_err()
+                    if !budget.matches_output(&run)
+                        || shared_storage::validate_glyph_run_with_storage(&expected, &run, storage)
+                            .is_err()
                     {
                         return Err(error(site.owner(), E::ReceiptMismatch));
                     }
-                    validate_body_glyph_coverage(&run).map_err(|kind| error(site.owner(), kind))?;
+                    validate_body_glyph_coverage(&run, storage)
+                        .map_err(|kind| error(site.owner(), kind))?;
                     // Bound retained output across the complete document, in addition
                     // to the backend's per-request allocation ceiling.
                     if maximum_records.is_none() {
@@ -662,10 +820,7 @@ fn shape_paragraph<'a>(
                             .filter(|n| *n <= limits.base().get().max_fragments)
                             .ok_or_else(|| error(site.owner(), E::OutputLimit))?;
                     }
-                    result
-                        .runs
-                        .try_reserve(1)
-                        .map_err(|_| error(site.owner(), E::AllocationFailure))?;
+                    body_reserve_one(&mut result.runs, storage, Site::BodyRuns, site.owner())?;
                     result.runs.push(ProductionBodyTextRun {
                         site_index: index as u32,
                         owner: site.owner(),
@@ -678,44 +833,70 @@ fn shape_paragraph<'a>(
             }
         }
     }
-    result.fingerprint = paragraph_fingerprint(&result)?;
+    result.fingerprint = paragraph_fingerprint(&result, storage)?;
     Ok(result)
 }
 
-fn shape_linked_with_record_limit(
+fn shape_linked_with_record_limit<S: Storage>(
     input: LinkedBackendInput<'_>,
     budget: &mut ShapeOutputBudget,
     owner: NodeId,
     records: &mut u64,
     maximum: Option<u64>,
+    storage: &mut S,
 ) -> Result<GlyphRun, ProductionTextShapeError> {
     let Some(maximum) = maximum else {
-        return shape_linked(input, budget)
+        return shared_storage::shape_linked_with_storage(input, budget, |_, _| Ok(()), storage)
             .map_err(|e| error(owner, ProductionTextShapeErrorKind::Backend(e)));
     };
     let mut rejected = false;
-    let result = shape_linked_with_output_reservation(input, budget, |glyphs, clusters| {
-        match records.checked_add(1 + u64::from(glyphs) + u64::from(clusters))
-            .filter(|n| *n <= maximum) {
-            Some(next) => { *records = next; Ok(()) }
+    let result = shared_storage::shape_linked_with_storage(
+        input,
+        budget,
+        |glyphs, clusters| match records
+            .checked_add(1 + u64::from(glyphs) + u64::from(clusters))
+            .filter(|n| *n <= maximum)
+        {
+            Some(next) => {
+                *records = next;
+                Ok(())
+            }
             None => {
                 rejected = true;
                 Err(LinkedShaperError::OutputBudget(ShapeWorkError::GlyphLimit))
             }
-        }
-    });
-    result.map_err(|e| error(owner, if rejected {
-        ProductionTextShapeErrorKind::OutputLimit
-    } else {
-        ProductionTextShapeErrorKind::Backend(e)
-    }))
+        },
+        storage,
+    );
+    result.map_err(|e| {
+        error(
+            owner,
+            if rejected {
+                ProductionTextShapeErrorKind::OutputLimit
+            } else {
+                ProductionTextShapeErrorKind::Backend(e)
+            },
+        )
+    })
 }
 
-fn validate_body_glyph_coverage(run: &GlyphRun) -> Result<(), ProductionTextShapeErrorKind> {
+fn validate_body_glyph_coverage<S: Storage>(
+    run: &GlyphRun,
+    storage: &mut S,
+) -> Result<(), ProductionTextShapeErrorKind> {
     use ProductionTextShapeErrorKind as E;
     for cluster in &run.clusters {
+        storage.work(1).map_err(E::Backend)?;
         let glyphs = &run.glyphs[cluster.glyph_start as usize..cluster.glyph_end as usize];
-        if !glyphs.iter().any(|glyph| glyph.original_gid.get() == 0) {
+        let mut missing = false;
+        for glyph in glyphs {
+            storage.work(1).map_err(E::Backend)?;
+            if glyph.original_gid.get() == 0 {
+                missing = true;
+                break;
+            }
+        }
+        if !missing {
             continue;
         }
         let ShapeSourceSpan::Parsed(span) = cluster.source_span else {
@@ -725,6 +906,49 @@ fn validate_body_glyph_coverage(run: &GlyphRun) -> Result<(), ProductionTextShap
         // layout has an explicit suppressed-cluster owner, do not authorize a
         // missing glyph even for an entirely default-ignorable source cluster.
         return Err(E::MissingShapedGlyph { span });
+    }
+    Ok(())
+}
+
+fn body_reserve<T, S: Storage>(
+    storage: &mut S,
+    site: Site,
+    count: usize,
+    owner: NodeId,
+) -> Result<(), ProductionTextShapeError> {
+    storage
+        .reserve::<T>(site, count)
+        .map_err(|_| error(owner, ProductionTextShapeErrorKind::AllocationFailure))
+}
+
+fn body_reserve_one<T, S: Storage>(
+    output: &mut Vec<T>,
+    storage: &mut S,
+    site: Site,
+    owner: NodeId,
+) -> Result<(), ProductionTextShapeError> {
+    if !S::OBSERVED {
+        return output
+            .try_reserve(1)
+            .map_err(|_| error(owner, ProductionTextShapeErrorKind::AllocationFailure));
+    }
+    if output.len() == output.capacity() {
+        // Keep growth geometric while paying the complete next target before
+        // reallocating. Allocator overcapacity is a separate, unclaimed axis.
+        let target = output
+            .capacity()
+            .checked_mul(2)
+            .and_then(|n| {
+                output
+                    .len()
+                    .checked_add(1)
+                    .map(|required| n.max(4).max(required))
+            })
+            .ok_or_else(|| error(owner, ProductionTextShapeErrorKind::ArithmeticOverflow))?;
+        body_reserve::<T, _>(storage, site, target, owner)?;
+        output
+            .try_reserve_exact(target - output.len())
+            .map_err(|_| error(owner, ProductionTextShapeErrorKind::AllocationFailure))?;
     }
     Ok(())
 }
@@ -747,18 +971,46 @@ fn site_text<'a>(
     }
 }
 
-fn paragraph_context<'a>(
+fn site_text_with_storage<'a, S: Storage>(
+    flow: BodyFlow<'a>,
+    site: &typaxis_syntax::ProductionInlineSite<'a>,
+    storage: &mut S,
+) -> Result<Option<(ShapeSourceSpan, &'a str)>, LinkedShaperError> {
+    if !S::OBSERVED {
+        return Ok(site_text(flow, site));
+    }
+    let pair = match site.content() {
+        ProductionInlineContent::Reference => flow_call!(
+            flow,
+            reference_with_work(site.owner(), &mut |n| storage.work(n))
+        )?,
+        ProductionInlineContent::FootnoteReference => flow_call!(
+            flow,
+            footnote_marker_with_work(site.owner(), &mut |n| storage.work(n))
+        )?,
+        _ => return Ok(site_text(flow, site)),
+    };
+    Ok(pair.map(|(provenance, text)| (ShapeSourceSpan::Generated(provenance), text)))
+}
+
+fn paragraph_context<'a, S: Storage>(
     flow: BodyFlow<'a>,
     paragraph: &ProductionTextParagraph<'a>,
     maximum: u32,
+    storage: &mut S,
 ) -> Result<(String, Vec<(usize, usize)>), ProductionTextShapeError> {
     use ProductionInlineContent as C;
     use ProductionTextShapeErrorKind as E;
-    let value = |site: &typaxis_syntax::ProductionInlineSite<'a>| {
-        if let Some((_, text)) = site_text(flow, site) {
-            return text;
+    let owner = paragraph.owner();
+    let value = |site: &typaxis_syntax::ProductionInlineSite<'a>,
+                 storage: &mut S|
+     -> Result<&'a str, ProductionTextShapeError> {
+        if let Some((_, text)) =
+            site_text_with_storage(flow, site, storage).map_err(|e| error(owner, E::Backend(e)))?
+        {
+            return Ok(text);
         }
-        match site.content() {
+        Ok(match site.content() {
             C::Text { utf8, .. } => utf8,
             C::NativeMath
             | C::InlineVector
@@ -770,39 +1022,56 @@ fn paragraph_context<'a>(
             C::SoftBreak => "",
             C::HardBreak => "\u{2028}",
             _ => "",
-        }
+        })
     };
-    let owner = paragraph.owner();
-    let len = paragraph.items().iter().try_fold(0usize, |n, site| {
-        n.checked_add(value(site).len())
+    let mut len = 0usize;
+    for site in paragraph.items() {
+        storage.work(1).map_err(|e| error(owner, E::Backend(e)))?;
+        len = len
+            .checked_add(value(site, storage)?.len())
             .filter(|n| *n <= maximum as usize)
-            .ok_or_else(|| error(site.owner(), E::ContextLimit))
-    })?;
+            .ok_or_else(|| error(site.owner(), E::ContextLimit))?;
+    }
     let mut context = String::new();
+    body_reserve::<u8, _>(storage, Site::BodyContext, len, owner)?;
     context
         .try_reserve_exact(len)
         .map_err(|_| error(owner, E::AllocationFailure))?;
     let mut ranges = Vec::new();
+    body_reserve::<(usize, usize), _>(storage, Site::BodyRanges, paragraph.items().len(), owner)?;
     ranges
         .try_reserve_exact(paragraph.items().len())
         .map_err(|_| error(owner, E::AllocationFailure))?;
     for site in paragraph.items() {
         let start = context.len();
-        context.push_str(value(site));
+        let text = value(site, storage)?;
+        storage
+            .work(text.len() as u64 + 1)
+            .map_err(|e| error(owner, E::Backend(e)))?;
+        context.push_str(text);
         ranges.push((start, context.len()));
     }
     // Linear merge instead of scanning all graphemes per site. Zero-width syntax
     // boundaries must also not split an extended grapheme across two text owners.
-    let mut boundaries = UnicodeSegmentation::grapheme_indices(context.as_str(), true)
-        .map(|(start, _)| start)
-        .chain(std::iter::once(context.len()))
-        .peekable();
+    let mut boundaries = crate::shared_grapheme_storage::Boundaries::new(&context, storage)
+        .map_err(|e| error(owner, E::Backend(e)))?;
     for (site, &(start, end)) in paragraph.items().iter().zip(&ranges) {
         for boundary in [start, end] {
-            while boundaries.peek().is_some_and(|n| *n < boundary) {
-                boundaries.next();
+            storage.work(1).map_err(|e| error(owner, E::Backend(e)))?;
+            while boundaries
+                .peek(storage)
+                .map_err(|e| error(owner, E::Backend(e)))?
+                .is_some_and(|n| n < boundary)
+            {
+                boundaries
+                    .advance(storage)
+                    .map_err(|e| error(owner, E::Backend(e)))?;
             }
-            if boundaries.peek() != Some(&boundary) {
+            if boundaries
+                .peek(storage)
+                .map_err(|e| error(owner, E::Backend(e)))?
+                != Some(boundary)
+            {
                 return Err(error(
                     site.owner(),
                     E::Itemization(ItemizationError::SiteBoundarySplitsGrapheme),
@@ -813,8 +1082,9 @@ fn paragraph_context<'a>(
     Ok((context, ranges))
 }
 
-fn paragraph_fingerprint(
+fn paragraph_fingerprint<S: Storage>(
     p: &ProductionBodyParagraphShape<'_>,
+    storage: &mut S,
 ) -> Result<[u8; 32], ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let mut records = p
@@ -825,6 +1095,10 @@ fn paragraph_fingerprint(
         .and_then(|n| n.checked_add(p.pending_references.len().checked_mul(4)?))
         .ok_or_else(|| error(p.owner, E::ArithmeticOverflow))?;
     for run in &p.runs {
+        storage.owner(run.owner);
+        storage
+            .work(1)
+            .map_err(|e| error(run.owner, E::Backend(e)))?;
         records = run
             .run
             .glyphs
@@ -836,43 +1110,45 @@ fn paragraph_fingerprint(
     }
     // Keep the overflow guard even though the encoded bytes are no longer stored.
     let _capacity = records;
-    let mut b = Sha256::new();
-    b.update(&p.owner.get().to_be_bytes());
-    b.update(&[p.paragraph_level.get()]);
-    b.update(&[u8::from(p.font.is_some())]);
+    let mut b = Digest::new(p.owner, storage)?;
+    b.update(&p.owner.get().to_be_bytes())?;
+    b.update(&[p.paragraph_level.get()])?;
+    b.update(&[u8::from(p.font.is_some())])?;
     if let Some(font) = &p.font {
-        b.update(&font.face_id.get().to_be_bytes());
-        b.update(&font.content_hash);
-        b.update(&font.face_index.to_be_bytes());
+        b.update(&font.face_id.get().to_be_bytes())?;
+        b.update(&font.content_hash)?;
+        b.update(&font.face_index.to_be_bytes())?;
         for metric in [
             font.size.get(),
             font.ascender,
             font.descender,
             font.line_gap,
         ] {
-            b.update(&metric.raw().to_be_bytes());
+            b.update(&metric.raw().to_be_bytes())?;
         }
     }
-    b.update(&(p.pending_references.len() as u64).to_be_bytes());
+    b.update(&(p.pending_references.len() as u64).to_be_bytes())?;
     for owner in &p.pending_references {
-        b.update(&owner.get().to_be_bytes());
+        b.owner(*owner);
+        b.update(&owner.get().to_be_bytes())?;
     }
-    b.update(&(p.runs.len() as u64).to_be_bytes());
+    b.update(&(p.runs.len() as u64).to_be_bytes())?;
     for r in &p.runs {
-        b.update(&r.site_index.to_be_bytes());
-        b.update(&r.owner.get().to_be_bytes());
-        b.update(&sha256(r.language.as_bytes()));
-        b.update(&r.script.bytes());
-        b.update(&r.run.run_id.get().to_be_bytes());
-        b.update(&r.run.font.get().to_be_bytes());
-        b.update(&[r.run.bidi_level.get()]);
-        let span_bytes = |b: &mut Sha256, source| -> Result<(), ProductionTextShapeError> {
+        b.owner(r.owner);
+        b.update(&r.site_index.to_be_bytes())?;
+        b.update(&r.owner.get().to_be_bytes())?;
+        b.hash_into(r.language.as_bytes())?;
+        b.update(&r.script.bytes())?;
+        b.update(&r.run.run_id.get().to_be_bytes())?;
+        b.update(&r.run.font.get().to_be_bytes())?;
+        b.update(&[r.run.bidi_level.get()])?;
+        let span_bytes = |b: &mut Digest<'_, S>, source| -> Result<(), ProductionTextShapeError> {
             match source {
                 ShapeSourceSpan::Parsed(span) => {
-                    b.update(&[0]);
-                    b.update(&span.text_id().get().to_be_bytes());
-                    b.update(&span.start_byte().get().to_be_bytes());
-                    b.update(&span.end_byte().get().to_be_bytes());
+                    b.update(&[0])?;
+                    b.update(&span.text_id().get().to_be_bytes())?;
+                    b.update(&span.start_byte().get().to_be_bytes())?;
+                    b.update(&span.end_byte().get().to_be_bytes())?;
                 }
                 ShapeSourceSpan::Generated(provenance) => {
                     let key = provenance.buffer_key();
@@ -881,33 +1157,33 @@ fn paragraph_fingerprint(
                         typaxis_core::GenerationKind::PageReference => 2,
                         typaxis_core::GenerationKind::Counter => 3,
                         _ => return Err(error(r.owner, E::ReceiptMismatch)),
-                    }]);
-                    b.update(&key.owner().get().to_be_bytes());
-                    b.update(&key.owner_local_ordinal().to_be_bytes());
+                    }])?;
+                    b.update(&key.owner().get().to_be_bytes())?;
+                    b.update(&key.owner_local_ordinal().to_be_bytes())?;
                     let span = provenance.text_span();
-                    b.update(&span.text_id().get().to_be_bytes());
-                    b.update(&span.range().start_byte().get().to_be_bytes());
-                    b.update(&span.range().end_byte().get().to_be_bytes());
+                    b.update(&span.text_id().get().to_be_bytes())?;
+                    b.update(&span.range().start_byte().get().to_be_bytes())?;
+                    b.update(&span.range().end_byte().get().to_be_bytes())?;
                 }
             }
             Ok(())
         };
         span_bytes(&mut b, r.run.source_span)?;
-        b.update(&(r.run.glyphs.len() as u64).to_be_bytes());
+        b.update(&(r.run.glyphs.len() as u64).to_be_bytes())?;
         for g in &r.run.glyphs {
-            b.update(&g.original_gid.get().to_be_bytes());
+            b.update(&g.original_gid.get().to_be_bytes())?;
             for metric in [g.advance_x, g.advance_y, g.offset_x, g.offset_y] {
-                b.update(&metric.raw().to_be_bytes());
+                b.update(&metric.raw().to_be_bytes())?;
             }
         }
-        b.update(&(r.run.clusters.len() as u64).to_be_bytes());
+        b.update(&(r.run.clusters.len() as u64).to_be_bytes())?;
         for c in &r.run.clusters {
             span_bytes(&mut b, c.source_span)?;
-            b.update(&c.glyph_start.to_be_bytes());
-            b.update(&c.glyph_end.to_be_bytes());
+            b.update(&c.glyph_start.to_be_bytes())?;
+            b.update(&c.glyph_end.to_be_bytes())?;
         }
     }
-    Ok(b.finish())
+    b.finish()
 }
 
 /// Resolve actual horizontal metrics for a sealed, producer-authored number.
@@ -965,4 +1241,101 @@ fn equation_number_font_metrics(
         return Err(error(owner, E::InvalidFontMetrics));
     }
     Ok(metrics)
+}
+
+#[cfg(test)]
+mod output_work_tests {
+    use super::*;
+    #[test]
+    fn shape_output_body_missing_glyph_keeps_span_and_stops_at_every_visit() {
+        struct Visits {
+            calls: usize,
+            stop: Option<usize>,
+        }
+        impl Storage for Visits {
+            fn reserve<T>(&mut self, _: Site, _: usize) -> Result<(), LinkedShaperError> {
+                panic!()
+            }
+            fn records(&mut self, _: u64) -> Result<(), LinkedShaperError> {
+                panic!()
+            }
+            fn work(&mut self, n: u64) -> Result<(), LinkedShaperError> {
+                assert_eq!(n, 1);
+                let at = self.calls;
+                self.calls += 1;
+                if self.stop == Some(at) {
+                    Err(LinkedShaperError::AllocationFailure)
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        let span = TextSpan::new(
+            typaxis_core::TextBufferId::new(42),
+            Utf8ByteOffset::new(17),
+            Utf8ByteOffset::new(20),
+        )
+        .unwrap();
+        let source = ShapeSourceSpan::Parsed(span);
+        for (ids, missing) in [
+            (&[1u16, 2, 3][..], false),
+            (&[0, 2, 3], true),
+            (&[1, 0, 3], true),
+        ] {
+            let run = GlyphRun {
+                run_id: GlyphRunId::new(0),
+                font: FontInstanceId::new(1),
+                bidi_level: BidiLevel::LTR,
+                source_span: source,
+                glyphs: ids
+                    .iter()
+                    .map(|&id| ShapedGlyph {
+                        original_gid: OriginalGlyphId::new(id),
+                        advance_x: Length::ZERO,
+                        advance_y: Length::ZERO,
+                        offset_x: Length::ZERO,
+                        offset_y: Length::ZERO,
+                    })
+                    .collect(),
+                clusters: vec![ShapedCluster {
+                    source_span: source,
+                    glyph_start: 0,
+                    glyph_end: 3,
+                }],
+            };
+            let mut full = Visits {
+                calls: 0,
+                stop: None,
+            };
+            let expected = if missing {
+                Err(ProductionTextShapeErrorKind::MissingShapedGlyph { span })
+            } else {
+                Ok(())
+            };
+            assert_eq!(validate_body_glyph_coverage(&run, &mut full), expected);
+            for stop in 0..full.calls {
+                let mut short = Visits {
+                    calls: 0,
+                    stop: Some(stop),
+                };
+                assert_eq!(
+                    validate_body_glyph_coverage(&run, &mut short),
+                    Err(ProductionTextShapeErrorKind::Backend(
+                        LinkedShaperError::AllocationFailure
+                    ))
+                );
+                assert_eq!(short.calls, stop + 1);
+            }
+            assert_eq!(
+                full.calls,
+                if ids[0] == 0 {
+                    2
+                } else if ids[1] == 0 {
+                    3
+                } else {
+                    4
+                }
+            );
+        }
+    }
 }

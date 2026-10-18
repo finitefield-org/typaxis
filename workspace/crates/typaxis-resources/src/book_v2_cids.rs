@@ -1,6 +1,8 @@
 //! CID selection and occurrence-local extraction for real embedded programs.
 use super::*;
-use typaxis_display_list::book_v2::BookV2FontUseText;
+use typaxis_display_list::book_v2::{
+    BookV2BodyPaintIndex, BookV2ColumnPaintIndex, BookV2FontUseText,
+};
 use typaxis_font::{Cid, UnicodeScalar};
 
 pub const BOOK_V2_CIDS_ALGORITHM: &str = "typaxis.book-2-cids/1";
@@ -66,14 +68,23 @@ impl<'y, 'x, 'c, 'a> BookV2CidFont<'y, 'x, 'c, 'a> {
         self.source.source().source().instance().font_instance_id()
     }
 }
-pub struct BookV2CidUse<'y, 'v, 'a> {
-    source: &'y BookV2SelectedFontUse<'v, 'a>,
+pub struct BookV2CidUseData<'y, 'v, 'a, P: Copy> {
+    source: &'y BookV2SelectedFontUseData<'v, 'a, P>,
     font: usize,
     range: std::ops::Range<usize>,
     actual_text: bool,
 }
-impl<'y, 'v, 'a> BookV2CidUse<'y, 'v, 'a> {
-    pub fn source(&self) -> &'y BookV2SelectedFontUse<'v, 'a> {
+pub type BookV2CidUse<'y, 'v, 'a> = BookV2CidUseData<'y, 'v, 'a, BookV2BodyPaintIndex>;
+/// Column occurrences keep their original typed paint index.
+///
+/// ```compile_fail
+/// use typaxis_resources::book_v2::{BookV2ColumnCidUse, BookV2CidUse};
+/// fn body<'y, 'v, 'a>(value: BookV2ColumnCidUse<'y, 'v, 'a>)
+///     -> BookV2CidUse<'y, 'v, 'a> { value }
+/// ```
+pub type BookV2ColumnCidUse<'y, 'v, 'a> = BookV2CidUseData<'y, 'v, 'a, BookV2ColumnPaintIndex>;
+impl<'y, 'v, 'a, P: Copy> BookV2CidUseData<'y, 'v, 'a, P> {
+    pub fn source(&self) -> &'y BookV2SelectedFontUseData<'v, 'a, P> {
         self.source
     }
     pub fn font_index(&self) -> usize {
@@ -86,21 +97,55 @@ impl<'y, 'v, 'a> BookV2CidUse<'y, 'v, 'a> {
         self.actual_text.then(|| self.source.usage().text())
     }
 }
-pub struct BookV2CidPlans<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'y BookV2FontPrograms<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2CidPlansData<
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'y BookV2FontProgramsData<'x, 'c, 'v, 'a, D, P>,
     fonts: Vec<BookV2CidFont<'y, 'x, 'c, 'a>>,
     bindings: Vec<BookV2CidBinding>,
-    uses: Vec<BookV2CidUse<'y, 'v, 'a>>,
+    uses: Vec<BookV2CidUseData<'y, 'v, 'a, P>>,
     cids: Vec<Cid>,
     fingerprint: [u8; 32],
     records: u64,
     spool: u64,
     work: u64,
 }
-impl<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2CidPlans<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+pub type BookV2CidPlans<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2CidPlansData<
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// Column CID plans cannot be substituted for plans from the Body PDF path.
+///
+/// ```compile_fail
+/// use typaxis_resources::book_v2::{BookV2ColumnCidPlans, BookV2CidPlans};
+/// fn body<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+///     value: BookV2ColumnCidPlans<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+/// ) -> BookV2CidPlans<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnCidPlans<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2CidPlansData<
+    'y,
+    'x,
+    'c,
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+impl<'y, 'x, 'c, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy>
+    BookV2CidPlansData<'y, 'x, 'c, 'v, 'a, D, P>
 {
-    pub fn source(&self) -> &'y BookV2FontPrograms<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn source(&self) -> &'y BookV2FontProgramsData<'x, 'c, 'v, 'a, D, P> {
         self.source
     }
     pub fn fonts(&self) -> &[BookV2CidFont<'y, 'x, 'c, 'a>] {
@@ -109,7 +154,7 @@ impl<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
     pub fn bindings(&self, font: usize) -> Option<&[BookV2CidBinding]> {
         self.bindings.get(self.fonts.get(font)?.range.clone())
     }
-    pub fn uses(&self) -> &[BookV2CidUse<'y, 'v, 'a>] {
+    pub fn uses(&self) -> &[BookV2CidUseData<'y, 'v, 'a, P>] {
         &self.uses
     }
     pub fn cids(&self, usage: usize) -> Option<&[Cid]> {
@@ -157,14 +202,11 @@ fn scalars(text: BookV2FontUseText<'_>) -> Scalars<'_> {
 fn lookup_work(n: usize) -> usize {
     (usize::BITS - n.leading_zeros()) as usize + 1
 }
-impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontSelectionBuilder<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-{
+impl<'v, 'a, D: BookV2ResourceDisplay<'a>> BookV2FontSelectionBuilderData<'v, 'a, D> {
     pub fn plan_cids<'y, 'x, 'c>(
         &mut self,
-        programs: &'y BookV2FontPrograms<'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
-    ) -> Result<BookV2CidPlans<'y, 'x, 'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2CidError>
-    {
+        programs: &'y BookV2FontProgramsData<'x, 'c, 'v, 'a, D>,
+    ) -> Result<BookV2CidPlansData<'y, 'x, 'c, 'v, 'a, D>, BookV2CidError> {
         let selection = programs.source().selection();
         if !std::ptr::eq(self.display, selection.display()) {
             return Err(E::Identity.into());
@@ -227,7 +269,11 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
                 n.checked_add(binding_count.checked_mul(std::mem::size_of::<BookV2CidBinding>())?)
             })
             .and_then(|n| {
-                n.checked_add(nuses.checked_mul(std::mem::size_of::<BookV2CidUse<'y, 'v, 'a>>())?)
+                n.checked_add(
+                    nuses.checked_mul(
+                        std::mem::size_of::<BookV2CidUseData<'y, 'v, 'a, D::Paint>>(),
+                    )?,
+                )
             })
             .and_then(|n| n.checked_add(glyph_count.checked_mul(std::mem::size_of::<Cid>())?))
             .ok_or(E::Spool)?;
@@ -371,14 +417,14 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             encoded[16..24].copy_from_slice(&((cids.len() - start) as u64).to_be_bytes());
             encoded[24] = u8::from(!matches);
             fingerprint = self.fold(fingerprint, &encoded)?;
-            uses.push(BookV2CidUse {
+            uses.push(BookV2CidUseData {
                 source,
                 font,
                 range: start..cids.len(),
                 actual_text: !matches,
             });
         }
-        Ok(BookV2CidPlans {
+        Ok(BookV2CidPlansData {
             source: programs,
             fonts,
             bindings,

@@ -1,23 +1,43 @@
 #![forbid(unsafe_code)]
 
 mod cff;
+mod family_work;
+pub use family_work::FontFamilyWorkError;
+mod family_admission;
+pub use family_admission::{
+    FontFamilyAdmissionBudget, FontFamilyAdmissionError, FontFamilyAdmissionStage, FontFamilyStorage,
+};
 mod math;
 
 pub use cff::{
-    admit_sfnt_cff1, admit_sfnt_cff1_detailed, admit_sfnt_cff1_v2, inspect_cff1_program_v2,
-    validate_cff_cmap_v2, validate_cff_variation_sequences_v2, validate_cff_vertical_metrics_v2,
-    Cff1Admission, Cff1AdmissionV2, Cff1EmbeddingPermission, Cff1Error, Cff1Failure,
-    Cff1FailureKindV2, Cff1FailureV2, Cff1GlyphClosure, Cff1GlyphClosureV2, Cff1PdfMetrics,
-    Cff1Subset, Cff1SubsetSession, Cff1SubsetSessionV2, Cff1SubsetV2, CffCmapFailureV2, CffCmapV2,
-    CffEvaluatedGlyphV2, CffGlyphFailureReasonV2, CffGlyphFailureV2, CffOutlineCommandV2,
-    CffProgramErrorKindV2, CffProgramErrorV2, CffProgramEvaluationSessionV2,
-    CffProgramInspectionV2, CffSelectionFailureV2, CffTableFailureKindV2, CffTableFailureV2,
-    CffVariationSequencesV2, CffVerticalMetricsV2, FontEmbeddingStatus, FontFailureContext,
-    FontFailurePhase, FontFailureReason, FontSubsetStage, VariationCoverage, CFF1_ADMISSION_ID,
+    admit_sfnt_cff1, admit_sfnt_cff1_detailed, admit_sfnt_cff1_v2,
+    admit_sfnt_cff1_v2_owned, admit_sfnt_cff1_v2_owned_with_admission_budget,
+    admit_sfnt_cff1_v2_owned_with_base_cmap_budget, admit_sfnt_cff1_v2_owned_with_cmap_budget,
+    admit_sfnt_cff1_v2_with_admission_budget, admit_sfnt_cff1_v2_with_base_cmap_budget,
+    admit_sfnt_cff1_v2_with_cmap_budget, inspect_cff1_program_v2,
+    inspect_cff1_program_v2_with_budget, validate_cff_cmap_v2,
+    validate_cff_cmap_v2_with_base_cmap_budget, validate_cff_cmap_v2_with_cmap_budget,
+    validate_cff_variation_sequences_v2, validate_cff_vertical_metrics_v2, Cff1Admission,
+    Cff1AdmissionV2, Cff1EmbeddingPermission, Cff1Error, Cff1Failure, Cff1FailureKindV2,
+    Cff1FailureV2, Cff1GlyphClosure, Cff1GlyphClosureV2, Cff1PdfMetrics, Cff1Subset,
+    Cff1SubsetSession, Cff1SubsetSessionV2, Cff1SubsetV2, CffAdmissionBudgetFailureV2,
+    CffAdmissionBudgetResultV2, CffAdmissionBudgetV2, CffBaseCmapBudgetFailureV2,
+    CffBaseCmapBudgetResultV2, CffBaseCmapBudgetV2, CffBaseCmapStorageV2, CffCmapBudgetFailureV2,
+    CffCmapBudgetResultV2, CffCmapBudgetV2, CffCmapFailureV2, CffCmapV2, CffEvaluatedGlyphV2,
+    CffGlyphFailureReasonV2, CffGlyphFailureV2, CffMetadataBudgetFailureV2, CffMetadataStageV2,
+    CffMetadataStorageV2, CffMetadataWorkPointV2, CffOutlineCommandV2, CffProgramBudgetFailureV2,
+    CffProgramBudgetResultV2, CffProgramErrorKindV2, CffProgramErrorV2,
+    CffProgramEvaluationSessionV2, CffProgramInspectionV2, CffSourceGlyphV2, CffProgramStageV2, CffProgramStorageV2,
+    CffProgramWorkPointV2, CffSelectionFailureV2, CffSfntBudgetFailureV2, CffSfntStageV2,
+    CffSfntStorageV2, CffSfntWorkPointV2, CffTableAdmissionBudgetFailureV2,
+    CffTableAdmissionStageV2, CffTableAdmissionWorkPointV2, CffTableFailureKindV2,
+    CffTableFailureV2, CffVariationBudgetFailureV2, CffVariationSequencesV2, CffVariationStorageV2,
+    CffVerticalMetricsV2, FontEmbeddingStatus, FontFailureContext, FontFailurePhase,
+    FontFailureReason, FontSubsetStage, VariationCoverage, CFF1_ADMISSION_ID,
     CFF1_CHARSTRING_EVALUATOR_ID, CFF1_EMBEDDING_PERMISSION_ID, CFF1_GLYPH_CLOSURE_ID,
     CFF1_PDF_PLAN_ID, CFF1_RESOURCE_PROFILE_ID, CFF1_SUBSET_ID,
 };
-pub use math::{MathFontConstants, MathFontError, MathFontFace, MATH_TABLE_FINGERPRINT_ALGORITHM};
+pub use math::{CffMathFontFaceV2, CffMathGlyphMetricsV2, CFF_MATH_TABLE_FINGERPRINT_ALGORITHM_V2, MathFontConstants, MathFontError, MathFontFace, MATH_TABLE_FINGERPRINT_ALGORITHM};
 
 use core::num::NonZeroU16;
 use std::collections::BTreeMap;
@@ -96,7 +116,44 @@ pub enum FontFamilyError {
 /// request order; the first declared family wins.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FontFamilyTable {
-    by_family: BTreeMap<String, FontFaceId>,
+    by_family: FontFamilyIndex,
+}
+#[derive(Clone, Debug)]
+enum FontFamilyIndex {
+    Native(BTreeMap<String, FontFaceId>),
+    Sorted(Vec<(String, FontFaceId)>),
+}
+impl PartialEq for FontFamilyIndex {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Native(a), Self::Native(b)) => a == b,
+            (Self::Sorted(a), Self::Sorted(b)) => a == b,
+            (Self::Native(a), Self::Sorted(b)) => {
+                a.iter().eq(b.iter().map(|(name, id)| (name, id)))
+            }
+            (Self::Sorted(a), Self::Native(b)) => {
+                a.iter().map(|(name, id)| (name, id)).eq(b.iter())
+            }
+        }
+    }
+}
+impl Eq for FontFamilyIndex {}
+impl FontFamilyIndex {
+    fn len(&self) -> usize {
+        match self {
+            Self::Native(v) => v.len(),
+            Self::Sorted(v) => v.len(),
+        }
+    }
+    fn get(&self, name: &str) -> Option<&FontFaceId> {
+        match self {
+            Self::Native(v) => v.get(name),
+            Self::Sorted(v) => v
+                .binary_search_by(|(candidate, _)| candidate.as_str().cmp(name))
+                .ok()
+                .map(|i| &v[i].1),
+        }
+    }
 }
 impl FontFamilyTable {
     pub fn new(families: Vec<(String, FontFaceId)>) -> Result<Self, FontFamilyError> {
@@ -109,7 +166,7 @@ impl FontFamilyTable {
                 return Err(FontFamilyError::DuplicateFamily);
             }
         }
-        Ok(Self { by_family })
+        Ok(Self { by_family:FontFamilyIndex::Native(by_family) })
     }
     pub fn resolve(&self, fallback: &[String]) -> Result<FontFaceId, FontFamilyError> {
         if fallback.is_empty() {

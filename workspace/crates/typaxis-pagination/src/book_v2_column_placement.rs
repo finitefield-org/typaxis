@@ -23,6 +23,9 @@ pub struct BookV2ColumnPlacedHeaderVariant<'h, 'b, 'f, 's, 'p, 'a> {
     inner: &'h BookV2BodyPlacedHeaderVariant<'b, 'f, 's, 'p, 'a>,
 }
 impl<'h, 'b, 'f, 's, 'p, 'a> BookV2ColumnPlacedHeaderVariant<'h, 'b, 'f, 's, 'p, 'a> {
+    pub fn graph(&self) -> BookV2SourceGraph<'b, 'f, 's, 'p, 'a> {
+        BookV2SourceGraph::new(self.inner.measurements().flow())
+    }
     pub fn fragment_index(&self) -> usize {
         self.inner.fragment_index()
     }
@@ -100,6 +103,14 @@ impl<'q, 'b, 'f, 's, 'p, 'a> BookV2ColumnPlacedPage<'q, 'b, 'f, 's, 'p, 'a> {
             .variants
             .iter()
             .map(|inner| BookV2ColumnPlacedHeaderVariant { inner })
+    }
+    pub(in crate::production_body::body_flow) fn source_header_variants(
+        &self,
+    ) -> &[BookV2BodyPlacedHeaderVariant<'b, 'f, 's, 'p, 'a>] {
+        &self.content.variants
+    }
+    pub(in crate::production_body::body_flow) fn source_repeated_caption_positions(&self) -> &[usize] {
+        &self.content.repeated_captions
     }
     pub fn fragment_column(&self, fragment: usize) -> Option<u16> {
         column_index(&self.columns, fragment).and_then(|i| u16::try_from(i).ok())

@@ -1095,123 +1095,29 @@ fn name_encoding_rank(platform: u16, encoding: u16) -> u8 {
     }
 }
 
+#[path = "math_validation.rs"]
+pub(crate) mod validation;
+
+fn validate_math_table(table: &[u8], glyph_count: u16) -> Result<MathTableInfo, MathFontError> {
+    match validation::table(table, glyph_count, &mut validation::Unobserved) {
+        Ok(native) => native,
+        Err(never) => match never {},
+    }
+}
+pub(crate) fn validate_cff_math_table_with_variant_order<B: validation::Budget>(
+    table: &[u8],
+    glyph_count: u16,
+    order: validation::VariantOrder,
+    budget: &mut B,
+) -> validation::BudgetResult<(), B::Error> {
+    validation::table_with_variant_order(table, glyph_count, order, budget)
+        .map(|native| native.map(|_| ()))
+}
+
 struct MathTableInfo {
     constants: MathFontConstants,
     glyph_info_offset: usize,
     variants_offset: usize,
-}
-
-fn validate_math_table(table: &[u8], glyph_count: u16) -> Result<MathTableInfo, MathFontError> {
-    if table.len() < 10 {
-        return Err(MathFontError::MalformedTable("MATH"));
-    }
-    if read_u32(table, 0) != Some(0x0001_0000) {
-        return Err(MathFontError::UnsupportedMathVersion);
-    }
-    let constants_offset =
-        usize::from(read_u16(table, 4).ok_or(MathFontError::MalformedTable("MATH"))?);
-    let glyph_info_offset =
-        usize::from(read_u16(table, 6).ok_or(MathFontError::MalformedTable("MATH"))?);
-    let variants_offset =
-        usize::from(read_u16(table, 8).ok_or(MathFontError::MalformedTable("MATH"))?);
-    if constants_offset < 10
-        || constants_offset
-            .checked_add(MATH_CONSTANTS_LENGTH)
-            .map_or(true, |end| end > table.len())
-        || glyph_info_offset < 10
-        || glyph_info_offset
-            .checked_add(8)
-            .map_or(true, |end| end > table.len())
-        || variants_offset < 10
-        || variants_offset
-            .checked_add(10)
-            .map_or(true, |end| end > table.len())
-    {
-        return Err(MathFontError::MalformedTable("MATH"));
-    }
-    let script = read_i16(table, constants_offset).ok_or(MathFontError::MalformedTable("MATH"))?;
-    let script_script =
-        read_i16(table, constants_offset + 2).ok_or(MathFontError::MalformedTable("MATH"))?;
-    let display_operator_min_height =
-        read_u16(table, constants_offset + 6).ok_or(MathFontError::MalformedTable("MATH"))?;
-    if !(1..=100).contains(&script)
-        || !(1..=100).contains(&script_script)
-        || display_operator_min_height == 0
-    {
-        return Err(MathFontError::MalformedTable("MATH"));
-    }
-    for index in 0..MATH_VALUE_RECORD_COUNT {
-        let record = constants_offset + 8 + index * 4;
-        if read_u16(table, record + 2) != Some(0) {
-            return Err(MathFontError::UnsupportedMathDeviceTable);
-        }
-    }
-    validate_math_glyph_info(table, glyph_info_offset, glyph_count)?;
-    validate_math_variants(table, variants_offset, glyph_count)?;
-    let value = |index: usize| {
-        read_i16(table, constants_offset + 8 + index * 4)
-            .ok_or(MathFontError::MalformedTable("MATH"))
-    };
-    let constants = MathFontConstants {
-        script_percent_scale_down: u16::try_from(script)
-            .map_err(|_| MathFontError::MalformedTable("MATH"))?,
-        script_script_percent_scale_down: u16::try_from(script_script)
-            .map_err(|_| MathFontError::MalformedTable("MATH"))?,
-        display_operator_min_height,
-        axis_height: value(1)?,
-        subscript_shift_down: value(4)?,
-        subscript_top_max: value(5)?,
-        subscript_baseline_drop_min: value(6)?,
-        superscript_shift_up: value(7)?,
-        superscript_shift_up_cramped: value(8)?,
-        superscript_bottom_min: value(9)?,
-        superscript_baseline_drop_max: value(10)?,
-        sub_superscript_gap_min: value(11)?,
-        superscript_bottom_max_with_subscript: value(12)?,
-        space_after_script: value(13)?,
-        fraction_numerator_shift_up: value(28)?,
-        fraction_numerator_display_shift_up: value(29)?,
-        fraction_denominator_shift_down: value(30)?,
-        fraction_denominator_display_shift_down: value(31)?,
-        fraction_numerator_gap_min: value(32)?,
-        fraction_numerator_display_gap_min: value(33)?,
-        fraction_rule_thickness: value(34)?,
-        fraction_denominator_gap_min: value(35)?,
-        fraction_denominator_display_gap_min: value(36)?,
-        radical_vertical_gap: value(45)?,
-        radical_display_vertical_gap: value(46)?,
-        radical_rule_thickness: value(47)?,
-    };
-    if constants.subscript_shift_down < 0
-        || constants.subscript_top_max < 0
-        || constants.subscript_baseline_drop_min < 0
-        || constants.superscript_shift_up < 0
-        || constants.superscript_shift_up_cramped < 0
-        || constants.superscript_bottom_min < 0
-        || constants.superscript_baseline_drop_max < 0
-        || constants.sub_superscript_gap_min < 0
-        || constants.superscript_bottom_max_with_subscript < 0
-        || constants.space_after_script < 0
-        || constants.fraction_numerator_shift_up < 0
-        || constants.fraction_numerator_display_shift_up < 0
-        || constants.fraction_denominator_shift_down < 0
-        || constants.fraction_denominator_display_shift_down < 0
-        || constants.fraction_numerator_gap_min < 0
-        || constants.fraction_numerator_display_gap_min < 0
-        || constants.fraction_rule_thickness <= 0
-        || constants.fraction_denominator_gap_min < 0
-        || constants.fraction_denominator_display_gap_min < 0
-        || constants.radical_vertical_gap < 0
-        || constants.radical_display_vertical_gap < 0
-        || constants.radical_rule_thickness <= 0
-    {
-        return Err(MathFontError::MalformedTable("MATH"));
-    }
-    Ok(MathTableInfo {
-        constants,
-        glyph_info_offset,
-        variants_offset,
-    })
 }
 
 /// CFF admission shares the complete MATH-table parser without requiring a
@@ -1219,200 +1125,6 @@ fn validate_math_table(table: &[u8], glyph_count: u16) -> Result<MathTableInfo, 
 /// caller's already cross-checked CFF `maxp.numGlyphs`.
 pub(crate) fn validate_cff_math_table(table: &[u8], glyph_count: u16) -> Result<(), MathFontError> {
     validate_math_table(table, glyph_count).map(|_| ())
-}
-
-fn validate_math_glyph_info(
-    table: &[u8],
-    glyph_info: usize,
-    glyph_count: u16,
-) -> Result<(), MathFontError> {
-    let italics =
-        usize::from(read_u16(table, glyph_info).ok_or(MathFontError::MalformedTable("MATH"))?);
-    if italics != 0 {
-        validate_math_value_map(
-            table,
-            checked_relative(glyph_info, italics, table.len())?,
-            glyph_count,
-        )?;
-    }
-    let top_accents =
-        usize::from(read_u16(table, glyph_info + 2).ok_or(MathFontError::MalformedTable("MATH"))?);
-    if top_accents != 0 {
-        validate_math_value_map(
-            table,
-            checked_relative(glyph_info, top_accents, table.len())?,
-            glyph_count,
-        )?;
-    }
-    let extended_shapes =
-        usize::from(read_u16(table, glyph_info + 4).ok_or(MathFontError::MalformedTable("MATH"))?);
-    if extended_shapes != 0 {
-        validate_coverage(
-            table,
-            checked_relative(glyph_info, extended_shapes, table.len())?,
-            glyph_count,
-        )?;
-    }
-    if read_u16(table, glyph_info + 6) != Some(0) {
-        return Err(MathFontError::UnsupportedMathGlyphKerning);
-    }
-    Ok(())
-}
-
-fn validate_math_value_map(
-    table: &[u8],
-    offset: usize,
-    glyph_count: u16,
-) -> Result<(), MathFontError> {
-    let coverage_offset =
-        usize::from(read_u16(table, offset).ok_or(MathFontError::MalformedTable("MATH"))?);
-    let count =
-        usize::from(read_u16(table, offset + 2).ok_or(MathFontError::MalformedTable("MATH"))?);
-    if count > usize::from(glyph_count)
-        || offset
-            .checked_add(4)
-            .and_then(|value| value.checked_add(count.checked_mul(4)?))
-            .map_or(true, |end| end > table.len())
-    {
-        return Err(MathFontError::MalformedTable("MATH"));
-    }
-    let coverage = checked_relative(offset, coverage_offset, table.len())?;
-    if validate_coverage(table, coverage, glyph_count)? != count {
-        return Err(MathFontError::MalformedTable("MATH"));
-    }
-    for index in 0..count {
-        if read_u16(table, offset + 4 + index * 4 + 2) != Some(0) {
-            return Err(MathFontError::UnsupportedMathDeviceTable);
-        }
-    }
-    Ok(())
-}
-
-fn validate_math_variants(
-    table: &[u8],
-    variants: usize,
-    glyph_count: u16,
-) -> Result<(), MathFontError> {
-    let vertical_coverage_offset =
-        usize::from(read_u16(table, variants + 2).ok_or(MathFontError::MalformedTable("MATH"))?);
-    let horizontal_coverage_offset =
-        usize::from(read_u16(table, variants + 4).ok_or(MathFontError::MalformedTable("MATH"))?);
-    let vertical_count =
-        usize::from(read_u16(table, variants + 6).ok_or(MathFontError::MalformedTable("MATH"))?);
-    let horizontal_count =
-        usize::from(read_u16(table, variants + 8).ok_or(MathFontError::MalformedTable("MATH"))?);
-    let total = vertical_count
-        .checked_add(horizontal_count)
-        .ok_or(MathFontError::MalformedTable("MATH"))?;
-    if total > usize::from(glyph_count)
-        || variants
-            .checked_add(10)
-            .and_then(|value| value.checked_add(total.checked_mul(2)?))
-            .map_or(true, |end| end > table.len())
-        || (vertical_count == 0) != (vertical_coverage_offset == 0)
-        || (horizontal_count == 0) != (horizontal_coverage_offset == 0)
-    {
-        return Err(MathFontError::MalformedTable("MATH"));
-    }
-    if vertical_count != 0 {
-        let coverage = checked_relative(variants, vertical_coverage_offset, table.len())?;
-        if validate_coverage(table, coverage, glyph_count)? != vertical_count {
-            return Err(MathFontError::MalformedTable("MATH"));
-        }
-    }
-    if horizontal_count != 0 {
-        let coverage = checked_relative(variants, horizontal_coverage_offset, table.len())?;
-        if validate_coverage(table, coverage, glyph_count)? != horizontal_count {
-            return Err(MathFontError::MalformedTable("MATH"));
-        }
-    }
-    for index in 0..total {
-        let construction_offset = usize::from(
-            read_u16(table, variants + 10 + index * 2)
-                .ok_or(MathFontError::MalformedTable("MATH"))?,
-        );
-        if construction_offset == 0 {
-            return Err(MathFontError::MalformedTable("MATH"));
-        }
-        validate_glyph_construction(
-            table,
-            checked_relative(variants, construction_offset, table.len())?,
-            glyph_count,
-        )?;
-    }
-    Ok(())
-}
-
-fn validate_glyph_construction(
-    table: &[u8],
-    construction: usize,
-    glyph_count: u16,
-) -> Result<(), MathFontError> {
-    let assembly_offset =
-        usize::from(read_u16(table, construction).ok_or(MathFontError::MalformedTable("MATH"))?);
-    let count = usize::from(
-        read_u16(table, construction + 2).ok_or(MathFontError::MalformedTable("MATH"))?,
-    );
-    if count > usize::from(glyph_count)
-        || (count == 0 && assembly_offset == 0)
-        || construction
-            .checked_add(4)
-            .and_then(|value| value.checked_add(count.checked_mul(4)?))
-            .map_or(true, |end| end > table.len())
-    {
-        return Err(MathFontError::MalformedTable("MATH"));
-    }
-    let mut previous_advance = 0u16;
-    for index in 0..count {
-        let record = construction + 4 + index * 4;
-        let glyph = read_u16(table, record).ok_or(MathFontError::MalformedTable("MATH"))?;
-        let advance = read_u16(table, record + 2).ok_or(MathFontError::MalformedTable("MATH"))?;
-        if glyph >= glyph_count || advance == 0 || (index != 0 && advance <= previous_advance) {
-            return Err(MathFontError::MalformedTable("MATH"));
-        }
-        previous_advance = advance;
-    }
-    if assembly_offset != 0 {
-        validate_glyph_assembly(
-            table,
-            checked_relative(construction, assembly_offset, table.len())?,
-            glyph_count,
-        )?;
-    }
-    Ok(())
-}
-
-fn validate_glyph_assembly(
-    table: &[u8],
-    assembly: usize,
-    glyph_count: u16,
-) -> Result<(), MathFontError> {
-    if read_u16(table, assembly + 2) != Some(0) {
-        return Err(MathFontError::UnsupportedMathDeviceTable);
-    }
-    let count =
-        usize::from(read_u16(table, assembly + 4).ok_or(MathFontError::MalformedTable("MATH"))?);
-    if count == 0
-        || count > usize::from(glyph_count)
-        || assembly
-            .checked_add(6)
-            .and_then(|value| value.checked_add(count.checked_mul(10)?))
-            .map_or(true, |end| end > table.len())
-    {
-        return Err(MathFontError::MalformedTable("MATH"));
-    }
-    for index in 0..count {
-        let record = assembly + 6 + index * 10;
-        let glyph = read_u16(table, record).ok_or(MathFontError::MalformedTable("MATH"))?;
-        let start = read_u16(table, record + 2).ok_or(MathFontError::MalformedTable("MATH"))?;
-        let end = read_u16(table, record + 4).ok_or(MathFontError::MalformedTable("MATH"))?;
-        let full = read_u16(table, record + 6).ok_or(MathFontError::MalformedTable("MATH"))?;
-        let flags = read_u16(table, record + 8).ok_or(MathFontError::MalformedTable("MATH"))?;
-        if glyph >= glyph_count || full == 0 || start > full || end > full || flags & !1 != 0 {
-            return Err(MathFontError::MalformedTable("MATH"));
-        }
-    }
-    Ok(())
 }
 
 fn checked_relative(base: usize, offset: usize, length: usize) -> Result<usize, MathFontError> {
@@ -1471,76 +1183,6 @@ fn glyph_location(loca: &[u8], glyph: u16, format: i16) -> Result<usize, MathFon
             .and_then(|value| usize::try_from(value).ok())
             .ok_or(MathFontError::MalformedTable("loca")),
         _ => Err(MathFontError::MalformedTable("loca")),
-    }
-}
-
-fn validate_coverage(
-    table: &[u8],
-    coverage: usize,
-    glyph_count: u16,
-) -> Result<usize, MathFontError> {
-    match read_u16(table, coverage) {
-        Some(1) => {
-            let count = usize::from(
-                read_u16(table, coverage + 2).ok_or(MathFontError::MalformedTable("MATH"))?,
-            );
-            if count > usize::from(glyph_count)
-                || coverage
-                    .checked_add(4)
-                    .and_then(|value| value.checked_add(count.checked_mul(2)?))
-                    .map_or(true, |end| end > table.len())
-            {
-                return Err(MathFontError::MalformedTable("MATH"));
-            }
-            let mut previous = None;
-            for index in 0..count {
-                let glyph = read_u16(table, coverage + 4 + index * 2)
-                    .ok_or(MathFontError::MalformedTable("MATH"))?;
-                if glyph >= glyph_count || previous.is_some_and(|value| glyph <= value) {
-                    return Err(MathFontError::MalformedTable("MATH"));
-                }
-                previous = Some(glyph);
-            }
-            Ok(count)
-        }
-        Some(2) => {
-            let ranges = usize::from(
-                read_u16(table, coverage + 2).ok_or(MathFontError::MalformedTable("MATH"))?,
-            );
-            if ranges > usize::from(glyph_count)
-                || coverage
-                    .checked_add(4)
-                    .and_then(|value| value.checked_add(ranges.checked_mul(6)?))
-                    .map_or(true, |end| end > table.len())
-            {
-                return Err(MathFontError::MalformedTable("MATH"));
-            }
-            let mut total = 0usize;
-            let mut previous_end = None;
-            for index in 0..ranges {
-                let record = coverage + 4 + index * 6;
-                let start = read_u16(table, record).ok_or(MathFontError::MalformedTable("MATH"))?;
-                let end =
-                    read_u16(table, record + 2).ok_or(MathFontError::MalformedTable("MATH"))?;
-                let start_index = usize::from(
-                    read_u16(table, record + 4).ok_or(MathFontError::MalformedTable("MATH"))?,
-                );
-                if start > end
-                    || end >= glyph_count
-                    || previous_end.is_some_and(|value| start <= value)
-                    || start_index != total
-                {
-                    return Err(MathFontError::MalformedTable("MATH"));
-                }
-                total = total
-                    .checked_add(usize::from(end - start) + 1)
-                    .filter(|value| *value <= usize::from(glyph_count))
-                    .ok_or(MathFontError::MalformedTable("MATH"))?;
-                previous_end = Some(end);
-            }
-            Ok(total)
-        }
-        _ => Err(MathFontError::MalformedTable("MATH")),
     }
 }
 
@@ -1970,3 +1612,7 @@ mod tests {
         );
     }
 }
+
+#[path = "math_cff_v2.rs"]
+mod cff_v2;
+pub use cff_v2::{CffMathFontFaceV2,CffMathGlyphMetricsV2,CFF_MATH_TABLE_FINGERPRINT_ALGORITHM_V2};

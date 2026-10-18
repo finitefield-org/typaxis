@@ -21,6 +21,7 @@ public Harano support is claimed until the corresponding gates have evidence.
 | Vertical tables, cmap 14, IVS shaping/extraction | Internal /2 admission and actual linked shaping preserve every original UVS and source cluster through dense subset mapping; independent full-UVS subset/render checks passed; package selection, ToUnicode/ActualText and public extraction binding pending (checkpoint below) |
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
 | Book-2 source-owned references, structure and PDF assembly | Private source-to-PDF driver rebuilds Page-reference labels to an observed fixed point. Empty paragraphs and break-only lines now retain real height and destinations without synthetic paint. 36 source PDFs / 213 pages independently verified, including 9 real driver callbacks and original Harano CFF/Japanese/IVS. Remaining source/page forms and public/full-book gates remain open; see §14.154–157 |
+| Book-2 standalone column callback accounting | Six callbacks now borrow scoped continuations while their drivers retain the original builders. Extra builds, callback refusals, late cap errors, forgotten borrows and retries retain accepted charges. 18 runtime controls, 36 API examples and unchanged PDF/artifact checks pass; see §293. Full command accounting and full-book/public gates remain open. |
 | Book-2 description lists | Typed term/definition domain, styles, language/navigation, authored term flow, real frames/page splitting and Lbl/LBody PDF connected. Long Latin/original-Harano Japanese terms, 11 recursive math/vector placements, term Page/footnote references, and private VMB successor export through real Harano PDF/extraction pass. Full-book export and public runner remain pending (§14.158–162, ADR-0040) |
 | Book-2 table captions and cell alignment | Private caption/number/cell-style inheritance and nested parent captions, headers, keeps and rowspans now reach original-Harano PDFs. Original forced breaks and repeated-header source roles pass 142 integration tests and 332 independent PDFs (§14.169–184). Footnote-table placement and full-book/public acceptance remain pending. |
 | Book-2 assumptions and quotations | Original assumption units retain typed owners and null anchors; quote text/attribution preserve rich inline content and BlockQuote structure. Private export, exact 6-math extraction and 94-test integration pass (§14.165). Full-book/public gates remain pending. |
@@ -16977,3 +16978,7621 @@ with_budgeted_book_v2_column_pagesの元source選択APIを維持した。共通�
 verify-correspondence.pyは全699開始／終了source hashes、74 verifiers、全12変更、6新tests、実binaryと保存copyのSHA-256 5a9f32118d98486f1bdfa76c4748e82a8a0178772cb82a0a0d786d7fa8994010、全363登録名・成功名の一致、7回帰commands／8独立commands／旧検証、元入力・10 jobs、863 PDF対応と21旧成果物をrun-source-correspondence.jsonへ結ぶ。保存済みfocusedの成功・失敗と実表／元source循環counterも対応付ける。検証後の文書3件は別hashへ記録する。
 
 次は実段のsource一回消費のclosureと元数式terminals、last_page balanceを接続する。段組PDFと独立受入、Pageラベルから最終PDFまでの外側の収束、全commandのphysical byte／capacity／spool・同時保持graphの監査も継続する。private PDF driverの段組拒否を維持し、新しい段組PDFの受入は0件。公開Book /2と4 manifests、元全巻1 package／1 PDF、5,000 distinct画像の実配置、原Harano全巻・管理host・制御性能・著者／人手受入も継続する。元本文内数式6,343件のSpeech／SemanticRefはユーザーが未作成と回答した状態を維持し、設計全体の完了とは扱わない。
+
+<a id="book-2-column-source-math-closure-design-14284"></a>
+## 284. 段組の元sourceと数式terminalを同じ実配置へ結ぶ（design §14.284、2026-10-15）
+
+基準は8b4599aのcleanな作業ツリー。現在のLinux環境と元設計・最新台帳を照合し、
+§283の次の未完項目である段組source closureと数式terminalを実装した。
+[ADR-0147](../adr/ADR-0147-book-2-column-source-math-closure.md)に従う。
+本環境には元VMB checkout・元全巻package・原Harano／Arial、過去のmacOSのtarget証跡がない。
+過去の全巻・font・管理host受入を今回の実行結果へ再計上しない。
+
+BookV2ColumnSourceClosureは同じsearchの安定ページ列とその正確なsequenceを借用する
+実配置へ結ぶ。単段とprivate検査kernelを共用し、本文・表・脚注の元semantic leafと
+非描画の改ページを一度だけ消費する。未参照定義を未配置のまま明示し、反復headerは
+実graphと元unit区間を照合する。実段／元脚注領域からの横差分を検査し、行graphの借用を
+公開する。単段のflow／closureへの認可や変換を提供しない。
+
+BookV2ColumnMathTerminalsは専用closureとgeometryを借用し、vector／nativeの元receipt、
+inline／blockの物理座標、式番号の全ページfragment indexとparent、実header graphと
+反復分類を保持する。専用の幅feedbackで元unit・blockの実幅を再検査し、最初の広い測定を
+そのまま使った配置を拒否する。canonicalには元sourceのcolumn planと幅assignment、実段の
+boundsと空range、全幅脚注と実header ownerを束縛する。単段とcollector／encoderを共用する。
+
+with_budgeted_book_v2_column_sources／with_budgeted_book_v2_column_mathを既存driverへ接続した。
+records・work・開始済みpass・terminal spoolと失敗prefixを同じcallerへ戻す。reviewで共通の
+callback終了処理がterminal spoolを戻していないことを確認し、source／物理callbackが
+直接terminalを作る場合も保持するよう修正した。callback errorと再試行による返金を防ぐ。
+上限を超える未受理のprior spoolをcounterへ代入せず拒否する共通helperも追加した。
+単段の有効入力のencodingとwork位置は維持する。
+
+新しい13 active testsは元ownerの一回消費、同内容の別stable／search／geometryの拒否、
+空anchor、本文／表captionと脚注の連続改ページ、参照／未参照定義、入れ子・rowspan・
+captionと実幅の反復header、vector／native／通常画像の本文・表・脚注配置を検査する。
+反復headerでは実幅によって異なる行分割から元unit集合を復元し、元semanticを重複消費しない。
+terminalの固定byte表現を別decoderで読み、元receiptへの同一参照・物理座標・段所属・
+式番号index・実header graphを照合する。専用型から単段型への変換をcompile-failで拒否する。
+
+exact予算fixtureは実際の18 vector数式ownerを配置し、9空段を保持する。番号を持たない
+このfixtureの最終観測は13,927 records、39,538 work、4,890 spool bytes、3 width passes／
+4 line passes／8 page passes。work／record／spoolのexactで成功し、1不足ではmath callbackへ
+届かず拒否する。受理済みprefix・失敗後の再試行と、source／物理callbackから作ったterminalの
+spoolも保持する。元式番号と反復式番号は別の実配置fixtureで検査する。
+
+番号付き予算fixtureではterminalより前のheader equation-label準備が5,619 bytesのspool
+上限で拒否された。受理済み4,349 records／1,894 workに対してdriver観測のspoolは0だった。
+この結果を上流の一時spoolと全commandの会計に残る具体的な証拠として保持する。
+exact terminal試験を全commandのbyte／capacity／spool受入へ一般化しない。
+初期のfeature未指定による0件run、iteratorのlifetime compile失敗、fixtureのnode順・
+equation-number再採番・effective extension・first masterの誤りと、その修正後のlogsを保全した。
+製品側のadmission／幅／予算の拒否を緩和して試験を通していない。
+
+証跡はworkspace/target/vmb-design/20261015/column-source-math-closure/。
+run-final.pyは追跡workspace／fixture／schemaの1,531入力を開始／終了時にhash照合し、
+13 commandsの引数・環境・exit code・log hash・時間・実binaryへ対応付ける。全commandsは
+exit code 0。workspace --all-features --tests check、pagination 104 testsとdoc-test 13件が成功した。
+CLIは新source 7成功／1 ignored、新math 6成功／1 ignored、既存物理配置5成功／1 ignored、
+既存column driver 5成功／1 ignored、単段source 2成功、単段header math 2成功と代表PDF driver
+3成功の計30 unique testsが成功した。ignoredの4件は原Haranoが必要な明示gateであり、
+今回の原font受入とは扱わない。CLI全suiteと過去の863 PDFの全再実行でもない。
+
+独立checkはpypdf 6.10.0で35 source PDFs（実driver callbacks 13件）／276 pages／4,102 structure
+nodes／42 annotationsを検査し、263改変を拒否した。元の8b4599aを別worktreeで構築し、同じ
+代表driverから得た26 PDFを全て今回のPDFへbyte照合した。これは参照なし本文と、通常／
+子表のnative・vector・raster反復headerの回帰であり、新しい段組PDFの受入は0件。
+元fixture-indexの40 filesと凍結schemaの29 hashesも一致した。
+
+verification-summary.jsonは1,531開始／終了input hashes、74 verifier hashes、15 source／test
+変更、実CLI／pagination binary、30成功名、commands／logsと全probe artifactsの対応を保持する。
+baseline-commands.json／baseline-source.jsonは比較元commitと実commandsへ対応し、
+pdf-comparison.jsonは26組のbyte一致と今回の35 PDF hashesを記録する。今回のcompilerは
+rustc 1.97.0、独立Pythonはローカルの専用venvへpypdf 6.10.0を指定して構築した。
+時間は観測値であり、管理hostや制御された性能受入ではない。文書3件は検証後に別hashへ記録する。
+
+次はlast_page balanceを、表／脚注の元cursorと実幅feedback・反復header catalogの収束へ
+接続する。元境界からのcanonical deficit、inclusiveな候補上限と失敗prefix、named／parityと
+脚注だけの終端・末尾の空ページを含む適用規則を確定し、安定選択・source closure・terminalへ
+束縛する。段組display／構造／navigation／PDFと独立受入、Pageラベルの外側の収束、全command
+のphysical byte／capacity／spoolと同時保持graph、公開Book /2と4 manifests、元全巻1 package／
+1 PDF・5,000 distinct画像の実配置・原Harano全巻・管理host・制御性能・著者／人手受入も継続する。
+元本文内数式6,343件のSpeech／SemanticRefは既存ユーザー回答どおり未作成であり、現在のVMB
+checkoutがないため今回再監査していない。設計全体とthread goalを完了とは扱わない。
+
+<a id="book-2-column-last-page-balance-design-14285"></a>
+## 285. 元source境界から段組の最終ページを均等化する（design §14.285、2026-10-15）
+
+§284の同じ未commit作業ツリーからlast_page balanceを接続した。
+[ADR-0148](../adr/ADR-0148-book-2-column-last-page-balance.md)に従う。基準commitは8b4599aを
+維持する。原VMB checkout／全巻package、原Harano／Arialと過去の管理host証跡は本環境に
+なく、元font・全巻・管理hostの受入を今回の結果へ計上しない。
+
+全高選択から正の本文使用高または参照脚注断片を持つ最後のページを求め、そのmasterが
+last_pageを要求し、元本文の正の使用高合計Eがある場合だけ均等化する。初高は段数Nの
+ceil(E/N)で、原full height Hまでの範囲とする。本文・表・脚注demandの元終端、名前、
+強制空ページ状態を全高選択と一致させる。先行ページを保持し、末尾の空ページを元source
+状態から再構築する。脚注だけの最後のページから前の本文へ対象を移さない。
+
+ordinary sourceは元consumed高・marker・before／afterとhard keepの最大prefixを検査する。
+非負の固定測定で最大prefixが元終端へ届かない候補は、より短いcutでも届かない証拠として
+先に拒否する。その他は既存ranked分岐を元終端まで探索する。named／parityの3段fixtureで
+全cutのCartesian探索が512試行でも上限へ達することを確認し、この元hard groupの証明を
+接続した。soft widow／orphanをhard keepへ置き換えず、原測定のまま切り方を検査する。
+
+混在表は実選択のbefore／after cursor、実header catalog・段幅・名前から次のsource atomを
+求める。caption／cell／独立列／span／入れ子の元位置、current／lower／next cursorとatom、
+trial／guard skipの件数、実使用高をcanonicalへ保持する。中間guardの全preimageを保持した
+とは扱わない。証明できない容量区間は累積限界値内で整数容量を実replayする。表の最小
+admission capacity Kと実使用高Uを分け、終端のkeepは後続ordinary／表まで含める。
+短い試行で収まらないことを元全高のTableHeaderOversizeへ置き換えない。
+
+凍結1.3 carrierは空cellのblocks=[]を実際に受理する。初期fixtureが未定義footを参照して
+foot:nullを挿入した失敗を保全し、これを空表の拒否と誤記しない。未知のfoot:nullは別の
+明示入力で、none／last_pageともpipeline開始前に拒否する。実高0の表から後続ordinary／
+表へのkeepは、実容量0・実使用高0で元sourceが進むtyped observationへ接続した。
+空tableを架空の1 raw unitや可視高さへ置き換えない。
+
+二つの空表の元after 7pt／before 9ptでEが16ptとなる実入力も保持する。初高8ptの選択は
+spacingの段頭抑制で両段の実使用高0となるが、元Eが正のreceiptを安定検査へ残す。
+元forced cellとbefore 16ptを持つ空表では、後続のleafなし・使用高0の完了ページが前の
+正の本文ページを妨げないよう対象判定を修正した。元cursorと末尾のblank debtを安定した
+元ページ列へ保持し、非描画改ページの一回消費をsource closureで検査する。
+
+失敗候補は全段の正のdeficitを保持し、(deficit, column, source start)の最小値だけ高さへ
+加える。任意のHへのjumpや循環選択を行わない。独立verifierの改変試験で、同じdeficitを
+持つ二つの表rejectionから一つを消し、rejectionとreceiptのSHAを再計算した入力が従来の
+一覧だけの検査を通ることを確認した。候補へ全N段の元before／after prefix・使用高・直前
+spacing・実parts・blocked状態を保持するcapacity traceを追加し、この欠落を拒否した。
+
+BookV2ColumnBalanceReceiptは元search owner・limits・source／plan・測定・全高入力・
+ページと候補列へ束縛する。入力には実表cursor、header variant、cell sliceとsemantic区間を
+含める。安定選択は不変receiptと実列高を検査し、source closureと数式terminalへ接続する。
+均等化のあるterminalだけreceipt fingerprintと選択高を追加する。別search／limits／sourceと
+単段認可への変換を拒否する。balance指定なしのencoding・課金位置を維持する。
+
+実header幅の発見も均等化選択を使用し、実際に必要となったvariantを既存幅driverへ返す。
+candidate上限はinclusiveで開始前に検査する。候補・records・work・spool、開始済みpassと
+受理済みprefixを、破棄した探索・再shaping・途中失敗・再試行・callback後にも同じcallerへ
+戻す。supersededな隣接容量prototypeと未使用のtrial wrapperを削除し、基準のearlier_capacity
+機能を維持した。全commandの物理容量が閉じたとは扱わない。
+
+新しい23 active testsは6／5／1個の元行、空段、空anchorの元16pt、leading／consecutive／
+trailing改ページ、joint本文／脚注終端、notes-only最終ページ、hard keepとwidow／orphan、
+元spacing／list marker、named／parityとresidual幅、caption／span／入れ子・反復header、
+vector／nativeと式番号、空表とforced zero、別owner、候補・work・record・spoolのexact／
+1不足、再試行とcallback追加消費を検査した。draft10は23成功／失敗0／原Harano 1 ignored、
+test観測60.01秒。原HaranoはSHA-256 66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717を
+指定できる場合だけ実行するgateであり、別fontで代替して原font受入としない。
+
+独立decoderは元metricsと全高canonicalからEと初高、ordinaryの全段prefixとhard group、
+全N段traceのblocked列とrejectionの一対一対応、発行した実prefix証拠の最小deficitと高さ列、
+実幅・source一回消費・配置を検査する。表certificateのcanonical・元cell／caption／入れ子位置と
+実prefixとの対応も検査する。fresh capacity-v2の50実probe／116 pages／37 receipts／72 local
+candidates／2,046 semantic fragments／37 bounded table witnessesと1,399改変拒否が成功した。
+削除後にSHAを再計算する表rejectionと、ordinaryのblocked maskまで変更してtrace SHAを
+再計算する入力を含む。全混在kernel branchとnearest guardの独立再探索や大域最適均等化の
+証明とは扱わない。新しい段組PDFの受入は0件。
+
+証跡はworkspace/target/vmb-design/20261015/column-last-page-balance/。
+失敗したfixture／compile／候補上限のdraft logsと、修正後の実probe・Python検査を保持する。
+全active Book /2へ広げた最初の最終runは、300成功／1失敗／101 ignored／423 filteredだった。
+失敗は既存物理配置の負例を均等化成功へ更新した試験が、成功callbackのdriver candidateを
+旧拒否時の0と比較していたassertionである。成功時の1へ修正し、balance candidateの正値は
+別に検査する。製品の上限や拒否を緩和して通さない。このrunの1,615 sourceの開始／終了hashは
+全て一致し、7 commands・実binary hash・logs・全probeをfailed-final-01/へ保全した。
+修正後のrun-final.pyはworkspace／samples／schemas／toolsの1,615入力を開始／終了時に
+hash照合し、全て一致した。9 commandsの引数・環境・exit code・log hash・時間と実binaryを
+保持する。workspace --all-features --testsとdefault --testsのcheck、syntax 161 tests／
+doc-test 13件、pagination 112 tests／doc-test 14件が成功した。CLIの全book_v2_登録402件を
+選択し、301成功／失敗0／101 ignored／423 filteredとなった。825件の全CLI suiteを実行した
+とは扱わない。新balanceの23 activeと原Harano 1 gate、修正した物理配置試験も全名を照合した。
+101 ignoredは原Harano 90件、原Arial Unicode 1件、VMB exporterの元job指定10件であり、
+本環境にない元font／jobの受入へ計上しない。CLIのtest観測144.61秒は制御性能受入ではない。
+
+最終の独立balance検査も50実probe／116 pages／37 receipts／72 local candidates／2,046
+semantic fragments／37 bounded table witnessesと1,399改変拒否に成功した。既存PDFの独立
+検査はpypdf 6.10.0で637 source PDFs（実driver callbacks 303件）／2,428 pages／29,708
+structure nodes／759 annotations／12 unsupported入力と5,490改変拒否に成功した。
+§284の35 PDFと、8b4599aのbaseline 26 PDFは全て今回の同名PDFとbyte一致した。
+両比較集合の重なりを別の新PDFとして数えず、過去の全863 PDFを再実行したとも扱わない。
+新しい段組PDFの受入は0件である。元fixture-indexの40 filesと凍結schemaの29 hashesも一致した。
+
+verification-summary.jsonは1,615開始／終了source hashes、3実test binary hashes、301成功名、
+全commands／logsと1,338 probe artifactsを結ぶ。pdf-comparison.jsonは今回の全637 PDF hashesと
+35／26の比較、元§284 evidence manifest hashを保持する。owned-test-source-hashes-frozen-02.jsonは
+追加・更新した5 CLI filesを最終catalogへ照合する。compilerはrustc 1.97.0、Python 3.14.4で、
+PDF検査には§284で構築したpypdf 6.10.0の専用venvを再利用した。今回の新installは行っていない。
+最終検査後の文書3件はpost-documentation-hashes.jsonへ別に記録する。
+
+verify-final-evidence.pyは最終sourceと3 binaries、9 command logs、1,338 artifactsを再hashし、
+実CLI binaryの--listで825登録名を取得した。Book /2の402選択名は301成功名と101 ignored名へ
+正確に対応し、残る423名はfilteredである。5 CLI fileの凍結hashと、最初の失敗runから変わった
+sourceが物理配置のassertion file一つだけであることも確認した。post-verification-summary.jsonと
+ignored-cli-tests.jsonはこの対応と元font／jobの明示gate名を保持する。
+
+最初の失敗runの独立balance検査も同じ件数で成功した。archiveへ移した旧probeが元の
+絶対PDF pathを保持していたため、旧PDF replayの最初のlookup失敗も保全した。651 root
+probeの隔離copyでassemblyの637 pathだけを実archiveへ移し、元／copy／PDF hashesと
+path対応を記録して同じ637 PDFの独立検査を成功させた。元archiveと最終current-probesは
+変更していない。このreplayを修正後の9-command最終runの代わりとは扱わない。
+
+段組display／構造／navigation／PDFと独立受入、Pageラベルの外側の収束、全commandの
+physical byte／capacity／spoolと同時保持graph、公開Book /2と4 manifests、元全巻1 package／
+1 PDF・5,000 distinct画像の実配置・原Harano全巻・管理host・制御性能・著者／人手受入を
+継続する。§284の番号付き表headerの5,619-byte上限でdriver spool観測0となった具体的な
+上流一時spoolの課題も未修正である。元本文内数式6,343件のSpeech／SemanticRefは既存
+ユーザー回答どおり未作成で、元checkoutがないため今回再監査していない。設計全体とthread
+goalを完了とは扱わない。
+
+<a id="book-2-column-display-design-14286"></a>
+## 286. 段組の実source graphから本文と脚注の全paintを作る（design §14.286、2026-10-15）
+
+§285の同じ未commit作業ツリーへ段組displayを接続した。
+[ADR-0149](../adr/ADR-0149-book-2-column-display.md)に従い、基準commitは8b4599aを維持する。
+原VMB checkout／全巻package、原Harano／Arialと過去の管理host証跡は本環境にない。
+今回の受入はprivate stagingの実sourceからdisplayまでと既存PDFの回帰である。
+
+BookV2ColumnDisplayBuilderは同じBookV2ColumnMathTerminalsとresource admissionを保持し、
+本文・表と共有脚注のtext、native／vector math、別streamの式番号、list／脚注markerと
+separator、PNG／JPEG／SVGを構築する。非描画anchorと空行も保持する。math drawは実
+ColumnMathTerminalをそのまま借用する。componentは元段組sourceの型を保持し、private
+constructorでのみ作る。単段displayへ変換する入口を設けない。
+
+単段と段組はprivate Projectorのallocationなしpage viewとcollectorを共用する。実fragment
+から元または実反復headerのlines／blocksを取得し、元cluster・glyph・number・markerと
+native receipt／vector bindingをそのまま照合する。BookV2SourceGraphはreadonlyのlines・
+blocksとlimits検査を公開し、prepared flowを公開しない。行のないsourceでも元graphを取得
+できる。反復header cacheは従来のline pointerと同じ予約・容量の実flow pointerを内部に保持
+する。constructorは元graphと実header graphのadmission・limits・epoch・vector bindingを
+検査する。新collectorで再shapingや別header行番号の元行への読み替えを行わない。
+
+六streamを六つのstack cursorでglobal fragment、separator／marker／inline／number、
+inline index順へ合流し、同じinline paint keyの重複を拒否する。anchorと非描画行をpaintへ
+挿入しない。元disjoint fragment rangeから段所属を求め、共有脚注だけをNoneとして保持する。
+元terminalが全N段・空段・forced blankと均等化receiptを保持し、displayは六componentの
+fingerprint、実合流順と全fragmentの段所属をさらに束縛する。単段の合流も同じprivate
+helperへ移し、既存のencodingと課金位置を維持した。
+
+with_budgeted_book_v2_column_displayは既存の元幅・header catalog・均等化・物理安定・
+source／math driverの後で構築する。constructor・component・合流・段所属arrayのlogical
+recordsとworkを確保前に予約し、constructor／build失敗、callbackの追加build・返却errorと
+再試行でも受理済みprefixをcallerへ戻す。既存math callbackで手動構築したdisplayの観測と、
+新display callbackでcallerへ加算した観測をprobeのscopeで区別する。
+
+追加した16 CLI testは15成功、原Haranoの1件を明示gateとした。実fixtureはnative／vector
+formula・式番号・PNG／JPEG／SVGの40入力（5 media × notes × tables × none／last_page）、
+実幅のnative／vectorと入れ子反復headerの16入力、rowspan・入れ子span・caption・強制
+breakの表20入力を保持する。listと定義labelの元glyph、16ptの空anchor行、強制空ページ、
+全高0の空表、名前・parityの2／3段と実+1 rawの残余幅も検査した。豊かな未参照脚注定義は
+全paintとpositioned anchorのowner集合から除外し、元unpositioned anchorを保持する。
+均等化した同じ本文ページに共有脚注と六streamを置く入力も検査した。
+
+元header-context.ttfのcontextual glyphは、同じ元source・31pt vector atom・実100pt段幅と
+合法なretained source end 2から、typed column seed・実header catalog・測定・安定選択・
+source closure・column terminal・displayを通した。semantic graphには元GID59がありGID71が
+なく、実反復graphとpaintにはGID71があることを照合した。この1入力はmanual
+retained_source_cutと明記する。同じ31pt atomを持つ入力の自然幅18pt未満によるcut発見の
+証拠へ計上しない。通常driverで選択した実headerの16入力は別に保持する。
+
+records／workのexact／1不足、constructorのheader validation prefix、二回のbuild、失敗後
+retry、別admission／limitsとprior過量を検査した。新driverのexact／1不足、callbackの追加
+成功build・返却error・失敗buildとretryもcallerの受理済みprefixへ照合した。displayとmath
+draw、number／marker／image／anchorの単段型への変換拒否、SourceGraphのprivate flow拒否を
+documentation testへ含めた。checked-in name-keyed CFFはExpectedCidFontでpipeline前に
+拒否する実negativeであり、CID CFFの正のprojectionは原Harano gateを維持する。
+
+探索中の失敗もcolumn-displayのdraft logsとprobesへ保全した。draft03のpage_breakに必須
+classesが欠けた入力、draft05の入れ子表headerが低いgeometryでoversizeとなった入力、
+draft06のname-keyed CFFを正の入力として扱った失敗を保持する。表は元span・caption・keep・
+forced sourceを除かず、既存referenceの544／512ptの受理済みgeometryへ戻した。draft07の
+脚注reference spanと、35行すべてが第一段に収まって残余幅の実再flowを検査できなかった
+named入力も保持する。実最後のinline spanへ照合し、noneの192／288ptで実全段を要求した。
+draft08のretained seedのReceiptMismatchも保持し、referenceと同じ合法なsource cutと実幅
+測定の経路で通した。旧schema probeの必須owner欠落は独立検査が拒否した。最終schemaを
+緩めず、fresh probeへ元owner・package／measurement identityとsource coverageを追加した。
+
+最終証跡はworkspace/target/vmb-design/20261015/column-display/に保持する。run-final.pyは
+凍結した1,622 source hashesを開始前に照合し、全12 commands成功後も開始／終了一致を
+検査した。cargo commandsは共通で--manifest-path workspace/Cargo.toml --lockedを指定し、
+TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBEにはfresh current-probesの絶対pathを渡した。
+
+| 最終command | 結果 |
+|---|---|
+| cargo check --workspace --all-features --tests | 成功 |
+| cargo check --workspace --tests | 成功 |
+| typaxis-syntax --features book-v2-staging --lib／--doc | 161／13成功 |
+| typaxis-pagination --features book-v2-staging --lib／--doc | 112／15成功 |
+| typaxis-display-list --features book-v2-staging --lib／--doc | 57／7成功 |
+| typaxis-cli --bin typaxis --features book-v2-staging book_v2_ -- --nocapture | 316成功、102 ignored、423 filtered |
+| verify_book_v2_column_balance.py current-probes/column-balance --self-test | 成功 |
+| verify_book_v2_column_display.py current-probes/column-display --self-test | 成功 |
+| 専用venvのverify_book_v2_pdf_assembly.py current-probes --self-test | 成功 |
+
+独立display検査は98実display、363 pages、7,132元fragments、48,535 paints、2,376実header
+graph associations、39 balanced receiptsと4,271 tamper拒否を確認した。元terminal canonical、
+admitted／limitsのJCS、epochと元graphから、六componentのglyph／文字／span・元paint・
+geometry、式番号、marker、画像、anchor／非描画行、全component fingerprint、実合流順と
+段所属を照合する。ownerを変えてcomponent／display hashを再計算した入力と必須field
+欠落も拒否した。97入力は自動選択、1入力はretained cutであり、観測scopeはsource_callback
+94、display_callback 3、retained_source_cut 1である。exactなdisplay record予約と受理済み
+work prefix・inclusiveな上限を検査し、work／shaping／font・vector・表・page kernel全体の
+独立再実装は行っていない。manual cutのdriver countersはnullを要求した。
+
+独立balance検査は50 probes、116 pages、37 receipts、72 local candidates、2,046 semantic
+fragments、37 bounded table witnessesと1,399 tamper拒否で成功した。既存PDFの独立検査は
+637 source PDFs（実driver callback 303）、2,428 pages、29,708 structure nodes、759 annotations、
+12明示unsupported inputsと5,490 tamper拒否で成功した。今回の新段組PDFは0件である。
+全637 PDFが§285と同名byte一致し、§284の35件とHEAD 8b4599aの26件も一致した。元fixture
+40 filesと凍結schema 29 hashesを維持した。prior-diagnostic-comparison.jsonは旧単段headerと
+段組の101診断行を、log hashes・抽出規則・multiplicityを持つ同一multisetへ照合する。
+
+verification-summary.jsonは1,622開始／終了source hashes、4実test binary hashes、316成功名、
+12 commands／logsと1,436 probe artifactsを結ぶ。display-source-delta-frozen.jsonは§285からの
+7追加・16変更、削除0の23 source filesを保持し、両agentの凍結manifestも最終catalogへ照合
+する。pdf-comparison.jsonは全637 PDFと比較元evidence manifest hashを保持する。compilerは
+rustc 1.97.0、Python 3.14.4で、PDFには§284のpypdf 6.10.0専用venvを再利用した。今回の新
+installはない。時間は観測値であり、制御された性能受入や管理host証跡へ計上しない。
+
+verify-final-evidence.pyは最終source・4 binaries・12 logs・1,436 artifactsと全637比較元PDFを
+再hashし、実CLI binaryの--listを照合する。841登録名のうちBook /2の418名は316成功名と
+102 ignored名へ正確に対応し、残る423名をfilteredとする。ignoredは原Harano 91件、原Arial
+1件と元VMB exporter job 10件である。追加displayは登録16名の15成功と原Harano 1 gateへ
+正確に対応する。post-verification-summary.jsonとignored-cli-tests.jsonに対応を保持し、最終
+検査後の文書3件をpost-documentation-hashes.jsonへ別に記録する。
+
+次は実段組paintからfont／image useを発行し、同じdisplay型をselection・closure・subset・
+program・CIDとimage／rasterのparent chainへ保持する。元反復GID・notes・marker・式番号・
+native mathを選択し、共通TT／CFF kernelと単段のbytes／workを維持する。段組marked content・
+構造・navigation・running region接続・PDFと独立受入、Pageラベルの外側の収束、全command
+のphysical byte／capacity／spoolと同時保持graph、公開Book /2と4 manifests、元全巻1 package／
+1 PDF・5,000 distinct画像の実配置・原Harano全巻・管理host・制御性能・著者／人手受入も
+継続する。§284の番号付き表headerの5,619-byte上限でdriver spool観測0となった具体的な
+上流一時spool課題は未修正である。元本文内数式6,343件のSpeech／SemanticRefは既存
+ユーザー回答どおり未作成で、元checkoutがないため今回再監査していない。設計全体とthread
+goalを完了とは扱わない。
+
+<a id="book-2-column-resources-design-14287"></a>
+### 287. 実段組paintのresourceを同じdisplay型へ閉じる（設計§14.287）
+
+[ADR-0150](../adr/ADR-0150-book-2-column-resources.md)に従い、sealed
+BookV2ResourceDisplayを実BodyDisplayとColumnDisplayだけへ実装した。元ordered paint、
+admission、fingerprint、counterと元font-instance tableをreadonlyで照合する。font／image
+useのconstructorをprivateに保ち、実BodyまたはColumnのpaint型を保持する。共通helperは
+実fragmentと実反復header graphの元glyph／instance・native receipt・image／vector keyを
+照合する。単段running regionの既存branchを維持し、元font-instance tableを集約し直さない。
+
+selection・closure・program・CIDとimage・rasterのcontainerをData<D,P>へ共通化し、旧名は
+具体BodyDisplay／BodyPaintのalias、新Column名は具体ColumnDisplay／ColumnPaintのaliasと
+した。元TT／CFF closure・subset・programとraster payloadのkernel、loop、sizeof予約、
+hash domainと順序、sort、CID・Unicode／ActualTextの判断を共用する。元occurrenceのuseは
+別に保持し、同じpayload keyだけを共有する。段組chainを単段PDF型へ変換する入口はない。
+
+探索中にD::Paintをcontainer fieldへ直接入れた案はDのinvarianceを導入し、旧単段PDFの
+匿名lifetimeを使う17 testsを壊した。paint型Pをparent chainのfieldへ明示し、各aliasに
+具体paint型を渡すことで既存borrowのcovarianceを維持した。旧testのlifetimeやassertionを
+変更して通す修正は行っていない。font・image useと偽sealed trait実装の変換拒否は
+documentation testsへ含めた。
+
+with_budgeted_book_v2_column_resourcesは実column displayからfont selection、closure、
+font program、CIDを作り、その後image selectionとraster programを作る。各constructor・
+stageのaccepted records／spool／workをerror伝播前にcallerへ戻す。new_countedは元source／
+caller prefixを保持し、identity不一致では予約せず、受理したconstructor recordを後続
+spool／work失敗でも失わない。成功・既存error順・単段counterを維持した。
+
+image phaseで新しいfont builderを作る案はCFF sessionとType2会計を初期化するため、
+next_stage_countedが同じbuilderを消費し、image constructorの1 recordを加え、同じdisplay・
+limits・CFF sessionとcacheを移す。callbackは最後のbuilderだけを借用し、追加操作は全先行
+prefixから進む。callbackの返却error、途中失敗とretryでも受理済みprefixを返金しない。
+今回保持するsessionは一回のinvocation内であり、外側driver retryをまたぐsession／Type2
+会計は継続課題である。
+
+resource bundleはCIDとrasterの二つのtyped root、実caller開始prefixと二つのconstructor後
+counterを借用する。新allocation、hashや無課金の全paint traversalを追加しない。この
+resource-only経路のimage priorはCIDの後であり、encoded font／textをまだ持たない。次の
+段組PDF経路では実encoded textをimage allocationより前へ置き、同じdisplayと全先行
+records／spool／output／workを検査した別PDF認可へ接続する。
+
+追加16 CLI testsは15成功、原Haranoの1件を明示gateとした。実paintから導いた独立oracleで
+本文・表・共有脚注、list／定義label、native／vector formula、別streamの式番号、実反復
+headerと豊かな未参照定義の除外を検査する。named／parity・実残余幅、空段と強制空ページ、
+全高0の空表、rowspan・入れ子span・caption、均等化した同じ本文ページの六streamを含む。
+元TTのglyf composite依存とhmtxも元bytesから検査する。
+
+元header-context.ttfの同じsource・31pt atom・実100pt段幅と合法retained source end 2を
+使い、semantic graphのGID59と実反復graph／paintのGID71をselection、closure、subset、CID
+まで照合した。この1入力はmanual retained_source_cutと明記する。自然幅driverによるcut
+発見の証拠へ計上しない。通常driverの実headerと自動選択は別に保持する。
+
+同じPNG／JPEG／SVG bytesを別declared image ID 0／1と別元occurrenceとして保持し、別useが
+同じpayload keyだけを共有することを検査した。vector formulaのimage用payloadも含む。
+constructorと全stageのrecords／work／spoolのexact／1不足、failed rasterの受理済み予約と
+retry、caller driverのexact／1不足・callback errorとretry、別display／limitsも検査する。
+正のCID CFFはpinned original Harano gateを維持し、checked-in name-keyed CFFを正の代用へ
+変更していない。
+
+探索中のdraft logsも保全した。draft01のtransitive admission crateの直接importと存在しない
+close_fonts呼出しは、既存resources reexportとprepare_font_closuresへ修正した。draft03で
+callerの既受理ancestorより小さいwork capを渡す試験は、返金しない元prefixを照合するよう
+修正した。draft04の二つ目の画像は元参照定義に実occurrenceを置き、別declared ID 1を保持
+した。元sourceを縮減して共有の主張を通していない。draft08後に元admitted imagesのmetadata
+を必須fieldへ追加し、fresh draft09の全15 active testsと独立35 probesで再検査した。
+
+最終証跡はworkspace/target/vmb-design/20261015/column-resources/に保持する。run-final.pyは
+凍結1,627 source hashesを開始前に照合し、全15 commands成功後も開始／終了一致を検査した。
+cargo commandsは共通で--manifest-path workspace/Cargo.toml --lockedを指定し、
+TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBEにはfresh current-probesの絶対pathを渡した。
+
+| 最終command | 結果 |
+|---|---|
+| cargo check --workspace --all-features --tests | 成功 |
+| cargo check --workspace --tests | 成功 |
+| typaxis-syntax --features book-v2-staging --lib／--doc | 161／13成功 |
+| typaxis-pagination --features book-v2-staging --lib／--doc | 112／15成功 |
+| typaxis-display-list --features book-v2-staging --lib／--doc | 57／10成功 |
+| typaxis-resources --features book-v2-staging --lib／--doc | 32成功・2 ignored／8成功 |
+| typaxis-cli --bin typaxis --features book-v2-staging book_v2_ -- --nocapture | 331成功、103 ignored、423 filtered |
+| verify_book_v2_column_balance.py current-probes/column-balance --self-test | 成功 |
+| verify_book_v2_column_display.py current-probes/column-display --self-test | 成功 |
+| 専用venvのverify_book_v2_column_resources.py current-probes/column-resources --self-test | 成功 |
+| 既存専用venvのverify_book_v2_pdf_assembly.py current-probes --self-test | 成功 |
+
+独立resource検査は35 probes、90 pages、11,762 paints、31 fonts、302 closed GIDs、11,731
+font uses、13 image resourcesと130元image occurrences、PNG 2／JPEG 2／alpha 2を照合し、
+2,957 tamper inputsを拒否した。観測scopeはsource_callback 24、resource_driver 10、
+retained_source_cut 1、選択方法はautomatic_driver 34とretained_source_cut 1である。
+新driverのembedded display観測はdisplay_callbackのancestorとして保持し、resource driver
+の全prefixと混同しない。手動source callbackとretained cutのdriver factsはnullを要求する。
+
+独立checkerは元paint／graphのglyphからuse集合を導き、元TTのSFNT tables・checksum・
+composite GID remap後のraw glyf bytes・outline・hmtxとsubsetを照合する。CID／Unicode／
+ActualTextと全stage fingerprint fold、actual sizeof diagnosticsに基づく予約とworkを検査
+する。今回の正のfont入力はTrueTypeに限り、非TTの正の入力はfail closedで拒否する。原CID
+CFFの正の独立受入は未実行gateである。PNG／alphaの元pixelsと実compressed output、JPEG
+bytesを検査し、checksumを更新したglyph改変、再圧縮したpixel改変、再hashしたCID／image／
+source／programと必須field欠落も拒否した。
+
+PNG deflaterのWrite chunk境界はprobeに保持しない。その予約・work suffixは上下限を検査
+し、exactなcodec replayとは扱わない。SVG寸法・decoded estimateは元admitted metadataへ
+照合し、SafeSVG parserの独立再実装とは扱わない。元shaping・数式計算・表／page kernelの
+再実装、段組PDFやwhole-command physical capacityの受入も主張しない。
+
+独立balanceは50 probes／116 pages／37 receipts／72 candidates／2,046 semantic fragments／
+37 table witnessesと1,399 tamper拒否、独立displayは98 displays／363 pages／7,132 fragments／
+48,535 paints／2,376 actual header associations／39 balanced receiptsと4,271 tamper拒否で
+成功した。既存PDFの独立検査は637 source PDFs、303 actual driver callbacks、2,428 pages、
+29,708 structure nodes、759 annotations、12明示unsupported inputsと5,490 tamper拒否で
+成功した。今回の新段組PDFは0件である。全637 PDFを§286の同名bytesへ照合し、§284の35件と
+HEAD 8b4599aの26件も一致した。元fixture 40 filesと凍結schema 29 hashesを維持した。
+
+Python 3.14.4の新専用venvをこのevidence内に作り、fonttools 4.60.1とPillow 12.0.0をruntime、
+black 25.9.0をformatterとしてpinした。checker-environment.jsonは10 distributionsのversion、
+全1,125 static files、exact install args／logとrequirementsのhashを保持する。helper
+verify_environment.pyは開始／終了とpost検査でversion・distribution集合・全static hashesを
+照合し、そのhelper・manifest・executable hashesも結ぶ。以前のvenvを変更せず、PDFには
+§284のpypdf 6.10.0専用venvを再利用した。compilerはrustc 1.97.0である。時間は観測値であり、
+制御性能受入や管理host証跡へ計上しない。
+
+resource-source-delta-frozen.jsonは§286から5追加・16変更、削除0の21 source filesを保持する。
+verification-summary.jsonは1,627開始／終了source hashes、5実test binary hashes、331成功名、
+全15 commands／logs、1,490 probe artifacts、元fixture／schemaとenvironmentを結ぶ。旧単段と
+段組の101診断行は抽出規則・log hashes・multiplicityを持つ同一multisetへ照合する。
+verify-final-evidence.pyはcurrent source、実binary・logs・artifacts・environmentと全637比較元
+PDFを再hashし、実CLI binaryの--listを照合する。857登録名のうちBook /2の434名は331成功と
+103 ignoredへ正確に対応し、他423名をfilteredとする。ignored CLIは原Harano 92件、原Arial
+1件と元VMB exporter job 10件である。resource libraryの原Harano 2 gatesは別manifestへ記録
+する。post-verification-summary.jsonと文書3件のpost-documentation-hashes.jsonを保持する。
+
+次は段組font streams／objects・encoded textとvector／image commandsを同じdisplay型へ
+接続し、実CID operators・scaled native font size・ruleと元page coordinatesを検査する。
+段組marked content・構造・navigation・running region接続・PDFと独立受入、Pageラベルの
+外側の収束、外側driver retryのCFF session／Type2会計、全commandのphysical byte／capacity／
+spoolと同時保持graph、公開Book /2と4 manifests、元全巻1 package／1 PDF・5,000 distinct
+画像・原Harano全巻・管理host・制御性能・著者／人手受入を継続する。§284の番号付き表headerの
+5,619-byte上限でdriver spool観測0となる上流一時spool課題は未修正である。元本文内数式
+6,343件のSpeech／SemanticRefは未作成で、元checkoutがないため今回再監査していない。
+設計全体とthread goalを完了とは扱わない。
+
+<a id="book-2-column-paint-commands-design-14288"></a>
+### 288. 実段組paintから元CIDと座標の描画commandsを発行する（設計§14.288）
+
+[ADR-0151](../adr/ADR-0151-book-2-column-paint-commands.md)に従い、font streams／objects、
+text commands、vector programs、image objects／commandsをData<D,P>へ共通化した。
+旧Body名と新Column名は具体display／paintのaliasへ保ち、全parent fieldへ明示Pを渡す。
+旧borrowのcovarianceとleaf layout、encoder・sort・sizeof予約・hash domain／順を維持した。
+単段の既存anonymous lifetime testsを変更せず、新Column containers／buildersの単段型への
+変換拒否12件をdocumentation testsへ追加した。
+
+BookV2CommandDisplayはsealed ResourceDisplayを継承し、実Body／Columnだけが元paint・
+page・slot数と元cluster／native glyph／ruleのreadonly viewを返す。private constructorを
+持つviewはtyped paint、元GID・x／y・個別font sizeと実rule inkを保持する。元physical
+coordinatesへ段offsetを再加算せず、再shaping・flow公開・追加allocationや全paint traversalを
+行わない。Body page-region branchも維持した。footnote separatorだけfont slotをNoneとし、
+native ruleは元slotを保持してCID／usage／ActualTextを消費しない。view familyの変換と
+slotの外部構築拒否2件もdocumentation testsへ追加した。
+
+with_budgeted_book_v2_column_paintsは元font selection・closure・program・CIDから実
+ToUnicode／CIDToGIDMap／UTF16 ActualText、font objectsとtext commandsを作る。同じ
+段組displayへのtext ownerの所属を検査し、next_stage_after_countedが実textの全records／
+spool／workを同じCFF sessionへ移す。その後image selection・raster・vector・image objects／
+commandsを作る。image priorは実textの三counter以上、vector prior outputは実text output
+以上を要求する。font objectsの次からimage objectsを割り当て、別document全体のobject
+認可へ読み替えない。
+
+六PDF stageのnew_countedは既存identity・予約順と成功counterを維持し、constructorで
+受理したrecordとObjectId scanのworkを後続失敗でも返す。全buildとcallback後のrecords／
+spool／output／workをerror伝播前にcallerへ戻す。callbackは最後のimage-command builder
+だけを借用し、追加buildも全先行prefixから進む。元CFF sessionを保持する範囲は一回の
+invocation内であり、外側driver retryのsession／Type2会計は継続する。
+
+borrowed bundleは同じdisplayのtext／image command roots、実caller開始と八constructor後の
+record／spool／output／work、元private font bufferのsizeof診断を保持する。診断のために別
+resource builderを作らない。getterだけのtext-command byte_rangeも追加し、fields・予約と
+bytesを変更していない。marked content・構造・navigation・running region・全PDFはまだ
+提供しない。
+
+追加17 CLI testsは16 activeとpinned original Harano 1 gateである。実Column componentから
+独立にpaint／slotを走査し、元CID・font instance・font sizeのTf、元x／yのTmとTj、実rule
+のrectangle、元image occurrenceのDo／matrixを照合する。native分数の実ruleと各glyphの
+scaled font size、extraction.ttfのambiguous glyph・fi ligature・XからDEへのmultiple
+substitutionと元UTF16 ActualTextを含む。CID-local tokenは元font streamから同じsliceを
+借用し、このstageでmarked-content wrapperを発行しない。
+
+named／parity・2／3段・実残余幅、none／last_page、同じ本文ページの共有脚注と六stream、
+list／定義label、別streamの式番号、native／vectorと実反復headerを保持する。元
+header-context.ttfのGID71は同じsource・31pt atom・実100pt段幅と合法source end 2の
+retained cutから実CID／commandsへ照合し、自然幅driverのcut発見へ計上しない。rowspan・
+入れ子span・caption・forced break、空／強制／全高0のページと、豊かな未参照定義のownerを
+描画しないことも検査した。
+
+同じPNG／JPEG／SVG bytesを別declared ID 0／1と別元occurrenceへ保持し、payloadだけを
+共有して実Doを別に発行する。実SafeSVG2入力はclip、root／local非identity transform、
+quadratic／cubic curves、固定RGB・currentColorとfill／strokeの別alphaを持つ。三draw／
+二ExtGStateの実dedup、Form／SoftMask／image dictionariesとpayloadを照合する。今回の
+新Column vector正のprobeはSafeSVG2であり、保存したSafeSVG1 kernelを新Column正の受入へ
+計上しない。
+
+六encoded stagesのrecords／spool／output／workのexact／1不足、constructorの同じ境界・
+foreign limits／parent・first ObjectId 0／最大値・途中scan work、二回のbuild・失敗／retryを
+検査する。font-objectのToUnicode＋auxiliaryとimage-objectのvector payloadのoutput creditは
+それぞれ最初の受理済み予約で一回だけ消費する。二回目のoutputは元credit bytesも加え、
+records／spool／workは同じbuild差分を加える。実caller driverの全四cap・callbackの追加build／
+返却errorとretry、同じdisplay／textの先行prefixも検査した。
+
+二つのmanual source_callbackは元math driverの実ancestor records／spool／workと、手動
+構築したdisplay・resource／paint builderのlocal counterを別に保持する。local workは累積
+ancestor workより小さい場合がある。caller_before／afterはnullで、実ancestor値はenclosed
+元display probeのdriver値へ正確に照合する。手動操作をpaint driverへ加算したとは扱わない。
+retained cutもdriver observationsを捏造しない。実paint_driverだけをcaller全prefixの会計へ
+照合する。
+
+探索の失敗もdraft logsへ保全した。draft01／02のnumber drawの不存在getterは実
+placement().repeated_header()へ直した。draft06のSVG B*期待は元encoderの別f*／Sへ照合し、
+元clip・curve・color・alphaを除いていない。同じdraftのfont-object二回目のoutput差分0
+creditという誤期待は、実ToUnicode＋auxiliary 558 bytesの一回creditへ修正した。checkerの
+manual source counterを累積ancestor以上とする誤期待も、元scopeと実driver fieldsを分けて
+修正した。nonempty glyfのないfont入力はglyph改変だけを正直にskipし、実nonempty glyf
+ではchecksum更新後の改変を拒否した。PNG／alphaの元pixel改変は別に検査した。
+
+最終preflight helperがowner manifestのpath／sha256 records形式へ未対応だったため、freeze
+fileを作れず、runnerも最初のverification command前にFileNotFoundErrorとなった。
+preflight-failed-01.jsonへ保全し、target内のorchestrationを修正した。product source・tests・
+checkerを変更して通したものではなく、verification commandsの実行数は0であった。
+
+最終証跡はworkspace/target/vmb-design/20261015/column-paint-commands/に保持する。
+run-final.pyは凍結1,633 source hashesを開始前に照合し、全18 commandsの後も開始／終了
+一致を検査した。cargo commandsは共通で--manifest-path workspace/Cargo.toml --lockedを
+指定し、TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBEにはfresh current-probesの絶対pathを
+渡した。
+
+| 最終command | 結果 |
+|---|---|
+| cargo check --workspace --all-features --tests | 成功 |
+| cargo check --workspace --tests | 成功 |
+| typaxis-syntax --features book-v2-staging --lib／--doc | 161／13成功 |
+| typaxis-pagination --features book-v2-staging --lib／--doc | 112／15成功 |
+| typaxis-display-list --features book-v2-staging --lib／--doc | 57／12成功 |
+| typaxis-resources --features book-v2-staging --lib／--doc | 32成功・2 ignored／8成功 |
+| typaxis-pdf --features book-v2-staging --lib／--doc | 88成功・1 ignored／13成功 |
+| typaxis-cli --bin typaxis --features book-v2-staging book_v2_ -- --nocapture | 347成功、104 ignored、423 filtered |
+| verify_book_v2_column_balance.py current-probes/column-balance --self-test | 成功 |
+| verify_book_v2_column_display.py current-probes/column-display --self-test | 成功 |
+| 専用venvのverify_book_v2_column_resources.py current-probes/column-resources --self-test | 成功 |
+| 同venvのverify_book_v2_column_paints.py current-probes/column-paint-commands --self-test | 成功 |
+| 既存PDF専用venvのverify_book_v2_pdf_assembly.py current-probes --self-test | 成功 |
+
+独立paint検査は46 probes、125 pages、12,511 paints、42 fonts／421 closed GIDs、12,495 glyph
+uses、12,539 text commands／44 rules、252 font objects、19 image resources／190元occurrencesと
+190実Do、36 image objects／13 Forms／3 SoftMasks、15 vector draws／14 ExtGStates、PNG 3／
+JPEG 3／alpha 3と、3,352-byte vector payload creditを照合し、9,505 tamper inputsを拒否した。
+観測scopeはpaint_driver 43、manual source_callback 2、retained_source_cut 1、元選択方法は
+automatic_driver 45とretained_source_cut 1である。今回の正の独立font入力はTrueTypeに限り、
+原CID CFFの正の受入は未実行Harano gateを維持する。
+
+独立checkerは元paint・graph・glyphと元TT bytesからfont use・closure・subset・CIDを再検査
+し、実ToUnicode／CIDToGIDMap／UTF16 ActualText、font object dictionaries／payload、元
+glyphごとのTf／Tm／Tj・rule、元admitted IRからvector content／alpha state dictionaries、
+Form／raster／SoftMask object bytesと元occurrenceのDo／matrixを導く。実metadata ranges・
+object cursor・stage fingerprintsと全八constructor／成功buildのrecords／spool／output／workを
+照合する。全reported hashesを再sealしたCIDs／coordinates／font size／owner／object／alpha／
+resource prefix改変、checksum更新済みの実glyph改変、再圧縮したPNG／alpha pixel改変、
+ancestorとafterTextの各axis改変、必須field欠落を拒否した。
+
+成功buildのfont／text／vector／image予約とworkをexactに照合する。PNG deflaterのWrite
+境界を保持しないsuffixは予約・workの上下限を検査する。SVG寸法・decoded estimateは元
+admissionへ照合し、保持したIRから実commandsを導くが、SafeSVG parser・全graph／shaping／
+数式／layout kernelの独立再実装は主張しない。失敗・retryとoutput creditの再利用はCLI
+assertionsの証拠であり、独立attempt traceをreplayしたとは扱わない。新段組PDFは0件である。
+
+独立balanceは50 probes／116 pages／37 receipts／72 candidates／2,046 semantic fragments／
+37 table witnessesと1,399 tamper拒否、displayは98 displays／363 pages／7,132 fragments／
+48,535 paints／2,376 actual header associations／39 balanced receiptsと4,271 tamper拒否で
+成功した。旧resourceも35 probes／90 pages／11,762 paints／31 fonts／302 closed GIDs／
+11,731 font uses／13 image resources／130 occurrencesと2,957 tamper拒否で同じ結果を維持した。
+既存PDFの独立検査は637 source PDFs、303 actual driver callbacks、2,428 pages、29,708
+structure nodes、759 annotations、12明示unsupported inputsと5,490 tamper拒否で成功した。
+全637 PDFを§287の全dictionaryと元disk bytesへ同名byte一致で照合し、§284の35件とHEAD
+8b4599aの26件も一致した。元fixture 40 filesと凍結schema 29 hashesを維持した。
+
+prior-diagnostic-comparison.jsonは旧単段headerと段組の101診断行を抽出規則・multiplicity・
+log hashes付きの同一multisetへ照合する。prior-pdf-byte-comparison.jsonとpdf-comparison.json
+は全637比較元／current hashesと元evidence manifest hashesを保持する。
+paint-source-delta-frozen.jsonは§287から6追加・11変更、削除0の17 source filesを保持する。
+verification-summary.jsonは1,633開始／終了source hashes、6実test binary hashes、347成功名、
+全18 commands／logs、1,650 probe artifactsとenvironmentを結ぶ。
+
+今回の新installはない。Python 3.14.4／fonttools 4.60.1／Pillow 12.0.0／black 25.9.0は§287の
+専用venvを変更せず再利用し、copied checker-environment.jsonとverify_environment.pyは元
+manifest／helperとbyte一致する。全10 distributions／1,125 static files、exact pins・install
+args／log／requirementsとexecutable hashesを開始／終了とpost検査へ照合する。PDFには§284の
+pypdf 6.10.0専用venvを再利用した。compilerはrustc 1.97.0である。観測時間を制御性能受入や
+管理host証跡へ計上しない。
+
+frozen-source/は全1,633 actual source inputsを同じhashで保存し、frozen-source-manifest.jsonを
+最終source catalogへ結ぶ。frozen-test-binaries/は6実binary copiesを同じhashで保存する。
+§287の5 binary copiesと文書3件のexact frozen snapshotsも比較元へ結び、次の実装がmutable
+workspaceを進めてもcheckpointの実inputsを保持する。
+
+verify-final-evidence.pyはcurrentとfrozenの全source・6 binaries、18 logs、1,650 artifacts、
+environmentと全637比較元PDFを再hashし、実CLI binaryの--listへ照合する。874登録名のうち
+Book /2の451名は347成功と104 ignoredへ正確に対応し、他423名をfilteredとする。新paintの
+17名は16成功と原Harano 1 gateへ対応する。CLI ignoredは原Harano 93件、原Arial 1件、元VMB
+exporter job 10件である。resource libraryの原Harano 2 gatesとPDF libraryの原Harano 1 gateは
+別manifestへ記録し、CLI104へ混ぜない。post-verification-summary.jsonと文書3件の
+post-documentation-hashes.jsonへ最終対応を保持する。
+
+次は実段組のmarked scopes／contentと元source hierarchyへ接続し、pageごとのMCID、元
+semantic sourceと反復header artifact、Formulaの親ActualText、脚注・番号・表cellと別
+occurrenceのownerを検査する。marked-contentの成功時output settlementは、raw contributionsと
+未使用CID ActualTextの一回creditによりsigned netとなる場合があり、単純なmaxだけのouter
+paint callbackへ重ねない。失敗prefixとrecords／spool／workを保持した別typed settlementを
+実装する。source structureは完成したmarked budgetを直接継承し、creditを復活させない。
+
+段組構造・navigation・running region接続・PDFと独立受入、Pageラベルの外側の収束、外側
+retryのCFF session／Type2会計、全commandのphysical byte／capacity／spoolと同時保持graph、
+公開Book /2と4 manifests、元全巻1 package／1 PDF・5,000 distinct画像・原Harano全巻・管理host・
+制御性能・著者／人手受入を継続する。§284の番号付き表headerの5,619-byte上限でdriver spool
+観測0となる上流一時spool課題も未修正である。元本文内数式6,343件のSpeech／SemanticRefは
+未作成で、元checkoutがないため今回再監査していない。設計全体とthread goalを完了とは扱わない。
+
+<a id="book-2-column-marked-source-design-14289"></a>
+### 289. 実段組paintのmarked contentを元source hierarchyへ結ぶ（設計§14.289）
+
+[ADR-0152](../adr/ADR-0152-book-2-column-marked-source.md)に従い、marked scopes／contentと
+source structureを共通Data<D,P>へ拡張した。旧Body名と新Column名は具体display／paintのaliasへ
+保ち、全parent fieldへ明示Pを渡す。元borrowのcovariance・leaf layout・encoder・予約とhash順を
+維持し、元Body anonymous lifetime helpersを変更していない。Column containers／buildersの
+Body型への変換拒否6件をPDF documentation testsへ追加した。
+
+BookV2SemanticDisplayはsealed CommandDisplayを継承し、実Body／Columnだけが元paint・owner・
+physical page・global fragment・role・artifactとAlt／ActualTextのreadonly viewを返す。元text
+全文とimage baselineを必要な箇所だけへ渡し、座標を再配置しない。private constructorを持つ
+syntax viewは元source visitorとlanguage factsだけを公開し、prepared physical body flowを公開
+しない。visitorのnode文字列は保持したsourceのlifetimeからborrowし、temporary viewへ短縮
+しない。paint family変換・raw flow escapeと外部view構築の拒否3件をdisplay documentation testsへ
+追加した。
+
+scopeは同じowner・page・global fragment・role・artifactの連続Textだけをまとめる。Formula・
+Figure・Labelと別streamの式番号は別scopeとし、semantic MCIDをpageごとに0からdenseに割り
+当てる。実反復headerと脚注separatorはMCID・Alt／ActualTextとlogical bindingを持たない。
+Formulaは元Speechと親ActualTextを保持し、内側SpanへUTF16 replacementを発行する。native
+glyph／ruleとvector Formulaの実paintを維持し、必要なimage replacementだけへ元viewport／
+baselineの非描画Type3 anchorを発行する。Speech／Altはscope／source metadataへ保持し、
+このcontent kernelで/Alt propertyを発行したとは扱わない。最終structure objectへの接続は続く。
+
+with_budgeted_book_v2_column_markedは実paint pipelineを共用してscopes・content・source
+structureを作る。同じdisplay所属、実textの全先行prefixとfont／image object範囲の非重複を
+検査する。borrowed bundleは元paint roots、完成したcontent／structure、settlement前の実encoded
+observationと11 constructor後のcounterを保持する。callbackは最後のsource structure builder
+だけを借用し、追加buildや返却errorの受理済みprefixもcallerへ戻す。
+
+records／spool／workは受理済みprefixの最大値を保持する。outputは公開paint signatureを維持した
+private typed phaseで扱い、Scope／Content build後の実builder counterを結果にかかわらず保持
+する。Scope予約後の失敗と次Content constructorの失敗も元outputを保持する。Contentの
+最初の受理済み予約でraw text／image／scope bytesと未使用CID ActualTextのcreditを一回だけ
+消費し、net outputが減る場合も保持する。後続work／allocation失敗はその予約を取り消さず、
+予約前の失敗はraw prefixを保持する。公開callbackへ数値refund setterを追加していない。
+
+source structureは完成したcontent budgetを直接継承し、atomic reserveと元work順を維持する。
+元source visitorからkey／slot・parent・role・language・span・Alt・table cellと、generated labels／
+式番号の元childrenを保持する。元順序のhierarchyとsemantic scope bindingsを作り、未参照脚注
+定義の元skeletonも維持する。artifactへlogical bindingを作らず、raw output creditを復活させない。
+
+本stageのnodes／bindingsは元source hierarchyの証拠であり、段組PDF structure tree・navigation・
+annotationやPDF-UAの受入へ計上しない。原CID CFFの正の受入は元Harano gateを維持する。
+
+追加16 CLI testsは15 activeとpinned original Harano 1 gateである。実六componentのowner・
+global fragment・roleとpageごとのdense MCID、元Formulaの親ActualText、CID-local replacementと
+元plain textの区別、実native分数のglyph／ruleと別式番号、画像payloadを共有する別Figure
+occurrenceのscopeを検査する。実反復headerと脚注separatorはartifactのまま描画し、Alt／
+ActualText・MCIDとsource bindingを作らない。GID71は同じ元source・31pt atom・実100pt段幅と
+合法source end 2のretained cutへ照合し、自然幅driverによるcut発見へ計上しない。
+
+source hierarchyは元document ASTの全key／slot・parent・child／sibling・depth・role・language・
+span・Alt・table cell attributesとbinding chainsへ照合する。description termの内部Linkと
+en-US／de-DE／fr-CAの継承、generated number referencesとvector式番号の元children、rowspan・
+入れ子table・caption・強制break、未参照の豊かな脚注定義と空／全高0／強制ページを含む。
+native DisplayMath wireにequation_number childを追加していない。別式番号の元childは
+MathVectorBlock.equation_numberから保持する。
+
+三stageのrecords／spool／output／workのexact／1不足、counted constructorの失敗順と受理済み
+prefix、foreign limits／display／text、font／image object重複と実text先行prefixの各axis不足を
+検査する。Contentの一回credit後は二回目のbuildで実materialized全bytesを加算し、Source
+Structureの繰返しbuildでoutputを変えない。driverのcallback追加build・返却error・Work失敗と
+cumulative retryも検査した。
+
+普通の実fixtureはScope output 3,692からContent 4,026へ334 bytes増え、元extraction.ttfの
+ambiguous textは105,199から103,681へ1,518 bytes減る。driverのoutput exact capはsettlement後の
+最終値だけでなく実encoded／Scope／Contentの最大値を収容する。Scope予約後のWork失敗、
+Content予約前／後のWork失敗と次constructorのRecords拒否、Source StructureのWork失敗へ
+stage context・受理済みrecords／spoolと正確なoutputを照合する。retryは同じoutputを保ち、
+records／spool／workの受理済みprefixを減らさない。
+
+探索の失敗をmarked-draft-failure-history.jsonと元logs／hashesへ保全した。draft01はtest helperの
+header_data qualification不足でtestsを実行できなかった。draft02のnodes > bindingsという
+誤期待は、同じ元text ownerが複数fragmentへbindするため成立しない。元AST／bindingの全
+照合を維持し、実cell／captionのfactsへ直した。draft03のdescription termのInvalidNodeOrderは
+local fixture traversalの番号付けへ直し、長い非分割ABのAtomic(NoFeasibleLine)は実breakable
+textとauthored 300pt columnsへ直した。元extraction.ttfを変更していない。
+
+draft04は11 active、draft05／06は15 activeと原Harano 1 gateで成功した。独立checkerはdraft05の
+manual encoded_beforeが実source callback ancestorだった誤labelを拒否した。driverだけへ実
+encoded prefixを保持し、manual／retainedではそのfieldをnullへ直した。genuine ancestor_callbackと
+旧paint snapshotのlineageを維持した。draft06の既にcompileしたbinaryは旧fieldを保持していたため、
+最後のfresh draft07へ正しいschemaを渡して15 active／1 gateを43.12秒で確認した。
+
+focused oldpaint回帰は16 active／1原Harano gateで成功した。old-paint-artifact-byte-compatibility.jsonは
+旧46 JSONと114 binary payloadの全160 names／bytesを§288のdraftとofficial current-probesへ
+byte一致で結ぶ。旧paint test bodiesを変更せず、new child registrationの3行を除くと元source
+SHAへ戻る。paint emitterは元snapshotのpure helper抽出だけを行い、元schema／bytesを維持した。
+
+新独立checkerは元package encoderのcomplete JCSと実decoded UTF8 buffers、元paint／commandsから
+scope・pageごとのMCID・artifact・UTF16 replacementとmarked contentの二passを導く。元viewport／
+baselineの非描画Type3 font／glyph／ToUnicode objectsとanchor commands、元ASTからkey／slot・
+parent／child／sibling・depth・role・canonical language・span・Alt・table cell attributesと全bindingを
+導く。元source_nodes helperをPython ASTからそのまま抽出し、旧checker SHAへ結ぶ。旧moduleの
+pypdf importを実行せず、専用resource venvへ新packageをinstallしていない。
+
+draftのcasefoldだけのlanguage照合はcaseだけの改変を受理するため、registry-free BCP47 grammar・
+extension順と固定grandfathered spellingsを元wireから独立に導くexact照合へ直した。32正例
+（全26 grandfathered tagsを含む）と18不正例を確認し、navigation／source node／number childの
+caseだけを同時改変してstage hashesを再発行した入力も拒否する。
+
+全33 probesの最初のexhaustive runは、各source node／binding改変で同じcontent全bytesを再encode
+し、10分57秒で停止した。timing JSON／logへ保全し、完了negative countを主張しない。次の
+途中runも比較／timingとして保全した。self-testだけへ検証済みimmutable prefixの再利用を
+追加し、source／navigation、全Scope／Content metadata・artifact descriptors・sizeof・chargesと
+constructor prefixを完全hashへ結ぶ。Budget quartetをcopyし、変更したancestor／stageは再検査
+する。normal verificationは毎回全stageをreplayする。
+
+negative matrix内だけで共有する元paint objectのidentityは、mutation pathがそのobjectへ入らない
+ことを検査し、各matrix終了時に全paint SHAを再検査する。変更しないScope／Contentだけの
+adversarial resealも再利用し、変更したartifact／stageは元full resealを使う。成功countを
+完成したfull runだけへ帰属し、casesやcapsを減らしていない。
+
+最終focused checker draft08は全49 actual probes、130 pages、2,095 scopes（1,444 semantic／
+651 artifacts）、624 repeated headers、64 semantic Formulaと14式番号、30 anchors／24 anchor
+objects、2,047 source nodes／1,444 bindingsを照合し、74,428 tamper inputsを拒否した。
+scopeはmarked_driver 46、manual source_callback 2、retained_source_cut 1である。元packageの
+49 source SHAは全decoded identity coverageから再構成でき、unresolvedは0だった。hostの元fileを
+再readしたとは扱わない。syntax flow fingerprintは元issuerのfactへ結び、syntax／style／native
+math preparation全体のfingerprint計算とnative math AST countsを独立再実装したとは扱わない。
+
+独立counter replayは保存した成功buildの11 constructorsとScope／Content／Source Structureの
+records／spool／output／work、signed output creditとhashへ限る。失敗・callback・retryと
+creditの失敗時一回消費はCLI assertionsへ帰属し、独立failed-attempt traceをreplayしたとは
+扱わない。元shaping／layout／page kernel、全SVG parserと原CID CFFの正の受入はこのcheckerへ
+計上しない。manual source_callbackのlocal builder counterと元ancestor値を分け、全callerの
+累積会計へ読み替えない。段組PDFはこのstageの受入へ0件である。
+
+先行PNG rasterの出力bytes／spoolはexactに照合し、deflater Writeによる追加allocation
+records／workは元checkerの上下限検査を維持する。新三stageのexactな予約／workはその
+受理済みpaint prefixから照合し、codec Write境界の独立replayへ読み替えない。
+
+最終証跡はworkspace/target/vmb-design/20261015/column-marked-source/へ保持する。
+run-final.pyは凍結1,638 source hashesを開始前に照合し、全19 commandsの後も開始／終了
+一致を検査した。cargo commandsには--manifest-path workspace/Cargo.toml --lockedを共通で
+指定し、TYPAXIS_BOOK_NAVIGATION_GEOMETRY_PROBEへfresh current-probesの絶対pathを渡した。
+
+freeze時点では新checkerの49 normal probesが成功し、最初のfull exhaustive runは実行中
+だった。owned-marked-checker-source-pre-run-frozen.jsonはその時点の事実を保持し、完了negative
+countを記載していない。後のfull focused成功は別のowned-column-marked-checker-source-hashes-
+passed.jsonと元draft08 result／logへ結ぶ。同じ凍結checkerを最終commandでfresh official
+probesへ再実行した。開始前manifestを後の成功へ書き換えていない。
+
+| 最終command | 結果 |
+|---|---|
+| cargo check --workspace --all-features --tests | 成功 |
+| cargo check --workspace --tests | 成功 |
+| typaxis-syntax --features book-v2-staging --lib／--doc | 161／13成功 |
+| typaxis-pagination --features book-v2-staging --lib／--doc | 112／15成功 |
+| typaxis-display-list --features book-v2-staging --lib／--doc | 57／15成功 |
+| typaxis-resources --features book-v2-staging --lib／--doc | 32成功・2 ignored／8成功 |
+| typaxis-pdf --features book-v2-staging --lib／--doc | 88成功・1 ignored／19成功 |
+| typaxis-cli --bin typaxis --features book-v2-staging book_v2_ -- --nocapture | 362成功、105 ignored、423 filtered |
+| verify_book_v2_column_balance.py current-probes/column-balance --self-test | 成功 |
+| verify_book_v2_column_display.py current-probes/column-display --self-test | 成功 |
+| 専用venvのverify_book_v2_column_resources.py current-probes/column-resources --self-test | 成功 |
+| 同venvのverify_book_v2_column_paints.py current-probes/column-paint-commands --self-test | 成功 |
+| 同venvのverify_book_v2_column_marked.py current-probes/column-marked-source --self-test | 成功 |
+| 既存PDF専用venvのverify_book_v2_pdf_assembly.py current-probes --self-test | 成功 |
+
+最終独立marked検査も全49 actual probes、130 pages、2,095 scopes（1,444 semantic／651
+artifacts）、624 repeated headers、64 semantic Formula／14式番号、30 anchors／24 anchor
+objects、2,047 source nodes／1,444 bindingsと74,428 tamper拒否で成功した。元package内sourcesの49 source SHAは
+complete decoded identityから再構成でき、unresolvedは0だった。実driver 46、manual
+source_callback 2、retained_source_cut 1のscopeを保持し、manualのencoded_beforeはnullである。
+
+旧balanceは50 probes／116 pages／37 receipts／72 candidates／2,046 semantic fragments／
+37 table witnessesと1,399 tamper拒否、displayは98 displays／363 pages／7,132 fragments／
+48,535 paints／2,376 actual header associations／39 balanced receiptsと4,271 tamper拒否を
+維持した。resourceは35 probes／90 pages／11,762 paints／31 fonts／302 closed GIDs／11,731
+font uses／13 images／130 occurrencesと2,957 tamper拒否、paintは46 probes／125 pages／
+12,511 paints／42 fonts／421 closed GIDs／12,495 glyph uses／12,539 text commands／44 rules／
+252 font objects／19 images／190 commands／36 image objects／13 Forms／3 masks／15 vector
+Draws／14 ExtGStates、3,352-byte vector creditと9,505 tamper拒否で同じ結果を維持した。
+
+既存PDFの独立検査は637 source PDFs、303 actual driver callbacks、2,428 pages、29,708
+structure nodes、759 annotations、12明示unsupported inputsと5,490 tamper拒否で成功した。
+全637 PDFの元disk bytesと同名hashを§288へ照合し、§284の35件とHEAD 8b4599aの26件も
+一致した。prior-pdf-byte-comparison.jsonとpdf-comparison.jsonへ全比較元／current hashesと
+元evidence manifest hashesを保持する。旧paintまでの全1,650 artifact namesを保持し、1,013
+filesはraw byte一致する。残り637 PDF metadataは新証跡directoryにある元PDFの絶対path
+だけが異なる。assembly.pdf 303件とrelations.navigation.assembly.pdf 334件の宣言field
+だけを対象に、同じPDF basename／実bytesと、一つのJSON-quoted path tokenの置換だけで
+全raw bytesが一致することを検査した。他のfield／bytesを正規化していない。
+prior-pdf-metadata-path-review.jsonへ両raw hashes・field path・元／current PDF pathと実PDF SHAを
+保持する。新markedは1,747 artifactsを追加し、最終全体は3,397 artifactsである。
+
+postの最初の44.53秒の試行は、全旧artifactをraw byte一致とする誤期待でこの637 metadataを
+拒否した。元helper・command record・logとpost-failed-attempt01.jsonを保全した。target内の
+post比較だけを上記二つの宣言fieldへ限定して修正し、元product source・tests・独立checkerを
+変更して通したものではない。全19 commandsと凍結sourceの証跡を維持した。
+
+補正比較のlocal preflightは全1,650 namesと二つのfield countsへ成功し、余分なwhitespace／
+metadata bytesと重複path tokenをraw hashes付きで再発行した入力を含む6 negative guardsを
+拒否した。temporary negative fixtureのJSONを改変する位置の誤りも別logへ保全した。
+product／独立checkerのmutation matrixとは別のtarget post比較の検査である。
+
+marked-source-delta-frozen.jsonは§288から5追加・9変更・削除0の14 source filesを保持し、
+owner-freeze-manifests.jsonはroot 6・PDF 3・CLI tests／probes 4・独立checker 1の全14 inputsへ
+対応する。prior-diagnostic-comparison.jsonは旧単段headerと段組の101診断行を抽出規則・
+multiplicity・log hashes付きの同一multisetへ照合する。元fixture 40 filesと凍結schema 29
+hashesを維持した。verification-summary.jsonは1,638開始／終了source hashes、6実test binary
+hashes、362成功名、全19 commands／logs、3,397 artifactsとenvironmentを結ぶ。
+
+新package installはない。Python 3.14.4／fonttools 4.60.1／Pillow 12.0.0／black 25.9.0は§287の
+専用venvを変更せず再利用し、copied checker-environment.jsonとverify_environment.pyは元
+manifest／helperとbyte一致する。全10 distributions／1,125 static files、exact pins・install
+args／log／requirementsとexecutable hashesを開始／終了とpost検査へ照合する。PDFには§284の
+pypdf 6.10.0専用venvを再利用した。compilerはrustc 1.97.0である。観測時間を制御性能受入や
+管理host証跡へ計上しない。
+
+frozen-source/は全1,638 actual inputsを同じhashで保存し、frozen-source-manifest.jsonを最終
+source catalogへ結ぶ。frozen-test-binaries/は6実binary copiesを同じhashで保存する。§288の
+1,633 source inputs・6 binary copies・文書3件のexact frozen snapshotsへ比較元を結び、
+さらに§284以降のhistorical archivesも再hashする。次の実装がmutable workspaceを進めても
+checkpointの実inputsを保持する。
+
+verify-final-evidence.pyはcurrentとfrozenの全source・6 binaries、19 logs、3,397 artifacts、
+environmentと全637比較元PDFを再hashし、実CLI binaryの--listへ照合する。890登録名のうち
+Book /2の467名は362成功と105 ignoredへ正確に対応し、他423名をfilteredとする。新markedの
+16名は15成功とpinned original Harano 1 gateへ対応する。CLI ignoredは原Harano 94件、原Arial
+1件、元VMB exporter job 10件である。resource libraryの原Harano 2 gatesとPDF libraryの原Harano
+1 gateは別manifestへ保持し、CLI105へ混ぜない。post-verification-summary.jsonと文書3件の
+post-documentation-hashes.jsonへ最終対応を保持し、後のfrozen-documentation/をそのpost summary
+へ結ぶ。
+
+最終replay中に次のsource relationsを凍結sourceのexact copy／別Cargo targetへ準備した。
+isolated-next-relations-baseline.jsonへ全1,638 baseline hashesを保持する。この隔離workspaceの
+新relations code／tests／logsは本§289のsource count・commands・段組PDF受入へ加算しない。
+元workspaceの凍結inputsを変えず、§289のpost照合後に次stageの実装として扱う。
+
+次は実段組のselected source relations・table Headers・脚注のreading／return edgesとsource
+relocationへ接続し、元source order・選択first-reference forest・unplaced definitionと反復header
+artifactを保持する。段組navigation・running region接続・PDFと独立受入、Pageラベルの外側の
+収束、外側retryのCFF session／Type2会計、全commandのphysical byte／capacity／spoolと同時
+保持graph、公開Book /2と4 manifests、元全巻1 package／1 PDF・5,000 distinct画像・原Harano
+全巻・管理host・制御性能・著者／人手受入を継続する。§284の番号付き表headerの5,619-byte
+上限でdriver spool観測0となる上流一時spool課題も未修正である。元本文内数式6,343件の
+Speech／SemanticRefは未作成で、元checkoutがないため今回再監査していない。設計全体と
+thread goalを完了とは扱わない。
+
+<a id="book-2-column-structure-relations-design-14290"></a>
+### 290. 実段組のsource relationsと脚注の読み順を保持する（設計§14.290）
+
+[ADR-0153](../adr/ADR-0153-book-2-column-structure-relations.md)に従い、source relationsを共通
+Data<D,P>へ拡張した。旧Body名と新Column名は具体display／paintのaliasへ保ち、全parent
+fieldへ明示Pを渡す。元borrowのcovariance、leaf layout・二回のHeaders scan・六vectorの予約・
+charged workとhash順を維持した。元Body anonymous lifetime helpersを変更していない。
+
+sealed SemanticDisplayを継承するRelationDisplayは元tables／lists、definition ownerとreference
+registry、実unreferenced countと選択最終source-stateのfirst-referenceだけを返す。private
+constructorを持つreadonly viewからprepared physical Body flowへ出る入口を作らない。Bodyと
+Columnの選択endpointを具体型のまま区別し、Column stateには元demandの一つのgetterだけを
+渡す。元source graphのreference factsもprivate fields／constructorのCopy viewへ保つ。
+
+元Reference／Noteのsource／link／label slotsとpainted bindingsへ全edgeを結び、元source
+orderでfirst painted return edgeを保持する。読み順の最初のseedは実選択first-reference
+forestへ結び、循環seedを拒否する。その後、元定義順に自分のdescendantsへ入らない最後の
+painted referenceを選ぶ。共有inline branchに付くNoteの元owner順と、未paint edge／未参照
+定義のskeletonを維持する。元hierarchyの全nodesを保持し、depthと全visitを検査する。
+
+table Headersは元tableの先頭Head rowsとlogical column intervalsから導き、colspanの交差へ
+対応する元TH／TDの関係を保持する。入れ子tableと未参照脚注定義内の元tableもsource registry
+へ保持する。反復physical header artifactへ新logical node／bindingを作らない。元ordered／
+unordered listへDecimal／Discを保持する。
+
+with_budgeted_book_v2_column_relationsは実marked driverを共用し、完成したsource structureから
+relation builderを作る。counted constructorは先行counter floor、identity、atomic reserveと
+work順を維持し、受理済みprefixを失敗にも返す。relation buildとcallbackのrecords／spool／
+workをerror伝播前にcallerへ戻す。outputは元marked settlementの実値を保ち、refund／phase
+setterを追加しない。borrowed bundleは元marked roots・relations、実marked callback prefixと
+十二constructor後counterを保持する。callbackは最後のrelation builderだけを借用する。
+
+三つのprivate view構築／family変換拒否をpagination／display documentationへ、Column
+relation container／builderのBody変換拒否二件をPDF documentationへ追加した。隔離workspace
+のdocumentation checksはpagination 16、display 17、PDF 21で成功した。元Body note structureの
+共有branch／後方定義／循環依存とunplaced edge、description term、caption PDFの4 active
+regressionsも成功し、実14 PDFの全names／bytesを§288へ照合した。元helpers／test bodiesを
+変更していない。source-levelの正規化照合も全charged loops／private helpers、二回のHeaders
+scan・六allocation・sizeofとhash順が元kernelに一致することを確認した。
+
+focused CLIは17 activeとpinned original Harano 1 gateで成功した。実Column sourceから独立な
+child vectors／ancestry setsと元AST registryを作り、全node／depth／reading order・Noteの
+source／link／label・return／reading／insertion provenance、全edge・reciprocal relation・元
+Headers／list numberingを照合する。元production detach／insert／header_pairs helpersと
+physical paint順をoracleに用いない。
+
+rowspan・入れ子span／caption・強制ページ、実反復headerと定義内table、multi-Headのlogical
+intervals、未参照の入れ子定義tableを含む。後方定義・共有branch・循環依存・未paint edge、
+Noteだけの継続と最後の強制空ページ、description term／table cell内の元reference、ordered／
+unordered list、named／parity・2／3段・実残余幅、空／全高0とnumber referencesを含む。
+元PNG／JPEG／SafeSVG2・native／vectorとnone／last_page、六streamの共有脚注、同じpayloadの
+別declared image ID／Figure owner、元extraction.ttfの実GSUBとsigned content settlementも
+保持する。manual native／vector source callbacksとGID71 retained cutは実元source・100pt段幅・
+合法end 2へ照合し、自然幅driverのcut発見／caller全prefixの会計へ読み替えない。
+
+四capのexact／1不足、constructorのforeign limits／prefixと予約／work順、build・callbackの
+失敗／再build／累積retryを検査する。relation予約はrecords／spoolだけを加え、outputを変えない。
+二回buildでもraw creditを復活させない。元Contentの105,199から103,681への1,518-byte net
+減少を実relationsへ継承し、scopeのgross maxへ戻さない。whole-driverの失敗retryでは新しい
+upstream output予約が受理される場合があり、relation単体のoutput差分0とは分ける。
+
+全60 actual relation probesは57 relation_driver、2 manual source_callback、1 retained_source_cut
+である。171 pages、5,374 source／reading nodes、42 Notes／30 reference edges、295 logical
+Headers、60 reciprocal relations、26 relocated／16 explicit unpainted Notesと4 definition-origin
+edgesを保持した。元49 marked casesの全canonical package inputsは実relations buildsへ同じ
+元packageで結ぶ。actual-fixture-coverage-final.jsonは各元caseと実relation caseの対応を保持し、
+元49のcaller／cut observationsまで同じだと主張するものではない。
+
+fresh final-sourceの旧marked回帰は15 active／1 gateで成功し、全49 JSON／1,747 artifactsの
+names／raw bytesを§289へ一致で結ぶ。旧paintも16 active／1 gateで成功し、全46 JSON／160
+artifactsのnames／raw bytesを維持した。marked emitterは元snapshotのpure helper抽出だけで、
+旧schema／bytesを保つ。旧marked test fileは新child moduleの宣言2行だけを加え、元test bodies／
+assertions／fixture bytesを変更していない。
+
+探索の失敗と修正はfocused-failure-history-final.jsonと元logs／hashesへ保全した。未参照Noteの
+cloneに重複anchor IDがあり、cloneのIDを元source orderで固有にした。term／cell referenceは
+存在しないdocument spanや外側list spanではなく、実直近parentの元spanへ直した。no-Table
+relation retryは六vector予約を受理した後のwork拒否でもrecords／spoolが増えるため、受理済み
+prefixの正確な期待へ直した。whole-driver short retryのupstream output予約も実受理値へ照合した。
+追加Header assertionを別callbackへ置いた編集ミスと、旧assertionのrustfmt whitespace変更は
+元bytesへ戻した。失敗をproduct修正で隠したものではなく、全旧assertionsを維持した。
+
+元Header referenceの40行は各cellに16 paragraphsを保ち、合計約1,280 body paragraphsとなる。
+H128ptと実140pt段幅の失敗はFootnoteSearchLimitと表示されるが、512 candidate quotaを
+尽くしたとは扱わない。targetだけのdiagnostic copyはlayout Atomic mapperの呼出0を確認し、
+page33／owner1でlocal steps 898,987,023に次projection work 13,413,920を加えると912,400,943
+となり、残量910,997,844を1,403,099だけ超えることを記録した。元global prior 89,002,156を
+加えると要求1,001,403,099が同じmaximum 1,000,000,000を超える。
+
+同じ4,500pt paper・全40行／paragraphs・元Header reference／Noteとcapsを保ち、authored body
+heightを1,024pt、note heightを128ptとした正のfixtureは8 pages／28 repeated fragments、
+2,701 source nodes／1 Note edgeと元first-reference owner 6を保持し、work 698,040,705で
+成功した。semantic referenceは一回だけbindし、実反復はartifactである。小さいpageのbounded
+work拒否を行の削除／cap増加で通したものではない。diagnosis.jsonは元／diagnostic copy source
+hashes・実68 projection attemptsと拒否prefix・command／logへ結ぶ。diagnostic editsを元product
+sourceへコピーしていない。観測時間やこの成功を制御性能／管理host受入へ計上しない。
+
+元§289の閉じた1,638 source archiveを保ったまま、隔離workspaceの凍結17 product／test inputs
+（4追加・13変更）だけを元workspaceへ統合した。四owner manifestsは元隔離manifest SHAと
+原relative path／current hashへ正規化して結び、他の元inputsを全て維持した。統合後の
+cargo check --workspace --all-features --testsも成功した。独立checkerと最終source freeze／
+全command replay／post照合は継続中であり、この段階のfocused proofを最終checkpoint受入へ
+読み替えない。
+
+独立relations checkerを加え、最終source-freeze.jsonは1,643 inputsを保持した。§289から
+5追加・13変更・削除0の18 inputsへ、root 9・PDF 1・CLI driver 3・tests／probes 4・checker 1の
+五owner manifestsを結ぶ。凍結時点のchecker ownerはfresh normal 60成功と、full mutation
+matrix未完を区別する。最終20 commandsはこの凍結sourceから新しいcurrent-probesへ実行する。
+
+通常の独立検査は毎probeで元marked検査を再生し、全元JCS／decoded UTF-8 identity、元
+definition／reference registry・logical Headers・list facts、reading child vectors／ancestry、
+十二constructors・実caller／marked／source prefixesと成功relations予約・hash workを照合する。
+first-reference discoveryは実最終selected stateへ結ぶissuer factとして残す。manual scopeは
+実source callbackのcounterだけへ結び、存在しないwhole driver prefixを捏造しない。
+
+継承するraster paintsは実encoded bytesとspoolをexactに照合する一方、deflaterの追加records／
+workは元checkerのbounded accepted prefixを保つ。relations自身の予約・hash workのexact
+再生を、上流全commandのrecords／workが独立exact再生されたという主張へ広げない。
+
+self-testだけのimmutable expected cacheはcomplete inputs、ABI units、元marked／source／
+ancestor prefixesと実chargesをkeyへ含み、counterごとに新しいbudgetを作る。変更した祖先だけを
+copyするmutationも、変更されたrecordsの厳密照合を省略しない。新しいmarked objectは元検査を
+全再生し、matrix後にcomplete original probe SHAを再照合する。reporterの8-byte整数encodingと
+元hash foldの等価性は全60 probesで1,276一致、malformed 35件で両方拒否を確認した。通常の
+charged hash workやcounter checks、元tamper casesを削減していない。
+
+大きいHeader reference matrixのdevelopment full runはCPU-activeの診断／profilingを保存して
+最適化へ進んだ。後の重複draft10も正式full runとの競合を避けるため保全して停止した。
+45 matrices／23,003拒否はpartial値であり、全60 exhaustive受入へ計上しない。正式20-command
+runの新relations --self-testだけを最終full proofとして扱う。
+
+旧markedの74,428 tamper拒否は§289の閉じた全49 inputs／元checker・imported programs／
+environmentへ帰属する。今回の全49 JSONと1,747 artifact names／raw bytes、元non-Rust
+inputs、interpreter／全10 distributionsと1,125 static filesが一致する場合だけ、元full result／
+progress／logとprimary／post／closure manifestをretained-marked-exhaustive-proof.jsonへ結ぶ。
+今回も通常のmarked verifierは全49をfresh再生するが、新negative数は0として記録し、74,428を
+再実行したとは主張しない。一つでも一致しなければ正式runnerは旧marked --self-testもfresh
+再実行する。postは元source-end SHAと元marked log SHAを元primary command／postの両方へ
+直接照合し、実current probe directoryも固定して検査する。
+
+正式20 commandsは全て成功した。証跡は
+workspace/target/vmb-design/20261015/column-structure-relations/に保持する。
+final-commands.jsonへ全argv／cwd／環境・exit code・実時間・log SHAとtest summariesを保存した。
+CLIは379成功・106 ignored・423 filteredで、890から908へ増えた実registryのBook /2選択485名へ
+正確に対応する。新relationsは17成功とpinned original Harano 1 gateである。CLI ignoredは
+原Harano 95・原Arial 1・元VMB exporter jobs 10であり、resource libraryの原Harano 2とPDF
+libraryの原Harano 1は別manifestへ保つ。
+
+| 正式command | 結果 |
+| --- | --- |
+| workspace all-features check --tests | 成功 |
+| workspace default check --tests | 成功 |
+| syntax library／documentation | 161成功／13成功 |
+| pagination library／documentation | 112成功／16成功 |
+| display library／documentation | 57成功／17成功 |
+| resources library／documentation | 32成功・2 ignored／8成功 |
+| PDF library／documentation | 88成功・1 ignored／21成功 |
+| CLI book_v2_ --nocapture | 379成功・106 ignored・423 filtered |
+| independent balance --self-test | 50 probes・1,399 tamper拒否 |
+| independent display --self-test | 98 displays・4,271 tamper拒否 |
+| independent resources --self-test | 35 probes・2,957 tamper拒否 |
+| independent paints --self-test | 46 probes・9,505 tamper拒否 |
+| independent marked（fresh normal） | 49 probes・新negative 0、§289の74,428拒否をretained |
+| independent relations --self-test | 60 probes・57,249 tamper拒否 |
+| independent existing PDF --self-test | 637 PDFs・5,490 tamper拒否 |
+
+新relationsの正式full self-testは513.94秒で全60 casesに成功した。171 pages、5,374 source／
+reading nodes、42 Notes／30 edges、295 logical Headers、60 reciprocal relations、26 relocated／
+16 explicit unpainted Notesと4 definition-origin edgesを再生した。全60 source identityを元JCSと
+decoded UTF-8から再構成し、unresolvedは0である。57 relation_driver・2 source_callback・
+1 retained_source_cutのscopeと、十二constructors／settled output不変を維持した。
+independent-relations-matrix-case-inventory.jsonはfrozen checkerと実60 probe SHAへ57,249予定casesを
+結び、全60 SELFTEST linesの実拒否数が各caseで一致した。大きいHeader referenceは22,659件を
+含む。inventory単体を拒否証拠とは扱わず、completed full log／resultへ照合する。
+
+凍結時点のfull未完というowner記録を変更せず、後の
+owned-column-relations-checker-passed-manifest.jsonへ正式60 PASS／57,249拒否と元log／inventory
+SHAを結んだ。focused-official-relation-input-comparison.jsonは隔離focusedと正式freshの全60
+JSON／3,152 artifact names／raw bytesの一致を保持する。元49 marked inputsの全1,747 artifactsも
+正式fresh出力とbyte一致し、retained guardはeligibleとなった。今回のmarked normalは3.37秒で
+全49へ成功し、74,428件は§289の元result／logへ帰属する。新package installはない。
+
+旧balance／display／resources／paintsは元成功totalsとfull tamper countsを維持した。既存PDFの
+独立検査も303 actual callbacks・2,428 pages・29,708 structure nodes・759 annotations・
+12 explicit unsupported inputsで成功した。元637 PDF bytesと§284の35件／HEAD 8b4599aの26件を
+維持する。旧3,397 artifact namesのうち2,760はraw byte一致し、637 metadataは元宣言fieldの
+JSON-quoted PDF path tokenだけを新directoryへ置換すると元raw bytesと一致する。対象fieldは
+assembly.pdf 303とrelations.navigation.assembly.pdf 334で、元／current basename・実PDF SHAと
+一つのtokenを固定し、他のbytesを正規化しない。旧101診断行も同じmultisetへ照合する。
+新relationsの3,152 artifactsを加え、正式全体は6,549 artifactsである。
+
+verification-summary.jsonは開始／終了が一致する全1,643 source hashes、6 actual test binary
+hashes、379成功名、全20 commands／logsと6,549 artifactsを結ぶ。frozen-source/と
+frozen-test-binaries/へ同じhashの実copiesを保持する。source delta 18は五ownerと元隔離manifest
+SHAに対応し、元fixture 40 files・凍結schema 29 hashesも保持した。元§289の1,638-source
+archiveと、§284以降のhistorical source／binary／documentation snapshotsを比較元へ結ぶ。
+
+post helperは五ownerのhash-bound manifestからfile mapを導き、元relative paths／origin SHAと
+全18 deltaを検査する。retained current probeのexact path、元source-end SHA、元marked log SHAを
+元primary command／postの両方へ直接照合する。owner schemaとhistorical anchorsのpreflight
+拒否例を保存した。verify-final-evidence.pyは全current／frozen sources・binaries・logs・artifacts、
+CLI --list、元PDF path-token proofと全60 full progress／result、checker environmentを再照合し、
+post-verification-summary.jsonと文書3件のhashへ結ぶ。frozen-documentation/はその3件の実copiesを
+保持し、別processのfinal-readonly-audit.pyは各probeのplanned／実mutation数も再照合する。
+
+Python 3.14.4／fonttools 4.60.1／Pillow 12.0.0／black 25.9.0の元専用venvを変更せず、全10
+distributions／1,125 static files、interpreter・exact pins・元install args／logs／requirementsを
+開始／終了とpostへ照合する。PDF用pypdf 6.10.0の元専用venvも維持した。観測時間を制御性能や
+管理host受入へ計上しない。
+
+正式replay中の次navigationは凍結1,643 sourceのexact copy／別Cargo targetへ隔離した。
+isolated-navigation-baseline.jsonは元freeze SHAと全inputsを保持する。その新code／tests／
+checker／logsは本§290のsource count・commands・PDF受入へ加算しない。
+
+次は元Anchor／Link／outlineへ実段組座標を結び、元source ancestry・段間の別rectangles・
+Note returnと未配置targetsを保持する。Column running-region join／PDFと独立受入、外側Page
+ラベル収束・retry CFF session／Type2、全command physical bytes／capacity／spoolと同時graphs、
+公開Book /2と4 manifests、元全巻1 package／1 PDF・5,000 distinct画像・原fonts／管理host／
+制御性能／著者・人手受入を継続する。番号付きtable headerの5,619-byte上限で上流一時spoolが
+driverへ戻らない課題と、元数式6,343 Speech／SemanticRef未作成も継続する。元checkoutがなく
+今回再監査していない。§290 checkpointと設計全体の完了を分け、thread goalをactiveへ保つ。
+
+
+<a id="book-2-column-navigation-design-14291"></a>
+### 291. 実段組のnavigation geometryを元sourceへ結ぶ（設計§14.291）
+
+[ADR-0154](../adr/ADR-0154-book-2-column-navigation.md)に従い、NavigationGeometry／Builderを
+Data<D,P>へ拡張した。旧24-lifetime Body aliasesと具体Column aliasesを保ち、全parent fieldsへ
+明示Pを渡す。元七vectorの予約・capacity・leaf sizeof、charged loops／hash順とprivate helpersを
+維持した。元Body source flowと新original_graphは同じretained flowを借用する。
+
+sealed NavigationDisplayは元paragraph sites／Anchor／outlineとactual O(1) paint bounds、
+positioned Anchor／nonpainting lineのprivate typed viewsを返す。body／column family変換と
+private source view構築の拒否を加え、隔離display docs 21・PDF docs 23へ成功した。元Body
+navigation／anchor／headerの6 regressionsと2原font gatesを実行し、4 actual PDF bytesが§289へ
+一致した。normalized kernel auditは元七allocation・sizeof・paid steps・foldsとconstructor順を
+元kernelへ照合する。
+
+Link inheritanceは元SourceStructure parentsを使い、Note reading relocationを使わない。実
+Text logical bounds・native receipt bounds・vector／image viewport・marker placementと式番号
+boundsから同じ(page,global fragment)のrectanglesだけをunionする。実empty line／inline Anchor
+の元geometryと、未配置None、blank page ranges、Note forward／returnとoutline hierarchyを
+保つ。nested active Linkと必要な未配置targetは元owner付きsemantic errorへ保つ。
+
+新driverは実relation callbackを共用し、十三constructors・実relation prefixと全R／S／Wの
+error／retry historyを保持する。Oは元marked settlementを保ち、credit／refund／phase setterを
+追加しない。semantic errorはNavigation callback前に起きるため、そのactual constructor／
+build stop quartetを実relation_callbackに保存し、whole Navigation caller fieldsをnullへ保つ。
+
+隔離focused final13は19成功・pinned original Harano 1 gateで成功し、89 actual probesを作った。
+85 successと4 semantic refusal、82 navigation_driver・4 relation_callback・2 source_callback・
+1 retained_source_cutを保持する。元60 Relation packageの全canonical JCS identitiesを少なくとも
+一つの実Navigation attemptへ結び、元caller／cut observationsまで同じとは主張しない。
+Page-format fixtureはcolumn line convergenceでowner2 PendingInline(reference)、実accepted
+[R146,S0,O0,W26]へ拒否された。このCLI-only dependency refusalをfinal Page-label受入や
+Navigation resultへ読み替えない。
+
+六つの凍結product inputs（2追加・4変更）を元§290の1,643-source checkpointを保って統合した。
+product-integration-draft01.jsonへ元freeze／三owner manifests／各relative pathと両hashesを
+保持する。他の元inputsは全て維持した。統合workspace all-features --tests checkは31.47秒で
+成功した。その後、凍結した4 test／probe inputsと新checkerを統合し、他の元inputsを全て維持した。
+source-freeze.jsonは1,648 inputs、元§290との差分は5追加・6変更・削除0の11 inputsを保持する。
+root display 2・PDF 1・CLI driver 3・tests／probes 4・checker 1の五ownerへ全差分を結んだ。
+正式21 commandsはこのsourceを固定し、新しいcurrent-probesへ実行中である。凍結時点のowner
+記録はfresh normal 89成功と、全mutation matrix未完を区別し、後の結果で書き換えない。
+
+独立checkerの通常検査は毎probeで元Relations／marked／sourceを全再生し、元JCSのparagraph
+sites／Anchor／outline、Text labelとNumber bindingのUTF-8 slices、元source parentsと実physical
+boundsから七vector・destinations／rectangles／outline・成功予約／work／hashを導く。source
+outline kind／order／unique targetsのraw controls 5と、Break joinのraw controls 3をwhole-probe
+mutation数と分ける。四semantic refusalへcallbackが届いたようにscope／caller／prefixを同時改変
+するcaseも加え、特定のprovenance guardで拒否する。resource／callback failureとretryはCLIの
+actual builder assertionsへ帰属し、独立した全attempt trace再実装とは扱わない。
+
+凍結した上流Display wireのBreak recordはkindとplaced inline indexを持つが、元ownerを持たない。
+checkerはindexを元source-site indexへ読み替えず、元authored soft／hard controlsの順序を同じ
+selected graph／paragraphのunique linesへ結ぶ。反復する同じlineのmetadataは一致を要求し、
+各width-specific graphに元controlsの全censusがない場合はfail closedとする。今回の89 inputsは
+7 control-bearing graph／paragraph・390 authored controlsを全て保持し、725 repeated linesの
+metadataも一致した。この条件付きdiagnostic joinをline-breaking kernelの独立再実装や任意の
+partial graphの受入とは扱わない。元selected line位置／fingerprintsはissuer-linked factsである。
+
+self-testだけのcacheは元Relations object identityとcomplete source／geometry／ABI／prefix keyを
+要求し、変更したreported inputsを独立factsへ照合する。budgetと期待recordsをcopyし、constructor／
+caps／caller検査はcached branchの外へ保つ。別Relations objectは元通常検査を全再生し、matrix後に
+complete original probe SHAを照合する。full未完のdevelopment試行とBreak owner diagnosticの
+KeyErrorを保存し、修正後の通常全89成功・別local controlsだけを凍結時点の受入へ計上した。
+
+旧markedの74,428拒否とrelationsの57,249拒否は、それぞれ§289／§290の元full proofへ帰属する。
+二つのretained guardは別々に元closure／source archive／programs／actual input bytes／logsと
+immutable environmentを照合し、今回もfresh normal verifierを全件実行する。一つのfamilyが
+不一致なら、そのfamilyだけfresh --self-testへ戻る。元Rust producerのidentityや過去のnegative
+countsを今回再実行したという主張へ読み替えない。guardの20 positive／fallback／refusal controlsは
+current reader／hash／environmentへの制御substitutionによるpreflightであり、新producer出力の
+証拠ではない。正式fresh artifactsの判定と全21 commands・post・文書snapshotは継続中である。
+
+正式run中の次running-region workは凍結1,648 inputsのexact copy／別Cargo targetへ隔離した。
+その実装とchecksを本§291のsource count／commands／PDF受入へ加算しない。
+
+新navigationの正式full --self-testは101.69秒で全89 snapshotsへ成功した。85 resultsと4
+semantic refusals、82 navigation_driver・4 relation_callback・2 source_callback・1 retained_source_cutを
+保持する。535,808 whole-probe mutationsを全て拒否し、別にraw source controls 5とgeometry
+controls 3を拒否した。4つのjoint semantic-scope casesは535,808件の内数であり、重複加算しない。
+independent-navigation-matrix-case-inventory.jsonは元focused inputs／frozen checkerのordered
+case descriptorsと実fresh probe SHAへ予定数を結び、全89 SELFTEST linesの各数・名前・順序と
+completed resultの総数が一致した。generator-only enumerationを拒否証拠へ読み替えない。
+
+発行されたNavigationは290 pages、637 destinations、379 Links、1,274 physical rectanglesと
+3 outline entriesを保持する。semantic refusalにはNavigation resultを発行しないため、継承した
+marked/sourceの300 pagesと区別する。元35,279 paints、7,098 scopes（5,738 semantic／1,360
+artifacts）、1,290 repeated Headers、10,389 source／reading nodesと5,738 bindingsへ全89 source
+identitiesを結び、unresolvedは0である。38 Notes／29 reference edges、489 Headers、58 reciprocal
+relations、25 relocated／13 explicit unpainted Notesと4 definition-origin edgesも維持した。
+元receipt coordinatesを再配置したり、reading relocationをLink ancestryへ使った結果ではない。
+
+focused-official-navigation-input-comparison.jsonは隔離focused-final13と正式freshの全89 JSON／
+3,567 artifact names／raw bytesの一致を保持する。凍結時点のownerがfull未完と記録した事実は
+保ち、completed full log／resultは後続のowned-column-navigation-checker-passed-manifest.jsonへ
+別に結んだ。
+
+正式21 commandsは全て成功した。証跡は
+workspace/target/vmb-design/20261015/column-navigation/へ保持する。final-commands.jsonは全argv／
+cwd／環境・exit code・実時間・log SHAとsummariesを持つ。CLI registryは908から928へ増え、
+Book /2の選択505名へ398成功・107 ignored・423 filteredが対応する。新navigationは19成功と
+pinned original Harano 1 gateである。CLI ignoredは元Harano 96・Arial 1・VMB exporter jobs 10を
+区別し、resources libraryのHarano 2とPDF libraryのHarano 1は別manifestへ保つ。
+
+| 正式command | 結果 |
+| --- | --- |
+| workspace all-features／default check --tests | 両方成功 |
+| syntax library／documentation | 161成功／13成功 |
+| pagination library／documentation | 112成功／16成功 |
+| display library／documentation | 57成功／21成功 |
+| resources library／documentation | 32成功・2 ignored／8成功 |
+| PDF library／documentation | 88成功・1 ignored／23成功 |
+| CLI book_v2_ --nocapture | 398成功・107 ignored・423 filtered |
+| independent balance --self-test | 50 probes・1,399 tamper拒否 |
+| independent display --self-test | 98 displays・4,271 tamper拒否 |
+| independent resources --self-test | 35 probes・2,957 tamper拒否 |
+| independent paints --self-test | 46 probes・9,505 tamper拒否 |
+| independent marked（fresh normal） | 49 probes・新negative 0、§289の74,428拒否をretained |
+| independent relations（fresh normal） | 60 probes・新negative 0、§290の57,249拒否をretained |
+| independent navigation --self-test | 89 snapshots・535,808拒否、別source 5／geometry 3 controls |
+| independent existing PDF --self-test | 637 PDFs・5,490 tamper拒否 |
+
+既存PDFの独立検査は303 actual callbacks・2,428 pages・29,708 structure nodes・759 annotationsと
+12 explicit unsupported inputsを維持した。元637 PDF bytes、§284の35件とHEAD 8b4599aの26件も
+byte一致する。旧6,549 artifactsのうち5,912はraw byte一致し、637 metadataは宣言済みの
+assembly.pdf 303／relations.navigation.assembly.pdf 334のJSON-quoted path token一つだけを
+置換すると元raw bytesへ一致する。basenameとactual PDF SHAを固定し、他のbytesを正規化しない。
+旧101診断行も同じmultisetへ保つ。新navigationの3,567 artifactsを加え、全体は10,116である。
+
+verification-summary.jsonは開始／終了が一致する1,648 source hashes、6 actual test binariesと
+同hashの実frozen copies、全21 commands／logs・398成功名と全10,116 artifact hashesへ結ぶ。
+元fixture 40 files・frozen schema 29 hashesも維持する。source delta 11は五ownerの元隔離manifest
+SHA・relative paths・実bytes／hashesへ対応する。checker ownerの二重宣言files／source_filesは
+双方のpath／bytes／SHA一致を要求し、矛盾した宣言を選択的に無視しない。45 owner拒否controlsと
+旧closure／source／log／environment guards、全89 inventory bindingsのpreflightを保持した。
+
+verify-final-evidence.pyは全current／frozen source・binaries・CLI registry・commands／logs・artifacts、
+両retained proofと元actual paths、全89 SELFTEST progress／result／planned casesを再照合する。
+post-verification-summary.jsonは文書3件のhashへ結び、frozen-documentation/へ同bytesのcopiesを
+保持する。別processのfinal-readonly-audit.pyは全6 binary registriesとraw artifacts、各probeの
+ordered mutation descriptorsを独立に再照合し、checkpoint-closure.jsonがprimary／post／
+frozen documents／final auditを結ぶ。generator再列挙はfull mutation再実行とは扱わない。
+
+Python 3.14.4・fonttools 4.60.1・Pillow 12.0.0・black 25.9.0の元immutable venvを変更せず、
+interpreter／10 distributions／1,125 static files・元exact pins／install args／logs／requirementsを
+開始／終了とpostへ照合する。PDF用pypdf 6.10.0の専用venvも維持し、新installはない。
+観測時間を制御性能／管理host受入へ計上しない。
+
+次running-region／PDF workは隔離workspaceに留める。元source-bound region flow／shaping／
+layoutから実Column pagesへ完全なHeader／Footer setを結び、font selection前にglyphsを保持する。
+新Column PDFと独立PDF受入、外側Page-label convergence、外側retry CFF session／Type2、
+全command physical bytes／capacity／spoolと同時graphs、番号付きtable headerの5,619-byte上流
+一時spool課題を継続する。public Book /2と4 manifests、元全巻1 package／1 PDF・5,000 distinct
+images・原fonts／管理host／制御性能／著者・人手受入、元6,343 Speech／SemanticRef未作成も
+継続し、今回元checkoutの再監査は行っていない。§291 checkpointと設計全体を区別し、thread goalを
+activeへ保つ。
+
+
+<a id="book-2-column-running-regions-pdf-design-14292"></a>
+## 292. 実段組のrunning Header／Footerとinspectable PDFを接続する
+
+2026-10-15。§291の凍結1,648 inputsを別workspaceへexact copyし、実Column pagesのrunning
+Header／Footerと元PDF writerを接続した。[設計§14.292](28-vmb-book-production-compatibility.md#book-2-column-running-regions-pdf-design-14292)
+と[ADR-0155](../adr/ADR-0155-book-2-column-running-regions.md)へprivate stagingの範囲を保つ。
+公開Book /2／writer／manifest／PDF-UA／元全巻受入を追加したという主張ではない。
+
+元selected pagesのHeader／Footerを完全なpage・region順、named／parity master、source／owner／
+admission／limits／epoch／frameへ結び、欠落・重複・余分・順序違い・foreign identityを拒否する。
+元body／note／residual columns／balance高さを保持し、running textはPagination artifactとする。
+MCID／body fragment／logical bindingを作らず、元glyphsをfont subset／CID／text commandsへ渡す。
+PageRegionTextは一つのusizeのindexとprivate O(1) locatorで旧16-byte paint footprintを維持する。
+旧paintと新paint／region／locatorの同時保持、join workと実continuation prefixesを予約する。
+authored regionsが全くないfast pathは元bytes／fingerprint／countersを保つ。authoredだが未選択の
+regionsの空joinは実scanとaccepted R／Wを保持する。
+
+private contextは元policyと共有line-pass ledgerをColumnDelivery→Math→Displayへ運ぶ。同じ元
+prepared source／binding epochを使い、fresh ledger／reprepare／数値refund入口を設けない。
+remaining Work／passesでregion source／shape／line／displayを実行し、全Resultでbegun passesと
+accepted R／Wを保持する。missing／extra／duplicate／foreign／wrong order／source／page／epoch／
+frameと、exact・1不足のcaps／passes、callback error／retryをactual buildersで検査した。
+
+sealed AssemblyDisplayはmetadata／Page候補値と実frame検査だけを返す。元Column planとstable
+selection、named／parity master、full body／note／columns／balanced heightへ結び、同寸法の別
+named masterを拒否する。PreparedBodyFlowへのescapeをColumnへ加えない。Body／Columnの
+PDF Data<D,P>共通化は元object order／xref／二回のEncoder／全charged loopsを保持し、実Column
+global coordinatesへ上端transformを一回適用する。元Bodyのcolumn guardを維持する。
+
+実Navigation callback内の十四番目のcounted constructorは元prefix／caller floorsを先に返し、
+atomic +1 recordとWork ceilingを保持する。font／image objects・marked bytesの置換creditは
+測定・予約成功後に一回支出し、後続失敗／同じbuilderの追加build／外側retryで復活させない。
+private output phaseは同じpaint roots／Navigationと元builder attemptへ結び、全ResultのR／S／W
+accepted maximumと、typed ownerの実signed Oを保持する。
+
+正式freeze前のroot reviewで実callback builder置換の欠陥を発見した。同じNavigationのfresh
+unbuilt builderへ置換するとOが18,442→10,845へ7,597 bytes減り、fresh built replacementでは
+元10,845 bytesのcreditを再支出してOkを返した。二つの旧失敗と旧source archiveを保存した。
+opaque attempt identityをaccepted constructor後にchecked atomicで発行し、最初のbuild前に
+private phaseへ固定する。別attemptをO書換え前に拒否し、両回帰はIdentity、元O18,442を保持する。
+built replacementの追加R／S／W [6266,117776,60282]も保持する。tokenはprivate field／比較専用、
+numeric constructor／Default／setter／Builder Cloneなしで、PDF／canonical hash／予約loopへ
+入れない。修正後の35 PDF probesを含む833 artifactsは修正前の成功artifactsへraw byte一致した。
+
+追加reviewでattempt-only候補の別欠陥を実再現した。callbackが元builderをもう一回buildした後に
+fresh builderへ置換するとIdentityを返すが、元二回目のaccepted [6265,117776,36884,60282]を
+失い、callerを元一回目の[6178,97894,18442,49890]へ戻した。差分は[R87,S19882,O18442,W10392]
+である。元1,660 inputs、failed binary／二回の実失敗log、23成功commands・一中断、六frozen binariesと
+13,831 artifactsを元column-running-regions/へ保存し、checkpointを発行しなかった。
+
+最終版はPDF crateのadditive ContinuationとHRTB with_continuationを使う。private raw borrowと
+invariantなfresh loanを持つviewだけをcallbackへ借用し、元builderをdriverに保持する。buildと
+readonly getters以外のconstructor／raw getter／Deref／DerefMut／AsMut／into_inner／Clone／Defaultを
+設けない。Rをfresh loanに依存させず、build結果は元source lifetimesへ保つ。callback後に元raw
+builderを読み直すため、borrowed referenceのforgetでもcounter ownerを失わない。成功後のapplication
+Errで全[6265,117776,36884,60282]、late Work Errで[6265,117776,36884,60281]を保持し、retryも
+拒否して既存Oを保つ。旧raw replacementは四つの実compile-fail controlsへ置き換え、同じalias／APIを
+使う二つのpositive controlsも実行した。additive types／methodを取り除くと旧Assembly file全bytesへ
+一致する。別readonly reviewもnormal-return／Resultのownershipへ新たな問題を認めなかった。
+
+元Book /2の非空semantic containerに元PageBreakだけがあるsourceは、元command spanをwrapする。
+架空paragraph／glyph／fragmentを補わない。元EmptyParagraph owner1・[R161,S0,O0,W49]・二begun
+passesの失敗を保存した。二／三段・nested／style／keepで元二command ownerと三blank pages・六
+running regionsを検査した。前後fixtureのsource-file descriptor length／SHAが異なる点は明記し、
+whole-package raw byte一致とは扱わない。空container／Legacyと通常physical source pathを保つ。
+
+新region独立checkerは元JCS、actual glyph／resource union／font programs／CID／Unicode／text、
+native／PNG／JPEG／SVG／raster／vector／forms／masksとArtifact slots、join／13 constructorsを再生する。
+新PDF checkerは元Column source tree／relations／navigation・geometryと実resource bytesから
+PDF全bytes／objects／xref／二回のEncoderとAssembly R／S／O／Wを再構築する。元49 verifierは
+全てbyte不変である。source／shape／line prefixes、selected line choices／ABI unitsとbuild
+metadataの未再導出部分はissuer factsへ限定する。deflaterの追加R／Wはbounded accepted prefix
+として保持し、独立line breaker／shaper／全attempt trace／全physical allocation受入を主張しない。
+
+二／三段、None／LastPage balance、named／parity／forced blank／notes-only、元六paint streamsと
+Notes、native／vector／PNG／JPEG／SVG、実fraction rulesと反復table Headers、自然contextual glyphs、
+metadataのXML escape／nonBMP／dates／keywords／identifierを全PDFへ通した。Collection caseは
+font_face_id=1／container face_index=0であり、container index1の検査とは扱わない。元Harano gateを
+残す。contextual running Header14pt GID71／Footer80pt GID59と、別retained Header contextを区別する。
+
+元Navigation全89 packagesを、元canonical source／limits／maximum Work／resource occurrencesの
+ままpublic staging PDF driverへ実試行した。81件はPDFを生成した。四件の元exact
+R／S／O／W capは追加Assemblyのconstructor／buildで拒否し、capsを増やさない。四semantic refusals
+は元owner／prefixを維持した。fresh driver replayはmanual caller／retained graphの再現とは扱わない。
+元100pt／retained end-two／GID71のactual kernelは別に再実行し、旧Navigation JSON SHA
+cdd301ba55aee91884088ab8b273848a4e1bb7dcd77b9543352b21ee4fc9eb0cと元artifact bytesを保つ。
+そのPDF observationはretained_source_cut、caller before／previous／navigation prefix／afterはnullで、
+actual source prefixだけを持つ。90番目の旧Navigation caseやwhole-driver prefixを捏造しない。
+
+正式25 commandsは全成功した。証跡はworkspace/target/vmb-design/20261015/column-running-regions-final/。
+final-commands.jsonは全argv／cwd／二つの実env paths／exit／実時間／log SHAを保持する。元runnerは
+25件の終了後、line91のloaded helper marshal比較guardでexit1となり、archive／primaryを発行しなかった。
+元runner2a9301a7と25 logs／reports／source-startをそのまま保存した。実helperのassessで返却reportが
+元constantへの参照を増やすと、同じcodeでもmarshalのFLAG_REF encodingが変わることを再現した。
+co_code／再帰constants／disassemblyは不変だった。元processの開始／終了RAM mapsは未保存で、
+この再現を元RAMの回収や元runner成功へ読み替えない。
+
+補足recoveryはexact sourceのfresh compileと実loaded function全11件のtyped recursive descriptorを
+開始／各assess後／終了で比較する。別code objectのconstant tamper拒否も確認し、元関数を変更しない。
+actual marked／relations assessの二report writesだけを新targetへredirectし、元report bytesへ一致させる。
+元1,660 source、environment、25 command rows／logs、六binaries、全13,831 artifactsを再照合した後、
+元post-guard materializationをそのまま実行し、primaryへ元exit1／failed guard／recovery bindingを追加した。
+25 verification commandsの再実行、元RAM回収、元runner完走は主張しない。failure-preservation、forensic、
+stable helper audit、recovery programs／completionとpost／最終audit／closureを相互hashで結ぶ。
+
+| 正式command | 結果 |
+| --- | --- |
+| workspace all-features／default check --tests | 両方成功 |
+| syntax library／documentation | 161成功／13成功 |
+| pagination library／documentation | 112成功／16成功 |
+| display library／documentation | 57成功／23成功 |
+| resources library／documentation | 32成功・2 ignored／8成功 |
+| PDF library／documentation | 88成功・1 ignored／31成功 |
+| main CLI book_v2_ | 424成功・109 ignored・424 filtered |
+| dedicated retained original context leaf | 1成功・0 ignored |
+| explicit ignored original-package corpus leaf | 1成功・0 ignored、89 actual attempts |
+| independent balance／display／resources／paints full | 50／98／35／46 probes、1,399／4,271／2,957／9,505拒否 |
+| independent marked／relations fresh normal | 49／60 probes、新negative各0 |
+| independent original Navigation full | 89 snapshots・535,808拒否、別source5／geometry3 |
+| independent existing PDF full | 637 PDFs・5,490拒否 |
+| independent running regions full | 139 occurrences・28,707拒否 |
+| independent new Column PDF full | 116 probes・97,057拒否＋別semantic／xref 856拒否 |
+
+CLI registry 957名・Book /2 selected 534名を実binaryから照合する。mainはretained
+leaf一つだけをskipし、旧Navigation writerと同じ元artifactへ並行writeしないよう直後に個別実行する。
+active 425名とexplicit corpus一名、unique 426成功を保持する。main ignoredの
+109名には後続で実行したcorpus一名が含まれ、残るHarano97／Arial1／VMB exporter10を
+unexecuted gatesとして区別する。resourcesのHarano2とPDFのHarano1は別manifestへ保つ。
+
+region checkerはstandalone24と実PDF parent115の計139 occurrencesを全実行する。
+旧Navigationを持つmanual retained parent一件はこのregion familyからverified=falseで除外し、
+別PDF checkerが旧Navigation verifierをそのまま通す。新PDF全116件は115 public-driver／
+1 retained-source、383 pages・800 columns・11,704 source nodes・
+6,294 bindings・1,234 annotations・15,532 occupied objects・
+8,403,288 PDF bytesを保持する。per-case inventoriesの順序／raw SHA／canonical SHA／ordered
+mutation descriptorsを全completed SELFTEST／VERIFY rowsへ対応させる。generator-only再列挙を
+拒否証拠へ読み替えず、二つのnegative countsを二重加算しない。
+
+元marked74,428拒否とrelations57,249拒否は、元§289／§290 closure／exact programs／actual input
+bytes／immutable environmentへ別々に結ぶretained exhaustive proofである。今回の両familyはfresh
+normalで新negative0、元Rust producer identityの同一性や今回のfull再実行へ読み替えない。
+元Navigation89のfresh full535,808拒否は、§291のsealed ordered planへcurrent raw inputs／実
+runtime countsと再列挙descriptorsを結ぶ。新caseを元planへ追加したとは扱わない。
+
+元10,116 artifactsの9,479はraw byte一致し、637 metadataは宣言済みのassembly.pdf303／
+relations.navigation.assembly.pdf334のJSON-quoted token一つだけを置換すると旧raw bytesへ一致する。
+basename／実PDF SHAを固定し、他の正規化を行わない。637 PDF bytesと旧101診断multiset、元fixture
+40 filesとfrozen schemas29を維持する。新artifactsを含む総数は13,831、sourceは1,660、
+実frozen binariesは6である。delta35=12追加／23変更は五ownerのexact hashesと相互一致する
+files／source_files declarationsへ結び、旧dirty workを消さない。
+
+元Python3.14.4／fonttools4.60.1／Pillow12.0.0／black25.9.0のimmutable10distributions／1,125static
+filesと元pins／install logs／requirementsを変更しない。新PDFは既存別venvのpypdf6.10.0を明示的な
+--pypdf-siteで借り、56static package files／actual module pathを開始／終了へ固定する。install／
+.pth実行／package copyは行わない。観測実時間を制御性能／管理host受入へ計上しない。
+
+postはcurrent／frozen source・binaries／registries／全commands／artifacts／retained proofs／元89
+source/caps/resource occurrencesと新per-case inventoriesを再照合し、文書三件の同bytes snapshotへ
+結ぶ。別processのreadonly auditが同じfactsを独立に再照合し、checkpoint closureがprimary／post／
+documentation／final auditを結ぶ。保存したbuilder置換前後／forced-only失敗／旧§289 post失敗と
+中断した開発CLI runは正式成功commandsへ加算しない。
+
+次Page-label／CFF workは別workspaceへ隔離し、本§292のsource／tests／受入へ含めない。現在の
+Header／Footer inline grammarはText／SoftBreak／HardBreakだけでPage sitesは0であり、次censusは
+全authored mastersを調べる。外側Page-label convergenceと元table headers／notes／unplaced
+definitions、外側retry CFF session／Type2、全command admission／shaping／physical capacity／spoolと
+同時graphs、番号付きtable headerの5,619-byte上流一時spoolを継続する。public Book /2と4manifests、
+元全巻1package／1PDF・5,000 distinct images・原fonts／管理host／性能／著者・人手受入、元6,343
+Speech／SemanticRef未作成も継続する。今回元checkoutの再監査を行ったとは主張せず、設計全体と
+thread goalを完了と扱わない。
+
+broader readonly auditは、旧standalone Display／Resources／Paints／Marked／Relations／Navigationの
+六callbackにもraw builderの追加build後の置換でaccepted extra prefixを失うcode経路を確認した。
+これは六stageの新実行reproではなく、元constructors／callback types／post-slot maxのsource-level
+reachability proofである。新PDFのparent bundlesはimmutableであり、このcallbackから元六builderの
+mutable borrowへ抜ける入口はない。六standalone APIsのowner維持は別の未完codeへ追加し、従来の
+normal callbacks／artifact互換検査を、任意のsafe replacementへ広げた受入とは扱わない。
+
+<a id="book-2-column-callback-ownership-design-14293"></a>
+## 293. 段組の六callbackへ元builderを保持する借用を接続する
+
+2026-10-16。[設計§14.293](28-vmb-book-production-compatibility.md#book-2-column-callback-ownership-design-14293)。
+開始時の1,660 source inputsを§292のfrozen manifestへ全件照合し、既存isolated fixesの六manifestと
+24 filesを照合して統合した。原raw実装はadditive declarationsを除いてbyte不変、四private PDF phaseも
+byte不変である。別途、testkitの既存fixture依存検査を修正した。最終sourceは1,666 inputs、
+差分25 files＝19変更／6追加であり、既存dirty workを保持する。
+
+Display／Resources／Paints／Marked／Relations／Navigationのcallbackには、元builderの
+private mutable borrowとinvariant loanを持つContinuationを渡す。driverが元builderを保持し、
+全normal Resultで実counterを読み直すため、追加build後のbuilder置換で受理済み費用を失わない。
+raw getter／constructor／Clone／Default／DerefMut／数値counter setterはない。
+既存manual buildersとprivate output phaseを保ち、公開staging callbackの明示型注釈だけは
+Continuationへ移行する。loanを返す／別loanとswapする入口もcompile-failで拒否する。
+
+実Paints callbackの追加buildは[R,S,O,W]を[7715,84643,11513,53165]から
+[7728,85952,12246,54957]へ進め、application Errでも全値を保持した。
+Workが一不足の場合は54956までの実受理値を保持し、forgetした借用と外側retryでも払い戻さない。
+Resources／Marked／Navigationの遅いrecord／spool／work拒否、既存各familyのexact／一不足、
+signed O／一回だけのcreditを含む回帰も通した。panic／unwind会計や実allocator failure注入は主張しない。
+
+| ローカル検証 | 結果 |
+| --- | --- |
+| workspace all-features／all-targets locked check | 成功 |
+| workspace default／all-targets locked tests | 1,366成功、21 ignored、29 suites |
+| Display／Resources／PDF library＋documentation | 275成功、既存font gates三件ignored |
+| Book /2 CLI main | 442成功、109 ignored、424 filtered |
+| retained original Headerを個別実行 | 1成功 |
+| 元Navigation全packageを試行するexplicit ignored leaf | 1成功、元89 attempts |
+| 新callback runtime controls | 上記main内の18件が全成功 |
+| 新Continuation API examples | positive 12件、compile-fail 24件が全成功 |
+| testkit architecture checks | 上記default内の26件が全成功、fixture例外の37変異を拒否 |
+| 十独立checkers、fresh normal | balance 50／display 98／resources 35／paints 46／marked 49／relations 60／navigation 89／既存PDF 637／running regions 139／Column PDF 116、全成功 |
+
+CLI unique successesは444で、mainに含むcorpus ignored一件を後から実行した。
+未実行のCLI font／exporter gatesは108件のまま区別する。独立checkerの新しいexhaustive mutation
+matrix再実行は主張せず、今回は全件fresh normalである。元全13,831 artifactsの13,194はraw一致、
+637 metadataは宣言済みのJSON-quoted PDF path token一つだけを旧出力先へ戻すとraw一致する。
+637既存PDFに加え、116 Column PDF casesの8,403,288 payload bytesも全てraw一致した。
+
+全argv／cwd／child environment／exit／log SHAとsource／artifact inventoriesは
+`workspace/target/vmb-design/20261016/column-callback-ownership/`へ保存する。
+`verification-summary.json`、`artifact-comparison.json`、`column-pdf-byte-comparison.json`と
+`source-final.json`を参照する。fresh targetのdebug情報とincrementalは無効にしてlocal disk使用を抑えた。
+共有hostの実時間を制御性能や管理host受入へ計上しない。GitHub Actionsは使用していない。
+
+通常workspace検証は、既存CLI／machine-input／syntaxのtest-only `serde_json`依存を
+production依存と同一視する古い検査を検出した。三crateの通常`[dev-dependencies]`にある
+exact `serde_json = "=1.0.151"`だけを認め、runtime／build／target指定、alias、別version、
+追加feature、他crateを拒否する。四production JSON依存のDocumentPackage所有とexact pinsを維持する。
+変更はtestkitの`cfg(test)`内だけで、元production prefix、Cargo manifests、lockfileはbyte不変である。
+追加Display testの型名取得も、既存MSRVに合うgeneric `type_name`へ置き換えた。
+
+global fmtは既存149 files／656 hunksで非成功であり、新しいformatting差分はない。
+baselineは150 files／658 hunksで、module順序修正により既存二hunksも解消した。
+strict Clippyは元fontの21 violationsとDocumentPackageの一件で停止した。
+報告された全fileはbaselineへbyte一致し、MSRV違反／large Err等を今回の成功へ読み替えない。
+途中のdebug build／format draftの中断、最初のdefault実行へ渡したstaging環境変数による拒否、
+fixture依存検査の失敗と修正中断、旧filterを使った探索実行は正式成功数へ含めない。
+
+外側Page-label収束、外側retry CFF／Type2、全commandのphysical storage／spoolと同時graphs、
+公開Book /2と四manifests、§8.5 runner、元全巻1 package／1 PDF、原fonts・管理host・制御性能・
+著者／人手受入と元6,343 Speech／SemanticRefは継続する。本項は六callbackの残件を解消するが、
+設計全体とthread goalの完了を意味しない。
+
+<a id="book-2-column-page-label-convergence-design-14294"></a>
+## 294. 段組Page参照の完全PDF収束・CFF sessionと復旧した原VMB入力
+
+2026-10-16。[設計§14.294](28-vmb-book-production-compatibility.md#book-2-column-page-label-convergence-design-14294)。
+§293の1,666 inputsを全件照合し、既存isolated branchのaccepted 1,702-file manifestも照合した。
+共通ancestorから88 pathsを三方向で統合し、六Continuationとtestkitのtest-only境界を保持した。
+最終の実差分は53変更／33追加、source inputsは1,699である。二つのcandidate pathsは最終的に元bytesを
+保った。全87対象Rust filesのformat checkは成功し、既存dirty workを保持する。
+
+元source contextがnavigation／policy／vectors／native math／flow／column planを保持し、Page censusを
+paragraph全体、table headers、notes、未配置definitionsへ適用する。全authored page mastersの
+Header／Footer grammarも漏れなく確認する。候補値から真正な生成sourceを組み直し、既存の幅・page
+feedbackと実font／paint／marked／relations／navigation／PDFを通す。Page参照がある場合は、実targetと
+生成値に加え、二つの連続する完全display／PDF状態が一致してから渡す。未配置ownerを省略せず、
+配置やdestinationを捏造しない。cycleと上限はboundedに拒否し、古い候補の全graphを保持しない。
+
+commandが所有する実CFF evaluatorとcacheをfont builderへ借用する。admission／limits／maximumと
+受理済み履歴を束縛し、外側候補・retry・application Err・予算拒否でもType2とR／S／Wをリセットしない。
+raw mutable escapeやloan置換を許さず、元のsigned O phaseを共有する。readonly observerは実rootから
+factsを得るだけであり、通常entryにはtrace allocationがない。
+
+counted initial style、元sourceのallocation／search／copy、実shaping・line rebuild・region準備の観測APIも
+元kernelへ追加した。これらの受理済みrequestsを検証したことと、全APIのproduction adoptionや全command
+physical capacity／一時spool／同時graphを閉じたことを分ける。private entryは後者の完成を主張しない。
+
+| ローカル検証 | 結果 |
+| --- | --- |
+| 最終workspace all-features／all-targets locked check | 成功 |
+| workspace default／all-targets locked tests | 1,372成功、21 ignored、29 suites |
+| 十libraryのunit／documentation | unit 625＋doc 146成功、font gates 7 ignored |
+| 上記documentationの内訳 | compile-fail 124＋positive 22成功 |
+| 原Haranoの追加component gates | font 11＋shaping 2＋resources 3＋PDF 1＋admission 1＝18成功 |
+| Book /2 CLI main | 528成功、109 ignored、424 filtered |
+| retained original Headerを個別実行 | 1成功 |
+| 元Navigation全packageのexplicit corpus leaf | 1成功、元89 attemptsを保持 |
+| 原Harano CLI | 97 unique成功。初回93成功／4失敗、修正後5件成功のうち4件が失敗case |
+| 修正helperのTrueType回帰 | 15成功、既に別実行済みの原CFF一件ignored |
+| 復旧したVMB exporter由来のprivate Book /2 PDF | 原Haranoの10 packagesすべて成功 |
+| 新Page-label独立checker | 6 fixtures／15完全attempts、464 physical pagesを検証 |
+| 新checkerのbounded selftest | 外側2,823＋生成値75＋nested 225＋rehashed payload 30＝3,153拒否 |
+| 元の十独立checkers、fresh normal | balance 50／display 98／resources 35／paints 46／marked 49／relations 60／navigation 89／既存PDF 637／running regions 139／Column PDF 116、全成功 |
+
+Book /2の638 registered testsのうち637件を成功として確認した。残る一件は元Arial Unicodeを要求する
+number-bidi gateであり、原Haranoで置換しない。別のnon-Book CLI external gates四件も未実行として
+記録する。default run後のportability／visibility追補はlibrary・doc・CLI検証で確認した。
+
+原font初回の四失敗は共通test helperの`TrueType`固定assertionだった。元admitted fontの実enumで
+分岐し、TrueTypeのcomposite closureを維持したうえで、CFF /2のOTTO／CFF1／maxp 0.5、要求GIDと
+.notdefのclosure、dense subset mapping、CID、advance／width、Unicode対応を検査するよう修正した。
+production codeは変更していない。広いCLI runの実executableをhash検証済みgzipで保存し、最終sourceとの
+差がこのcfg(test) helper一件だけであることを照合した。最終の五CFF／十五TrueType検査とcompile checkは
+修正後のsourceで実行した。初回の四失敗を成功へ変更していない。
+
+修正の初回linkは共有volumeの空きが少ない状態でlldがSIGBUS終了し、testを実行しなかった。
+task所有の再生成可能なbuild artifactsを整理して再実行した。完了済みnormal generationの13,194
+byte一致artifactsは直前の受理済みgenerationと同一bytesを共有し、両pathとhashを保持した。
+後続producerの出力先を別directoryへ切り替え、凍結normal treeを再writeしない。
+初期font evidence runnerのenvironment構築失敗も保存し、analyzerを起動しなかった実行を成功数へ含めない。
+
+元13,831 artifactsはすべて存在し、13,194はraw一致、637 metadataは宣言済みのJSON-quoted PDF path
+token一つだけの移動である。637既存PDFと116 Column PDF casesの8,403,288 payload bytesを保持した。
+新規106 artifactsはPage-label 95／synthetic CFF controls 11だけであり、元caseを差し替えていない。
+新checkerは生成source／shapingと先行physical passesのissuer witnessを照合するものであり、実allocatorや
+全shaping／pagination kernelの独立再実装、原CFF全巻・描画・PDF-UA受入を意味しない。
+
+ユーザー指定の`/root/vmb-container/vmb-book-fractions-equivalence/`をread-onlyで確認し、原Harano
+`66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717`を再照合した。
+最初のVMB `a27eade`にはcompanionがなかったが、ユーザーのpull後の`9efff4a`でexporter／audit toolを
+確認した。書籍684 filesはpull前後でbyte一致し、VMBの関連treeはcleanのままである。
+
+```sh
+cd /root/vmb-container/vmb-core
+GOFLAGS=-mod=readonly GOMAXPROCS=2 GOTOOLCHAIN=local \
+  go test ./tools/typaxis-book-audit -count=1
+GOFLAGS=-mod=readonly GOMAXPROCS=2 GOTOOLCHAIN=local \
+  go run ./tools/typaxis-book-audit \
+  -project ../vmb-book-fractions-equivalence/v1/project.json \
+  -profile profile.print -locale ja -release=false \
+  -output /root/typaxis/workspace/target/vmb-design/20261016/column-convergence-integration/current-book-draft-inventory.json
+```
+
+draft auditは167 sections／inline math 6,343件、Speech 0／SemanticRef 0を再確認した。
+canonical SHA-256 `ff25625dbf10f7abde790c6cf6d3279369958512ae8940c4e89940cb967df6e9`とsource digestは
+保存済みinventoryへ一致し、JSONの差はprojectのMac／Linux絶対pathだけだった。raw宣言7,739件の監査も
+別scopeで保存した。release auditは既存E0317 4,786件／E0473 232件でexit 1、release inventoryを作らなかった。
+元の8,149 formula occurrences／4,514 resourcesの保存packageと、このprepared inventoryを混同しない。
+
+同じGo environmentと明示原fontで`go test ./internal/rendertypaxis/... -count=1 -v`を実行し、top-level
+143成功／26 skippedだった。十staged jobsの全bytes/hashを保存してRust側へ渡し、十PDFを得た。
+これらは小規模private fixturesであり、元全巻を一つの公開packageとして生成した証拠ではない。
+Go 1.26.0、Rust 1.97.0、FontTools 4.60.1、pypdf 6.10.0のlocal実行として記録する。
+独立FontToolsによる原23,060 glyphs／Type2 outlines、cmap 14／vertical metricsの再検査も成功した。
+
+全argv／cwd／child environment／exit／log SHA、source／binary／artifact inventoriesは
+`workspace/target/vmb-design/20261016/column-convergence-integration/`の
+`verification-summary.json`、`source-current.json`、`artifact-comparison.json`、
+`independent-column-convergence-self-test-result.json`、`input-discovery-after-pull.json`へ結ぶ。
+global fmtは既存130 files／521 hunksで非成功、直前149 files／656 hunksから新規差分はない。
+strict Clippyも元font／DocumentPackageの不変filesで非成功である。GitHub Actionsは使用していない。
+
+未完了は、観測kernelの全command採用、admission／実capacity／一時spool／同時graphsと番号付きheaderの
+上流spool、public Book /2と四manifests、§8.5正式runner、元全巻一package／一PDF、5,000 distinct実engine画像、
+原font全巻、両管理host・制御性能・外部描画／抽出／PDF-UA・著者／人手受入である。
+元保存全巻packageは本hostで見つからず所在を確認中であり、6,343 Speech／SemanticRefも未作成のままである。
+設計全体とthread goalを完了とは扱わない。
+
+<a id="book-2-column-observed-pagination-design-14295"></a>
+## 295. 元source loan上の段幅・header探索と実pagination
+
+§294の1,699 source inputsを照合してから、private P3 helperを追加した。
+`book_v2_column_observed_adoption.rs`がP1の元source／観測Nativeを保持し、実段幅feedback、
+観測seed／同時rebuild、header幅の発見と実page searchを同じloanで実行する。
+observed graph setをLegacy setへ変換せず、flow／header kernelに実ownerを受け取るbridgeを追加した。
+header source-scopeの元traversalはaccounting modeを受ける共通kernelへ移した。
+コード入力の差は8 modified／2 addedであり、新しい外部依存を追加していない。
+paginationから既存の内部shaping crateへの依存とfeature forwardを明示し、lockfileにもそのedgeだけを追加した。
+
+22種類のouter metadata buffersと、pagination側のinner header-reference viewを別々に前払いする。
+要求は実要素型の`[n, n * size_of::<T>(), n]`であり、overflowを検査し、joint debitが通ってから
+`try_reserve_exact`を呼ぶ。増加時は新しい全要求を支払い、失敗・retry・graph破棄で返金しない。
+Q件をG個のroot／width siblingへ共有してもQ+1個のview予約を保持する。
+owner sort／dedupはin-placeで、実comparison／swap／writeへworkを支払う。
+これらは要求storageの会計であり、allocator capacityやshaping／pagination内部の全scratchを計測していない。
+
+Searchが保持するR／S／Wの各受理済みdeltaを独立にimportしてから、元の操作Resultを返す。
+外部observerはreadonly Searchを借り、元ownerやcounterを置換できない。
+callback Errの後と同じbudgetによる次回呼出しでもhistoryを保持する。
+authentic limitsとloanのfragment ceilingが一致しないcatalogは、metadata確保より前に拒否する。
+panic／unwindの保持はこの有限受入に含めない。
+
+元の42-byte Native fixtureでNative Some／Noneとtable／noteの四組を実行し、既存経路のpage bounds、
+source parts、line cuts、glyphs、metrics、Native fingerprintと一致した。
+named-pageの幅変更では実width retryを経て同じgeometryを得た。
+三つのauthentic table requestsを明示して構築したnested catalogは、baseと一つの実siblingを共有し、
+実line passesは4、予約view数はQ+1=4だった。このcatalog試験をnested pagesの物理配置受入とは扱わない。
+postpayment allocation failureはnative paginationで23件、nested catalogで21件、named幅retryで3件、
+計47件を実際のmetadata確保点へ注入した。各拒否後の実親counterが最後の支払済みprefixへ一致し、
+成功callbackを出さないことを検査した。typed viewの各axisのexact／one-shortとoverflow／zero、
+全pagination workのexact／one-short、callback Err／再試行、foreign limitsも検査した。
+
+local commandsはdebug=0／incremental=0／jobs=2、`--locked`を使用した。
+対象buildは`workspace/target/vmb-design/20261016/column-callback-ownership/build`、
+証拠の保存先は`workspace/target/vmb-design/20261016/column-observed-adoption/`である。
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml --target-dir <build> \
+  -p typaxis-cli --features book-v2-staging --bin typaxis --locked book_v2_ \
+  -- --skip book_v2_column_pdf_retained_end_two_contextual_header_gid71_keeps_original_roots
+cargo test --manifest-path workspace/Cargo.toml --target-dir <build> \
+  -p typaxis-pagination --features book-v2-staging --locked
+cargo test --manifest-path workspace/Cargo.toml --target-dir <build> \
+  --workspace --all-targets --locked
+cargo check --manifest-path workspace/Cargo.toml --target-dir <build> \
+  --workspace --all-targets --all-features --locked
+```
+
+| local検証 | 結果 |
+| --- | --- |
+| default workspace | 1,372 passed／21 ignored、29 suites |
+| CLI Book-2、外部probe envなし | 537 passed／110 ignored、別実行のretained-header 1件も成功 |
+| pagination staging | 115 unit＋16 compile-fail docs、全成功 |
+| 新規finite runtime tests | CLI 9＋pagination 3、全成功 |
+| 明示原HaranoのVMB exports | 1 parameterized testで十jobを既存geometryと比較、全成功 |
+| workspace all features／targets | check成功 |
+| 変更Rust 8 files | scoped format成功 |
+
+十exportは§294で実Go exporterから保存した元103 filesをSHAで再照合して使い、packageを変更しなかった。
+原font SHA-256は`66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717`を保持する。
+VMB `9efff4a`と関連treeのclean状態も再確認した。これらは小規模の実export比較であり、
+元保存全巻package、Native全巻、原CFF subset全巻や最終PDFの人手受入ではない。
+§294の原font 97試験・十独立checkers・全artifacts再生成は、本項で再実行した数へ含めない。
+
+初回checkのsort借用競合はslice長を先に保持して修正した。
+nested fixtureの不正caption指定二件と、panicだけのtest callbackの型推論失敗も保存し、
+最終の有効な元captionと明示型で再検証した。default workspace初回は空き84 MBの共有volumeで
+linkerがSIGBUS終了した。失敗したcompileを成功試験へ含めず、task所有の再生成可能なcacheを整理して
+同じsourceで再実行した。CLIの実executableはgzip保存後に復元SHAを照合し、最終controlsにも使った。
+1,701 code inputsのhash、実argv／environment／exit／log SHA、失敗logsとcache整理記録を保存した。
+
+global fmtは既存127 files／514 hunksで非成功であり、変更したRust filesの新しいformat差分はない。
+strict Clippyも既存fontの21件で非成功で、報告された8 filesは§294からbyte不変である。
+後続crateまでClippyが完了したとは扱わず、MSRV cleanも主張しない。GitHub Actionsは使用していない。
+
+親page driverの変更はprivate module登録だけで、既存の外側convergence sourceはbyte不変である。
+新helperを既定のPDF commandへまだ採用していないことを、code差分とともに記録する。
+次はphysical source closure／math terminals、観測running regions、closed PDF／command font session、
+外側Page候補を同じloanへ接続する。admission／実capacity／一時spool／同時graphsと番号付きheader上流spool、
+public Book /2と四manifests、正式runner、元全巻一package／一PDF、5,000 distinct実engine画像の全巻gate、
+両管理host・制御性能・外部描画／抽出／PDF-UA・著者／人手受入、元Speech／SemanticRefは継続する。
+このprivate foundationと設計全体の完了を区別し、thread goalをactiveへ保持する。
+
+<a id="book-2-column-observed-pdf-design-14296"></a>
+## 296. 観測Sourceを段組の外側Page収束とPDFへ採用する
+
+§295の1,701 code inputsを照合し、privateの外側段組commandを観測経路へ切り替えた。
+一つのP1 accounting loanが、元source／Native、Page census／buffer／候補copy、段幅とheader探索、
+physical stability／配置／source closure、math terminals、観測Header／Footer、最終PDFを保持する。
+元Native ownerを全候補の同時rebuildへ借用し、Page値が変わっても再計算・別familyへの変換を行わない。
+新しい`book_v2_column_observed_pdf.rs`のtrusted consumerは、Searchの全mutationと費用保持を完了してから
+display以降へ進む。後続Source費用を古いSearchのabsolute counterで上書きしない。
+
+censusとPage候補copyは既存kernelを共有し、closed Source操作の実観測をlive cellsへ各axis独立に戻す。
+そのadapterの呼出しはcensus／copy／label buffer準備の三箇所だけであり、application callbackへ
+temporary budgetやmutable countersを渡さない。physical／Oの履歴も変更しない。
+command所有のfont sessionは認証済みlimits fingerprintとwork上限で作成し、全attemptと外側retryへ保持する。
+PDF末尾のtrusted finalizerだけがpending producer ledger上で実Page feedbackを処理する。
+applicationにはimmutable rootsと観測copyだけを渡し、既存のtyped signed O settlementを保つ。
+
+新Native controlsは、元42-byte fixtureにNative Some／Noneとtable／note、実Header／Footerを組み合わせ、
+四組すべてで既存経路のPDF bytes・display／PDF fingerprintsと一致した。
+実Page-label retryでは同じNative addressを全attemptの実rootsから確認し、生成sourceのPage値も照合した。
+opaque application Errでもouter historyを失わず、同じbudgetで再実行できる。
+Native／table／note／Header／Footerを含む全commandのexact workは成功し、one-shortではcallbackを出さず、
+完成時と同じR／S／Oと開始済みpassesを保持する。枯渇後の再試行も支払済みprefixを返金しない。
+
+従来checkerの「body terminalsからfontsまでspool不変」という前提は、観測region Sourceを採用した
+本経路では成立しない。実display準備後の`source_display_prefix`をprivate convergence probe／attemptの
+schema /2へ追加し、最初のfont constructorがその`[R+1,S,O,W]`で始まることを検査する。
+source copy・layout・後続PDF間のprefix／pass／O保持も結ぶ。この値はissuer-linked witnessであり、
+allocatorや全Source kernelの独立再実装によるtraceではないことをschema内でも明示する。
+
+先行案で旧region checkerを変更した際は、既存toolsのbyte freeze検査が拒否した。その案を保存して
+元bytesへ戻し、/2専用adapterを収束checker内へ置いた。十の既存checkerはbyte不変である。
+新adapterは元font／glyph／image／scope kernelsを使い、spool前提以後のorchestrationもASTで元処理と
+一致することを検査した。/1の前提を緩めず、元六fixturesの通常検証と3,153拒否controlsを再成功させた。
+/2は同じ六fixtures／十五完全attempts／464 physical pagesと3,594拒否controlsを成功させた。
+追加441件は新prefixのfield／axis／pass／version整合性を拒否する実controlsである。
+
+| local検証 | 結果 |
+| --- | --- |
+| default workspace | 1,372 passed／21 ignored、29 suites |
+| CLI Book-2通常 | broad 539＋別retained 1＋追補Native work 1、計541 unique passed |
+| 明示原Harano | CLI 97 passed、原SHAを保持 |
+| 元89 Navigation packages | private Column PDF corpus leaf成功 |
+| 元Go VMB export fixtures | 既存十tests成功、別出力先の十PDFを生成 |
+| 観測VMB controls | 元十jobsのpagination比較と、全PDF比較／同budget再実行cache比較の二parameterized tests成功 |
+| workspace all features／targets | check成功 |
+| 十独立checkers、新normal | balance 50／display 98／resources 35／paints 46／marked 49／relations 60／navigation 89／旧PDF 637／regions 139／Column PDF 116、全成功 |
+
+Book-2登録652件中651件をunique successとして確認した。未実行一件は元Arial Unicodeを要求する
+number-bidi gateであり、原Haranoで置換しない。別のnon-Book external gates四件も未実行のままである。
+原Haranoの実VMB十jobsは、既存PDFとbyte一致し、同じbudgetによる二回目も実Type2 operation／outline／
+cached glyph countsを増やさなかった。これは原CFF sessionの正の実行と保持の有限controlsであり、全巻受入ではない。
+
+元normal 13,937 artifactsと新normalは同数で、13,292がraw一致した。
+637 metadataは宣言済み`assembly.pdf`のJSON-quoted絶対path token一つだけの移動で、全637 PDF bytesを保持した。
+残る八metadataはPage収束の六schema /2と、synthetic CFF command二件のR／S／Wだけの変更である。
+元CDF実行統計とOは不変、元六fixturesの全十五PDF payload 269,393 bytes、display／PDF fingerprints、
+Page値／参照は一致した。Work等の増加をmetadata byte互換として扱わず、両世代を保存した。
+
+検証はRust 1.97.0、FontTools 4.60.1、pypdf 6.10.0のlocal実行である。
+全argv／environment／exit／log SHA、1,703 code inputs、source差分、二つの実CLI executable archives、
+checker結果、artifact比較と残るgateは
+`workspace/target/vmb-design/20261016/column-observed-pdf-integration/`へ保存する。
+大きいbroad runの後に追加したのはNative work境界test一件だけであり、他のinputsとproduction codeの
+不変を照合し、追補testと最終checkはその追加後に実行した。初回HRTB名のshadowingによるcompile失敗、
+probe directory指定と旧spool前提によるchecker失敗、旧checker変更案の拒否も成功数へ含めず保存した。
+
+変更Rust九filesのscoped formatとwhitespace検査は成功した。global fmtは既存127 files／514 hunksで
+非成功、strict Clippyも元font／machine-inputの不変九filesで非成功である。後続crateのClippy完了や
+MSRV cleanは主張しない。GitHub Actionsは使用していない。
+
+未完了は、admission／初期policy・bindingとcore内部の全physical capacity／一時spool／同時graphs会計、
+番号付きheader上流spool、public Book /2と四manifests、正式runner、元保存全巻一package／一PDF、
+5,000 distinct実engine画像の全巻gate、原font全巻、両管理host・制御性能・外部描画／抽出／PDF-UA・
+著者／人手受入、元Speech／SemanticRefである。元全巻exportの所在も未解決である。
+private段組commandへの採用を設計全体の完了とは扱わず、thread goalをactiveへ保持する。
+
+<a id="book-2-number-owned-storage-design-14297"></a>
+## 297. 番号shapeと一時receiptの所有storageをlive commandへ接続する
+
+2026-10-16追補。VMBを再確認し、HEADは`9efff4a509e641d17cf7be9a3ee0c9b47ad04488`、
+`internal/rendertypaxis`と`tools/typaxis-book-audit`は利用できる。原Haranoは6,422,896 bytes、
+SHA-256 `66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717`を保持する。
+元全巻exportの所在は未解決であり、別のprepared bookを元packageとして扱わない。
+
+§296のprivate段組commandで、番号／block kernelのR-only呼出しと事後R importを、実Source loanを
+受け取る所有storage APIへ変更した。既存APIも同じkernelを使い、元のreceipt encoderと保守的上限を
+保持する。新経路は番号shape vector、canonical glyph receipt String、256-byte fingerprint buffer、
+block vectorの要求bytesをreserve前に支払い、対応する走査／encode／hash workも計上する。
+番号shaperの残record quotaはlive loanの上限を使う。core itemizer／linked shaperの内部allocationを
+事後のrecord数から支払済みと偽装することはしない。
+
+新receipt encoderは、stackによる整数formatとcounting sinkで実長を求め、支払い後に一回だけ
+`try_reserve_exact`する。bounded writerは予定長と実capacityを超えるwriteを拒否し、整数ごとの
+`to_string`一時bufferを作らない。元encoderとのbyte比較は複数script、quote／backslash、符号付き
+metricsと大きいID／offsetを含む。実admitted sourceから得た番号shape／block fingerprintsも一致した。
+同じshape／linesに対するforeign limit loanは、counterを変更する前に拒否した。
+
+番号付きnested-table／noteの実private PDFは元kernelと83,978 bytes全てが一致した。
+full observationはR 336,823／S 6,934,698／O 83,978／W 113,488,618、width 4／line 26／page 15である。
+実測exact spoolとworkは成功し、one-byte-short spoolとone-step-short workはconsumerへ到達しない。
+application Errでも全費用を保持し、同budget再試行をwork上限で拒否した。現在の同fixtureを
+5,619-byte capで実行すると、Source段階でR 476／S 5,199／W 3,929を保持して拒否する。
+この低capでは番号kernelへ未到達であり、§284の元fixture／上流shaper storage全体の修正証明にはしない。
+
+| local検証 | 結果 |
+| --- | --- |
+| CLI Book-2通常 | broad 542＋別retained 1、543 unique passed |
+| 変更したshaping／layout crates | 110 unit＋26 doc passed、2 external ignored |
+| default workspace | 1,372 passed／21 ignored、29 suites |
+| 番号の原Harano gates | 3 passed、元font SHAを保持 |
+| 実VMB exports | 元十jobsのPDF一致と同budget二回目のCFF cache保持を一parameterized testで成功 |
+| 元Navigation corpus | 89 packagesを試すprivate Column PDF leaf成功 |
+| workspace all features／targets | check成功 |
+| 独立検証 | 元十checkers成功、Column PDFは追加corpusを含め116件、収束six fixtures／15 attempts／464 pagesと3,594拒否controls成功 |
+
+今回freshに実行したBook-2は654登録中548 uniqueである。§296の他のexternal gatesを今回の成功数へ
+繰り入れない。原Arial Unicodeを要求するgateを原Haranoで置換せず、公開全巻gateも成功とはしない。
+通常captureに含まれない元89-package corpusは、frozen通常captureのbyte同一コピーへ新たに生成した。
+元checkpointのartifactsはコピーせず、通常capture 11,025件を保持したまま13,937件のcurrent-source
+captureを得た。追加後も元11,025 filesの内容不変を検査し、Column PDF checkerを追加集合へ実行した。
+
+§296の13,937 artifactsとの比較は、13,292 raw一致、637 metadataの宣言済みPDF絶対path token一個だけの
+移動、八metadataのwork増加だけである。全PDF bytes、display／PDF fingerprints、geometry、Page参照値、
+非work fieldsを保持し、六収束fixturesの15 PDF payload 269,393 bytesも保持した。
+十の旧checkerと収束checkerのsourceはbyte不変である。所有buffer付き新fixtureのspool費用と、番号を
+持たない既存captureのwork増加を区別し、旧metadataとのbyte一致を偽装しない。
+
+1,705 code inputs、Rust八filesの差分、実CLI executable archive、全argv／environment／exit／log SHA、
+各検証時のsource hashと実行中drift検査、frozen captures、比較結果を
+`workspace/target/vmb-design/20261016/column-observed-number-storage/`へ保存する。
+featureなしで0件となった初期filter、fixtureのcompile修正、100M workでは不足した初回nested-table検査、
+artifact比較scriptのfilename／path形式の修正は成功数へ含めず保存した。
+Rust八filesのscoped formatとwhitespace検査は成功した。既存global fmt／Clippy／MSRVの未達は
+引き続き未達であり、GitHub Actionsは使用していない。
+
+本節は列挙した所有bufferのrequested storageと段階workの有限な実接続である。共通itemizerのspecs、
+shaper run／glyph／cluster storage、backend scratchとallocator capacity、admission／初期policy・binding、
+同時graphsを含む全command physical会計は未完了である。番号付きheader上流spoolの残り、公開Book /2と
+四manifests、正式runner、元保存全巻一package／一PDF、5,000 distinct実engine画像、原font全巻、
+両管理host・制御性能・外部描画／抽出／PDF-UA・著者／人手受入と元Speech／SemanticRefを継続する。
+設計全体のgoalはactiveのままとする。
+
+<a id="book-2-number-shared-shaping-storage-design-14298"></a>
+## 298. 共通番号shapingの九種のvectorをreserve前に計上する
+
+2026-10-16追補。§297で残した共通kernel所有vectorへ、実Source loanの支払いを接続した。
+itemize、番号runs、linked output、glyph validation、UTF-8 boundariesの五kernelを一つの内部moduleへ
+共有し、従来の入口はNoStorageで同じ実装へ委譲する。private traitの実装を外部applicationへ渡さず、
+新たなsource／placement権限、positive credit、mutable counterのescapeを追加しない。
+
+観測番号経路はgrapheme items、itemized specs、番号runs、visual clusters、logical clusters、glyphs、
+clusters、UTF-8 boundaries、validation rangesの九種を`try_reserve_exact`前に支払う。
+run recordsはrun vectorの前、glyph／cluster recordsはbackendの借用出力を数えた後、保持用vectorの
+前にlive loanへ支払う。成功後のR importへ先送りせず、後続spool／work拒否でも既存支払いを保持する。
+外側の番号段階は実Rとの一致を検査し、同じoutput recordsを二重に請求しない。
+
+観測sortは比較／swapごとに支払うin-place heap sortを使う。NoStorageの旧入口では標準sortを保持する。
+UTF-8 boundaryとvalidation rangeのinfallible allocationもfallible reserveへ移した。
+fault検査で見つけたvalidation allocationのreceipt不一致への誤分類を修正し、AllocationFailureとして
+保持することを各reserve故障の実assertionへ追加した。SourceのRecords／Spool／Work拒否は、内部stageの
+errorへ一時変換されても、loanを持つprivate observerが元ownerと型を保持して返す。
+
+旧lib内の変更は五つの委譲入口、新module宣言、追加validation errorと等価なuse整形に限ることを
+token比較した。五入口の新blockはformatを照合したが、元lib全体の既存format未達を消したとはしない。
+mixed scripts／nested bidiの実linked出力と旧入口を比較し、全九siteを通る実要求について、各支払い後に
+一つずつ拒否して完全prefixを照合した。実Source loanでもexact／shortの三軸を検査し、後続S／W拒否が
+受理済みRを失わず、最終sortのW拒否が受理済みSを失わないことを確認した。
+
+番号付きnested-table／noteの実PDFは83,978 bytes全てが一致する。
+観測はR 336,823／S 6,944,762／O 83,978／W 113,489,400であり、§297からS 10,064／W 782だけ増えた。
+exact／one-short spool・work、application Err後の保持と同budget再試行も成功した。
+5,619-byte capは引き続きSource段階でR 476／S 5,199／W 3,929を保持して拒否する。
+元§284 fixtureの再実行やopaque backend scratchの閉包証明へ読み替えない。
+
+最終sourceの検証はCLI通常543 unique、原Harano番号三件、元VMB十jobsのPDF／cache test一件、
+元89-package corpus一件を含む。登録654件のうちfresh 548件で、残り106 external gatesを成功数へ含めない。
+shaping／layoutは114 unit＋26 doc成功、二external ignored、default workspaceは1,375 passed／21 ignored、
+29 suitesである。全features／targetsのcheckと四moduleのformat、whitespaceを検査する。
+故障診断の修正前のbroad結果とcapturesは別保存し、修正後のsource／executableで再検証した結果を使う。
+
+最終current capture 13,937件を元§297と比較し、13,300 raw一致、637 metadataの宣言済みPDF絶対path token
+一個だけの移動を要求する。元PDF bytes、geometry、Page参照、display／PDF fingerprintsを保持する。
+九siteを通る番号fixtureの追加費用と、同じ番号経路を通らない既存captureの会計不変を区別する。
+元十checkerと収束checkerはbyte不変とし、通常検証と六fixtures／15 attempts／464 pagesの
+3,594拒否controlsを最終captureへ実行する。元89-package corpusは別のcurrent出力へ生成して結合し、
+過去checkpointのartifactsをcurrent出力として流用しない。
+
+1,707 inputs、三modified／二added Rust files、各検証時のsource／log hashes、最終と診断修正前の
+実executable archives、frozen capturesと比較結果は
+`workspace/target/vmb-design/20261016/column-observed-number-shaping/`へ保存する。
+shaping限定strict Clippyはbyte不変の`production_text.rs`の既存五診断で非成功であり、変更filesの
+診断は残さない。global fmt／ClippyやMSRV cleanは主張しない。GitHub Actionsは使用していない。
+
+残件はUnicode-bidi／Harfrust内部scratchとcache、allocator capacity、admission／初期policy・binding、
+他のshaping経路と全command同時graphsを含むphysical会計である。番号付きheader上流spool全体の閉包、
+公開Book /2と四manifests、正式runner、元保存全巻一package／一PDF、5,000 distinct実engine画像、
+原font全巻、両管理host・制御性能・独立描画／抽出／PDF-UA・著者／人手受入、元Speech／SemanticRefを
+継続する。元exportの所在も未解決であり、設計全体のgoalはactiveのままとする。
+
+<a id="book-2-number-bidi-scratch-design-14299"></a>
+## 299. 観測番号itemizerのBidiInfo constructor scratchを実Source loanへ接続する
+
+2026-10-16追補。VMB HEADは`9efff4a509e641d17cf7be9a3ee0c9b47ad04488`であり、
+新backend／audit toolと元HaranoのSHA-256を再確認した。元全巻exportは未発見である。
+§298で残したUTF-8 `BidiInfo`構築のrequested allocationへ、実番号shapingのSource loanを接続した。
+
+`unicode-bidi` 0.3.18のsrc、license、README等16 filesをprivate local dependencyへ保存した。
+追加scratch APIのため変更したupstream filesはlib／explicit／prepare／implicitの四つであり、
+Unicode tables、UTF-16 module、licenseを含む残り12 filesは元bytesを保持する。
+provenanceは元16 filesのhash、変更範囲とdefaultのstd／hardcoded-data featuresを記録する。
+元のoptional featuresは公開しない。元default-feature入口と新入口は同じalgorithm kernelを使い、
+testだけがunmodified registry `unicode-bidi` 0.3.18を別名で参照する。
+
+`BidiInfo::try_new_with_scratch`はclass、paragraph／flags、isolate stack、levels、processing classes、
+explicit stack、level runs、isolating sequences、sequence runs／stack／output、weak ET／BN、
+neutral run、bracket stack／pairsの17 sitesを計上する。要求target capacityと要素sizeを検査し、
+その全bytesを支払ってからfallible reserveする。再確保の旧支払いを戻さず、新targetの差分だけを
+請求する形にも縮めない。観測sortはin-place heap sortで比較／swapを計上する。
+元のNoScratch入口では標準sortを保持する。weak ETで一時cloneしていたBN vectorは借用iteratorを使う。
+
+番号itemizerのprivate bridgeは同じSource loanへ要求bytesと計装したworkを渡す。
+支払い拒否を一時的にdependency errorへ変換しても、外側は元Source errorの型とownerを返す。
+counter copy、positive credit、application向けmutable callbackを追加せず、BidiInfoへloanを保持しない。
+他のBidi APIやallocatorの実capacityをこのconstructorの会計へ含めたとは扱わない。
+
+[公式BidiCharacterTest](https://www.unicode.org/Public/16.0.0/ucd/BidiCharacterTest.txt)の91,707 casesと
+[公式BidiTest](https://www.unicode.org/Public/16.0.0/ucd/BidiTest.txt)の770,241 direction casesを実行した。
+観測／元default／unmodified registryのraw levels、classes、paragraph ranges／base levelsを比較し、
+公式のresolved levelsとX9除去後のL2順序も照合した。L1の比較用後処理をconstructorのallocation閉包へ
+含めない。元36 unitと新三unit、三docが成功する。公式二filesのURL、実bytesとSHA-256も保存した。
+
+17 sitesを通る実要求に対し、支払い直後の83 allocation faultを一つずつ注入して完全prefixを照合した。
+実Source loanではprior R／S／W 7／11／13からfull 26／1,766／397となり、exactと各軸one-short、
+全2,139 smaller spool／work ceilingsで型とowner、支払済みprefix、上限内のcounter保持を検査した。
+この故障注入をOS allocatorの実故障やhard RSS測定とは扱わない。
+
+番号付きnested-table／noteの実PDFは83,978 bytes全てが旧経路と一致する。
+full observationはR 336,823／S 6,946,683／O 83,978／W 113,491,576であり、§298から
+S 1,921／W 2,176だけ増えた。exact／one-short spool・workとapplication Err後の保持／再試行も成功する。
+5,619-byte capは現在のfixtureでSource段階のR 476／S 5,199／W 3,929を保持して拒否する。
+元§284 fixtureの再実行や、番号付きheaderの全upstream storage閉包とは区別する。
+
+同じ最終sourceでCLI通常543 unique、元Harano番号三件、元VMB十jobsのPDF／cache test一件、
+元89-package corpus一件を検証した。654登録中fresh 548、未実行106 external gatesである。
+shaping／layoutは114 unit＋26 doc成功、二external ignored、default workspaceは29 suitesの
+1,375 passed／21 ignoredに加え25 docが成功した。全features／targetsのcheck、no-std＋hardcoded-dataの
+dependency check、変更Rust八modulesのscoped formatとwhitespaceも検査する。
+
+fresh normalはdevelopment 11,025＋corpus 3,360から重複448件のbytesを照合して13,937件へ結合した。
+§298との比較は13,300 raw一致、637 metadataで宣言済みPDF絶対path token一個だけの移動である。
+全PDF bytes、geometry、Page参照、display／PDF fingerprintsと他のmetadata fieldsを保持する。
+byte不変の元十checkerと収束checkerを実行し、六fixtures／15 attempts／464 pages／269,393 PDF bytesと
+3,594拒否controlsが成功した。過去checkpointのartifactsをfresh出力として流用しない。
+
+1,728 inputs、五modified／21 added files、最終source copiesと実CLI executable archive、全argv／
+environment／exit／log SHA、公式入力とprovenance、frozen captures、比較結果と残件を
+`workspace/target/vmb-design/20261016/column-observed-bidi-storage/`へ保存する。
+初期fixture／環境設定の失敗と、生成中artifactを読んだretained PDF検査の失敗も保存した。
+後者はproducer終了後に同じsourceで成功し、初回失敗を成功数へ含めない。
+shaping strict Clippyは不変の`production_text.rs`の既存五診断、vendor strict Clippyもupstream由来の
+style診断で非成功である。新scratch二modulesの診断は残さず、global fmt／Clippy／MSRV cleanは主張しない。
+whitespace検査は27 pathsで診断なし、残る一つはbyte不変のupstream生成tableにある元のEOF空行である。
+その診断を消すためにUnicode tablesを書き換えない。
+GitHub Actionsは使用していない。
+
+残件はHarfrust scratch／cache、allocator overcapacity、他のBidi／shaping経路、admission／初期policy・
+binding、temporary spoolと同時graphsを含む全command physical会計である。公開Book /2と四manifests、
+正式runner、元保存全巻一package／一PDFと5,000 distinct実engine画像、原font全巻、両管理host・
+制御性能・独立描画／抽出／PDF-UA・著者／人手受入、元Speech／SemanticRefも継続する。
+private constructorの採用を設計全体の完了とは扱わず、thread goalをactiveのままとする。
+
+<a id="book-2-number-harfrust-cache-design-14300"></a>
+## 300. HarfrustのShaperData cache構築を番号shapingの実Source loanへ接続する
+
+2026-10-16追補。VMB HEAD、新backend／audit toolと元Haranoのbytesを再確認した。
+元全巻exportの所在は未解決のままである。§299に続き、観測番号shapingがbackend outputを得る前の
+ShaperData constructorについて、cache vectorのrequested storageと計装したworkを実loanへ接続した。
+
+Harfrust 0.1.1のsrc／license／README等74 filesをprivate local dependencyへ保存した。
+追加APIのため変更したupstream filesはlib、face、cache、ot/mod、ot/lookup、set_digestの六つである。
+Unicode／script tables、shaping algorithms、licenseを含む他68 filesは元bytesを保持する。
+packageの元checksum、74 file hashes、依存lock差分と変更範囲をprovenanceへ保存する。
+runtimeの変更はlocal Harfrustへの切替だけで、他の解決済みpackagesは保持した。
+testだけがunmodified registry Harfrust 0.1.1を別名で使う。公開profileの登録やupstream releaseではない。
+
+観測constructorはGSUB lookup／subtable、GPOS lookup／subtable、GDEF mark-set digestの五sitesで、
+要素sizeとtarget capacityの積を検査し、その全bytesを支払ってから`try_reserve_exact`する。
+動的subtable vectorの再確保でも旧支払いを保持する。差分だけを請求する実装へ縮めない。
+lookup／subtable走査、coverageのglyph／range処理、digest union、固定cmap cacheの初期化も計上する。
+固定配列workは実cache型のentry数から取り、未知のbackend work定数を上限と偽装しない。
+
+元からskipするReadErrorとscratch errorを分けた。lookupやsubtableの破損を無視する元分岐でも、
+spool／workやallocationの拒否は即時に外へ伝える。private bridgeは実Source errorとownerを保持し、
+後続のgeneric allocation分類へ潰さない。counter copy、positive credit、application向けmutable
+callbackを追加せず、ShaperDataにloanを保持しない。元default入口は同じkernelのNoScratch経路を使う。
+
+GSUB／GPOS／GDEFとcoverage format 1／2を持つ構文fixtureを使い、五sitesの支払い直後に
+10 allocation faultsを一つずつ注入して完全prefixを照合した。全1,379 smaller work ceilingsも拒否する。
+tableの各切断prefixと不正subtable offsetでは、観測cacheと元default入口のcache内容を照合し、
+font側のskip中でもscratch拒否がfatalであることを検査した。再確保は4／8／16の全target料金を保持する。
+この故障注入をOS allocatorの実故障やhard RSS測定とは扱わない。
+
+六fontsは元Harano Mincho／Gothic、Latin Modern Math、既存body fixture、DejaVu Sans／Serifであり、
+実bytesとSHA-256を記録した。各cacheを元default入口と照合し、十二script／text samplesの全72 casesで、
+glyph infosとpositionsをunmodified registry実装と比較した。新四testsを含む191 unitが成功する。
+元Harano Minchoのconstructorは10 requests／S 5,744／W 23,561を実観測する。
+これはconstructorのrequested feesであり、font全体のRSSや元font全巻受入の証拠ではない。
+
+実Source loanではprior R／S／W 7／11／13から、plain fontで26／1,766／656、GSUB fontで
+26／2,006／918となる。exact／one-short三軸と、2,398＋2,900＝5,298の全smaller spool／work ceilingsを
+検査し、上限内counter、支払prefixと元owner 91を保持した。GSUB cacheの実spool拒否もこのloanを通る。
+
+番号付きnested-table／noteの実PDFは旧経路の83,978 bytes全てと一致する。
+full observationはR 336,823／S 6,946,683／O 83,978／W 113,495,979であり、§299からW 4,403だけ増える。
+このplain fontには上記OT heap cachesがなく、同fixtureのS増加を主張しない。
+exact／one-short spool・work、application Err後の保持／再試行も成功した。
+5,619-byte capは引き続きSource段階でR 476／S 5,199／W 3,929を保持して拒否し、元§284の再実行ではない。
+
+同じ最終sourceでCLI通常543 unique、元Harano番号三件、元VMB十jobsのPDF／CFF cache test一件、
+元89-package corpus一件が成功する。654登録中fresh 548で、106 external gatesを成功数へ含めない。
+shaping／layoutは114 unit＋26 doc成功、二external ignored、default workspaceは29 suitesの
+1,375 passed／21 ignoredと25 doc成功である。全features／targetsのcheck、dependencyのno-std check、
+変更Rust十modulesのscoped formatとwhitespaceも検査する。
+
+fresh normal 13,937件は元§299と同数で、13,300 raw一致、637 metadataは宣言済みPDF絶対path token
+一つだけの移動である。全PDF bytes、geometry、Page参照、display／PDF fingerprintsと他のfieldsを保持した。
+元十checkerと収束checkerはbyte不変であり、通常検査と六fixtures／15 attempts／464 pages／
+269,393 PDF bytes、3,594拒否controlsが成功した。producer終了後に依存するretained PDFを検査し、
+development／corpusを別々にfreezeして重複448件の一致を確認した。過去artifactsをfresh出力として流用しない。
+
+1,807 inputs、五modified／79 added files、最終source copiesと実CLI executable archive、各検証の
+argv／environment／exit／log SHA、元font hashes、provenance、frozen capturesと比較結果を
+`workspace/target/vmb-design/20261016/column-observed-harfrust-cache/`へ保存する。
+元Bidi dependencyの21 filesは§299とbyte不変であり、元861,948 Unicode casesをfresh再実行とは数えない。
+初期lock／fixture path／環境設定、testの型指定と新規lint修正前の実行は成功数へ混ぜず保存した。
+shaping strict Clippyは不変の`production_text.rs`の既存五診断、vendor strict Clippyはbyte不変の四upstream
+filesにある六診断で非成功である。変更cache modulesと新scratch／testsの診断は残さない。
+whitespaceは84 pathsで診断なし、残る二つは元bytesを保持したupstream filesの診断である。
+global fmt／ClippyやMSRV cleanは主張せず、GitHub Actionsは使用していない。
+
+残件はHarfrust shape plans、Unicode／glyph buffersとその他scratch、allocator overcapacity、
+他のBidi／shaping経路、admission／初期policy・binding、全commandのtemporary spool／同時graphsを含む
+physical会計である。公開Book /2と四manifests、正式runner、元保存全巻一package／一PDFと5,000 distinct
+実engine画像、原font全巻、両管理host・制御性能・独立描画／抽出／PDF-UA・著者／人手受入、
+元Speech／SemanticRefも継続する。設計全体のgoalをactiveのままとする。
+
+<a id="vmb-scale-source-paint-extraction-design-14301"></a>
+## 301. 新しいLinux大規模出力でsource・page paint・抽出・公開manifestsを照合する
+
+2026-10-16追補。VMB HEAD `9efff4a509e641d17cf7be9a3ee0c9b47ad04488`の実engine generatorを
+構築し、11ptの固定template 5,000式を生成した。原SVG・寸法付きSVG・path geometryはいずれも
+5,000 distinctで、全hashとengine／font bundle identityを保存する。fixture-index SHA-256は
+`486ae77ec68cc1ea462f0e107a44c48fcb9f6fd564ac08f1aed35a9f227f65af`である。
+このauthoring harnessは正式RenderBook exporterとは区別する。
+
+三caseはdistinct 5,000式、先頭4,952式＋48 distinct PNG、100式を共有する5,000宣言／8,000配置の
+aliasである。既存§300のRust／manifest／schema／fixturesと他の1,804 inputsはbyte不変とし、
+現在の公開CLIを新たに構築した。CLI SHA-256は
+`eab55b32ee17234e82ed569a903d0cd0d76a4642a604a5dbc05133d1d7b176e0`である。
+全TYPAXIS環境変数を除去し、limit／config overrideなしのproduction-book-1で公開check一回・
+build二回ずつ、計九commandsがexit 0となった。各caseのPDF・manifest・trace・diagnosticsは
+二回の実行で全bytes一致し、source／resource／binaryの変更もない。
+
+| case | 宣言／配置 | pages | Form／raster XObject | PDF bytes | PDF SHA-256先頭 |
+| --- | --- | --- | --- | --- | --- |
+| distinct | 5,000／5,000 | 385 | 5,000／0 | 138,873,113 | `bd2e80d189013fc2` |
+| mixed | 5,000／5,000 | 387 | 4,952／48 | 137,483,114 | `92a8ea4395f26150` |
+| alias | 5,000／8,000 | 616 | 100／0 | 8,563,850 | `1b49399543132949` |
+
+今回変更したのはPython三filesと新しい`tools/vmb_probe_io.py`だけで、最終sourceは1,808 inputs、
+source ledger SHA-256は`b7576ca7881d771632ac5bf399683f4a899f5f594344fad2f4efb4de3ca87afa`である。
+JSONの重複member／nonfinite／unpaired surrogateを拒否し、相対pathのescapeとsymlinkを拒否する。
+全宣言とfontの実bytes、元sourceの長さ／hash、全nodeのsource span、TeX bufferとidentity mapping、
+inline／block順、数値付きspeechを比較する。boolと整数IDも区別する。
+
+page側はgraphics stateとCTMを独立に解釈する。black fill、不透明Normal state、許可したclip、
+単位vector scale、body／clip内に収まるviewportを要求する。補助glyphはTr 3の一文字だけとし、
+元viewport幅／高さとbaselineへ行列を照合する。可視text、追加path paint、optional-content scope、
+余分なQ等は拒否する。source順の非重複行とdense MCID、ParentTreeの一つのMCRの実page参照も照合する。
+これは全structure hierarchyとLangを元sourceから再構成する検査の完成とは主張しない。
+
+三PDFの全18,000 placements／MCIDs、17,952 vector anchors、143,522 paths／3,044,522 source commands、
+48 PNGの192 decoded pixelsを検証した。PopplerとMuPDFはそれぞれ17,952 speechを正しい順で抽出する。
+以前のverifierの全空白削除を除去し、speech内部の普通のspaceとUnicode列を保持する。
+初期検査ではPopplerが別段落の境界をspaceで出すため失敗した。既存
+`verify_pdf_differential.py::_normalized_text`の改行／改ページ→一つのspaceという規則をこの境界だけへ
+適用して解決した。source内部のspaceや文字を変更して一致させたものではない。
+
+14 unitが成功し、実distinct PDFのwhite paint、zero matrix、可視anchor、移動したbaseline、
+speech内部のNBSP置換、MCRの別page参照という六改変を全て拒否する。変更は元PDFの同長byte置換で、
+xrefと他のbytesを保持する。改変PDFのgzip、byte offset／前後bytes／hashと拒否理由を保存した。
+観測placementをexclusiveに保存する任意flagは入力package内への書込みと既存出力の上書きを拒否し、
+全検証後だけ書く。その出力をsource期待値や独立layout goldenへ昇格させない。
+
+既存machine-profile verifierを使い、四child canonical fingerprints、最終PDF hash、profile receipt、
+source resource factsとtrace、実際のpass_count／selected_state 2を検査した。五buildのJSONは直接schemaを
+検査し、その後に完了したmixed二回目は既に検査した一回目の三JSONとの全bytes一致でschemaを証明した。
+mixed二回目の四child hash closureも直接検査する。六buildは全てこの証跡へ閉じる。
+veraPDF 1.30.2の自動UA-1はdistinct 237,131、mixed 235,597、alias 265,582 checksでfailedChecks 0となった。
+これを著者／人手のPDF/UA受入とは扱わない。
+
+Linux専用tool-policyにPoppler 26.01.0、MuPDF 1.27.0、librsvg 2.61.3、Python 3.14.4、pypdf 6.10.0、
+Pillow 12.1.0、JavaとveraPDFの実binary／jar hashes、installer URL／hashを保存する。
+MuPDF text出力のICC support warningもstderr hashとして保持する。以前の凍結external-tool-policyと
+versionが異なるので、その以前のIDでこの結果を登録しない。SVG source distributionのpinと原SVGを使う
+72／144／288 DPI mask／area／外周ringの描画比較は残る。
+
+各checkは107.615／118.012／126.920秒、buildはdistinct 432.590／433.224秒、mixed 427.485／435.675秒、
+alias 392.609／392.293秒であった。GNU timeのpeak RSSもcommandsと共に保存する。
+複数caseが重なる観測なので、§8.4の管理host baselineや20% regression gateの測定とは数えない。
+以前のMac結果と入力hashも異なり、初めての実engine 5,000式成功とは記さない。
+
+証跡は`workspace/target/vmb-design/20261016/vmb-scale-verifier/`へ保存する。開始前／最終sourceの全hashと
+byte copies、engine corpus、全job inputs、CLI archive／generator executable、九公開commands、最終verifier／UA／
+manifest checks、negative controls、各argv／environment／exit／log SHAとartifact indexを含む。
+初期の内部環境変数によるP1001、diagnosticsが配列というdriver側の誤仮定、抽出境界の誤仮定と
+mutation harnessのexpected-message誤記は成功数へ混ぜない。成功済みの一回目buildを再実行せず継続した。
+空き容量のためにGo／apt cachesを消去し、実行・byte比較完了後の同一PDFと同一改変archivesをhardlinkで
+共有した。元bytesと全artifact pathは保持し、以前の凍結checkpointは変更しない。
+
+今回の変更に必要なPython構文／unit／scope内whitespaceを検査し、Rustが不変なので§300の大規模Rust／
+Unicode検査をfresh再実行とは数えない。GitHub Actionsは使わない。
+元保存全巻package `e4fd7415cb33…`、元Speech／SemanticRef、原font全巻、正式
+`tools/verify_vmb_book.py`、公開1.5／Book /2と四manifests、全structure／本文混在spacing／原SVG描画、
+両管理host・制御性能・著者／人手受入は残件である。Harfrustの残scratchとallocator overcapacity、
+admission／policy／binding、全commandのtemporary spool／同時graphsのphysical会計も継続する。
+この有限scopeの採用で設計全体をcompleteへ変更せず、goalをactiveのままとする。
+
+<a id="vmb-scale-raw-svg-render-design-14302"></a>
+## 302. 原SVGの描画referenceを追加し、規定のpixel gateで残る57不一致を保存する
+
+2026-10-16追補。§301の三つの公開PDFと全入力を保持し、原engine SVGを使う診断用render verifierを
+追加した。変更は`tools/verify_vmb_scale_render.py`と`tools/test_vmb_scale_render.py`の二added filesである。
+元1,808 inputsは全てbyte不変で、Rustの再build／大規模再試験は行っていない。
+
+原SVGのrole／speech／display／TeX、em寸法と内部viewBox、baseline／origin／advanceを読む。
+11ptと元内部単位から物理metricsを計算し、全5,000式で保存済みmetricsへ照合する。
+原M/L/C/Zの全operandを物理ptへ変換し、寸法付きSVGの順序・paint単位・座標と1 raw以内で比較する。
+referenceは原pathから作り、寸法付きSVGだけを画像oracleへ使わない。
+元PDFのCTMを短いFloatObject文字列へ丸めず再読し、既存観測placementとのfixed-unit一致を検査した上で
+同じ位置へreferenceを配置する。この位置は観測値であり、独立した行組みやspacingのgoldenではない。
+
+referenceの初期Cairo PNGとPDFの比較は最初の一pageで60／78不一致だった。
+librsvgのvector PDFを同じPDF rendererで描画する方式でも8／78が残った。
+小さな独立controlではCairoが1.12345123 ptを1.125 ptへ変え、sourceの1 raw条件を満たさなかった。
+固定4096倍のvector canvasで原SVGをPDF化し、正確な`1/4096` CTMと元物理MediaBoxへ正規化する。
+画素の拡大縮小や位置合わせは行わない。同controlのx／y誤差は約0.0000000581／0.000000426 ptへ減り、
+元sourceのcontentを保持するunitと共に1/65536 pt以内を確認した。referenceと実PDFは同じrendererを使う。
+
+maskは白背景でluminance <128、距離はEuclidean 1 pixel以内、area差はmax(4 pixels, referenceの1%)、
+viewport外側は2 pixel ringを保持する。穴を比較から除かず、pixel resize／位置の探索をしない。
+subpixel線で両maskが空になる場合は別途path／paintの完全照合を要求し、referenceが非空で実PDFが空なら
+失敗させる。rendererはexit 0でも未知のstderrやstdoutを拒否し、既知のMuPDF ICC warningだけを許す。
+
+| case | pages | 二renderers × 三DPIの数式比較 | 不一致 | mask bytes一致 |
+| --- | --- | --- | --- | --- |
+| distinct | 385 | 30,000 | 16 | 29,602 |
+| mixed | 387 | 29,712 | 16 | 29,317 |
+| alias | 616 | 48,000 | 25 | 47,803 |
+
+全107,712比較の57が固定条件を超え、三commandsはexit 1となる。三caseのgeometry／visible paint／
+source speech／extractorsの前段検査は通っているが、raster gateの成功とは数えない。
+最初の一pageの78比較は全成功したものの、これを全1,388 pagesへ外挿しない。
+20,820 external commandsはreference生成と両PDFの描画であり、同じPDFをcheck／buildし直した数ではない。
+全比較のink／area／距離計数、両mask SHA、argv／stderr SHAと最初の不一致cropsを保存する。
+時間515.644／497.370／661.806秒は並行処理を含む観測で、管理hostの制御性能試験には数えない。
+
+追加のnative-coordinate reference実験は既知の13 failure pagesで1,014比較を行い、14不一致を残した。
+そのreferenceからCairoの暗黙page transparency groupを除いた実験も同数だった。
+これらは別のcandidate identityとsourceで保存し、採用したreferenceや成功結果へ混ぜない。
+失敗する式で閾値や位置を調整せず、原因は未確定のままとする。
+
+元公開PDFの最初のFormをprivateな一Form contributionへコピーし、raw-SVG referenceに対する六比較の
+成功を確認した。その実fraction ruleを削除・二重paint・clipする三PDFは全てgeometry検査で拒否する。
+描画の拒否はそれぞれ5／6、2／6、6／6である。重なったpaintはpixelsが同じ場合もあるため、
+回数の保証はpath／paint joinが所有する。このcontributionを公開buildや書籍PDFの成功例とは扱わない。
+初期control writerのfloat operandとdirect streamという二つのharness不備も保存し、正常例の数へ含めない。
+negation slashを持つ別sourceの改変試験は残る。
+
+最終sourceは1,810 inputs、ledger SHA-256は
+`276cb925b1fe28462f68de9900735b880f88ed4c6af07935716ddb040dfec80d`である。
+13 unitと最終sourceの一page 78比較が成功した。三つの全page runsはproducer source
+`1ef1b42bea61f4f1030f8a9f85627a04a8bfea7de2e7464a7524b55cfacf44b3`で実行した。
+その後に空mask条件とrenderer output拒否を追加したため、producerと最終sourceを別々に保存する。
+ASTでrender・原geometry・mask生成・計数が不変であることを確認し、保存した全計数へ最終predicateを
+適用した。判定変更は0で、不一致は57のままである。全20,820 commandsの保存output hashも新条件を満たす。
+これを最終sourceで全描画をfresh再実行した証拠とは記さない。
+
+今回のLinux専用policyはPoppler 26.01.0／MuPDF 1.27.0／librsvg 2.61.3と95 runtime librariesのhash、
+原librsvg source archiveと公開checksumを保存する。原sourceは6,761,572 bytes、SHA-256
+`a56d2c80d744ad2f2718f85df466fe71d24ff1f9bc3e5ef588bde4d7e87815f2`である。
+Ubuntuのpatchを含む実binaryと、このupstream sourceだけを同じbuildと偽らない。
+凍結policyのMuPDF 1.28.2／Poppler 26.08.0 sourceも取得し、元SHA-256との一致を
+`workspace/target/vmb-design/20261016/vmb-pinned-pdf-tools/source-download-results.json`へ記録した。
+この指定版のbuild／再描画は未実行である。
+
+証跡は`workspace/target/vmb-design/20261016/vmb-scale-render/`のsource copies、二つのsource ledgers、
+全比較・raw crops・controls・失敗を含むcommand records、tool policyとartifact indexへ保存する。
+§301の入力／PDF／CLI archiveは凍結artifact indexのSHAで参照し、書き換えない。
+この有限scopeは不一致を保持する診断用verifierの追加であり、正式raw-SVG gateの通過ではない。
+正式runner、元保存全巻／Speech／SemanticRefと原font全巻、公開1.5／Book /2、全command physical会計、
+両管理host・制御性能・著者／人手受入を継続する。goalはactive、full_goal_completeはfalseのままである。
+
+<a id="vmb-scale-source-local-reference-design-14303"></a>
+## 303. 原SVGのlocal viewportと指定版PDF toolsで大規模の全107,712比較を検証する
+
+2026-10-16追補。§302の失敗と全証跡を保持し、同じ§301の三つの公開PDF／package／engine corpusへ、
+最終sourceの新しいreferenceを適用した。Rust、schemas、fixtures、公開PDF bytesは変更していない。
+変更は`tools/verify_vmb_scale_render.py`と`tools/verify_vmb_scale_pdf.py`、追加は
+`tools/vmb_svg_reference.py`と`tools/test_vmb_svg_reference.py`である。
+元1,810 inputs中1,808はbyte不変、最終1,812 inputsのledger SHA-256は
+`d4fcfe698edb7f544cce2509695de273cc71164874e2996118c23137197a82fa`となる。
+
+凍結external-tool-policyのMuPDF 1.28.2 archiveは68,898,646 bytes、SHA-256
+`44075a84e329db55b9bef5f342a70fd26d69e48ad1d33cb89d9664581c641156`、
+Poppler 26.08.0は2,031,352 bytes、SHA-256
+`dc906e68cea698109706ac6aa3d2c9d4512fcfcac42d90b8afcda486d1b9abd0`である。
+両原sourceを無patchでlocal buildし、version、binary hash、compiler、CMake／Make flags、lddを保存した。
+MuPDFはPDF用CLIでHTML／SVG／XPS reader・DOCX extraction・GUI・CURLを無効とし、fallback fontsは保持する。
+Popplerはpdftoppm／pdftotext／pdfinfoと専用libpopplerをbuildし、RPATHもそのprefixへ固定した。
+上流tool suiteの実行や、全featureのbuild成功を主張しない。抽出したworkflow filesは使用していない。
+
+MuPDF executableのSHA-256は
+`1a3477bb614a0ae39aadf2820e27cf86f022e9f6cea031f1308fe0a6101833cf`、
+pdftoppmは`836628a3afefffed2f84ea7a8f9286863078d9109b027812aa13f9bbbe08b2e0`、
+pdftotextは`4c84fa54868c869d5170b2f2a63a23814b630a97c7b8c08dce5d3d87081b861c`である。
+librsvgは§302のUbuntu 2.61.3+dfsg-3ubuntu0.1 binaryを保持し、upstream archiveだけからのbuildとは記さない。
+新しい`pinned-local-form-tool-policy.json`は元policyを変更せず、source archives／build metadata、
+実toolsと97 library identitiesを束縛する。SHA-256は
+`aa0ff060630014dfdd8087e3270122791649dac1186d2cbdaf3c95948c843657`である。
+lddは動的ロードの完全traceではない。元95 librariesのbytesも再検査し、dev packages導入後の一致を確認した。
+
+指定版Popplerだけへの交換、両指定版への交換を、それぞれ既知の13 failure pages・1,014比較で試した。
+両方ともMuPDF 5／Poppler 11の16不一致が残り、version更新だけでは解消しなかった。
+次に原SVGを一つずつlocal viewportのFormへ変換し、元pageのroot反転とview translationへ載せた。
+この方法は同13 pagesのprototypeと統合実装で各1,014比較を全て通った。
+
+reference algorithm /4は固定4096倍のvector canvasを保持し、原SVG interpreterの結果を
+physical 1/65536 pt gridへties-to-evenで正規化する。Cairoのroot page frameだけを取り除き、
+SVGの下向きlocal座標と各viewportを保持する。rectangle shortcutは明示closed polygonへ展開し、
+閉pathの後の空moveを取り除く。opaque black／Normal paintを要求し、page groupをFormへ持ち込まない。
+実PDFの輪郭やderived SVGだけからreferenceを作らず、元SVGとderivedの独立geometry照合も保持する。
+PNG referenceは元48 RGB画像のdecoded pixelsを使い、upright matrixで配置する。
+観測位置はPDFから独立検査済みの値を使うが、source layout goldenとは扱わない。
+
+| case | pages | source reference Forms／PNGs | 数式比較 | 不一致 | mask bytes一致 |
+| --- | --- | --- | --- | --- | --- |
+| distinct | 385 | 5,000／0 | 30,000 | 0 | 30,000 |
+| mixed | 387 | 4,952／48 | 29,712 | 0 | 29,712 |
+| alias | 616 | 100／0 | 48,000 | 0 | 48,000 |
+
+72／144／288 DPI、MuPDF／Popplerの全107,712比較が成功し、ink／area／距離差も全て0である。
+閾値、cropと外周2 pixel ring、穴の扱い、原位置は変更せず、pixel resize／位置の自動探索もしない。
+§302の比較集合・cropと新集合をjoinし、失敗57 keysが新結果では全成功することを保存した。
+指定版とwhole-page referenceの13 pages実験を併せ、toolのversion交換だけを原因解消とは記さない。
+元三package、全job files、engine index、二回の各公開PDFのhashを再検査した。
+
+三つの最終commandsは全て同じ1,812-input sourceで実行し、source driftは0、exitは0となる。
+26,708 external commandsのexit／stdout／stderrは全て正常・空出力である。
+観測時間はdistinct 513.977秒、mixed 501.641秒、alias 493.524秒で、並行処理を含む。
+管理hostの制御baselineや20% performance gateの数値として登録しない。
+指定版の両extractorは、distinct 5,000、mixed 4,952、alias 8,000のsource speechをそれぞれ照合する。
+各speech内部のspaceを変更せず、六つの抽出stdoutとstderrを別々に保存した。
+
+§302のprivate fraction contribution四PDFをhash照合して再利用し、新referenceでbaselineの六比較が成功する。
+削除・二重paint・clipの三geometry拒否と、rasterの5／6、2／6、6／6拒否は保持する。
+二重opaque paintの回数はgeometry joinが保証する。これを公開buildの追加成功やnegation slashの試験へ数えない。
+既存27 testsにlocal viewport／異常frame・opacity・color／exact transform／PNG controlsの4 testsを加え、
+31 testsが成功した。scope内のPython構文・whitespaceとdocsを検査し、Rustの再試験とは数えない。
+
+証跡は`workspace/target/vmb-design/20261016/vmb-pinned-pdf-tools/`へ保存する。
+開始前と最終source copies／ledgers、原tools archives、build／export／version records、最終policy、
+全比較、旧失敗join、両extractor出力、controls、全command identity、最終docsとartifact indexを含む。
+空き容量のため、生成object／preprocessor cacheと再展開可能なtool source treeだけを消去した。
+各消去manifest、元archive、recipes、binariesを保持し、§301／302の凍結filesは変更しない。
+GitHub Actionsは使用していない。
+
+この有限scopeは大規模三caseの原SVG数値描画gateの成功であり、正式runnerの完成ではない。
+元保存全巻`e4fd7415cb33…`、Speech／SemanticRef、原font全巻、本文混在spacingと独立layout golden、
+全structure／Lang、negation slash改変、公開1.5／Book /2と四manifests、両管理host・著者／人手受入は継続する。
+Harfrustの残scratch、allocator overcapacity、admission／policy／binding、全commandのtemporary spool／
+同時graphsのphysical会計も未完了である。goalはactive、full_goal_completeはfalseを保持する。
+
+<a id="vmb-book-authored-input-ledger-design-14304"></a>
+## 304. 保存したengine小corpusの完全な入力ledgerと公開CLI regressionを接続する
+
+2026-10-16追補。§303の全描画結果と凍結証跡を保持し、正式runnerが必要とする入力基盤を追加した。
+既存五式×inline／block×二サイズの20 casesから、source TeXをそのまま20 `.tex` filesへ保存する。
+`cases.json`は原／admitted SVG hash、physical metrics、spacing、Alt／ActualText、language、path／
+stored-segment／work、元engine request pointerを持つ。`occurrences.json`は20 authored occurrencesの
+node／image ID、case、placement kind、元request file／pointer／ordinalを結ぶ。
+これは元全巻から抽出した20出現ではなく、保存済みengine requestへの明示的なfixture配置である。
+
+原SVGの10 files、derived SVGと既存corpusのgeometry／engine identitiesはbyte不変である。
+新しいfixture indexは自分自身を除く全182 filesを列挙し、長さ・SHA-256、source／engine／exporterの
+既存identity、license／noticeの所在、synthetic fontの由来を保持する。
+歴史的な診断PDF／XML／JSONもfile inventoryへ含めるが、これを自動的に視覚goldenへ昇格させない。
+元bookの最大path image 4187と最大segment image 2987は未収録のままとし、pendingをprovenanceへ記録した。
+
+`tools/vmb_book_inputs.py`はstrict JSON、duplicate／nonfinite／surrogate拒否を既存shared helperから使う。
+primary index／cases／occurrences／templateは整数に限定したJCS+LFとし、UTF-16 key order、正確な整数域も
+検査する。contained readsはabsolute／escape／symlinkを拒否する。fileの追加・欠落・改変、必要case／
+test名の縮小・重複、曖昧なJSON pointer、boolをIDとして扱うこと、source順の入れ替えを拒否する。
+
+元engineのem／内部座標とsizeからFractionでphysical metricsを独立計算する。
+原／derivedの全M/L/C/Z、path順・paint単位・control pointsが1 raw以内で一致することを検査する。
+caseごとの合計は176 paths、3,844 source segments、外周clip五segmentsを各宣言へ加えた3,944 stored segments／
+path workである。この計算値を全commandのphysical allocation上限の証明とは扱わない。
+
+`tools/prepare_vmb_book_fixtures.py`は全source検査後に新しいoutput-rootを排他的に作る。
+fixture directoryの中や既存outputへは書かない。authored templateの空contentへ20式を配置し、
+TeX bytes・identity mapping・source span・metrics／speech・resource hash・node／image対応を再検査する。
+20 formulasと10 paragraphsのnode IDsは1〜30のdense preorderを使う。
+template／page／font declarationsが変わったjobも拒否する。
+
+templateと三font filesは既存combined profileの配布用synthetic fixturesから作った。
+font bytesは元と一致し、空輪郭なので本文inkや日本語、本文／数式のspacingを証明しない。
+caseの`language=en`は原SVGの言語を表し、公開1.4の全structure／Lang gateをこのledgerだけで通したとは記さない。
+最終fixture-index SHA-256は`e03852928e21a8f600f618188555f02d888a0222858b591f4b208b99e5aac93a`、
+生成packageは`cd98e88b148f1619043ca33879486ef47bc2c4faf403a670b273f4a6d93f5de8`である。
+
+`typaxis-cli/tests/cli_end_to_end.rs`へ三つの公開CLI testsを追加した。
+
+- `vmb_book_engine_fixtures_check_and_build`は全20式のcheckとbuild二回を行い、PDF／trace／manifest／diagnosticsの
+  全bytes、実PDF hashとpage count、全20 math factsのsource ID／Alt hash／baseline／origin／viewportを照合する。
+- `vmb_book_engine_fixture_hash_mismatch_is_rejected`は元SVGへ一LFを足したまま宣言hashを保持し、check／buildの
+  R7100、`/resources/images/0`の位置、failed manifestとoutput=null、PDF非公開を検証する。
+- `vmb_book_chapter_terminal_whitespace_is_admitted`は元4,150-byte章SVGを無変更で追加宣言し、末尾` />`の受理を
+  checkで検証する。章の元metrics／一律Altを配置やaccessibilityの正例として採用しない。
+
+三件は全て成功し、実binaryのdiscovery名集合と実行名集合が一致する。別の実zero-match filterはexit 0で
+0 testsとなったが、`verify_test_names`が拒否した。ignored／欠落／重複／余分なtestのunit controlsも成功する。
+九つのPython testsは全て成功し、その後のsource変更はRust testのpage-count assertionだけである。
+Python／fixture inputsの最終bytes一致を検査し、不要な全suite再実行は行わない。
+
+初期CLI testsの失敗は、helperの重複resource-root、初期ledgerの疎なnode IDs、既存PDF helperが
+Count-before-Type順を仮定することの三段階であった。前二者を入力側で修正し、dense preorderの前段拒否も追加した。
+最後は新testだけがproduction writerのPages辞書を読むように直し、既存helperを変更しない。
+これらの失敗logs、producer source variantsと初期の不正jobを保持し、最終成功数へ含めない。
+初回evidence validatorが自分自身の実行中recordを完了済みとして読む不備も別失敗として保持した。
+
+公開entryから別途保持したformula-only PDFは218,386 bytes、2 pages、14 shared Forms、20 placementsである。
+SHA-256は`ece0d34df23bbf0048d16ec0d2bdb48c90cf989750cd3c43852b9cf8508712ef`となる。
+これは新たな独立render／extract／UA gateではない。CLI test-profile binaryは
+`ebb0542255171a7058044d9560341d27bf0cb11801be921d1c3a3d0c760a92f0`として別保存し、
+§301のCLI `eab55b32…`と同じbinaryとは記さない。元CLIと以前の凍結成果物は保持する。
+
+最終sourceは1,841 inputsで、元1,812中1,809はbyte不変、modifiedはREADME／fixture-index／CLI testの三件、
+addedは二ledgers・template・20 TeX・三font copies・三Python toolsの29件である。
+ledger SHA-256は`6f4d17e6a399ea9f10d0f58a53800e22fecf66f378f425f40cb83264892ee561`となる。
+既存Rust test fileは新しいhelper／tests block以外のbytesを保持し、Rustfmtもedition 2021で成功した。
+production Rustの変更や広いRust suite再試験は行っていない。compile cacheは専用tmpfsへコピーし、元targetを変更しない。
+
+証跡は`workspace/target/vmb-design/20261016/vmb-book-input-ledger/`へ保存する。
+開始前と最終source、全失敗を含むcommand／source records、修正前variants、最終fixture bytes、
+test discovery／zero-match拒否、test／CLI archives、保持したPDFとmanifest、docs／artifact indexを含む。
+この採用は入力ledgerと指定三testsの有限scopeであり、`tools/verify_vmb_book.py`全体の完成ではない。
+元最大SVG、元全巻／Speech／SemanticRefと原font全巻、本文混在と独立layout、全structure／Lang、
+negation slash改変、公開1.5／Book /2と四manifests、全command physical会計、両管理host・制御性能・
+著者／人手受入を継続する。GitHub Actionsは使わず、goalはactive、full_goal_completeはfalseを保持する。
+
+<a id="vmb-book-partial-runner-and-integer-reference-design-14305"></a>
+## 305. source graphを独立照合する部分runnerと整数reference canvasを接続する
+
+2026-10-16追補。§304の182-file fixtureと20 authored occurrencesを維持し、
+`tools/verify_vmb_book.py`、`vmb_book_pdf.py`、`vmb_book_scale.py`と専用tool policyを追加した。
+runnerは§8.5の必須引数とcase別出力、排他的output、strict input／expected files、
+公開check／二回build、schema／profile・manifest閉包、artifact byte一致を扱う。
+全12 groupsのうち五件が成功し、七件はrequired-work-remainsとして失敗を保持する。
+この時点の正式runner全体は`passed=false`、exit 1であり、完成とは扱わない。
+
+実行した五groupsは次の通りである。
+
+| group | pages | declarations / placements | Forms / PNG | source StructElem | formula mask comparisons |
+| --- | --- | --- | --- | --- | --- |
+| engine-small | 2 | 20 / 20 | 14 / 0 | 31 | 120 |
+| distinct-5000 | 385 | 5,000 / 5,000 | 5,000 / 0 | 7,506 | 30,000 |
+| mixed-5000 | 387 | 5,000 / 5,000 | 4,952 / 48 | 7,482 | 29,712 |
+| alias-8000 | 616 | 5,000 / 8,000 | 100 / 0 | 12,009 | 48,000 |
+| chapter-terminal-whitespace | 公開CLI check | 元章SVGを無変更で追加宣言 | 配置の正例とは扱わない | 対象外 | 対象外 |
+
+小入力はCLI `eab55b32…`による新しいcheckと二回buildである。
+四artifactsはbyte一致し、PDFも§304の`ece0d34d…`、218,386 bytesと一致した。
+大規模三入力は`--scale-build-evidence`で§301のindex `0e0567fd…`へ結び、全27,080 indexed filesを再検査する。
+CLI hash、default config `e13336ad…`、成功したcheck／二回buildのargv／log／diagnosticsと全artifactsを照合した。
+各caseのoriginは`reused-public-command-evidence`であり、新しい公開scale buildの成功とは記さない。
+保存された当時のverifier-only source driftも消さずに再利用recordへ載せる。
+
+`--scale-render-evidence`は本節の新しい全数render index `9c15677c…`とproducer source ledgerへ結ぶ。
+入力package／PDF／corpus、固定policy、実tool bytes、五つのproducer dependencies、全renderer／DPI／
+occurrence keyとmask決定を検査する。新しいoutputへコピーした証跡もreused originを明記する。
+二つのevidence引数を省略する通常経路は保存した実engine generatorから全5,000式を生成し、
+新しい公開commandsと全数renderへ進む。そのdefault全経路を本節で実行済みとは扱わない。
+
+共通paint kernelは従来の5,000件preflightを維持したまま、別途検査済みの20式にも接続した。
+geometry／可視bounds／実Do／decoded PNG／source-bound anchorとMCRを照合する。
+新しいsource graph verifierはDocument／container／paragraph／Formula／Figureのparent・子順・role・
+継承language・Altと全StructElemの到達性を検査する。ParentTreeのtyped key／limits／範囲、
+重複・循環・孤立element、MCRのpage／MCID／ownerも検査し、実paint側のbindingと一致させる。
+四PDF合計27,028 StructElem／18,020 occurrencesの照合が成功した。
+これは現在のEnglish formula-only source全体の検査であり、本文glyph・脚注・navigation・式番号と
+元全巻の任意言語structureを検証したことにはしない。これらのsource vocabularyは明示して拒否する。
+
+大規模三PDFの両指定版extractor stdout／stderrをrunnerのcommandsへ新たに保存した。
+source speech内部のspaceを保持し、Formulaの順序・個数を照合した。
+PNGのFigure Altはsource structureで検査し、formula anchor由来の抽出speechへ追加しない。
+初回combined runはここでFigure Altも抽出期待へ含めてmixedの4,952式直後に失敗した。
+そのrun／source variantを保持し、expectationを訂正した最終runでは三caseとも成功した。
+四PDFはveraPDF 1.30.2のUA1正常終了・単一job・非zero completed checks・zero failed checksも通した。
+自動UA検査を人手受入へ数えない。
+
+20式の独立render初回では、12pt近傍の長い二caseについてreference canvasのwidthが分数を失った。
+期待拡大幅1,130,052.0625 ptに対し、librsvg/Cairo PDFのMediaBoxは1,130,052 ptだった。
+出力寸法の量子化を実測したが、内部float実装をsourceから確定したとは記さない。
+algorithm `/5`は元SVGのpathsをコピーした整数point canvasと厳密な一様scaleを使い、
+source-local Formへ戻して元viewportでclipする。元source path、physical grid、outer ring、
+72／144／288 DPI、1pixel Euclidean距離、面積許容差、pixel resize／自動整列禁止を維持する。
+
+同方法による20式120比較は全mask bytesが一致した。
+続いて元§301 PDFの全1,388 pages、107,712比較も新たにrenderし、全mask bytesが一致した。
+26,708 external commandsは全てexit 0・空stdout／stderrとなる。
+distinct 500.990秒、mixed 490.261秒、alias 481.967秒は並行実行の観測値であり、制御性能baselineへ登録しない。
+このproducerは実際に使う五Python filesだけを凍結してsource ledger `505b7abb…`へ結んだ。
+同時に追加した無関係なrunner／test sourceまで全worktreeが凍結していたとは記さない。
+新referenceで旧private fraction controlsも再検査し、baselineの六比較が成功し、
+削除／二重paint／clipはgeometryが全て拒否、raster拒否数は5／6、2／6、6／6を維持した。
+
+三つのRust CLI testsは`VMB_BOOK_TYPAXIS`で指定した実executableを使う。
+receiptへbinary path／hash、fixture index、20 cases／occurrences、`include_bytes!`による
+コンパイル時test source hashを保存する。別のexit 73 executableを実際に指定するとpositive testが失敗する。
+actual discovery／実行名は指定三件で一致し、実zero-match成功はgateで拒否された。
+現行test executableは`2960c9fa…`としてgzip保存した。
+既存Rust testsのVMB block外とproduction Rustは変更しない。Rustfmtはedition 2021で成功した。
+
+65 Python testsが成功した。source graphのLang／parent／Alt／MCID改変、bool-as-ID、孤立・重複、
+欠落input／古いreceipt／異なるbinary、stderr／nonzero／timeout／spawn failure、UAの空・失敗・重複report、
+cache改変／比較欠落・重複／不正mask、少数caseのpassed flagによる全fixture省略を拒否する。
+広い実本体suiteを再試験した数とは扱わない。新unit testの初回は拒否理由のmessage matcherが狭すぎて
+一件失敗したが、拒否そのものは成立していた。修正前sourceと失敗logを残した。
+初回small runnerのUA XML attribute access誤りと、初回長式reference失敗も保持する。
+
+次のnegation gate用に、VMB 9efff4aへGo overlayだけを与えた別generatorを準備した。
+元checkoutは無変更で、base commitとoverlay source／binaryを別identityとして保存する。
+`a\not=b`は合成された不等号glyph一pathだったため、専用斜線の削除controlへ採用しない。
+`a\not{=}b`は元engineのU+0338 overlayにより独立した斜線pathを持つ。
+分数と斜線のinline／block・二サイズの8 casesを生成したが、公開PDF・改変拒否はまだ通しておらず、
+`negation-slash-controls`は未完を維持する。
+最初のprobe buildではroot空き容量が尽きてwrapperの最終record書込みが失敗した。
+childのexit statusを成功として復元せず、空recordと回復説明、書き込まれたGo cacheの消去manifestを保持する。
+tmpfsの専用GOCACHEで再buildした二commandsはexit 0として別に保存した。
+
+最終code ledgerは1,847 inputs、SHA-256 `27c8796cfa38eedb423627d8cae8efc7db19878fe4d42466225977f1f4aace58`。
+§304の1,836 inputsはbyte不変、modifiedは五件、addedは六件である。
+最終combined runnerはこのsourceで24 owned commandsを実行し、source drift 0となる。
+wait4のRSSはchildの最大値であり、同時process tree全体や全temporary spoolのphysical会計とは扱わない。
+専用Rust compile cacheはtest executableをarchiveした後だけ除去した。
+
+証跡は`workspace/target/vmb-design/20261016/vmb-book-runner/`へ保存する。
+数値render、初回失敗、最終runnerの新規filesを圧縮保存し、旧§301とbyte同一の大きなfilesは
+凍結indexへ参照する完全なmember ledgerを保持する。元output artifact indexを再構成できることを検査する。
+source variants／全command records／tool policy／実抽出／UA／controls／source copies／docsを保持し、
+§304の全2,045 frozen filesも再検査した。過去の凍結evidenceは変更しない。GitHub Actionsは使っていない。
+
+未完の七groupsは元最大path／segment SVG、300〜500式の章、overflow、resource境界、本文spacing、
+negation slash改変である。独立layout、元保存全巻`e4fd7415cb33…`とSpeech／SemanticRef、原font全巻、
+公開1.5／Book /2と四manifests、残scratch／allocator overcapacity／admission／policy／bindingと
+全commandの同時graphs／spool会計、両管理host・制御性能・著者／人手受入も継続する。
+goalはactive、full_goal_completeはfalseを保持する。
+
+<a id="vmb-book-thin-stroke-controls-design-14306"></a>
+## 306. 実engineの分数線と否定斜線を対象とする24改変をrunnerで拒否する
+
+2026-10-16追補。§305のprobeを追加の8-case fixtureとして採用し、`negation-slash-controls`を
+正式runnerへ接続した。原20-case ledgerと元SVG／TeX／metricsは保持する。
+新しい`thin-strokes/`の27 filesは元／derived SVG、engine index、八TeX、case／occurrence ledgers、
+producer sourceとprovenanceを持つ。primary indexは全209 filesをhash照合し、追加corpusも明示して登録する。
+fixture-index SHA-256は`7d742190cc8067dc1e359861cd68aa16d068b777fc9ae78d6936e0cec8a0dd3a`となる。
+
+八casesは分数`\frac{1}{2}`と、grouped equalityへの否定`a\not{=}b`をinline／block・
+720896／786431 rawの二サイズで実engineへ渡したものである。
+後者は元engineの独立したU+0338 contourを持ち、source path 2を損傷対象にする。
+`\neg P`の横棒・縦棒や、`a\not=b`の結合された不等号glyphを斜線controlと表記しない。
+source engineはVMB 9efff4aと§305に保存したGo overlay／binary `0d773236…`を別identityとして結ぶ。
+VMB checkoutを変更したとは記さない。新sourceの配布条件は既存license／notice recordsへ結び、
+元書籍から抽出した出現、元全巻、承認済みlayout goldenとは扱わない。
+
+`tools/vmb_book_thin.py`は必要case／順序／size／TeX／semantic speechと元engine pointerを固定する。
+元と追加corpusのstable engine bundle／policy／font identitiesが同じことを検査する。
+raw／derived SVG hash、独立Fraction metrics、全M/L/C/Z control points、外周clip込みsegments／workも検査する。
+分数線は実矩形、斜線は単一の細長いcontourと二本の長い対角edgeであることを元sourceから検査する。
+boolのID・別path・generic negationへの置換、欠落case／sourceと改変producerを拒否する。
+
+二ledgerは8出現のnode／image／source pointerを結び、1〜12のdense preorderを使う。
+生成jobは元template／三font files／版面を保持し、TeX buffers、identity mappings、source spans、
+metrics／spacing／Alt、全imageと元source bytesを再検査する。生成・描画・placement／damage evidenceは
+全てfixture／jobの外へ排他的に書く。空輪郭fontで本文の可視性を証明したとは記さない。
+
+同じ公開CLI `eab55b32…`のcheckと二回buildは成功し、四artifactsが全bytes一致した。
+PDFは36,579 bytes、1 page、6 shared Forms、8 placements、13 source StructElemである。
+SHA-256は`e0964dd424eed5fe99be44f17ec4566fdf7efc114bd1722109b097e368a5e581`となる。
+両指定版extractorは内部spaceを保持して全8 semantic stringsを照合し、source／paint／ParentTree／
+MCR／LangのjoinとveraPDF UA1も成功した。raw-SVG referenceの全48比較は固定policy `/5`で成功する。
+47 masksはbyte一致し、block・786431 rawの斜線caseのPoppler 72 DPIだけはink数33対34、
+missing／extra over-one-pixelは0である。許容差を緩めず、これを全48 maskのbyte一致とは記さない。
+
+公開PDFの無改変cloneを先に同じverifierへ通した後、八case×三損傷の24 private PDFを作る。
+fillを`n`へ変える削除、同じcontour operandsの追加paint、当該contourだけへの半幅clipを使い、
+他のoperandsを丸め直さず保持する。全page placement matrix、source graphと無関係なForm bytesも照合する。
+共有Formのときは同じsource SVGを使う配置だけが変わることを検査し、元公開PDFのhashは不変である。
+geometryは24件全てを拒否した。改変PDFを新たな公開buildや正しい元入力として数えない。
+
+独立raw-SVG referenceと両renderer・三DPIで各PDFの全8領域を検査し、計1,152比較を保存した。
+各source caseの対象六比較における拒否数は次の通りである。列の順はinline 720896、inline 786431、
+block 720896、block 786431となる。
+
+| actual contour | deleted | duplicated | locally clipped |
+| --- | --- | --- | --- |
+| fraction rule | 5, 6, 5, 5 | 2, 0, 1, 2 | 5, 6, 5, 5 |
+| diagonal negation | 6, 6, 6, 6 | 6, 5, 5, 6 | 5, 6, 6, 6 |
+
+全削除／clipは対象のrasterにも少なくとも一件の拒否を持つ。
+opaqueな二重paintの一部は全六maskを通すため、geometryのpaint順・回数照合を省略しない。
+元sourceと無関係な配置にはraster失敗がなく、穴を除外する処理、pixel resize、自動整列は使わない。
+途中のprobe一回はraster inventoryのplacements fieldを渡し忘れて失敗した。
+元PDF／UA成功を含むpartial outputとproducer sourceを残し、修正した別outputだけを成功へ数えた。
+
+十の新Python testsは八caseの完全性、別contour／precomposed source／engine bundleの置換、
+source pointer／bool ID／producer／job改変、入力directory保護と対象以外のoperand byte保持を検査する。
+既存65 testsを含む75件が成功した。Rust sourceとtest executableは§305からbyte不変であり、
+新たなRust compile／広いRust suite再試験とは数えない。
+
+最終combined runnerは同sourceで28 owned commandsを正常完了し、実discovery／三test名・
+requested binary／現在のfixture hashのreceiptsとactual zero-match拒否も成功した。
+small 20式と追加8式は新しい公開commandsであり、大規模三caseは§305同様、明示したhash固定evidenceを
+再利用しながらsource／paint／structure／抽出／UAを新たに照合した。fresh public scale buildとは記さない。
+全五PDFで27,041 source StructElem／18,028 occurrences、positive masksは107,880比較中107,879 byte一致、
+残り一比較も登録済み許容差内で成功した。元大規模の107,712 masksは全てbyte一致を維持する。
+
+最終sourceは1,876 inputs、SHA-256 `86feb541a341fad5c7396c44906f908a464eedf7cea079c8d2f23c86dab84deb`。
+元1,847中1,844はbyte不変、modifiedはREADME／fixture index／runnerの三件、addedは27 fixture filesと
+module／testsの29件である。最終tests・追加case・combined runは全てこのsourceでsource drift 0となる。
+旧§305の全2,082 frozen filesも再検査し、byte不変である。GitHub Actionsは使用していない。
+
+証跡は`workspace/target/vmb-design/20261016/vmb-thin-stroke-controls/`へ保存する。
+初回失敗を含むcommands／source variants、元producer、source copies、実公開artifacts、
+無改変cloneと全24 damaged PDFs、全positive／negative比較・失敗crops、両extractor／UA、
+最終docsとartifact indexを含む。圧縮archiveと旧凍結filesへのmember ledgerから、元runner outputを
+完全に再構成できることを検査した。容量のために除去したものは検査済みarchiveを持つ旧一時copyだけである。
+
+この有限採用はthin-stroke改変groupの成功であり、正式runner全体は六groups未完によりexit 1／passed=falseとなる。
+残る元最大path／segment SVG、300〜500式の章、overflow、resource境界、本文spacingを継続する。
+元保存全巻`e4fd7415cb33…`とSpeech／SemanticRef、原font全巻、公開1.5／Book /2と四manifests、
+残scratch／allocator overcapacity／admission／policy／bindingと全commandの同時graphs／spool会計、
+両管理host・制御性能・著者／人手受入も継続する。goalはactive、full_goal_completeはfalseを保持する。
+
+<a id="vmb-book-resource-boundaries-design-14307"></a>
+## 307. imagesとSafe-SVG workのinclusive境界を実公開commandsで照合する
+
+2026-10-16追補。`tools/vmb_book_boundaries.py`と十testsを追加し、正式runnerの
+`resource-boundaries`を接続した。全sourceは1,878 inputs、SHA-256
+`41697e1f2df0997e3f2ea5add29b36025d939c50999204ef2cdceb60c6592801`となる。
+§306の1,876 inputs中1,873はbyte不変で、modifiedはrunner／machine-profile verifier／source-graph verifierの三件、
+addedはmoduleとtestsの二件である。Rust sourceとCLI／test binaryは変更していない。
+
+境界専用のsourceは明示したsynthetic engine identity `typaxis.synthetic-resource-boundary`、
+rules `typaxis.synthetic-limit-fixture/1`を持つ。1ptのsquare／inset squareとgroup／clipだけを使い、
+VMB engine出力、元全巻、layout golden、本文glyphの証明とは扱わない。
+原20-case／追加8-case ledgerと全209 fixture files、fixture-index hash `7d742190…`は保持する。
+sourceには全image宣言と一つのvector Figureだけを置き、大量未使用宣言を5,000配置gateの代用にしない。
+
+22 casesの内訳は十positiveと十二negativeである。
+
+| boundary | exact / overの設定・入力 | additional assertion |
+| --- | --- | --- |
+| default image declarations | 8,192 / 8,193 | 未指定config、最初の超過image 8,192 |
+| explicit image declarations | max_images=1,024、1,024 / 1,025 | 元既定configと設定overrideを区別 |
+| nodes | limit 3 / 2、実nodes 3 | document-total |
+| stored segments | limit 10 / 9、実work 10 | 外周clipの5 segmentsを含む |
+| nesting depth | limit 4 / 3、実depth 4 | resource-local |
+| clip replay | limit 30 / 29、実work 30 | stored 20に二回のclip参照10を加算 |
+| implicit viewport clip | limit 4、初期work 5 | root viewBoxを指し、架空のpath番号を出さない |
+| aggregate nodes | limit 6 / 5、二resourceでnodes 6 | second resource、used-before=3 |
+| aggregate work | limit 20 / 19、二resourceでwork 20 | second resource、used-before=10 |
+| source order | z.svg first / a.svg first、limit 2 | URIでsortせず宣言0を報告 |
+| depth per resource | depth 3の二resource、limit 3 | depthを6へ累積しない |
+| identical-byte aliases | limit 20 / 19、二宣言でwork 20 | content／Form共有でもadmission workを無料にしない |
+
+各jobの三font bytes、metadata、元source bytes／span、dense typed image IDs、URI／hash／provenance、
+viewport／Alt／caption、全file inventoryとconfig bytesを照合する。bool IDや設定値への置換、
+未使用宣言の欠落、sourceのrelabelを拒否する。期待geometryをPDFやtraceから採取しない。
+元XMLを独立に走査してnodes／stored segments／clip replay／depthと実paint／active clip chainsを求める。
+
+Safe-SVG allocation charge `/2`は`nodes*64 + stored_segments*80 + commands*48 + source_clip_id_bytes`を
+sourceから算出する。simple／deep／clipsはそれぞれ1,136／1,200／2,499で、manifestの各root image、
+全aliasとcontent resourceにjoinする。全宣言の合計とunique contentの値を混同しない。
+これは契約上のadmission chargeであり、physical heap bytesや全command同時memory上限ではない。
+
+十positive casesは公開checkと二回buildが全て成功し、PDF／manifest／trace／diagnosticsの四artifactsが
+全bytes一致した。8,192 caseのeffective configは元の`e13336ad…`、明示1,024 caseは`db24b840…`である。
+各PDFは一つの可視Form／Doと二つのsource StructElemを持つ。未使用のunique resourceもadmitされるが、
+そのためにPDF Formや配置を作ったとは数えない。all aliases／root imagesの数と使用数を別に検査する。
+
+sourceにmathを持たないgeneric vector Figureへ、従来のPython verifierがmath facts必須を課す問題を修正した。
+`_assert_production_vector_closure`の既定`require_math=True`は保持し、runnerが実source inventoryで
+mathの有無を調べた場合だけ明示してFalseを渡す。その場合も四manifest／profile／trace／PDF hash、
+root media／alias joinsを検査し、空以外のmath factsを捏造しない。
+private controlで既定のmath facts必須、明示generic closure、壊れたfacts／aliasの拒否を検査した。
+source graphは`vector_figure`をFigureへ対応させ、Alt／Lang／ParentTree／MCRと実paintを結ぶ。
+
+synthetic Formの独立interpreterはunit BBox／viewport clip、opaque state、identity matrix、
+各M/L/Z contourとpaint回数・順序、active clip chainを照合する。pageの一つのFigure scopeとDo、
+source body内の全viewport可視性と精密placement matrixも検査する。
+元synthetic SVGから固定reference pipeline `/5`を使って作る60比較は、両指定renderer・三DPIで全mask bytesが一致し、
+十PDFのveraPDF UA1も成功する。独立layoutやJapanese bodyの成功とは記さない。
+
+clip-replay positiveの無改変cloneを先に通し、三private PDFのpaint削除／二重paint／半幅clipを作った。
+全source graphとplacement matricesを保持し、geometryは全三件を拒否する。
+全18 raster comparisonsも保存し、六比較中の失敗数はdeleted=0、duplicated=0、clipped=2となる。
+同一領域のopaque fillsと小さい許容面積のため、削除を含めmaskだけでは全改変を検出しない。
+この結果を隠さず、geometryのpaint回数・clip検査を必須にする。
+
+十二negative casesのcheck／build、計24 public commandsは正しいterminal failureを返した。
+images超過はP1102／exit 1、SVG nodes／work／nestingはR7120／R7121／R7122／exit 5である。
+両commandsのdiagnostics bytesは各caseで同じで、成功PDF／traceはない。
+failed manifestはoutput／layoutと四child manifests／fingerprintsをnullにし、元package hash／bytesを保持する。
+期待code／severity／pointer、元URI／element番号／path／token、XML byte span／line／byte column、
+scope／limit／observed／used-beforeをsourceから求めて完全一致を検査した。
+最初の超過resourceは宣言順に決まり、別URIの同byte aliasも各宣言で課金される。
+
+初期probeはprovenance欠落、SVGをraster Figureとして記す誤り、math facts必須というverifierの仮定を順に検出した。
+SVG failureのexitを1とした初期probeも失敗を保持し、正しいexit 5を検査する別caseへ訂正した。
+aliasを一度だけ課金するとした仮説は実測で否定され、最終caseは二宣言のwork 20を要求する。
+新evidenceのtupleをstrict JSONへ渡した初回実行と、二wrapperがsource-cohort fileを同時作成したstartup failureも保存する。
+geometry factsをJSON arraysへ直し、完成したsource-cohort bytesをatomic linkで公開してから照合する。
+失敗途中のoutputを成功caseへ上書きしない。
+最終freezeの初回はtmpfsとroot filesystemの間でhard linkを作ろうとして失敗した。
+失敗recordとhelperを保持し、完成したrecordsをbyte確認付きcopyで保全する別実行へ訂正した。
+
+85 VMB Python testsと九machine-profile tests、実discovery付き指定三CLI testsとactual zero-match拒否が成功した。
+最終combined runnerは92 owned commandsを完了し、そのうち24件は上記の期待negativeである。
+small／thin／boundaryは新公開commandsで、大規模三caseは明示した§301 build／§305 raw-render cacheを
+全hash照合しながらsource／paint／structure／抽出／UAを新たに検査する。
+五つのnumeric render producer dependenciesとpolicy `/5`はbyte不変で、scaleのfresh public build／rasterとは記さない。
+全十五positive PDFに27,061 source StructElem／18,038 occurrencesがあり、107,940 positive masks中107,939はbyte一致、
+残り一件は§306で記録した同じ許容差内の1 ink pixel差となる。
+
+証跡は`workspace/target/vmb-design/20261016/vmb-resource-boundaries/`へ保存する。
+実行中のbulkは`/tmp`へ置いた。root filesystemの容量不足には、gitignoredな既存compiler incremental cacheだけを
+archiveで全payload hash照合した後に除去し、110,096,115-byte archiveを同stageへ保存して再検査した。
+cacheのhard-link membersも解決してhashを照合し、source／旧frozen evidenceは除去しない。
+全probe failures／producer variantsと全最終artifactsは保存済みarchiveと§301の固定external member ledgerから再構成できる。
+§306の全1,977 frozen filesもbyte不変であり、GitHub Actionsは使っていない。
+
+この有限採用はresource-boundary groupを通す。正式runner全体は七groups成功・五groups未完のため
+exit 1／passed=falseを維持し、goalはactive、full_goal_completeはfalseである。
+残る元最大path／segment SVG、300〜500式の章、overflow、本文spacingを継続する。
+元保存全巻`e4fd7415cb33…`とSpeech／SemanticRef、原font全巻、公開1.5／Book /2と四manifests、
+残scratch／allocator overcapacity／admission／policy／bindingと全commandの同時graphs／spool会計、
+両管理host・制御性能・著者／人手受入も継続する。
+
+<a id="vmb-book-numbered-chapter-design-14308"></a>
+## 308. 400式と200番号の章を元glyph・全source配置から検査する
+
+2026-10-16追補。原20 real-engine casesの各20配置を`chapter-layout/plan.json`へ記録した。
+inline 200式、block 200式、`(1)`〜`(200)`の200番号、50 paragraphs、150 soft-break nodesを持つ。
+sourceは0〜801の802 ownersで、使用imageは20宣言／14 byte-distinct SVGとなる。
+原20 casesと追加thin-stroke 8 casesのTeX／SVG／metricsは保持し、別のauthored chapter planとする。
+元書籍の一章、全巻、Japanese bodyや承認済みlayout goldenとして扱わない。
+
+番号には元DejaVu Sans 759,720 bytesを変更せず保存し、copyright／licenseとprovenanceを登録する。
+SHA-256は`b4c632e3cdf9acc7f28758fb5a323c8524d7fc6660d46904d9b6cbe2809c419c`である。
+空輪郭fontを実番号の可視性の証明に使わず、原Japanese fontの代用成功とも記さない。
+root fixture indexは全213 filesを照合し、SHA-256は
+`1322284d1e19278c185193f573899ea1e0848af3fc5a2fc4dc5d877cd4e90d32`となる。
+既存のthin-stroke corpus登録は保持し、chapter supportを別fieldで明示する。
+
+`tools/vmb_book_chapter.py`はplanの完全な順序／owner／番号、二サイズ・五families、原ledger hashを検査する。
+生成jobは元templateの版面／styleを保持し、宣言した番号fontだけを選ぶ。
+全20 SVG hashと400 TeX slices、各番号の別identity mapping、全source bytes／spans、font bytesと全file inventoryを照合する。
+途中で追加する未登録file、欠落case、bool ID、番号relabel、空fontへの置換を拒否する。
+planはgenerated PDFやtraceから採取せず、authored sourceから生成する。
+
+`vmb_book_pdf.py`は、Formulaの`K=[MCR,番号Span]`と番号Spanの独立MCRを検査する。
+sourceのsoft breakはownerの一意性・型を保持し、paint／structure textは要求しない。
+parent／role／子順／Alt／effective Lang、ParentTreeと全MCR slot、到達不能StructElemを引き続き検査し、
+本文glyph／notes／navigationの未実装scopeを受け入れない。
+400 Formula MCRと200 number MCR、652 StructElemを元sourceへ結び、番号と式が同じpageにあることも確認する。
+
+新`vmb_book_font.py`は元TrueTypeのdirectory／table・全font checksum、units／loca／hmtx範囲、
+Unicode cmapの4／12一致、実simple-glyph endpoints／flags／points／bounds／hint instruction bytesを検査する。
+PDFのCIDとToUnicode、CIDToGIDMap、FontFile2、各advance／LSB／PDF widthsとdescriptorを元sourceへjoinする。
+必要な12 Unicode glyphsと.notdefを持つ13-glyph subsetは、元の使用glyph programsとmetricsに一致する。
+これは番号用ASCII fontの検査であり、一般のcomposite／Japanese／CFF font supportの合格ではない。
+
+実page contentをgraphics state／clip／matrixとともに読み、全400 Form usesと892 visible number glyphsを検査する。
+一つのsource MCRに一つのsemantic ActualTextを要求し、source SVGの全paint geometryと補助anchorを照合する。
+各番号glyphのUnicodeと元glyph、共通baseline、hmtx advance、黒のopaque paint、全glyph bboxの可視性を検査する。
+番号の右寄せ、最小gap、元font ascender／descenderと元formula viewportから求めたbaselineも照合する。
+意味textやsubset objectの存在だけで、実glyphが正しく描かれたとは数えない。
+
+sourceだけを読むlayout model `/1`は、四式が収まる短いparagraphと一式ずつしか収まらない長いparagraphを区別する。
+負originのvisual-min補正、advance、line ascent／descentと14pt最小line-height、half ties-to-evenを計算する。
+80 inline linesと200 block linesを作り、source styleの外側space、page先頭での抑制、
+widow／orphan isolationと未使用高さの公開break-policy costから18 page breaksを求める。
+このmodelはPDF／traceを開かない。全400 formulaと200 number positionsは19 pagesで0 raw差となった。
+登録された座標許容差1 rawを変更せず、実測差0を別に記録する。
+
+referenceは元raw SVGを既存integer-canvas pipeline `/5`へ通し、番号は変更しない元sfnt全bytesと
+元cmap／hmtxで描く。target subsetやtargetの配置をreference sourceにしない。
+独立source layoutの位置でMuPDF／Poppler・72／144／288 DPIを比較し、計3,600 masksが全て成功した。
+内訳はmath 2,400／番号1,200で、番号は全mask byte一致である。
+全体3,599 masksがbyte一致し、node 697／page index 15／Poppler 288 DPIだけはreference ink 629対observed 630、
+area差1、missing／extra over-one-pixelはいずれも0となる。閾値の緩和、resize、自動整列、穴の除外はしない。
+
+source flow groupsは50 paragraphsと200 blocksの250件である。
+各ownerの意味payloadは内部spaceを含めて保持し、同じsource group内で明示した境界だけは
+extractor由来の空白または隣接を認め、異なるgroup間には境界を必須にする。
+両extractorは400式と200番号の600 stringsを一致させ、意味payload内の空白削除／group境界削除／余分なtextを拒否する。
+既存のparagraph-only numeric extractor helperは変更しない。
+veraPDF UA1は22,018 passed checks／0 failed checksで、human acceptanceとは区別する。
+
+公開PDFの無改変cloneを先に同じsource／glyph／layoutへ通した後、番号1／99／200の
+glyph削除・別CIDへの置換・一glyphのbaseline移動を行う九private PDFを作る。
+source graphと全400 formula matricesを保持し、九件全てをsource paintが拒否した。
+別controlでは最初のinline Formulaと補助anchorを同じ1ptだけ移動し、相対geometry／source graphを保持する。
+source paintはこれを通すが、独立source layoutが拒否する。これらを正しい公開buildやnegative raster実測とは数えない。
+
+初期probeではTeX／番号への一つの広いtext mappingがsource ownershipで拒否され、別mappingへ訂正した。
+番号text styleを継承しないtop-level blockはL5100となり、明示したResult container内のsourceへ修正した。
+四つの長い式をbreak機会なしで連結した初回章も失敗を保持し、source soft breaksを明示した別jobでbuildした。
+最初のextractor helperのparagraph前提、geometry helperへElementを渡した型誤り、
+number loopがpage eventをshadowした誤り、after-marginをpage末で消費するとした初期modelも保存する。
+修正はいずれも別実行とsource variantsへ結び、元公開PDFを変えない。
+fixture inventoryで同basenameのnested engine indicesも除外した初回登録は、root indexだけを除く列挙へ訂正した。
+
+公開checkと二回buildの四artifactsは全bytes一致する。
+chapter PDFは645,037 bytes／19 pagesで、SHA-256は
+`4282281e257f40ad1e60646004d3dcf7336af971142e348b6271dc8c9cf4a391`となる。
+107 VMB Python tests、九machine-profile testsと実discovery付き指定三CLI tests、actual zero-match拒否が成功した。
+Rust sourceとCLI／test binaryは変更せず、新しいRust compile／広いRust suiteの実行とは記さない。
+
+最終sourceは1,886 inputs、SHA-256 `109dffb5e059cc317b8db498e4ac174efd547e8fb82b496b520058e4ec6d4b4c`。
+§307の1,878 inputs中1,874はbyte不変で、modifiedはREADME／fixture index／runner／source graphの四件、
+addedはfont・license・plan・provenance、二moduleと二test filesの八件である。
+最終combined runnerは98 owned commandsを完了し、うち24件は既存resource-boundaryの期待failureとなる。
+small／thin／boundary／chapterは新公開commandsで、三scale casesは明示した旧build／raw-render evidenceを
+全hash検査しながらsource／paint／structure／抽出／UAを再照合する。fresh scale build／rasterとは記さない。
+全16 positive PDFに27,713 StructElem、18,438 image／formula placementsと別の200 number MCR、計18,638 MCRがある。
+positive masksは111,540比較中111,538がbyte一致し、残り二件も同じ登録済み許容差内である。
+五つのnumeric render producer dependencies、policyと旧scale PDFsはbyte不変を維持する。
+
+証跡は`workspace/target/vmb-design/20261016/vmb-chapter-layout/`へ保存する。
+全source variants／初期failures、元font／license、source plan、実公開artifacts、private controls、全render比較、
+source layout期待値、extractors／UAとcommandsを保存する。archiveと固定された旧member ledgerからの再構成を検査する。
+容量確保のため除去したものは§306 runnerの未変更owned一時copyだけで、全25,710 filesを元index／
+durable archive `d3ae4f4b…`と照合してから除去した。旧凍結filesやnumeric cachesは保持する。
+§307の全2,010 frozen filesもbyte不変で、GitHub Actionsは使っていない。
+
+この有限採用で`chapter-300-500`を通す。正式runnerは八groups成功・四groups未完のためexit 1／passed=falseを保持する。
+元最大path／segment SVG、元overflow、混在本文spacingを継続する。
+元保存全巻`e4fd7415cb33…`とSpeech／SemanticRef、原font全巻、公開1.5／Book /2と四manifests、
+全commandの同時graphs／scratch／spool／allocator会計、両管理host・制御性能・著者／人手受入も継続する。
+goalはactive、full_goal_completeはfalseである。
+
+<a id="vmb-book-mixed-body-spacing-design-14309"></a>
+## 309. 元の本文glyph・空白と実engine式を独立source位置で検査する
+
+2026-10-16追補。六つのauthored plansを`mixed-body-spacing/plan.json`へ登録した。
+`A `＋式＋`B`、`A `＋式＋` B`、両側二空白、`本文`＋式＋`前後`、連続二式と、
+本文paragraph／block式／明示改ページ／本文付きinline式を別caseとする。
+原20-caseのTeX／SVG／metrics／意味textは変えない。六PDFは計七pages、八式と13 body source ownersを持つ。
+元書籍の章／本文や承認済みlayout goldenとして扱わない。
+
+[配布元のIPAex明朝004.01](https://moji.or.jp/ipafont/ipaex00401/)から元zip、font、完全なlicenseとreadmeを保存した。
+font `ipaexm.ttf`は7,835,672 bytes、SHA-256は
+`7a306386f930fee80922f71eebf4ffe0f1ff2817da8e619230953487673d71c7`である。
+元zipのSHA-256は`9604c77067396b4d2ab49816b3e18db741a70c8b1d43eb28669ae75cd1ce5237`。
+fontを変換／改名しておらず、原書籍のHaranoとは別のfixture fontとしてprovenanceへ明示する。
+新五filesを含むroot fixture indexは218 files、SHA-256は
+`52efa54349d5bed2afcee25c252eacdb932815a5f680b2e4cd8488d74f74fdbc`となる。
+既存chapter／thin-strokeの登録と元全casesのbytesは保持する。
+
+`tools/vmb_book_mixed.py`はsource plan／case ledger／元fontとnoticeを検査し、
+本文とTeXを別のidentity mappingへ結ぶ。全生成package／source bytes／images／font／file inventoryを照合する。
+式のspeechを本文から推測せず、登録済みの実engine fixtureの意味payloadを使用する。
+本文ASCII・日本語の全26 glyphsは実Tjから読み、元cmap／glyf programs／hint instructions／hmtx、
+subset、CIDToGIDMap、ToUnicode、PDF Wとdescriptorへjoinする。
+このうち18 glyphsは非空outlineを持ち、8 glyphsは元のU+0020である。
+spaceだけは元とsubsetの双方が空outlineであることを要求し、そのadvanceも検査する。
+空輪郭spaceを可視本文の証明へ数えない。
+
+source graphのbody-text scopeは明示的なboolで有効にする。既定のformula-only scopeは本文を拒否する。
+本文SpanとFormula、page／MCID、ParentTree、親・子順・effective Langと全StructElemの到達性を検査する。
+明示PageBreakは元ownerを保持し、余分なStructElem／MCR／paint／抽出文字を作らない。
+sourceだけのlayout modelは元hmtx advances、font／formula ascentとdescent、line-height、
+half ties-to-even、原origin／advance、paragraph／block spacing、start indent、block centerと改ページを計算する。
+PDF／traceから位置を採取せず、全式・全body glyphの位置は0 raw差となった。許容差1 rawは変更しない。
+これは固定の単一行plansと明示改ページの検査であり、一般のwrap／GSUB／GPOS／多言語sourceの完成ではない。
+このsourceのdocument languageはen-USで、原書籍の多言語Lang受入へ読み替えない。
+
+Poppler／MuPDFの期待値は生成前の本文bytesと配置順・登録済み意味textから作る。
+同一flow group内の空白は一文字もcollapseせず、group間だけCR／LF／form-feedのframingを認める。
+先頭末尾への空白やtab、欠落境界、余分な文字も拒否する。両extractorは全21 source stringsと八groupsに一致した。
+実page paintingのbaseline／glyph矩形／bodyとclip、Form geometry、補助anchor、全ActualText ownershipも検査する。
+
+referenceは未変更の元sfnt全bytesと元cmap／hmtx、原raw SVGから作り、source-calculated positionsへ置く。
+target subset／trace／target positionsをreferenceとして使わない。
+MuPDF／Poppler・72／144／288 DPIの126比較は既定policy `/5`で全mask byte一致した。
+内訳は本文78／式48で、各source cropに非空inkを要求し、二pixel外側ringも比較する。
+threshold緩和、resize、自動整列、穴の除外はしない。
+
+全六PDFで無改変cloneを先に合格させ、その先頭本文glyphを削除／重複する12 private PDFを作る。
+三つのASCII casesではActualTextに空白を追加／削除する六private PDFも作る。
+全18件はsource graphと全Form matricesを保持し、source paintは全件を拒否した。
+空白改変六件を両extractorも拒否し、計12の独立抽出拒否を保存する。
+英字Aと漢字「本」の除去二件はrender-only calibrationも実施し、各18比較中target本文の六比較が全失敗した。
+この36 negative比較をpositiveの126比較や正しい公開buildとして数えない。
+
+最初のsource paint試験はPDF widthsをfloorとしたverifierの誤りで五件が失敗した。
+元resource ownerの`(advance*1000+units/2)/units`規則を確認し、Bの709を708とした仮定を訂正した。
+元PDF／原fontは変えず、失敗とsource variantsを保持し、独立subsetの709正例／708負例も試験する。
+初回fixture登録のPython tupleはstrict JCSに拒否された。三つの先行font copiesをbyte確認して保持し、
+authored planをJSON arraysへ変換してから別commandで登録した。
+machine-profile試験の誤ったfilterは0 tests／exit 5で失敗したことを保持し、正しいmoduleの九testsを別commandで通した。
+
+119 VMB Python tests、九machine-profile tests、指定三CLI testsの実discovery／receiptsとactual zero-match拒否が成功した。
+Rust source／CLI／test binaryは変更しておらず、新しいRust compileや広いRust suiteの実行とは記さない。
+六PDFの公開check／二回buildの四artifactsは全bytes一致し、veraPDF UA1は計989 passed checks／0 failed checksとなった。
+human acceptanceとは区別する。
+
+最終sourceは1,893 inputs、SHA-256は`e0a237cd85be20ff7408b8c03db410bbc6ea47375c64451ffb1fe949b4c8bddd`。
+§308の1,886 inputs中1,880はbyte不変、modified六件、added七件である。
+正式combined runnerは146 owned commandsを完了し、resource-boundaryの24件は登録済みの期待failureとなる。
+三scale casesは旧build／raw-render evidenceを全hash検査して再照合し、fresh scale build／rasterとは記さない。
+全22 positive PDFには27,753 StructElem、18,446 image／formula placements、200番号と13本文のMCRがあり、計18,659 MCRとなる。
+positive masksは111,666比較中111,664がbyte一致で、既存二件の一pixel差も同じ許容差内を保持する。
+旧thin-stroke 1,152比較と新本文36比較のnegative rasterも区別して保存する。
+五つのnumeric render dependencies、tool policy、旧scale PDFs、§308の全2,051 frozen filesはbyte不変である。
+
+証跡は`workspace/target/vmb-design/20261016/vmb-mixed-body-spacing/`へ保存する。
+archive `/2`は同じcontentのlogical copiesを直接stored memberへ結び、全tar payloadをregular filesで保持する。
+各aliasの長さ／SHAと元artifact indexの完全な再構成を検査する。外部依存は従来どおり凍結§301へ結ぶ。
+未変更codeの保存copyは凍結§308の元copyへ、元fontは保持済みoriginal inputへlinkし、editable sourceへlinkしない。
+削除したものは§308 runnerのowned一時copyだけで、全26,377 filesを元indexと検証済みarchive `b978af90…`へ照合してから除去した。
+旧凍結証跡、numeric cachesと原inputsは保持する。GitHub Actionsは使っていない。
+
+`mixed-body-spacing`を有限scopeで採用し、正式runnerは九groups成功・三groups未完のためexit 1／passed=falseを保持する。
+元最大path／segment SVGと元overflow、元保存全巻`e4fd7415cb33…`とSpeech／SemanticRef、原font全巻を継続する。
+一般本文・多言語layout、公開1.5／Book /2と四manifests、全commandの同時graphs／allocator capacity／scratch／spool、
+両管理host・制御性能・著者／人手受入も未完である。goalはactive、full_goal_completeはfalseである。
+
+<a id="vmb-book-observed-unicode-input-design-14310"></a>
+## 310. 番号backendのUnicode入力・languageを既存Source会計へ結ぶ
+
+2026-10-16追補。§300の観測Harfrust cachesに続き、Unicode入力のinfo／position vectorsと
+owned language stringを既存のSource loanへ先払いする。
+`scratch::Site`の`UnicodeInfos`／`UnicodePositions`／`LanguageString`を新設し、
+`UnicodeBuffer::try_push_str_with_scratch`と`Language::try_from_str_with_scratch`を加えた。
+`shared_shape_storage.rs`の観測番号経路だけがこれらを使い、既定API／非観測経路は元の処理を保つ。
+upstream tables／license／元font bytesを変えず、vendor provenanceへ変更scopeを記録した。
+
+Unicode入力はUTF-8 byte長のu32 cluster範囲とchecked scalar count／max_lenを検査する。
+二vectorsの再確保は各回の全target容量を払い、`try_reserve_exact`する。
+両予約と両resizeの初期化work、二回のUTF-8走査と元add workを全て支払うまでlogical inputを変更しない。
+拒否／allocation failureでは元入力とpaired vector lengthsを保つ。先に確保したcapacityとchargesは残せる。
+max_len拒否は元と同じunsuccessful flagを保ち、Source errorのowner／axisも元loanへ返す。
+languageはbyte copyとASCII lowercase workを払い、非ASCII bytesと元の空文字拒否を保つ。
+両出力はbudget borrowを保持しない。requested capacityはallocatorの実overcapacityの証明とは区別する。
+
+新八testsはappend／reuse／context、ASCII・日本語・Hebrew・Arabic・Indic・emoji・NUL／combining、
+二allocation sitesでの拒否、563 work cutoffs、全target再確保、実`Vec::try_reserve_exact`容量失敗、
+算術overflow、非観測経路とlanguageを検査する。
+設定した六つの元fontと12入力による72 registry shaping比較が成功し、既存cache用72比較も成功した。
+configured vendor suiteは199 passed／0 ignoredとなる。元fontのない別glyphや全文の見た目を保証するものではない。
+
+実Source loanはplain／GSUB二fontsで小さいspool／work上限を全て走査し、3,171＋3,673＝6,844 cutoffsを検査した。
+full R／S／Wはそれぞれ26／2,128／1,067と26／2,368／1,329である。
+NodeId(91)とSpool／Workのerror axis、全実allocation sitesでの拒否、exact／one-short上限、
+支払済みprefixとlegacy shaping bytesを維持する。layout 79／shaping 35 unit testsと14／12 doctestsが成功した。
+元fontを明示するshaping二testsはignoredを保持し、configured registry比較と混同しない。
+
+実番号command二testsは番号shape／block fingerprint、同一budgetへの再試行とapplication Errを検査する。
+full commandはR=336,823／S=6,948,774／O=83,978／W=113,498,427である。
+§300の同じcommandからSが2,091、Wが2,448増え、R／Oは不変となる。
+ここでOは累積output chargeであり、最終PDF長ではない。
+保存したobserved／legacy PDFはともに83,218 bytes／八pages、SHA-256は
+`0ca3362a79356a7f7b448cb54182d91292e78eea18e3343a2ea2b294615197d3`で全bytes一致する。
+元jobの六filesと両PDFを保持する。raw 1.5 inputはprivate staging fixtureのままである。
+歴史的5,619 spool capは引き続きNumberより前のSource owner 0で失敗し、番号backend全会計の完成証拠へ読み替えない。
+
+広いローカル実行は次のcommandsと明示environmentを証跡へ保存した。
+
+```text
+cargo test --manifest-path workspace/vendor/typaxis-harfrust/Cargo.toml --locked --offline --target-dir /tmp/typaxis-column-harfrust-input-build -- --include-ignored --nocapture
+cargo test --manifest-path workspace/Cargo.toml --locked --offline --target-dir /tmp/typaxis-column-harfrust-input-build -p typaxis-shaping -p typaxis-layout --features book-v2-staging -- --nocapture
+cargo test --manifest-path workspace/Cargo.toml --locked --offline --target-dir /tmp/typaxis-column-harfrust-input-build -p typaxis-cli --features book-v2-staging --bin typaxis book_v2_ -- --test-threads=1
+```
+
+Book /2 suiteは543 passed／111 ignored／423 filtered、元navigation全packagesの明示leafは別に1 passedとなった。
+ignoredを合格へ数えず、元font／VMB exportsなどの追加条件を保持する。番号二testsは最後のsourceでも再実行した。
+no_stdと変更scopeのrustfmt checkが成功する。strict Clippyは六つの既存errorsでexit 101を保持し、
+§300のfile／lint／quoted codeと全て同一であることを検査した。既存CLI compiler warnings三件も区別する。
+
+二producer treesの11,025＋3,360 filesは448件が同じ内容で重なり、unionは13,937 filesとなる。
+凍結§300の同じcorpusと13,300件がraw byte一致し、637 JSONは一つの宣言済みPDF絶対pathだけが異なる。
+全実PDF payloadはbyte不変で、その他の差分はない。
+12 independent checksが成功し、body assemblyは637 source PDFs／2,428 pagesを検査した。
+convergenceは六fixtures／15 attemptsを照合し、self-testは3,594 controlsを拒否した。
+各checker自身の限定scopeを維持し、元shaping／layoutの独立全面再実装やPDF/UA受入へ読み替えない。
+
+最初の九checker failuresは一時PythonにFontToolsがなかったためで、既存のFontTools 4.60.1環境で再実行した。
+その後convergence二件は後続VMB toolsによる歴史的全tools inventory guardで停止した。
+元guardもroot checkerも変えず、SHAを検査した凍結§300 original toolsを新probesへ適用して成功した。
+初回集約helperの過長なCLI SHA literalも実64桁hashへ訂正し、失敗・旧helperを保持する。
+
+最終sourceは1,894 inputs、SHA-256は`370cb593d83d2530d350695c2acbdb8541a7014b383e76cfa11b8093839f4a60`。
+§309の1,893 inputs中1,886がbyte不変で、modified七件／added一件となる。
+広いsuiteのsource `c9e13679…`からの最終差分は番号testのopt-in PDF／job保存だけで、production Rust bytesは同じである。
+全compiler／test／checker／artifact producerのsourceを再構成できる。
+最初のsource-mutating rustfmtだけは三つのpre-format bytesが未保存で、hashとdeclared driftを保持する。
+このmutationを完全source再構成の対象へ含めない。旧codeは凍結§309 copyへlinkし、editable rootへlinkしない。
+
+証跡は`workspace/target/vmb-design/20261016/column-observed-harfrust-input/`へ保存する。
+新archiveは1,588,560 bytes、SHA-256は`db973f13b52ee7857c1b3d152f661ea1cdd50f0ab6f517c5a379d4056d9ea660`。
+13,945 logical filesを644 regular stored payloads／一alias／13,300 pinned外部filesから完全再構成し、全hashを検査した。
+元font inputsと全source variants、commands／logs、独立結果、番号PDF／元jobを保存する。
+§307と§309 runnerのowned一時copiesは全26,302／26,872 filesを元indexとdurable archiveへ照合してから除去した。
+旧frozen evidence、numeric cachesと原inputsを保持し、§309の全2,048 frozen filesもbyte不変である。
+GitHub Actionsは使っていない。
+
+この採用は番号backendの初期Unicode入力とowned languageだけである。
+shape plans、後続glyph-buffer growth、他scratch／shaping paths、allocator実capacityと全command同時graphsを継続する。
+正式VMB runnerの九／十二groupsは§309の保存証跡であり、今回のfresh146 commandsや新公開CLIとは数えない。
+元最大path／segment SVGと元overflow、元保存全巻`e4fd7415cb33…`／Speech／SemanticRef、原font全巻、
+一般本文・多言語layout、公開1.5／Book /2／resource-set 3／CFF2と四manifests、
+両管理host・制御性能・著者／人手受入も未完である。goalはactive、full_goal_completeはfalseである。
+
+<a id="vmb-book-observed-shape-plan-design-14311"></a>
+## 311. shape-plan storageとscript dataを観測番号のSource loanへ接続する
+
+2026-10-16追補。`ShapePlan::try_new_with_scratch`と`Shaper::try_shape_with_scratch`を追加し、
+観測番号shapingのplan allocationsを既存のSource loanへ結んだ。
+builderのfeature infos／GSUB pauses／GPOS pauses、compiled features、二種のlookupsと二種のstagesの八vector sitesを扱う。
+script dataの一siteと既存`LanguageString`によるplan内temporaryを含め、元font試験では十sitesを実際に通す。
+全target容量を再確保ごとに払い、`try_reserve_exact`する。支払済みprefixは失敗でも取り消さない。
+
+元shaper callbacksへ一時的なobserverを渡し、最初のerrorを保持する。
+拒否後はobserverを再び呼ばず、新しいallocationをせず、partial planを公開しない。
+返すplan／glyph bufferはbudget borrowを持たず、元のSend／Sync／所有権を保つ。
+Arabic／Hangul／Indic／Khmer／Universalのdataは元constructorで作り、一要素Vecへfallibly保持する。
+既定経路は元のBoxを使う。private shaperにfallible counterpartが欠けた場合も、infallible allocationへfallbackしない。
+
+観測sortはin-place heapsortとし、比較とswapを支払ってから行う。
+feature-infoには一意なsequence keyがあり、compiled feature tagsも一意で、lookupのOrdは全保持fieldsを比較する。
+同一keyのstable orderingに別の意味を持たせず、元sortと全maps／flags／pause functionsを照合する。
+既定経路のstable sortは保持する。tag用SmallVecは既存三tag上限内のinline storageである。
+元OpenType／Unicode tables、licenseと元font bytesは変えず、vendor provenanceのscopeを更新した。
+
+新五testsを含むconfigured vendor suiteは204 passed／0 ignoredとなった。
+元六fontsと12入力を、既定features／`liga=0`／`frac=1`で比較した216 casesで、
+immutable registry版のglyph infos／positionsに全て一致する。contextと元languageも両側へ同じように渡す。
+三directions×十script categoriesのplan照合は全五script-data種類を通す。
+143 synthetic paid allocation faults、元fontでの2,904 faultsと12,876 work cutoffsを検査し、
+sortの全値保持／無storage request、exact work上限、非観測dispatchとborrow非保持も確認した。
+既存cache／inputのregistry比較各72 casesも保持する。一般本文の独立shaping受入へは読み替えない。
+
+実Source loanは二fontsでLatinとArabic／Indic／Hangul／Khmer／Balinese混在inputを検査した。
+font 0は元body.ttf、font 1は既存GSUB header-context.ttfである。R／S／Wは呼出元の7／11／13を含む。
+
+| input | font | R | S | W | smaller S／W caps |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Latin | 0 | 26 | 4,978 | 4,021 | 8,975 |
+| Latin | 1 | 26 | 5,266 | 4,344 | 9,586 |
+| 混在script | 0 | 60 | 34,703 | 38,339 | 73,018 |
+| 混在script | 1 | 60 | 28,167 | 29,679 | 57,822 |
+
+計149,401 cutoffsでNodeId(91)とSpool／Workのtyped error axisを保持する。
+成功時の実Storage debit streamを採取し、各上限で最初に拒否されるcombined debitの直前までを求め、
+全R／S／W prefixへ一致を要求する。exact／one-short records上限も検査する。
+最初の拡張試験は「work one-shortならspoolは全て支払済み」とした旧assertionで失敗した。
+workを含む最後のcombined debitが拒否される場合は、そのspoolも未払いとなるため、exact prefix照合へ置き換えた。
+次の試験ではLatin font比較の単調増加条件を混在scriptsにも適用した誤りで失敗した。
+元Latin条件は維持し、新casesは各font自身の正確なdebit streamへ照合する。失敗と全source epochsを保存する。
+
+layout 79／shaping 35 unit testsと14／12 doctestsが成功する。元font指定のshaping二testsはignoredを保持する。
+実番号command二testsはshape／block fingerprints、exact／one-short S／W、application Errと同budgetへのretryを検査する。
+full commandはR=336,823／S=6,997,241／O=83,978／W=113,548,713であり、
+§310からSが48,467、Wが50,286増え、R／Oは不変である。
+八page observed／legacy PDFは全83,218 bytesで一致し、§310のPDF SHA-256
+`0ca3362a79356a7f7b448cb54182d91292e78eea18e3343a2ea2b294615197d3`も保持する。
+累積Oは最終PDF長とは区別する。歴史的5,619 spool capは依然としてNumberより前のSource owner 0で失敗する。
+
+Book /2 suiteは543 passed／111 ignored／423 filtered、元navigationの89 packagesを扱う別leafは1 passedとなった。
+local cargo commandsは`--locked --offline`、CLI suiteは`--test-threads=1`で実行した。
+環境・compiler／binary hashes、全argv／source hashes／logsを証跡へ保持する。元font／exports条件を持つignoredは合格へ数えない。
+no_stdとformat checkは成功する。strict Clippyはexit 101の六errorsで、§310のmessage／file／lint／quoted codeと同じである。
+元のCLI compiler warnings三件も保持する。GitHub Actionsは使っていない。
+
+completed capturesはBook側11,033／corpus側3,360 filesで、448件が同内容で重なる。
+Book側の番号job八filesは実番号testの別保存copyと全bytes一致し、そのprivate scopeへ分けて保持する。
+従来のprobe unionは13,937 filesで、13,300がraw byte一致、637 JSONは一つのPDF絶対pathだけが変わる。
+元PDF payloadは全てbyte不変で、他の変更はない。
+12 independent checksが成功し、convergenceの六fixtures／15 attemptsと3,594 rejection controlsも維持する。
+後二checksは§310と同じ凍結original toolsを使い、歴史的inventory guardを変更しない。
+issuer-linkedなsource／shaping facts、各checkerの限定scopeと、PDF/UA／whole-book受入を区別する。
+
+最終sourceは1,895 inputs、SHA-256は`9c386831e659dc60219ef0bdf0e101d823af453c08634966e46bcf5c9e6a799b`。
+§310の1,894 inputs中1,875がbyte不変で、modified十九件／added一件となる。
+各compiler／test／formatterのsourceを再構成でき、今回のpre-format bytesも全て保持した。
+未変更code／元fontsは凍結§310 copiesへlinkし、editable root sourceへlinkしない。
+§310の全2,160 frozen filesもbyte不変である。
+
+証跡は`workspace/target/vmb-design/20261016/column-observed-harfrust-plan/`へ保存する。
+actual outputsとcommands、source variants、独立結果、番号PDF／元jobを保持し、archiveとpinned旧probe payloadsから再構成する。
+新probe archiveは1,588,731 bytes、SHA-256は`b477d0e63bf7328d15e09f735b79bd5c0f3aa38678506bf4a3f9ab226a883a88`。
+13,945 logical filesを644 regular payloads／一alias／13,300外部filesから再構成し、全bytesを照合する。
+容量確保のため、旧owned Cargo vendor-build cacheの219 files／109,069,801 bytesを全照合してから除去した。
+元cache全bytesは29,915,149-byte archive、SHA-256
+`40391796a3cdd1925d04eb0373419cd67e2e340b594fcfe8a01fd47ee9cba500`へ保存する。
+初回archiveはCargo hardlinksのためverifierが拒否し、削除前にregular-file archiveへ再実行した。
+旧sources／frozen artifacts／numeric cachesは除去していない。
+
+採用scopeは観測番号のshape-plan requested storageとinstrumented workである。
+後続のglyph-buffer growth、AAT等のkernel scratch／work、他shaping paths、allocator実capacityと全command同時graphsは未完である。
+正式VMB九／十二groupsは§309の保存証跡で、今回のfresh146 commandsや新公開CLIとして扱わない。
+元最大path／segment SVGと元overflow、元保存全巻`e4fd7415cb33…`／Speech／SemanticRef、原font全巻、
+一般本文・多言語layout、公開1.5／Book /2／resource-set 3／CFF2と四manifests、
+両管理host・制御性能・著者／人手受入も継続する。goalはactive、full_goal_completeはfalseである。
+
+<a id="vmb-book-observed-glyph-buffer-design-14312"></a>
+## 312. paired glyph-buffer growthを元kernelの実行中もSource loanへ結ぶ
+
+2026-10-16追補。`Shaper::try_shape_with_plan_and_scratch`を加え、観測番号経路の元shaping kernelが
+実際に要求するinfo／position vectorsのgrowthを既存Source loanへ接続した。
+`try_shape_with_scratch`は前節のplanと今回の実buffer growthを払う。
+新sitesは`GlyphInfos`／`GlyphPositions`である。supplied planを使う入口はそのplan自体を再課金しない。
+
+public UnicodeBuffer／GlyphBufferはobserverなしのowned fieldsを持ち、kernelの間だけbudget付きworking stateへ移す。
+macroの一つのfield listが両state／初期値／全field移動を生成する。clone、追加Box、unsafeやoutput内の借用はない。
+非Sendの`Rc<Cell<_>>` budgetを使っても、返却buffersは元のSend／Sync／'staticを保ち、registry版と同じsizeである。
+clear／reuseはcapacityを保持し、同じ384-glyph出力を再shapeしても追加storage requestを出さない。
+
+観測`ensure`はcached errorと元max_len規則を検査する。再確保時のtargetは必要量／現capacityの二倍／四の最大値で、
+各回の全targetを支払って`try_reserve_exact`する。両予約と両初期化workの成功後だけ二vectorsをresizeする。
+拒否・allocation failureではpaired lengthsとglyph contentsを保ち、支払済みcapacity／chargesは取り消さない。
+最初のerrorを保持して元kernelのfalse／unsuccessful pathを使い、partial glyph結果を公開しない。
+既定経路は元のinfallible resize／shape処理を保ち、OpenType／Unicode tables／license／元fontsは変えない。
+六つのkernel filesは新buffer lifetime annotationsを逆変換すると§311の全bytesへ厳密一致する。
+requested targetはallocatorの実overcapacityや全command同時graphsの完了証明ではない。
+
+state分割の新panic controlは、caller budgetが二回目の入力予約後にpanicすると入力が空になる欠陥を検出した。
+`RestoreOwnedBuffer`のDrop guardがnormal returnとunwindの両方で全owned stateを戻すよう修正し、
+contents／segment properties／paired lengthsを検査した。最初のtest compileは非PartialEqのBufferFlags比較で失敗したため、
+元public typeを変えずbits比較へ訂正した。これらの失敗source／logsも保持する。
+
+configured vendor suiteは210 passed／0 ignoredとなる。新test群は次を検査する。
+
+| scope | 実結果 |
+| --- | --- |
+| 六元fonts × 15 inputs | registryとの90 glyph／position比較、16 live growth reservations |
+| paired growth 3→5→7→8→20 | 六paid allocation faults、118 work cutoffs、full S=1,680 |
+| derived GSUB RRR→384 glyphs | registry一致、14 paid allocation faults、2,794 work cutoffs、full S=40,640 |
+| public buffer ownership | 非Send budget、Send／Sync／size一致、reuse、非観測dispatch、native max_len、caller panic |
+
+derived GSUBは既存body.ttfの元tablesを保持してmultiple substitutionを追加し、sfnt checksumを再構成する
+共有test-only builderで作る。元保存書籍のfontでも新しいadmission receiptでもない。
+vendor default inputはcapacity四から8／16／32／64／128／256／512へ成長し、各capacityを二sitesで支払う。
+Source側のexact input capacity三は6／12／24／48／96／192／384へ成長する。両invoiceを混同しない。
+元planの216 registry比較、143＋2,904 allocation faultsと12,876 work cutoffs、cache／inputの各72比較も保持する。
+最初のGSUB testはbulk置換を想定したgrowth回数assertionで失敗し、元kernelの実per-glyph成長を確認して十四requestsへ訂正した。
+
+shared Storageの十四実growth reserve failuresと、実Source loanの42 typed controlsが成功する。
+SourceのNodeId(91)、初期R／S／W=7／11／13を保ち、fullは395／54,212／35,801である。
+14 reservations各S／Wの28 controlsと、七paired grows直後の二初期化workの14 controlsで、
+拒否されるcombined debit前の正確なaccepted prefixを要求する。従来149,401の小さいS／W capsも全て成功する。
+
+opt-in probeはderived font 5,124 bytes、384 glyph receipt、964 Source debit eventsと42実拒否結果を保持する。
+別Python／FontTools checkerが元table bytes、sfnt checksum／GSUB、hmtx scaling、三source clustersと全glyphsをjoinする。
+eventsを独立に加算してfullを再現し、要求growth S=30,480とpaired初期化work=762を確認する。
+各maximumで最初の拒否を独立replayし、42のowner／axis／observed prefixへ一致を要求した。
+42 altered prefixes、wrong owner／underpaid growth／glyph metric／cluster span／font byteの計47改変を拒否する。
+これはexportされたinvoiceとfont／sourceの独立joinで、shaping kernelの独立全面再実装や元全巻font admissionではない。
+
+layout 79／shaping 37 unit tests、14／12 doctestsと実番号command二testsが成功する。
+shaping二testsは元font指定条件によりignoredを保つ。最終production bytesで両番号testsを再実行した。
+同じfull commandはR=336,823／S=6,997,241／O=83,978／W=113,548,713で、§311から全axis不変である。
+八page observed／legacy PDFは83,218 bytes、SHA-256
+`0ca3362a79356a7f7b448cb54182d91292e78eea18e3343a2ea2b294615197d3`で§311とも一致する。
+Oは累積output chargeで最終PDF長ではない。歴史的5,619 spool capもSource owner 0で失敗する元prefixを保つ。
+途中の一commandはfilter誤りで0 testsとなり、合格数へ数えず、訂正したfinal-v2 commandの実二testsだけを採用する。
+
+Book /2 suiteは543 passed／111 ignored／423 filtered、元navigationの89 packagesを扱う別leafは1 passedとなった。
+local cargo commandsは`--locked --offline`、CLI suiteは`--test-threads=1`で実行した。
+environment／argv／source cohorts／compiler／binary hashesと全logsを保持する。元fixtures条件のignoredを合格へ数えない。
+no_stdと変更scopeのformat checkは成功する。strict Clippyは既存六errorsのexit 101を保ち、
+§311とraw log SHA `bb14f91c29e320de0ef19594322f3f54e1fb9e7b1c1b9e0c8da8f798a202fbf4`まで同じである。
+CLI compilerの既存三warningsも保持し、GitHub Actionsは使っていない。
+
+Book capturesは11,033 files、別corpusは3,360 files、448件が同内容で重なる。
+Book中の番号job八filesは別番号testの両epochと全bytes一致する。従来unionは13,937 filesで、
+13,300がraw byte一致、637 JSONは宣言済みの一PDF絶対pathだけが変わり、全実PDF payloadはbyte不変である。
+従来12 independent checksと新growth checkerが成功する。convergenceは六fixtures／15 attempts、
+self-testは3,594 controlsを拒否した。後二checksは凍結§300 original toolsを使い、inventory guardを変えない。
+各checkerの限定scope、issuer-linked shaping factsとPDF/UA／whole-book受入を区別する。
+
+最終sourceは1,897 inputs、SHA-256は`dfeabb49b52ac1e914a540652ccd2d9d7ab4bed57be558649dc077cc099f4de5`。
+§311の1,895 inputs中1,882がbyte不変で、modified十三件／added二件となる。
+210 vendor／shaping-layout最終check後は二filesのdoc commentsだけを更新し、元comment前後の完全bytesと
+全non-documentation bytesの一致を保持した。番号／広いCLI／independent checksは最後のcohortで実行する。
+全compiler／test／formatter／checker／artifact producerのsourceを再構成でき、今回の全pre-format bytesを保持した。
+未変更source／fontsは凍結§311 copiesへlinkし、editable rootへlinkしない。§311の全2,285 frozen filesもbyte不変である。
+
+証跡は`workspace/target/vmb-design/20261016/column-observed-harfrust-buffer/`へ保存する。
+新archiveは1,591,765 bytes、SHA-256は`5b833a724270ae7f0822ad6eadf6d1b0d3a7de1c7bfcb755070ce9e8b88ae71c`。
+13,956 logical filesを647 regular payloads／九aliases／13,300 pinned外部filesから完全再構成し、全bytesを検査した。
+両番号producer epochsと三growth probe files、元duplicate-tree indices／union proofも保持する。
+旧§310 owned一時probe四treesの計28,330 logical copiesは、durable archive／pinned payloadsと全bytesを照合してから除去した。
+旧frozen evidence／元inputs／numeric cachesは除去していない。
+
+updated VMB HEADは`9efff4a509e641d17cf7be9a3ee0c9b47ad04488`を再確認した。
+提供二rootsのignored filesを含む2,009 pathsにも元全巻`document-package.json`はなく、元10,672,653 bytes／
+SHA `e4fd7415cb33de5afff8c3b2a335c2afa06df1e22780c9913813d95536efffbb`の所在を引き続き待つ。
+新公開CLIは作らず、既存binaryと五`/5` producers／固定tool policyの元hashを保持する。
+
+今回の採用は観測番号経路のpaired live glyph-buffer requested growthと初期化workである。
+AAT等の後続kernel scratch／work、他shaping paths、allocator実capacityと全command同時graphsは未完である。
+正式VMB九／十二groupsは§309の保存証跡で、fresh146 commandsや公開dispatchとは扱わない。
+元最大path／segment SVGと元overflow、元保存全巻／Speech／SemanticRef、原font全巻、一般本文・多言語layout、
+公開1.5／Book /2／resource-set 3／CFF2と四manifests、両管理host・制御性能・著者／人手受入も継続する。
+goalはactive、full_goal_completeはfalseである。
+
+<a id="vmb-book-observed-aat-map-design-14313"></a>
+## 313. AAT mapの全requested vectorsとstable sortingをSourceへ先払いする
+
+2026-10-16追補。観測番号のlive Harfrust bufferからAAT builder／compilerへ同じ一時observerを渡した。
+新sitesは`AatFeatures`／`AatFeatureEvents`／`AatActiveFeatures`／`AatCurrentFeatures`／
+`AatChainFlags`／`AatRangeFlags`／`AatSortRecords`の七つである。
+event sweep、active snapshots、nested chain flags、各全target再確保とinstrumented workを先払いする。
+拒否後はcached first errorを保持し、追加observer callsやpartial glyph outputを返さない。
+返却glyph bufferやAAT mapへbudget borrowを保持しない。
+
+feature declarationsとactive featuresのpushは実geometric targetを払い、current snapshotは必要な実長を予約する。
+outer chain vectorは元iteratorで数えた実chain数を使い、各chainのrange vectorも実push時に予約する。
+count／chain／feature／subtableのinstrumented traversalは該当処理の前にworkを払う。
+binary search中の拒否も最初のerrorを保存し、検索結果を成功として使わない。
+元optional／malformed tableのNone／skip規則、deprecated small-caps fallbackとdefault flagsを保つ。
+非観測経路は元のVec growth／clone／stable sortを使う。元font bytes／OpenType・Unicode tables／licenseは変えない。
+
+AATのevent／feature Ordは異なるrecordsを同じkeyとして比較する。
+新fallible stable sortは実records数だけの`(value, original_index)` vectorを予約し、copy workを払って保持する。
+既存の支払済みheap sortをこの一意なindex付きkeyへ適用し、同じkeyの元順序をO(n log n)で保つ。
+最終copy workを全て支払ってから元arrayを変更するため、どの拒否でも元値が保たれる。
+全最大値のpreallocationではなく、実targetと実行するinstrumented workを課金する。
+state-table driver／subtable glyph kernels以降の22,997 bytesは凍結§312と厳密一致する。
+外側のtraversalへの課金と、未観測の他kernel workは区別する。
+
+configured vendor suiteは215 passed／0 ignoredとなる。新五testsは次を検査する。
+
+| scope | 実結果 |
+| --- | --- |
+| derived AATとregistry比較 | fallback有無二fonts × 二directions × 二texts × 九features条件＝72 cases |
+| overlapping ranges／equal keys | 元stable tie winner、default flagsと三chainsの各rangeを照合 |
+| actual map allocations | 七sites、32 paid allocation faults、1,583 work cutoffs、S=2,744 |
+| indexed stable sort単体 | 24 records、一paid fault、508 work cutoffs、S=384、拒否時の元array保持 |
+| ownership／dispatch | 非Send budget後のSend／Sync／'static output、元非観測経路、feat不在のskip |
+
+二derived fontsはbaseのcmap／outlines／metricsを保持し、feat／morxとsfnt checksumを再構成する。
+三chainsのnon-contextual lookupはglyph 18（`1`）を19（`2`）へ置き換える。
+font-admission receiptをtest helperが発行することはない。元書籍の保存fontや一般AAT全体のgoldenではない。
+元六fontsの216 plan比較／90 live-buffer比較、143＋2,904 plan faults、12,876 plan cutoffs、
+GSUB growthの14 faults／2,794 cutoffsと既存cache／input casesも維持する。
+初回reference test compileはprivate版とregistry版のDirection／Feature typeの違いで失敗し、
+各crate自身の値を渡すよう修正した。元glyph結果へ都合よく期待値を変えてはいない。
+
+shared StorageはAATの実五予約それぞれでpaid-prefix failureを検査した。
+実Source loanはNodeId(91)、初期R／S／W=7／11／13、input `111`を使い、
+full R／S／W=14／3,968／3,870へ一致する。S=11〜3,967とW=13〜3,869の
+計7,814 cutoffs全てでtyped owner／axisと最初の拒否直前のR／S／W prefixを保つ。
+Source上のAAT requested storageはevent 64＋outer chains 72＋各range 48×3＝280 bytesで、
+full Sやallocatorの実overcapacityとは区別する。
+従来の149,401 spool／work cutoffsとGSUBの42 typed controlsも成功する。
+
+新CLI testは実HostBookV2InputSession／resource-set 3 admissionでderived fontを読み、
+同じadmitted hashの番号`(1)`をlegacy／observedの両経路でshapeする。
+glyph `1`の実ID変更とfingerprint、exact／one-short S／Wとtyped errorsを照合した。
+このrouted caseは一shape、full R／S／W=233,099／5,083／5,524であり、前段recordsを含む。
+初回testはaccounting ownerをlabel nodeだと誤認して失敗した。
+元実装のownerはvector nodeであることを確認し、testでvector／label両IDを保持して正しいownerを照合する。
+backendのowner契約を変えたものではない。失敗source／logsも保存する。
+
+新independent checkerは元sfnt table bytes、checksum／三morx chains／lookup、cmap／hmtxと
+実glyph metrics／三source spansをjoinする。222 Source debit eventsを独立加算してfullへ一致させ、
+全7,814 maximumsで最初の拒否eventとactual observed prefix／owner／axisを独立replayする。
+実admission jobのfont hash／source hash、vector／label nodesと番号textもglyphsへjoinする。
+7,814 altered prefixes、wrong ownerとfont-byte変更の計7,816 private改変を拒否した。
+これはexported accountingとfont／sourceの独立照合であり、shaping kernelの独立全面再実装ではない。
+
+layout 79／shaping 39 unit tests、14／12 doctests、実番号command三testsが成功する。
+二shaping testsは元font指定条件によりignoredを保つ。Book /2は544 passed／111 ignored／423 filtered、
+元navigationの89 packagesを扱う別leafは1 passedとなった。元fixtures条件のignoredは合格へ数えない。
+local cargoは`--locked --offline`、CLIは`--test-threads=1`で実行し、argv／environment／source／logsを保持する。
+no_std／format checkは成功する。初回Clippyの新duplicate-module errorは共通test-font moduleへ集約して修正した。
+最終strict Clippyは既存六errorsのexit 101で、§312とraw log SHA
+`bb14f91c29e320de0ef19594322f3f54e1fb9e7b1c1b9e0c8da8f798a202fbf4`も同じである。
+元CLI compiler warnings三件も保持し、GitHub Actionsは使っていない。
+
+元full numbered commandはR=336,823／S=6,997,241／O=83,978／W=113,548,713で、§312から全axis不変である。
+observed／legacy八page PDFは83,218 bytes、SHA-256
+`0ca3362a79356a7f7b448cb54182d91292e78eea18e3343a2ea2b294615197d3`で§312とも一致する。
+Oは累積output chargeで最終PDF長ではない。歴史的5,619 spool capもSource owner 0の元prefixを保つ。
+
+Book capturesは11,040 files、別corpusは3,360 files、448件が同内容で重なる。
+番号job八filesと新admitted AAT route七filesは各別producerへ全bytes一致し、専用scopeへ保持する。
+従来unionは13,937 filesで、13,300がraw byte一致、637 JSONは宣言済みの一PDF絶対pathだけが変わる。
+全実PDF payloadはbyte不変である。従来12 independent checksと新AAT checkerが成功する。
+convergenceは六fixtures／15 attempts、self-testは3,594 controlsを拒否した。
+後二checksは凍結§300 original toolsを使い、歴史的inventory guardを変えない。
+
+最終sourceは1,899 inputs、SHA-256は`c6cdccfa39ada39bd9804caa726ffdbe75ddfbb5811e718c7569e71af9f36d32`。
+§312の1,897 inputs中1,886がbyte不変で、modified十一件／added二件となる。
+最終vendor／shaping checksからの差分はCLI test一fileのowner assertion／exportだけで、他1,898 inputsはbyte不変である。
+全compiler／test／formatter／checker／artifact producerの各sourceを再構成でき、全pre-format bytesを保持する。
+Source probe二epochsの六filesは全bytes一致し、そのうち元GSUB三filesは§312とも全hash一致する。
+未変更source／fontsは凍結§312 copiesへlinkし、editable rootへlinkしない。§312の全2,290 frozen filesもbyte不変である。
+
+証跡は`workspace/target/vmb-design/20261016/column-observed-harfrust-aat/`へ保存する。
+新archiveは1,623,292 bytes、SHA-256は`9aa4e778654bcbc7b39f9105ed771e7d84696e4541b6c11d45f9a2c31aafdb2d`。
+13,972 logical filesを653 regular payloads／十九aliases／13,300 pinned外部filesから完全再構成し、全bytesを検査した。
+番号二epochs、AAT actual-admission job、Source probe両epochsと元duplicate-tree indices／union proofを保持する。
+容量確保のため、旧owned incremental cache五treesの340 files／59,713,155 bytesを
+21,232,977 bytesの五regular-file archivesへ全照合してから除去した。
+旧§312 owned一時probe六treesの28,349 logical copiesもdurable archive／pinned payloadsへ全照合してから除去した。
+元source／frozen evidence／fonts／numeric cachesと既存公開CLIは保持する。
+
+updated VMB HEAD `9efff4a509e641d17cf7be9a3ee0c9b47ad04488`と元公開CLI／五`/5` producers／固定policyのhashを再確認した。
+提供二rootsのignored filesを含む2,009 pathsには元全巻packageのnameも10,672,653-byte candidateもarchiveもない。
+元SHA `e4fd7415cb33de5afff8c3b2a335c2afa06df1e22780c9913813d95536efffbb`の所在は引き続き待つ。
+新公開CLIやfresh全VMB runnerは作っていない。
+
+今回の採用は観測番号のAAT map requested storageとinstrumented sorting／traversal workである。
+contextual／ligature SmallVecとIndic sortのscratch、他kernel work／shaping paths、
+allocator実capacityと全command同時graphsは未完である。正式VMB九／十二groupsは§309の保存証跡である。
+元最大path／segment SVGと元overflow、元保存全巻／Speech／SemanticRef、原font全巻、一般本文・多言語layout、
+公開1.5／Book /2／resource-set 3／CFF2と四manifests、両管理host・制御性能・著者／人手受入も継続する。
+goalはactive、full_goal_completeはfalseである。
+
+<a id="vmb-book-observed-match-positions-design-14314"></a>
+## 314. 観測番号のOpenType match positionsと再帰lookup bookkeepingを先払いする
+
+2026-10-16。§313のfrozen 2,256 files、全1,899 source inputsと二文書を再照合してから着手した。
+前checkpointの判定はprogressで、設計全体の完了判定を変えない。
+証跡rootは`workspace/target/vmb-design/20261016/column-observed-harfrust-matches/`、
+実行rootは`/tmp/typaxis-column-harfrust-match-work/`である。
+
+`Site::MatchPositions`を追加し、五つのinline constructorと三つのresizeを元kernel内で観測する。
+四slots内ではheap storageを請求しない。spill／再allocationでは元SmallVecの次power-of-two targetを
+`Layout::array`で検査し、全targetを支払って`try_reserve_exact`へ進む。
+実保持slotsの移動と新slotsの初期化workも支払う。nested substitution後のlogical length増加式を変えない。
+既定経路は元のSmallVec resizeを使う。MAX_CONTEXT_LENGTH=64のskipを新しいresource errorへ変換しない。
+matching iteratorの実glyph visit、ligature-base backwalk、match positionsの書込み・shift・fill・fixupと
+recursive lookup recordsを、それぞれ該当処理前に支払う。
+元matching／lookupの順序・比較・glyph処理を保持し、loanの最初の拒否はbufferをunsuccessfulにする。
+public resultへpartial glyphsやobserverを残さない。
+
+新test-only `contextual_font.rs`はbaseのoutlines／cmap／metricsを維持してGSUB／GPOS／必要時GDEFを差し替える。
+seq／chain formats 1・2・3、multiple／single nested lookups、ligaturesとignore-marksを明示的に作る。
+これはderived fontであり、元book font admissionや本文一般の受入証明ではない。
+元kernelではmultiple expansion後のsequence indexが挿入glyphを指す場合があり、その元挙動をfixtureで検査する。
+
+検証結果は次のとおり。
+
+|検証|今回の実行結果|
+|---|---|
+|private vendor|220 passed、0 ignored。元font input／cache／plan／glyph-buffer比較も条件を与えて実行|
+|seq／chain GSUB／GPOS|六formats、marks、RTL、成功／不一致入力の144 registry glyph／position比較|
+|context boundary／malformed|18比較。64入力を処理し65を元規則でskip|
+|ligature|inline 3／4、spill 5、boundary 64／skip 65、marks／RTLの20 registry比較|
+|実match reservation拒否|context 18 faults／3,408 work cutoffs、ligature四faults／1,388 cutoffs|
+|SmallVec単独|capacity targets 8／32／64、inline allocation 0、195 work cutoffs、overflowとrefusal後の元logical contentsを保持|
+|Source loan|二実予約・全11,752 spool／work cutoffs、owner 91と全accepted prefixが一致|
+|独立match checker|269 debit events、SFNT checksum／GSUB coverage・records・nested lookup／metrics・source join、11,758 negative controls|
+|独立AAT checker|§313と同じ222 events／7,814 controls、7,816 negative controlsを再実行|
+|layout／shaping|79／41 unit tests、14／12 doctests。shapingの元二ignoredは保持|
+|番号command|四passed。derived contextual fontを実admissionから十glyphの番号shapeまで追跡|
+|Book /2|545 passed、111 ignored、423 filtered。元navigation ignored leafは別実行で一passed|
+|capture union|13,937 files、13,300 raw一致／637は一つのPDF絶対pathのみ。全実PDF bytesは元と一致|
+|従来independent checks|12 successful。convergenceは凍結§300 toolsを用い、inventory guardを変更しない|
+|no_std／format|no_std、vendorと変更九Rust filesのformat checkが成功|
+|strict Clippy|既存六errorsを保持。Cargo lock行一つを除くdiagnosticsは§313とbyte一致|
+|workspace全format|既存差分で失敗。隔離した§313 bytesで再実行し、workspace絶対prefixだけを正規化した全出力がbyte一致|
+
+Source fixtureは`11111`の第一glyphを八glyphへ展開し、次recordが挿入glyphを置換する。
+最終12 glyphs／五source clustersはregistry／既定経路に一致する。
+初期R／S／W=`[7,11,13]`、最終=`[25,6218,5558]`。
+二つのmatch storage feesは64／128 bytes、各全targetで計192 requested bytesである。
+allocatorの実overcapacityや全commandの同時heap graphをこの値から推定しない。
+実admissionの`(1)` fixtureは十glyphへ増えるため、そのtest-only number styleを12ptから3ptへ変更し、
+元repeated-header frameへ収めた。font hash・vector owner・別label node・source text・metricsと実debit拒否をjoinする。
+このrouteの最終R／S／W=`[233841,6913,7610]`で、prior Rを含む。
+
+元番号commandはR=336,823／S=6,997,241／O=83,978／W=113,548,713で§313と不変。
+Oは累積chargeで、物理PDF長ではない。物理83,218 bytes／8 pagesのSHA-256は
+`0ca3362a79356a7f7b448cb54182d91292e78eea18e3343a2ea2b294615197d3`でlegacy／§313と全byte一致する。
+歴史的5,619 spool capは従来どおりnumber処理前のSource owner 0、`[R476,S5199,O0,W3929]`で拒否する。
+従来の149,401 Source cutoffsとglyph-growth／AAT feesも不変で、両Source producer epochの九filesは全byte一致する。
+以前のglyph-growth独立checkerの47 negative controlsは保存証跡と今回exportのbyte joinで確認し、fresh再実行とは数えない。
+
+実行commandsは`*.command.json`にargv／env／全source cohort／script SHA／exit／log SHAを保持する。
+主要な実行は次で、いずれもローカルである。
+
+```text
+cargo test --manifest-path workspace/vendor/typaxis-harfrust/Cargo.toml --locked --offline --lib -- --include-ignored --nocapture
+cargo test --manifest-path workspace/Cargo.toml --locked --offline -p typaxis-shaping -p typaxis-layout --features book-v2-staging -- --nocapture
+cargo test --manifest-path workspace/Cargo.toml --locked --offline -p typaxis-cli --features book-v2-staging --bin typaxis book_v2_ -- --test-threads=1
+```
+
+初回fixture expectation、unused import、derived number geometry、全workspace formattingの既存差分と
+baselineを別rootで読むまでの二つのsetup失敗をraw recordsへ保存する。
+geometry修正前のowned Book suiteはSIGTERMで停止し、そのpartial capturesもarchiveへ収めた。
+訂正後のfull suiteが成功するまで成功扱いしない。既存のformat／Clippy failuresはgreenへ読み替えない。
+
+最終sourceは1,901 files（§313から8 modified／2 added）、SHA-256 `46e3daca79cd6b918922aa8ba41436f479cf0bc0e06d99078797913a10e593c3`。
+最終CLI test-data変更以外の1,900 inputsはvendor／shaping／layoutを検証したepochと同一である。
+全formatter preimagesとcompiler／test epochsをsource bytesから復元できる。
+probe archiveは1,976,780 bytes、SHA-256 `e4f7a62b71b2c98b1f7ec266b7b3ca757c973b320c9d252fd882a24c6e45614b`、
+logical 14,278／stored 790／aliases 33／external 13,455 files。
+元canonical union内の13,300 external filesは凍結§300 index `1defc55740e1f8d61b8622d397c517a4fe857198bf39d01f9b63315cc209d44e`へpinし、全bytesを再照合した。
+rootの容量不足に対して、所有するinactive incremental cacheの435 files／94,443,046 logical bytesを
+23 regular archives・31,408,168 bytesへ保存し、元全byte・durable copyを確認後にそのcacheだけ削除した。
+元font、numeric caches、public CLI、過去checkpointのfrozen bytesを維持する。
+前§313のowned TMP七trees・28,372 copiesも、durable archiveと全external bytesを照合してから削除した。
+その元全出力は§313 archiveとpinした§300 bytesから復元できる。
+
+VMB checkoutは`9efff4a509e641d17cf7be9a3ee0c9b47ad04488`でbackend／audit toolが存在する。
+指定二rootsのignoredを含む2,009 filesを再探索したが、元full package名・10,672,653-byte候補・archive候補はない。
+元package SHA-256 `e4fd7415cb33de5afff8c3b2a335c2afa06df1e22780c9913813d95536efffbb`を待つ既存質問は未回答である。
+公開CLIと五producer／tool policyのbytesを照合し、CLIを再buildしない。fresh全VMB runnerとは数えない。
+正式九／十二groupsは§309の保存結果で、maxpath／maxsegments／元overflow三式のgatesを閉じない。
+
+Indic stable-sort scratch、context rule／coverage探索を含む他kernel work、他shaping経路、
+allocator実capacityと全command同時graphs、元全巻・Speech／SemanticRef・原font全巻・多言語wrapping、
+公開1.5／Book /2／resource-set3／CFF2と四manifests、管理Linux／macOS・制御性能・著者／人手／PDF-UA受入は継続する。
+判定はprogress、goalはactive、`full_goal_complete=false`である。
+
+<a id="vmb-book-observed-indic-sort-design-14315"></a>
+## 315. Indic stable sortを観測し、拒否後の後続phaseとdotted-circle loopを停止する
+
+2026-10-16。§314のfrozen 2,281 files、1,901 source inputsと二文書を再照合し、前turnをprogressと判定した。
+証跡rootは`workspace/target/vmb-design/20261016/column-observed-harfrust-indic/`、
+実行rootは`/tmp/typaxis-column-harfrust-indic-work/`である。設計全体はactiveを保持する。
+
+`Site::IndicSortRecords`とprivate stable_sort_by_keyを追加する。
+観測経路では実slice長のkey／元index／glyph recordsをfallibly予約し、keying・heap comparisons／swaps・
+最終copyを先払いする。glyph自体へOrdを要求せず、key＋元indexだけで比較してstable tiesを保つ。
+sort途中の拒否は元sliceへ書き戻さず、最終copyの全支払後にcommitする。
+このhostの実record sizeは32 bytesで、AATの既存indexed-sort storageと費用は変更しない。
+非観測は元slice.sort_by_keyへ進み、正常時のkernel順序を維持する。
+
+実cutoff testが二つの停止不足を検出した。第一に、失敗したIndic pauseのtemporary ordinalを残したまま
+後続layout pauses／position／postprocessへ進んでいた。第二に、broken clusterのdotted-circle outputで
+growが拒否されるとidxが進まず、output／Repha loopsが回り続けた。
+layout stageとpause前、shaping phaseの境界、当該output loopsへscratch statusの停止を入れた。
+fallible callerは失敗working bufferを破棄し、最初のerror／Source owner／accepted prefixを保持する。
+既定経路にscratch errorはなく、元の正常phase sequenceを変えない。
+
+追加reviewでは元u8 ordinal conversionが256を超えるとpanicし得ることを確認した。
+観測経路だけ、そのconversion前に既存InputLimitへ返す。
+256文字syllableはregistryと比較し、258文字の旧／新specはsort storageを予約せずInputLimitとなる。
+先行work拒否はInputLimitで上書きしない。
+実Sourceでもowner 91のShape／GlyphLimitへ結び、work上限13の初期prefix `[7,11,13]`と
+spool拒否の先行typed errorsを保持する。既定経路の超過挙動を修正したとは主張しない。
+
+新test-only indic_fontはdonor outlines／metricsと既存cmapを保存し、九Indic script tagsとcmap entriesを追加する。
+空feature／lookup listsにより元Indic reordering kernelを直接通す。元glyph outlinesはASCII等のdonorであり、
+authentic Indic fontの文字形や元book font全巻の受入証拠にはしない。
+
+|今回の検証|結果|
+|---|---|
+|private vendor|227 passed、0 ignored。元六fontのinput／cache／plan／glyph-buffer比較も実行|
+|script比較|九scripts×旧／新spec×四入力×二directionsの144 registry比較。実sort objects 216|
+|long syllable|10 registry比較、最大256 Unicode文字。別の超過入力は観測InputLimit|
+|実sort拒否|10 paid allocation faults／12,272 work cutoffs|
+|stable-key単独|八faults／15,978 cutoffs。tiesと拒否時の元valuesを保持|
+|broken cluster|実paired growと四sortを含む六faults／1,584 work cutoffs。二つの実shaping cutoff testsを30秒のbounded workerで検査|
+|Source Indic|二実予約、17,869 typed spool／work cutoffs、912 debit events|
+|独立Indic checker|SFNT checksum、元tables／cmap保存、九GSUB scripts、metrics／source／admitted node joins、17,875 negative controls|
+|既存Source controls|149,838 smaller S／W caps。§314から437増加|
+|layout／shaping|79／44 unit tests、14／12 doctests。shapingの二ignoredを保持|
+|番号command|五passed。実resource admissionからIndic labelのglyph orderまで到達|
+|Book /2|546 passed／111 ignored／423 filtered。元navigationの89 packagesは別のignored leafを実行して一passed|
+|independent checks|従来12とAAT／match／Indicの三checksが成功|
+|no_std／format|no_stdと変更十Rust filesのformat checkが成功|
+|既存failures|strict Clippy六errorsとworkspace全体のformat差分は§314と同じ|
+
+Source fixtureの`किकि`は四glyph `[65,23,65,23]`、二つの六byte source clustersとなる。
+初期R／S／W=`[7,11,13]`、最終=`[14,8383,9510]`。
+各二glyphのsortに64 bytesずつ、計128 requested storage bytesを請求する。
+独立checkerは17,869の各拒否prefixを累積arraysから再計算し、元source spansとmatra順を検査する。
+実admission fixtureは三byte ASCII labelを六byte `कि`へ置換し、source／text-buffer終端を19から22へ延長する。
+vector owner 24とlabel node 25を区別し、元donor font hash、source length／digest、glyph metricsとjoinした。
+routeの初期R／S／W=`[232775,11,13]`、最終=`[232781,8850,10406]`で、prior Rを含む。
+
+元font Source controlのfont 0／mixedだけが、追加sortによるS192／W245を計上した。
+その実値はR／S／W=`[60,34895,38584]`、小さいS／W capsは73,455で、旧73,018から437増加する。
+残る三controlsの8,975／9,586／57,822は不変で、計149,838となる。
+元出力とprefix replayを維持して新費用を記録し、以前の149,401へ固定しない。
+
+元番号PDFはlegacy／§314と83,218 bytes／8 pagesで一致し、SHA-256は
+`0ca3362a79356a7f7b448cb54182d91292e78eea18e3343a2ea2b294615197d3`。
+同じcommandのR336,823／S6,997,241／O83,978／W113,548,713は不変で、Oは累積chargeである。
+歴史的5,619 spool capは元どおりSource owner 0、`[R476,S5199,O0,W3929]`でnumber前に拒否する。
+三つの番号producer epochsと三つのSource epochsを保存し、十二Source filesは全byte一致する。
+AAT 7,814／match 11,752の独立controlsも再実行し、元glyph-growthの47 negative controlsは
+保存証跡と今回exportのbyte joinで検査してfresh再実行とは数えない。
+
+主要commandsは次である。全argv／env／source cohort／script SHA／exit／log SHAはcommand recordsへ保持する。
+
+```text
+cargo test --manifest-path workspace/vendor/typaxis-harfrust/Cargo.toml --locked --offline --lib -- --include-ignored --nocapture
+cargo test --manifest-path workspace/Cargo.toml --locked --offline -p typaxis-shaping -p typaxis-layout --features book-v2-staging -- --nocapture
+cargo test --manifest-path workspace/Cargo.toml --locked --offline -p typaxis-cli --features book-v2-staging --bin typaxis book_v2_ -- --test-threads=1
+```
+
+初回／二回目のCPU-active非停止testは所有childをSIGTERMで停止し、raw recordsと正確なcompiler inputsを保存した。
+bounded testの初回は短い一clusterがpaired allocationを起こすという誤ったfixture assumptionで失敗し、
+複数broken clustersにして実growを検査した。Clippyの新int_plus_oneは同値comparisonへ直した。
+256超過guard前のBook runも停止し、その482 partial capturesと旧corpus 3,360 filesを保存した。
+訂正後のfull suiteだけを今回成功の根拠とする。既存Clippy／workspace format failuresをgreenと呼ばない。
+
+最終sourceは1,903 files（§314から9 modified／2 added）、SHA-256 `d1888bb0c90ba0dbad1bb74466d4964f2692919398e6f0f69cdc22e019d84a52`。
+全formatter preimages、失敗と成功のcompiler／test epochsを元source bytesから復元できる。
+archiveは2,121,785 bytes、SHA-256 `02fa839214db74e1f46f3d307e93d1009434518e96079f9ceedc6fd1c8d8c170`、
+logical 17,902／stored 835／aliases 94／external 16,973 files。
+canonical capture unionは13,937 filesで、13,300 raw一致／637は宣言済み一PDF絶対pathだけの変更、実PDF bytesは全て不変。
+externalは凍結§300 authority `1defc55740e1f8d61b8622d397c517a4fe857198bf39d01f9b63315cc209d44e`へpinして全byteを確認する。
+所有inactive cacheの226 files／102,213,589 logical bytesを24 regular archives・28,925,360 bytesへ保存し、
+元全byteとdurable copyを確認してそのcacheを削除した。
+前§314のowned TMP八trees・28,685 copiesも、durable archiveと全external bytesを確認後に削除した。
+元出力はarchive／pinしたbytesから復元でき、元font・numeric caches・公開CLI・過去frozen inputsを削除しない。
+
+提供二rootsのignoredを含む2,009 filesを再探索したが、元10,672,653-byte full package名／size候補／archive候補はない。
+VMBは`9efff4a509e641d17cf7be9a3ee0c9b47ad04488`でbackend／audit toolが存在する。
+公開CLIと五producer／tool policyは元byteを保ち、公開CLIの再buildやfresh全VMB runnerとは数えない。
+正式九／十二groupsは§309の保存結果で、maxpath／maxsegments／元overflow三式と元全巻のgatesを閉じない。
+
+他kernel traversal／work、他shaping routes、allocator実capacityと全command同時graphs、
+元全巻・Speech／SemanticRef・原font全巻・多言語wrapping、公開1.5／Book /2／resource-set3／CFF2と四manifests、
+管理Linux／macOS・制御性能・著者／人手／PDF-UA受入は継続する。
+判定はprogress、goalはactive、`full_goal_complete=false`である。
+
+
+<a id="vmb-book-math-source-audit-design-14316"></a>
+### 316. 元speech宣言とprepared数式配置のsource-bound audit（設計§14.316）
+
+VMB正本の`docs/typaxis-book-export-design.md`へ§15.127を追記し、
+`vmb-core/tools/typaxis-book-audit`の任意report modeを実装した。
+既定inventoryのJSON形状を保ち、`-report math-sources`だけが
+`vmb.typaxis-math-source-audit/1`を出力する。project／profile／locale／release／outputを明示し、
+既存outputと未知modeを拒否する。math engine／Typaxis／PDF exporterは起動しない。
+
+元topicのmathInline slotとequation／alignedEquationsをfile・JSON pointerで定義列へ索引し、
+元TeX／VMB形式のsha256 digest／SemanticRef／SpeechUnitと、locale unitの位置・status・
+exact speechを保持する。prepared section treeをJSON field名で歩き、map keyをsortし、
+配置ごとのprepared pointerと定義ordinalを保持する。speech／Altを別の可視数式として数えない。
+root metadata／glossary／bibliography／verification-page配置は今回scopeへ混ぜない。
+sectionの式がtopic定義に解決しなければaudit errorであり、著者speech欠落とは呼ばない。
+
+source-map digest、owner、kind、raw TeX hash／bytes、SemanticRefとspeechを照合する。
+元SpeechUnitは既存plain-text resolverへ接続し、空node列・空白・generic「数式」・
+非plain tree・非空plain textをmissing／blank／generic／invalid／resolvedに分ける。
+空白・改行を正規化せず、resolvedは意味や著者reviewの承認ではない。
+TeX一致・別式のspeech・図のAlt・semantic IDから欠けたspeechを創作しない。
+
+| current ja／profile.print、明示release=false | authored定義 | preparedで選択された定義 | prepared配置 |
+| --- | ---: | ---: | ---: |
+| inline math | 7,739 | 6,226 | 6,343 |
+| block equation | 283 | 278 | 278 |
+
+inlineの元7,739定義にはSpeechUnit／SemanticRefの直接指定がなく、選択配置6,343件も空である。
+同じ定義の再利用による追加117配置を保持し、6,343件を6,343個の著者修正箇所へ読み替えない。
+block全283定義はspeechUnitを持ち、全278 prepared配置は元locale unitの全文bytesと一致する。
+未選択五式はchapter-13のsolution由来である。全283 speech unitsはdraftのまま変更していない。
+この直接指定については、inline speechが準備時に消失したという説明を棄却できる。
+別の著者semantic記録全体の不存在まで証明するものではなく、元入力の補完は継続する。
+
+検証はGo 1.26.8／Linux上で、六top-level testsと21 subtests、go vet、変更三Go filesのgofmtを成功した。
+既存canonical builder／PDF Prepareを使うexampleの実source refsも検査し、繰返し・同じTeXで異なるspeech、
+JSON pointer escaping、未選択定義、blank／generic／非plain treeと14種のsource／speech driftを検査する。
+全Go test／vet／book-audit commandsには55秒上限を付けた。今回の全巻auditは各約7〜8秒であり、
+長時間の全exporter／Rust／PDF suitesを新たに実行していない。
+
+独立Python checkerはGo producerをimportせず、保存した元JSONから全8,022定義と各speech unitを
+再解決し、hash／pointer／owner／exact text／draft status／usage counts／summaryを照合した。
+6,621 prepared pointersのunique性・ordinal・inventoryとの件数とsource joinを検査し、
+omission・hash・owner・unit・review state・speech空白・重複pointer・generic補完等の14改変を拒否した。
+独立したRenderBook全serializationやPDF描画・読み順の検査に読み替えない。
+訂正後の三reportsは5,267,022 bytes、SHA-256
+`bdae99920a80f7bbae409f8048afca7386ca4603cdbc41e72bf0cccabd9b4371`で全byte一致する。
+既存inventoryはMac／Linuxのproject絶対pathだけを照合用に置き換えた後、全fieldsが一致する。
+既存output拒否／未知mode拒否も確認し、新しい不正reportや既存reportの変更を残さない。
+
+最初の実book auditは、独自hash helperがVMBの`sha256:` prefixを付けなかったため、
+最初のprepared formulaで安全に停止した。出力reportは作られなかった。
+prefixを元MathSourceRef形式へ訂正し、既存Prepareによる回帰試験を追加した後の結果を成功根拠とする。
+失敗command／logと初期source、formatter preimagesも保持する。
+
+証跡は`workspace/target/vmb-design/20261016/vmb-math-source-audit/`。
+元source archiveは1,303 files／136,074,620 logical bytes、26,792,909 compressed bytes、
+SHA-256 `044310cd738eb4e75ff1882b3c0a17e72106004e7fd6056c870368df027cb2d1`。
+追加exampleの61 inputsと、新しい二Go filesを含む最終1,366 inputsを固定する。
+VMB code deltaはaudit内の二modified／二added filesであり、最終source indexのSHA-256は
+`1e41bd7187abcbebd9b461260bd4de4348aae510ec146261c019854d7d9ffa29`である。
+四logical reportsは二stored membersへdedupeして509,743-byte `reports.tar.gz`へ保存し、
+SHA-256 `f5b1ea9755c4a5e461253d7216eee47c0cea8cc42a30c9df4871e58f421e2a47`を全展開bytesで検査した。
+commandごとのsource snapshotsは元archive／example archive／全source variants／final-sourceから復元できる。
+§315の2,396 frozen filesと1,903 root source files、公開CLIと五固定producersは元hashを維持する。
+元bookのauthoring filesは変更していない。今回cache／過去frozen evidenceの削除も行っていない。
+
+current canonical SHA-256は保存inventoryと同じ
+`ff25625dbf10f7abde790c6cf6d3279369958512ae8940c4e89940cb967df6e9`、
+source digestは`sha256:1b7ff2b6b607fd3d34cbef4b30500059dbcc71ff2a38622f01222414b2a0b436`。
+この6621配置を保存済み8149配置／4514 resourcesの元全巻packageの代替とはしない。
+release validationを新たに成功したとは主張せず、review状態を変えない。
+正式九／十二groupsは§309の保存結果であり、maxpath／maxsegments／元overflow三式と元全巻gatesは未完である。
+他kernel work／shaping routes、allocator実capacityと全command同時graphs、元Speech／SemanticRef、
+原font全巻・多言語wrapping、公開1.5／Book /2と四manifests、管理Linux／macOS、
+制御性能・著者／人手／PDF-UA受入を継続する。
+判定はprogress、goalはactive、`full_goal_complete=false`である。
+
+
+<a id="vmb-book-buffer-insertion-work-design-14317"></a>
+### 317. combining marks／Myanmarのbuffer insertion sort work（設計§14.317）
+
+`hb_buffer_t::sort`を元algorithmを共有するconst observed／unobserved kernelへ分けた。
+observed側は外側iteration、実比較、temporary／shift／final glyph copyを先払いする。
+sortが呼ぶcluster mergeも同じ元kernelを使い、min走査、end／out-buffer探索、cluster更新を先払いする。
+他のmerge callersは元unobserved pathに残す。元start-extension条件も変更していない。
+nonmonotone unsafe flagsは、元255-range guardを保ち、二endpointと全range分のvisit上限を
+実処理より先に払う。Graphemesのscanが早く止まっても未使用分はrefundしない。
+この部分は明示的な保守的work boundであり、命令全traceやallocator capacityの実測ではない。
+
+新しいsort scratch Vecは持たない。拒否したworking bufferはunsuccessfulとなり、同じerrorを保持して
+次のsort／observer呼出しを止める。normalizationは失敗したdecomposition／sort後に後続roundへ進まず、
+Myanmarもdotted-circle／syllable sortの失敗後に次syllableやreorder処理へ進まない。
+既存fallible shaping boundaryがworking bufferを破棄し、partial glyph successやobserver borrowを返さない。
+
+fixture builderのcmap／script部分を共通化し、元96-glyph body donorへcombining rangeと
+Myanmar range／latn・mym2・mymrを明示的に追加する。元outlineとmetricsを保つが、
+authentic accented／Myanmar fontではない。元Indic fixtureの三Source artifactsは後述の別実行でも全bytes一致する。
+共通test fixtureを一つのmoduleへ集約し、新しいduplicate_modとformat引数の二borrow warningsを修正した。
+default pathは元insertion order／cluster更新を保ち、正常なglyphs／positionsをregistry実装と照合する。
+
+| fresh検査 | 結果 |
+| --- | --- |
+| vendor全tests、元六fontsのexplicit ignored testsを含む | 231 passed、0 ignored |
+| primitive、全四cluster levels、空／一要素／順序済み／逆順／ties／subrange／out-buffer | 28 cases、556 work cutoffs |
+| nonmonotone 256 glyph rangeと先行cached error | 十sampled refusals、二先行error保持 |
+| 全shapeのregistry比較、四levels・両direction・Latin／mym2／mymr | 80 cases |
+| normalization／Myanmarの実shape全小work cap、30秒bounded worker | 1,289 cutoffs、partial successなし |
+| 二Source loan casesの全小spool／work cap | 22,139 cutoffs、typed owner／accepted prefix一致 |
+| 元Indic Source loan、共有fixture変更の回帰 | 17,869 cutoffs、三artifact全byte一致 |
+| layout unit tests | 79 passed |
+| no_std／変更九Rust filesのformat | passed |
+| strict vendor Clippy | 既存六errors、今回の新diagnosticsは0 |
+
+二Source casesは初期[R7,S11,W13]から始める。normalizationの`x̣̀̕`はowner92、
+full [R13,S3564,W3628]、176 debit events、7,168 cutoffsである。
+glyphs [89,37,2,23]とsource [100,107)を保持し、combining classで並べ替えても元UTF-8を置換しない。
+Myanmarの`ကြေကိ`はowner93、full [R15,S7128,W7867]、677 events、14,971 cutoffs、
+glyphs [51,62,2,2,47]、source [100,109)／[109,115)を保持する。
+両caseでsort scratch reserveは0だが、全Sは既存input／plan／glyph等のrequested storageを含む。
+この0を全shaping heapなし、または全commandのphysical capacity閉包と解釈しない。
+
+独立Python／FontTools checkerはRust producerをimportしない。bisect＋pop/insertによる別の
+primitive order／cost modelで全28列とfee eventsを再計算し、raw 52改変を拒否した。
+donorのglyf／loca／hmtx／hhea／maxp／post／nameとcmap／GSUB scripts、SFNT checksum、
+glyph mappingとsource spansを照合した。Source event列からfirst-over-capを別計算し、
+全22,139 prefixesとtyped errorsを検査して、各prefixの改変も全件拒否した。
+三raw probe epochsと二Source epochsは全byte一致する。独立した実font／PDF／RSS受入ではない。
+
+元Indicの別実行はfull [R14,S8383,W9510]と17,869 cutoffsを再確認した。
+derived font／glyph receipt／source feesの三filesは§315の保存bytesと一致する。
+一方、元全shaping／layout runは157.588秒、Book /2 runは1,204.564秒の保存結果である。
+VMB正本§15.126の「今後1分以上かかるテストはユーザーへコマンドを渡し、
+エージェントから長時間テストを開始しない」に従い、今回これらを起動していない。
+既存149,838 original Source controls、Book corpus、番号PDF／canonical PDFと全VMB runnerはfreshには検証していない。
+
+ユーザー実行用`run_long_checks.py`はcheckpoint 317の全1,904 source hashesを起動前後で検査し、
+新しいoutput directoryへcommand／live PID／log／source manifestを記録する。
+後のsource変更をこのepochの成功へ読み替えず、起動前に拒否する。実行commandsは次の二つである。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261016/column-observed-harfrust-buffer-sort/run_long_checks.py --group shaping-layout --output /tmp/typaxis-buffer-sort-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261016/column-observed-harfrust-buffer-sort/run_long_checks.py --group book --output /tmp/typaxis-buffer-sort-long-book
+```
+
+cwdは`/root/typaxis`。Book groupは元navigation corpus flagも明示し、公開CLIを再buildしないprivate test targetを使う。
+今回確認したのはscriptのhelp／syntaxとsource guardであり、長時間groupsの成功ではない。
+この二gatesをpendingに保つ。strict Clippyの既存六errorsやworkspace全体の元format差分もgreenとは呼ばない。
+
+証跡は`workspace/target/vmb-design/20261016/column-observed-harfrust-buffer-sort/`。
+最終sourceは§315から九modified／一addedの1,904 inputs、
+SHA-256 `779c6601225e15a11c3cfcedba36c227a9d22599790cf5e2a5b665dd3344b2db`。
+各formatter preimage／初期と訂正後のcompiler epochs／六既存Clippy errorsとの比較を保持する。
+十五logical probesは七stored membersへdedupeし、80,378-byte regular archiveへ保存した。
+SHA-256 `f21ea1efb3bb0d4cc935a5f52943a81f3f312e68bb9e0bcf318b82ff7fe7e9ce`。
+元Indicの三byte-identical artifactsは別に保持する。§315の2,396 frozen filesと§316の105 files、
+元公開CLI 60,912,616 bytes、VMBのGo producer／authoring filesを維持する。
+
+作業領域確保のため、元baseline-targetの所有inactive incremental cache三directoriesを
+569 files／326,120,576 logical bytesとして採集し、60 regular archives・95,782,928 bytesへ保存した。
+各元byte／mode・archive・durable copyを確認してから当該cacheコピーを除去した。
+公開CLI、font、numeric cache、過去frozen evidenceやprobe authorityは削除していない。
+
+これはobserved番号shapingの指定kernel workを閉じる進捗である。
+他kernel traversal／shaping routes、allocator実capacityと全command同時graphs、上記pending回帰、
+元全巻packageとSpeech／SemanticRef、原font全巻・多言語wrapping、公開1.5／Book /2と四manifests、
+管理Linux／macOS・制御性能・著者／人手／PDF-UA受入を継続する。
+判定はprogress、goalはactive、`full_goal_complete=false`である。
+
+
+<a id="vmb-book-explicit-content-selection-design-14318"></a>
+### 318. audience／backendの明示と8,149配置のsource selection照合（設計§14.318）
+
+VMB正本へ§15.128を追記し、auditへ実rendererと同じ`-audience-tag`を接続した。
+repeatされたtagsは順序と重複を保持して元Prepareへ渡し、実resolved roleとともに任意
+`audience_selection` fieldへ記録する。未指定studentのreport bytesは変えない。
+`-backend`はpdf／html／epub3を明示し、non-PDFでは実`prepared_backend`を記録する。
+profile IDからbackendを黙って推測しない。実Prepareのformat compatibilityを保ち、
+HTML profileをPDFとして準備した試行は元VMB-R0020で失敗し、出力を作らなかった。
+明示HTMLによる後続のsource auditをPDF検証と呼ばない。
+
+| 同じ元authoring、明示release=false | selected inline定義 | inline配置 | block配置 | 合計 |
+| --- | ---: | ---: | ---: | ---: |
+| profile.print／PDF、default student | 6,226 | 6,343 | 278 | 6,621 |
+| profile.print／PDF、instructor | 7,708 | 7,835 | 283 | 8,118 |
+| profile.web／HTML、student | 7,739 | 7,866 | 283 | 8,149 |
+
+webのfull topic selectionは全8,022数式定義を選択する。
+inlineの127追加配置は同じ定義のslot再利用であり、元7,739定義を7,866個の独立した著者箇所へ増やさない。
+全7,866 inlineに明示Speech／SemanticRefがなく、全283 blockは元locale speechを保持する。
+全283 speech unitsのdraft状態も無変更である。元のgeneric inline alt 7,866件と同じaggregateを
+current sourceから説明できたが、原packageのTeX／node別対応が復元できたという主張ではない。
+
+instructor printで未選択の31定義はhintではなく、次のsolution由来だった。
+四exerciseにはexerciseVisibilityがなく、元rendererはprompt-onlyを使う。
+printはsolutions=selectedのためfullだけを許し、webのsolutions=allはhidden以外を許す。
+著者の意図を推定してこれらのfieldsやprofileを上書きしていない。
+
+| solution | 対応exercise | 未選択inline定義 |
+| --- | --- | ---: |
+| solution.ch11.s07.001 | exercise.ch11.s07.001 | 2 |
+| solution.ch11.s07.003 | exercise.ch11.s07.003 | 10 |
+| solution.ch12.s07.006 | exercise.ch12.s07.006 | 9 |
+| solution.ch12.s07.007 | exercise.ch12.s07.007 | 10 |
+
+独立Python checkerは凍結§316 source archiveから元topics／locale units／profilesを読み、
+各ownerのunit refsと各slotの使用回数を再計算した。全7,739定義でwebの使用回数に一致し、
+元locale slot refsだけから7,866 inline配置を得る。solution visibilityの別計算で三viewsの
+全8,022定義の選択／使用回数、source owner／pointer／TeX hash／speech／review状態を照合する。
+各viewの各定義の使用回数改変24,066件と、backend／canonical／source headerの九改変を拒否した。
+prepared pointersはunique性・ordinal・定義使用数とのjoinを検査し、元packageのnode別対応は未検証のまま区別する。
+最初のcheckerはslot map内のdict-valued `id`をobject IDと誤認して停止した。
+string IDだけを登録するよう訂正し、初期helper／失敗logも保存した。
+
+実CLIの三viewsは各二回の全bytesが一致する。
+default source reportは5,267,022 bytes、SHA-256
+`bdae99920a80f7bbae409f8048afca7386ca4603cdbc41e72bf0cccabd9b4371`で§316と一致する。
+instructor printは5,571,925 bytes、
+`e5489e13ffb579896e309de7ac3d01ead7abb69621780c338d6557a1342f3c93`。
+student web／HTMLは5,578,285 bytes、
+`ee9f0495e140cb616b25255600f6a3d4cc3867e072d1163127b8a834373bee00`。
+default inventoryもhost project path以外の全fieldsが保存goldenに一致する。
+print canonical SHAは元`ff25625dbf10f7abde790c6cf6d3279369958512ae8940c4e89940cb967df6e9`、
+webは`06a69bda9813c6c9fc00d73c10b15a923d3a125319e8802119b04d15e4656487`である。
+両者のsource digestは`sha256:1b7ff2b6b607fd3d34cbef4b30500059dbcc71ff2a38622f01222414b2a0b436`を保持する。
+canonical hashだけでは異なるaudienceの選択を識別できないため、実selection metadataも保持する。
+
+Go 1.26.8上で十top-level tests／27 subtestsが成功した。両report kindsで未指定／明示studentの一致、
+repeat／custom tagsとresolved role、HTML／EPUB preparation metadata、既存output拒否、
+空／競合audienceとprofile/backend不整合の拒否を検査した。go vetと三変更Go filesのgofmtも成功した。
+各Go commandsは55秒で上限化し、real-book auditは各約八秒、五views／二controlsのdriver全体も40.402秒で終わった。
+長時間のRust／Book／PDF回帰は起動していない。
+
+証跡は`workspace/target/vmb-design/20261016/vmb-audience-selection/`。
+VMB sourceは1,367 inputs、三modified／一addedのaudit tool内の変更であり、最終index SHA-256は
+`116142b8416cbdacde3a5436459303c707450e3438b4a2ba0b420783d1020979`。
+八logical reportsは五stored membersへdedupeし、1,556,301-byte regular archiveへ保存した。
+SHA-256 `b61ede56af131079acd09ef63fea08a959ba3ed2b52849e51e4a44d1076fdcc3`。
+元source bytesは§316にpinしたarchive／retained sourcesと今回の全formatter preimages／final-sourceから復元する。
+元authoring／review状態と公開Typaxis CLI、五固定producers／tool policyを保持する。
+
+§317の2,133 frozen filesと全1,904 Rust inputsは元hashを保つ。
+そのsource index `779c6601225e15a11c3cfcedba36c227a9d22599790cf5e2a5b665dd3344b2db`も維持し、
+既にユーザーへ渡した一分超のshaping／layout・Book回帰commandsを無効にしない。
+元六Clippy errors、元149,838 Source controls／Book／PDF回帰のpending状態は継続する。
+
+aggregate math countsの一致を、元10,672,653-byte packageの
+`e4fd7415cb33de5afff8c3b2a335c2afa06df1e22780c9913813d95536efffbb` identity、
+4,514 resourcesのhash／配置対応、元maxpath／maxsegments／overflow三式や原font全巻PDFの証明へ読み替えない。
+元package回収・意味のあるinline speech、上記長時間回帰、他kernel／shaping routesとallocator／同時graphs、
+多言語wrapping、公開1.5／Book /2と四manifests、両管理host・制御性能・著者／人手／PDF-UA受入を継続する。
+判定はprogress、goalはactive、`full_goal_complete=false`である。
+
+
+<a id="vmb-book-source-vector-diagnostics-design-14319"></a>
+### 319. current topic数式の実vectorと極値・overflowの公開CLI回帰（設計§14.319）
+
+VMB `tools/typaxis-book-audit` の任意 `-report math-vectors` を実装した。
+`-output` はこのmodeのみ新規directoryで、`vector-index.json` とsource／safeのhash名SVGを保存する。
+`-font-size-raw` は1〜65,536,000,000の明示16.16pt（既定720,896＝11pt）で、他modeへの指定は拒否する。
+元canonical／Prepareとsource auditを使い、同じJSON field順・sorted map順のvisible math walkerを共用する。
+元owner／file／pointer／kind／raw TeX digest／SemanticRef／speechと、全prepared occurrenceのordinal・pointerを再照合する。
+production adapterのstrict build modeと既存profile policy／macro registryを使用し、authoringを変更しない。
+
+source SVGとSafe-SVGはそれぞれbyte hashで共有するが、配置recordは共有しない。
+artifact identity、元metrics、engineのspeech source／全文、source-located diagnosticsと派生metrics・path／command数を保存する。
+generic labelをauthored speechや承認済みsemantic textへ変更しない。
+既知のcompile／lowering失敗はSVG置換なしの `render-error`／`lowering-error` recordとし、
+source不整合・取消・未知のadapter／storage失敗は中断する。全配置の試行とadapter Closeの後だけindexを出す。
+`complete=true` は診断走査の完了で、`summary.all_vectors_lowered` と失敗recordを別に確認する仕様である。
+
+全15 Go tests／35 subtests、go vet、scoped gofmtと両repo diff checkが成功した。
+実example adapter、二生成のsource／SVG同一性、genericとrequired-speech policy、未知TeX、
+成功した元SVGを残す五lowering失敗、source／pointer／definition／speechの改変、取消と新規出力を検査した。
+全test／book／独立検証commandsを55秒以内のtimeoutで実行した。
+最初のretention helperだけdiagnostics filenameの取り違えで失敗し、元helperとlogを保存した上で訂正・再検証した。
+製品codeのtest失敗やgeometryの許容値変更ではない。
+
+current `profile.web`／HTML／student default／ja／release=falseの8,149配置は二度とも全成功した。
+各走査は22.22／21.84秒。7,866 inlineはgeneric `数式`、283 blockは元semantic speechを保持し、
+元speech-unit draft状態を変えない。default printのsource reportも§316／318とbyte一致した。
+source auditは§318の独立raw JSON選択検証済みreportと、明示student tagの有無以外は同じである。
+
+| current geometry | 観測値 | 保存済み元全巻aggregateとの比較 |
+| --- | ---: | --- |
+| distinct Safe-SVG | 4,466 | 一致 |
+| path要素合計 | 49,311 | 一致 |
+| 明示path commands合計 | 1,010,441 | 一致 |
+| 最大path／commands | 95／2,445 | 一致 |
+| 最大viewBox値 | 3,373,098 | 一致 |
+
+元engine SVGは4,509 distinct／34,368,670 bytes、派生SVGは4,466 distinct／47,276,450 bytes。
+これは元SVG hash集合の回収ではない。独立checkerはGo loweringを呼ばず、元SVG metadata・viewport・metric属性、
+全pathの順序・command／control pointsと、4,717,770座標operandの二段ties-to-even変換を照合した。
+各8種類、計65,192件のrecord改変を拒否した。両indexと全SVGは全byte一致した。
+
+portrait本文幅31,934,095 raw（487.2756195pt）を超えるcurrent inlineは次の三式だけだった。
+
+| current occurrence／owner | 元file・slot | viewport width raw／pt |
+| --- | --- | ---: |
+| 1375／`p.solution.ch03.s08.normalize-and-classify.1` | chapter-03/08、`/blocks/13/blocks/0/slots/normalizations/tex` | 37,104,078／566.1632996 |
+| 3860／`p.solution.ch08.s07.chapter-e-binary-necklaces.1` | chapter-08/07、`/blocks/23/blocks/0/slots/classes/tex` | 33,494,065／511.0788727 |
+| 7883／`p.appc.s04.bezout-computation-solution.10` | appendix-c/04、`/blocks/9/blocks/0/slots/autoMath5/tex` | 33,932,910／517.7751160 |
+
+occurrence 1375は95-path最大式でもあり、2,445-command最大式は3306、
+`p.exercise.ch07.s07.identify-equivalences.prompt.2`、chapter-07/07の `/blocks/11/prompt/1/slots/relations/tex` だった。
+全file／pointer／TeX／digestsはindexに保持する。元image 4187／2987や元node番号との同一性は主張しない。
+
+公開CLI `eab55b32…` を変更・再buildせず、上記四式を明示wide-pageのformula-only jobへ配置した。
+generic AltとActualText=nullを保持し、fixtureのsynthetic fontを使うため原font本文の証拠ではない。
+check成功、1-page／4 Form PDFのbuild成功、再buildのPDF／trace／diagnostics byte一致を確認した。
+三portrait jobsはcheck成功の後、buildがowner 1の `L5100` で拒否され、PDFを作らなかった。
+独立PDF検査は351 paths／6,786 source segments／4 placements、source graphとMCID結合、
+Poppler／MuPDFの抽出を検査した。原SVG pathから同じ固定policyで行う24 raster比較は全成功した。
+72／144／288dpi、1px Euclidean・既定area／ring規則を保持し、resize／探索／hole除去を加えていない。
+
+証跡は `workspace/target/vmb-design/20261016/vmb-book-math-vectors/`。
+indexは29,161,485 bytes／SHA-256 `45355e6895f8ac5bcea0723ffe6535b1728f07002cab99fbc95a1df1083c6089`。
+公開診断PDFは614,129 bytes／`3c54609338788f6debf5674d5dd65039c3d1acaee7b1f64bb28c731ef45cda08`。
+full vectors・二生成・jobs／PDF／raster・生成toolを、18,030 logical files／
+9,014 regular members＋9,016 aliasesとして保全した。
+archiveは37,882,391 bytes、
+SHA-256 `c9624d9516f9e1b6ea809ee55a3219601230bab5276d4a756d41a05653aec7b0`。全memberと元bytesを検証し、bulkを削除していない。
+VMB最終1,369 inputsのindexは `c09b43c9ca3e210c3e7b234f1570629328374a425fe1a2e0796bfc058729cb22`。
+変更はtoolの3既存files＋2新filesだけで、元book・profile・review状態を変更していない。
+Rust1,904 source inputsと§317の長時間handoffは無変更。source-only guardを再実行し、tests_started=falseを確認した。
+
+元package SHA `e4fd7415cb33de5afff8c3b2a335c2afa06df1e22780c9913813d95536efffbb` の回収、
+元4,514 resources／全node対応と原extreme／overflow fixtures、意味のあるinline speech、原font全巻と多言語layout、
+公開次期profile・四manifests、管理Linux／macOS・性能・著者／人手／PDF-UA受入は未完。
+formal runnerの元入力pending groupsを、このcurrent-source診断で合格へ変更しない。goalはactiveのまま継続する。
+
+
+<a id="production-inline-width-source-diagnostics-design-14320"></a>
+### 320. inline幅超過を式のsourceと実line制約へ結ぶ（設計§14.320、2026-10-17）
+
+`AtomicVectorInlineError::InlineSizeExceeded` を追加し、item owner／元SourceSpan／必要幅／最大supplied幅を保持した。
+必要幅は `max(0, advance, right) - min(0, left)` とし、viewportの左overhangとadvanceの両方を含める。
+fixed widthとsource-width assignmentを共用し、後者の最大値は既存の課金済みwidth visitで求める。
+候補がoverflowした時の既存visitだけでatomic item自身を検査し、全widthに収まらないと証明できる原因を保存する。
+NoFeasibleLineの通常終了時だけそれを返すため、途中のCandidateLimit等をwidth診断で隠さない。
+追加のheap allocationや失敗後scanを加えず、成功JCS／fingerprintの語彙・algorithm IDを変更していない。
+未使用の大きいsource widthや、item単独は収まる分割不能な複合列では、推測したitemへ幅超過を帰属させない。
+旧atomic-vector専用kernelのOversize動作も保持する。
+
+共通CLI mapperは新causeをL5100／Input exit 1へ接続し、paragraphに代えて実item node・元SourceSpanを採用する。
+UTF-8 byte範囲を元receiptから取り、文字数やprivate Debug文から推測しない。
+canonical message／reason `inline_size_exceeded` と、parent paragraph／required／maximumのraw寸法noteを出す。
+stderrも `inline item 2 requires .../65536pdfpt; maximum supplied line width is ...` とし、private enum dumpを使わない。
+一般NoFeasibleLineにも専用reasonを残し、limit／internalの分類を変えない。
+
+linebreak全56 tests、Book staging layout全79 tests、default CLI checkとstaging CLI build、変更関数のformat checkが成功した。
+四つの追加testsが、ink／advance双方のexact／1不足、元owner／span、source widthsの未使用上限、
+複合幅の誤帰属防止と課金済みvisit／CandidateLimit優先を検査する。
+実native-math計算と既存実VMB分数の1不足期待も、新causeの寸法・owner／spanまで検査するよう更新した。
+strict linebreak Clippyは既存 `production_inline.rs:236` のneedless_range_loop一件でnonzeroだった。
+当該itemize prefix 15,414 bytesはbeforeと全byte一致し、比較を `clippy-baseline-comparison.json` へ保存した。
+全CLI群の実行成功をこのcheckから主張しない。
+
+§319の四current極値式を、同じauthored source／generic label／既存fixture stylesで12 jobsにした。
+wide四式＋四exact-fit jobsが成功し、三portrait＋四1不足jobsはL5100で拒否、PDFを作らない。
+各jobのcheck-packageは成功し、幅不足をresource admission failureと混同しない。
+元三portrait例は、body幅31,934,095 rawから左右各65,536 rawを引いた
+実line幅31,803,023 raw（485.2756195pt）を報告した。
+必要幅はnormalizations 37,104,078、necklaces 33,494,065、Bézout 33,932,910 rawで、
+診断はmath node 2・parent 1、元149／113／110 bytesのsourceを指す。
+最大command数の日本語arrayも17,364,622 rawでexact-fitし、17,364,621で拒否され、元327 bytesを保持した。
+最初のexact-fit helperはparagraph indentsを加え忘れて2pt不足だったため、旧job・helper・logを保全して訂正した。
+初期compileのPositiveLength比較と旧negative期待の不一致、55秒で止めたcache archiveも、失敗記録とsourceを残した。
+
+独立checkerは元SVGの整数metrics属性、ties-to-even変換、元styleとsource bytesから寸法・UTF-8 spanを再計算した。
+七negativeのJSON／stderr／出力不在、五positiveのgraph／paint／二extractorsを検査し、
+固定72／144／288dpiの48 raw-SVG比較が全成功した。既存1px・area／ring policyを変更していない。
+§319の元job rootを再利用して、PDF・layout trace・build manifestの全byte一致も確認した。
+新CLIはprivate staging build `c0a91e9ba8cf29fb4c749b3cd9a3574a02cfcbbe8758e03925c4d29b8b945f0a` で、凍結public CLI `eab55b32…` を上書きしていない。
+
+Root sourceは1,904 inputs、SHA-256 `b7131c3a36e2ab2f8a1cbaf5e503694dfdee1f0b4606ee1e7cb735b473e864f9`、変更は6 Rust filesだけ。
+§317の1,904 inputsと現在epochをそれぞれ独立regular copiesの `/tmp/typaxis-checkpoint-317-checkout` と
+`/tmp/typaxis-checkpoint-320-checkout` へ保存し、source guardsとCargo metadataを確認した。
+長時間testsはユーザーの1分指示に従い未開始。最新commandsは次の二つで、既定は320 checkoutを使う。
+CLI群はBook stagingを含む全CLI testsで、元navigation corpus flagも有効にする。
+compiler targetはRAM-backed tmpfsから `/root/typaxis/workspace/target/vmb-long-regression-cache` へ分けた。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/production-inline-width-diagnostics/run_long_checks.py --group shaping-layout --output /tmp/typaxis-inline-width-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/production-inline-width-diagnostics/run_long_checks.py --group cli --output /tmp/typaxis-inline-width-long-cli
+```
+
+既存§317commandsを履歴epochで使う場合は `--root /tmp/typaxis-checkpoint-317-checkout` を加える。
+最新copyが失われた場合のrestore commandとsource-onlyの改変拒否は `pending-long-checks.json` に保存した。
+新guardの320二群、旧317の元source一致、320への旧sourceの拒否を実行し、tests_started=falseを確認した。
+
+Root／tmpfs容量のため、停止中のowned compiler cacheだけをregular archiveへ保存・全byte／mode・durable copy確認後に除去した。
+旧baseline CLI incremental 260 files／887,737,020 bytesを99 archives／206,563,232 bytes、
+同targetのstatic compiler cache 142 files／1,020,436,558 bytesを73 archives／217,400,383 bytesへ保全した。
+古いtmpfs CLI test executable 353,465,384 bytesも54,014,563-byte archiveへ保存し、Cargo target lockを保持してから除去した。
+合計2,261,638,962 logical bytesを477,978,178 archive bytesで保持し、元fonts・numeric caches・source・凍結authorityを削除していない。
+55秒停止後のprefixは再検証して再開し、未完temporary archiveも保全した。
+
+証跡は `workspace/target/vmb-design/20261017/production-inline-width-diagnostics/`。
+完了probeは400 logical files／182 regular members＋
+218 aliases、25,802,484 bytesのarchiveに保存し、
+SHA-256は `d98bad4e14e252890c5f21df2e8b899ab2126a23fe983325035cf00c5bad0bbb`。bulkの元probeは保持する。
+全CLI／shaping-layout長時間回帰と、元package identity・元resource／node対応・意味のあるinline speech・
+原font全巻／多言語・公開次期profile／四manifests・両管理host／性能・著者／人手／PDF-UA受入は未完である。
+元sourceのformal pending groupsやgoalの完了条件を、この診断回帰で置き換えない。
+
+
+<a id="observed-body-region-shape-storage-design-14321"></a>
+### 321. 本文・柱・footerのobserved shapingを同じSource storageへ接続（設計§14.321、2026-10-17）
+
+Book /2のobserved本文とpage-region経路がordinary NoStorage kernelへ入っていた箇所を改め、
+既存の共有Storage付きbidi／grapheme itemization、Harfrust input／language／plan／glyph buffer、
+visual／logical clusters、glyph／cluster vectors、sort／validationとUTF-8 boundariesへ同じloanを渡した。
+paragraphと実inline／generated labelにownerを更新し、最初のRecords／Spool／Work causeを外側へ保持する。
+Source failureを仮のAllocationFailureやReceiptMismatchだけで返さない。
+新しいprivate request adapterを本文とregionで共用し、ordinary callersは同じNoStorage specializationを使う。
+公開entry point・algorithm ID・glyph receipt語彙は変更しない。
+
+本文contextのString、item ranges、pending references、paragraph vectorと、
+body runs・list markers・footnote markersの可変vectorsもrequested bytesを予約前に払う。
+可変vectorは初期4／以降doublingの明示的な幾何成長とし、full next targetを課金してからtry_reserve_exactする。
+allocatorが余分に確保したcapacityはこのrequested-byte証明へ混同しない。
+共有shaperのrecords hookは本文では支払わず、既存output callbackのrecord上限とintrinsic windowのretained prefixを使う。
+これによりsource verification＋glyph／cluster／run recordsの元和を保ち、scratchの追加でrecordを二度払わない。
+
+新integration suiteは実hostのsource admission・resource read ledger・原declared fontsを通す。
+五つの本文case（通常、二つの実line-context列、生成list／footnote）と柱／footerについて、
+ordinary fingerprint、output records／元glyph runs、exact spool／work、1不足の型付きowner付きfailureを照合した。
+本文record境界も独立Source observation＋ordinary output和から決め、exact成功／1不足のOutputLimitを検査した。
+五runのline-context列で初期capacityを越える可変outputも通す。
+原Harano Mincho SHA-256 66ef3270…を読み、日本語「本文の柱」の本文・header・footerを同一ledgerでshapeし、
+各ordinary receiptと一致した。最終cellsはR=303／S=131,553／W=351,211である。
+三integration testsはruntime約1.25秒、既存共有number receipt testも成功した。
+既存P0／P1 controlsではrecord和を厳密に保ち、以後のSource oracleのbaseへ新scratch分を含む実cellsを渡す。
+source／candidateだけの旧command合計式は、新shaping分を含まないstrict lower boundとして明記した。
+これらCLI testsのtype checkは成功し、全runtime成功はまだ主張しない。
+
+private staging CLIを再buildし、元§319／320の同じwide jobを実行した。
+614,129-byte PDF（3c546093…）、736-byte trace、26,402-byte manifestが全byte一致した。
+新しいraster比較を実行したとは扱わず、同一bytesが保存済み比較対象を維持した証拠とする。
+凍結public CLIと五producer・policyを変更していない。
+strict Clippyの最終五findingsは、未変更のequation-number font関数の冗長field四件と、
+未変更shared testのu16 conversion一件である。該当bytesのbefore比較を保存した。
+変更関数にあった既存len_zeroと、新helperのunused constantは修正した。
+二つの既存lint categoriesをcommand上で除外したcheckは成功し、strict全成功へ読み替えない。
+初期test import error、unused constant、formatter前source、Cargo.lockの二つの自動更新と、
+55秒で停止したCLI test executable buildもsource／log／terminal status付きで保存する。
+
+sourceは1,906 inputs、SHA-256 51c1749676247dcd087845d4be2b54accefac3cbeaa61afb122d242f5d27a355。
+変更は11 Rust filesと二Cargo filesの計13で、before／中間／finalをSHAで再構成できる。
+独立regular copy /tmp/typaxis-checkpoint-321-checkoutを復元し、source guardsとCargo metadataを確認した。
+§317／320の元copyとcommandsは保持した。最新handoffは次の二つで、1分以上の回帰はユーザーへ渡して未開始である。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-body-shape-storage/run_long_checks.py --group shaping-layout --output /tmp/typaxis-body-storage-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-body-shape-storage/run_long_checks.py --group cli --output /tmp/typaxis-body-storage-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-body-shape-storage/。
+completed-probes archiveは25,885,276 bytes、SHA-256 5d66a471cd7bc31c0300fa00e88947526891feb2733291480e76f7d6af5c3f9cで、
+元probe／二private binaries／source cohortsとcommand logsを保存した。
+実allocator capacity／overcapacity・font-instance constructor・残るcoverage／kernel work・同時live graphsは未完。
+元e4fd7415… packageとnode／resource同一性、全inline authored speech欠落、原font全巻／多言語、
+公開1.5／Book /2／resource-set /3／CFF2／四manifests、両管理host・性能・著者／人手／PDF-UA受入も未完である。
+formal 9/12 groupsとgoalの完了条件を、この部分実装で変更しない。
+
+
+<a id="observed-font-instance-storage-design-14322"></a>
+### 322. observed font-instance constructorの実rows・requested storage・hash workを払う（設計§14.322、2026-10-17）
+
+resource-set /3へprivate-stagingのfrom_all_faces_with_budgetを加え、admitted ledgerの実font順から
+一つのface vectorを構成する。元from_used_facesは保持し、ordinary本文／regionはそのまま使う。
+新経路は一時BTreeSet、canonical Stringと整数to_stringを作らない。
+/3 canonicalのprefix・face IDs・ledger hashを、十桁のu32 bufferと66-byte hex bufferからSHA-256へstreamする。
+format変換の各digit、各font visit、hashへ渡すbytesのworkを先に受け入れさせる。
+0／1／12 facesをhostでadmitし、逆順readでも元constructorのfingerprintと実font／ledger pointerが一致した。
+70 request cutoffsの全点で拒否後のrequestがなく、21個のu32桁境界も元文字列のhashと一致した。
+
+observed本文とrunning-regionのfactoryはSource loan adapterを使い、予約前に
+R=face数、S=face数×size_of(FontFaceId)、W=予約countをatomicに払う。
+各instance tableはglyph output windowとは別に所有されるため、rowsの支払いをwindowのpaid_recordsへ含めない。
+本文のmax prefixはconstructor後のglobal cellsから計算する。regionはclosed windowを先に検査し、
+constructor後にoutput上限を再計算する。古い上限でglyphsを確保してからRecordsで失敗する経路を残さない。
+Source失敗はbody root／実region rootのownerを持ち、失敗requestは三軸を一つも変更しない。
+予約・fill後のwork拒否では既に受け入れたtable rows／bytes／workを残し、同じloanでのretryと
+closed windowでも余分な支払いがないことを実経路で検査した。
+
+四integration testsは五本文caseとheader／footerについて、ordinaryのglyph receiptとinstance-table fingerprint、
+Source observation＋独立instance行数＋ordinary outputのrecord和、exact／1不足の三軸を検査した。
+regionの1不足はupdated output capのShape(OutputLimit)で止まり、後段のAccounting(Records)へ遅延しない。
+原Harano Mincho CFF（元SHA-256 66ef3270…）の日本語本文・柱・footerも同じledgerで一致し、
+最終cellsはR=309／S=131,577／W=351,784だった。§321からの差は三つの独立二face tablesの
+6 rows／24 requested bytes／573 workであり、元glyph output recordsを変えた差ではない。
+P0／P1のSource controlsも、実constructor数×font数を独立record和へ加えるよう更新した。
+全CLI testsはtype checkが成功したが、runtime全成功はまだ主張しない。
+新constructor二unit testsと四integration testsはそれぞれruntime0.01秒未満／約1.30秒で完了した。
+
+初期のgeneric error wrapperが大きい旧ResourceErrorを保持していたため、Clippyで検出後、
+Budget／ResourceLimit／AllocationFailure／InvalidFaceOrderの小さいtyped causesへ修正した。
+error boxingのための追加allocationを作らない。旧wrapperを使ったsource／logsも保存した。
+最終strict resource Clippyの162 findingsは既存result_large_err／large_enum_variantで、
+shapingの五件も既存redundant fields／u16 conversionである。
+全primary source位置をbefore bytesへ結び、新module・追加testからの残存findingがないことを保存した。
+両crateはそれぞれ既存二categoriesだけをcommand上で除外したchecksが成功し、strict全成功へ読み替えない。
+
+private staging CLIをbuildし、§321と同じ元wide jobのPDF 614,129 bytes・trace 736 bytes・
+manifest 26,402 bytesが全byte一致した。PDF SHA-256は3c546093…のままである。
+新しいraster比較や全巻受入を行ったとは主張しない。
+CLIは62,483,032 bytes、SHA-256 121ee60354b96db9ebed9ef4eeb6407f19b6475be6cef9ef56cfc5562010ffde。
+RAM-backed tmpfsへ別copyを増やさず、実行したcache binaryをcompleted-probes archiveのregular member typaxisへ直接保存し、
+byte length・全hash・mode 0755を読み戻して検証した。mutable cacheを保存済み唯一のbinaryと扱わない。
+
+Root sourceは1,907 inputs、SHA-256 983b2d33d56d4f061a6c678a84fee16988bd5bacb38c49abc9eda84b7616aa0b、変更は11 Rust filesだけ。
+§317／320／321とbefore／中間／finalから全producer sourceを再構成できる。
+/tmp/typaxis-checkpoint-322-checkoutの独立regular copy、Cargo metadataとsource guardsを確認した。
+元copyとcommandsは保持し、最新shaping-layout groupにはresource-admissionの全testsも含めた。
+1分以上の回帰は指示に従って未開始のまま、次をユーザーへ渡す。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-font-instance-storage/run_long_checks.py --group shaping-layout --output /tmp/typaxis-font-instances-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-font-instance-storage/run_long_checks.py --group cli --output /tmp/typaxis-font-instances-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-font-instance-storage/。
+completed-probesは13,111,791 bytes、SHA-256 74ea19f082f36a3d25a3a9a37794366cec80d33b87fd6467d800bcdee8ab0c7aで、
+元probe、実行binary、全source cohortsとterminal logsを保全した。
+observed instance-table constructorのrequested accountingを追加した段階である。
+allocator実capacity／overcapacity、同時live graphsと残るcoverage／kernel／error work、
+全CLI／shaping-layout回帰、元e4fd7415… packageとresource／node対応、全inline authored speech欠落、
+原font全巻／多言語・公開次期識別子／四manifests・両管理host／性能・著者／人手／PDF-UA受入は未完。
+formal 9/12 groupsとfull goalの完了条件を変更しない。
+
+
+<a id="observed-cff-coverage-work-design-14323"></a>
+### 323. CFF coverageの実search visitsとscalar走査を同じSource workへ接続（設計§14.323、2026-10-17）
+
+CFF /2 base cmapを、admissionのvalidated BTreeMapから昇順Vecへfallibly移し、persistent treeを残さない。
+lookupは明示的binary searchとし、各比較前にfallible work callbackを呼ぶ。
+format-14 selector、nondefault keys、default rangesも同じ方法で比較と確定visitを払う。
+旧glyph_for_sequence／coverageはinfallible callbackで同じkernelを使い、孤立selector・未対応pair・
+欠落base・.notdefを以前と同じく拒否する。selectorをdropするfallbackは作らない。
+base Vecの確保失敗はcmap-localなStorage／AllocationFailureとしてadmissionへ伝える。
+この変換前のtemporary treeを含むadmission全体の容量証明はまだ行っていない。
+
+CFF shapingのscalar・peek・selector消費も先払いにし、本文／generated list・footnote labels／
+header・footerのBodyFont adapterへ既存Storageを渡した。実site ownerへの更新をcoverage前へ移し、
+backendの仮errorへ変換されてもSourceの最初のWork causeを復元する。
+数式番号の別coverage callもNumberShapeStorageへ結び、ordinary callersはNoStorageを使う。
+TrueTypeのread-fonts coverage loopはこのCFF変更では計量済みと扱わない。
+
+baseとUVSを含む独立3,120 casesのlookup結果をモデルへ照合し、14,252全request cutoffsで
+refusal後のvisitがないことを検査した。原Harano Mincho（元SHA-256 66ef3270…）の
+15,815 base mappingsの95df78a2…、14,780 resolved IVSの825b70e8…も元hashに一致した。
+原fontの244 coverage cutoffsでは予約／glyph-record hookが呼ばれず、
+空文字・default ignorables・孤立VS・欠落supplementary scalar・実IVSの元結果とUTF-8 byte範囲を保持した。
+孤立VSは0..4、日＋U+10FFFFの欠落は3..7のままである。
+
+共通subset encoderはordered pair iteratorを受けるprivate helperへ分け、
+旧CFF /1のBTreeMapと新CFF /2のVecから同じformat-12 bytesを作る。
+元のshort original-Harano subsetを変更前に実行し、変更後も5,052 bytes／
+SHA-256 3b9ddbc2e0415a302c95f550113ddacfcc60d2f6fb219ad7f9296753f8823463に一致した。
+元の長いsubset budget sweepを短いtestへ置き換えず、短いgolden checkを別testとして追加した。
+font library全enabled 66 testsはruntime0.15秒で成功した（同commandの12 ignoredは未実行）。
+そのうちoriginal cmap／short subsetは個別に明示実行し、runtime0.33／0.74秒で成功した。
+原coverage unitは0.73秒、五body／region integration testsは1.29秒で成功した。
+
+実Source loanで本文の最初のtext-owner Work failureを求めるとcutoffは21,858だった。
+その時のaccepted prefixはR=196／S=12,544／W=21,858、次はR／Sを変えずW=21,859となり、
+両方ともtext node 3で拒否されてglyph output recordsは0だった。
+原CFFの本文・header・footerのordinary receiptsも一致し、最終cellsは
+R=309／S=131,577／W=352,300となった。§322からR／Sは変わらず、516 coverage workを追加した。
+
+CLI testsのtype check、default shaping、scoped formatは成功した。strict Clippyは
+fontの既存23（large errors・既存MSRV等）とshapingの既存五findingsでnonzeroだった。
+全primary位置をbeforeの同一prefix／suffix／signature・未変更functionへ結んだ比較を保存した。
+既存categoriesだけをcommand上で除外したchecksは成功し、strict全成功やMSRV実機成功へ読み替えない。
+初期の追加引数不足compile failureも元sourceとexit 101で保存した。
+元wide jobのPDF 614,129 bytes／trace 736 bytes／manifest 26,402 bytesも§322と全byte一致した。
+新しいraster比較や全巻受入を行ったとは扱わない。
+
+Root sourceは1,907 inputs、SHA-256 f05e30f45286531176a57ab214ea90ac67998daf382121e5ea90c2f624670b33、変更は14 Rust filesだけ。
+全producer cohortは§317／320／321／322とbefore／中間／finalから再構成できる。
+/tmp/typaxis-checkpoint-323-checkoutの独立regular copyとsource guards／Cargo metadataを確認し、
+旧copyとcommandsを保持した。最新shaping-layout groupにはfont・resource-admission・shaping・layoutを含める。
+1分以上の長時間回帰は未開始で、次をユーザーへ渡す。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-cff-coverage/run_long_checks.py --group shaping-layout --output /tmp/typaxis-cff-coverage-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-cff-coverage/run_long_checks.py --group cli --output /tmp/typaxis-cff-coverage-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-cff-coverage/。
+completed-probes archiveは13,193,004 bytes、SHA-256 9b315acdf7ba1d040d893d33c438b71ba9bbc59d6b3469cf315d0ca19e73203c。
+実行した62,502,784-byte CLIをregular member typaxisへ保存・全hash／mode検証した。
+凍結public CLI・五producer・policyを変更していない。
+容量確保のため停止中のowned compiler executables九files／215,688,672 bytesだけを
+44,049,123-byte archive（c29394dc…）へ全byte／mode確認後に退避した。Cargo target lockを保持し、
+元fonts・source・complete-probes・authorityを削除していない。必要なtest targetsは再buildした。
+
+CFF admission全体、TrueType coverage、他kernel／error work、allocator実capacity／overcapacity、
+同時live graphsと全CLI／shaping-layout回帰は未完である。
+元e4fd7415… packageとresource／node同一性、全inline authored speech欠落、原font全巻／多言語、
+公開次期識別子／四manifests・両管理host／性能・著者／人手／PDF-UA受入も未完で、
+formal 9/12 groupsとfull goalの完了条件は変更しない。
+
+
+<a id="observed-truetype-coverage-work-design-14324"></a>
+### 324. TrueType nominal coverageのactual visitsとbounded setupをSource loanへ接続（設計§14.324、2026-10-17）
+
+新private truetype_coverage kernelをBodyFontのobserved TrueType branchへ接続した。
+本文・generated list／footnote labels・running header／footerと、同adapterを使う式番号へ
+既存Storageを渡す。ordinary NoStorage callerは元validate_admitted_font_coverageを使い、
+公開font選択・glyph receipt／algorithm ID・既存missing-coverage causeを変更しない。
+Source adapterが保持する最初のWork causeを復元し、実text ownerのまま返す。
+
+read-fonts 0.31.3のstored encoding-record順をそのまま使い、format 0／4／6／12／13だけを扱う。
+unsupported formatとsubtable parse failureは元readerと同じく次へ進み、最初のSomeを返す。
+GID zeroもSomeなら後続tableへfallbackしない。format 4のdelta／idRangeOffsetとu16 wrap、
+format 12のwrapping u32加算、format 13のconstant GIDを元結果へ合わせた。
+Unicode 16 default ignorablesを免除し、その他のmissing／.notdef／glyph-count超過を元causeで拒否する。
+元grapheme→scalar走査は同じscalar順の直接iteratorとし、scalarとterminal visitの前にworkを払う。
+encoding-record visitsとformat 4／12／13のbinary-search比較・確定lookupもfallibleな先払いにした。
+format 0／6の定数array lookupは一workを払う。予約／retained-record hookは呼ばない。
+
+FontRef::from_indexはdirectoryのsort scanを持ち、cmap取得にもdirectory searchがある。
+checked SFNT／TTC header読取りの前に1 workを払い、numTables取得後、pinned readerへ入る前に
+3×numTables＋16の保守的なvisit allowanceをatomicに払う。
+読取るdirectory／cmap／encoding recordsはborrowedで、lookup時の一時allocationを作らない。
+これはsetupの実比較数やCPU命令数・wall-clock boundの主張ではなく、他FontRef／metrics callも含めない。
+根拠のdependency source三files・元hashとsetup-work-bound.txtを証跡に保存した。
+
+nominal unit controlは五formats、format 4のglyph-array／zero／wrap、format 12／13の
+supplementary／overflow、stored順、unsupported／broken subtableを組み合わせ、
+7,656 queriesをpinned mapperへ照合し、41,416全work-request cutoffsで直ちに拒否した。
+single SFNT・元一face TTC・第二indexを同directoryへ結ぶ派生TTC・未整列directoryでもsetupを照合し、
+二setup requestsの拒否、invalid font／faceを検査した。元collection／font bytesを変更していない。
+初期testのu32型指定不足と、元TTCを二faceと仮定した失敗はexit 101／当時sourceごと保存し、
+test fixture側の修正後に三unit testsが成功した。
+
+retained原font listの六filesを全hashで結び、各fontの全BMPとformat 12／13 supplementary group境界を
+合計629,484 queries（境界の重複を含む）でpinned mapperへ照合した。
+このraw nominal reader比較にはHarano／LMのCFF filesも含み、CFF admission・UVS policyを広げない。
+最終三unit testsのruntimeは4.17秒、七integration testsは1.25秒だった。
+
+実Source loanではTrueType本文の最初のtext-owner cutoffは21,764、accepted prefixは
+R=196／S=12,648／W=21,764で、glyph output reportは0だった。
+fixtureのsetup allowanceは43で、header読取り後に43未満しか残らない場合はR／Sを変えず、
+Wも21,765から進めない。全allowance受入後にscalar、encoding-record visitへ順番に進み、
+拒否は常に実text node 3で返る。
+Result＋U+E0100／U+200Dの既存成功と、missing 猫／combining acuteの元MissingDeclaredFontCoverageも
+ordinaryと同一cause／ownerを保ち、欠落時のglyph reportは0だった。
+
+既存五本文controlsとheader／footerはordinaryのglyph／instance fingerprints、独立record和、
+requested三軸のexact／1不足で成功した。§323との七case比較でR／SとSource側観測は全て同じで、
+追加Wだけが81／123／321（headerは162）となった。
+単一Result本文の最終cellsはR=209／S=16,874／W=25,448で、元W=25,367へcoverage 81を加えた。
+原Harano CFFの本文・柱・footerはR=309／S=131,577／W=352,300、
+CFFのtext-owner frontier 21,858も変わらない。
+
+CLI testsのtype checkは35.996秒、default shaping check、scoped formatは成功した。
+strict shaping Clippyは既存五findingsでnonzeroだった。全primary locationsはbeforeと全byte同一の
+production_text.rs／shared_shape_storage_tests.rsにあり、既存redundant_field_names／useless_conversion
+だけをcommand上で除外したcheckは成功した。strict全成功や全CLI runtime成功とは扱わない。
+private CLI buildは24.074秒で成功し、元wide jobのPDF 614,129 bytes・trace 736 bytes・
+manifest 26,402 bytesは§323と全byte一致した。PDF SHA-256は3c546093…のままである。
+新しいraster／全巻受入へ読み替えない。
+
+Root sourceは1,909 inputs、SHA-256 8b851ce89ecab58f8ed548e8e67b88c57aa3914da431a384832d7ac5ae3e39b4、変更は五Rust filesだけ。
+§317／320／321／322／323とbefore／中間／finalから全producer source cohortsを再構成できる。
+/tmp/typaxis-checkpoint-324-checkoutの独立regular copy、source guardsとCargo metadataを確認した。
+旧copyとcommandsは保持し、旧§323 sourceを最新runnerへ与えた場合はtests／output作成前に拒否する。
+最新shaping-layout groupはfont・resource-admission・shaping・layoutを含む。
+1分以上の全回帰はユーザー指示に従って未開始のまま、次をユーザーへ渡す。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-truetype-coverage/run_long_checks.py --group shaping-layout --output /tmp/typaxis-truetype-coverage-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-truetype-coverage/run_long_checks.py --group cli --output /tmp/typaxis-truetype-coverage-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-truetype-coverage/。
+completed-probes archiveは13,103,469 bytes、SHA-256 8ba1d158c2e46673cc0fc6bbdbb37963ce90540a2a9081c2c57016c349df271b。
+実行した62,503,064-byte CLI（SHA-256 8ea49f03f40780105f631faca7bdafaba211a4f2b752f104f36744e8c4fbc706）を
+regular member typaxisへ直接保存し、全bytes／hash／mode 0755を読み戻して確認した。
+mutable cacheだけをbinary authorityとせず、凍結public CLI・五producer・policyは変更していない。
+
+Source以外の旧coverage、font metrics等の他kernel／error work、CFF admission全体、
+allocator実capacity／overcapacity、同時live graphsと全CLI／shaping-layout回帰は未完である。
+元e4fd7415… packageとresource／node同一性、全inline authored speech欠落、原font全巻／多言語、
+公開次期識別子／四manifests・両管理host／性能・著者／人手／PDF-UA受入も未完で、
+formal 9/12 groupsとfull goalの完了条件を変更しない。
+
+
+<a id="observed-font-reader-work-design-14325"></a>
+### 325. 本文metricsとlinked preflightのfont directory／table workをSourceへ接続（設計§14.325、2026-10-17）
+
+private font_reader::read_with_tablesを追加し、pinned read-fonts 0.31.3のborrowed setupを共用した。
+observed時はchecked SFNT／TTC headerの前に1 workを払い、numTables取得後、
+FontRef constructorと許可したtable readsへ入る前に
+(table_reads＋2)×numTables＋8×(table_reads＋1)を一つのatomic requestで先払いする。
+numTablesはu16、table_readsはprivate u8なのでu64和はoverflowしない。
+constructorのsort scanと各table directory search、固定metadata setupを保守的に覆うvisit allowanceであり、
+実比較数／CPU命令数／wall-clock boundとは呼ばない。根拠のpinned dependency五filesとhash、
+setup-work-bound.txtを保存した。
+
+本文とgenerated list／footnote labelsのhhea metricsはtable_reads=1を渡す。
+共通linked preflightはhead／maxp／cmapの三searchと、hmtx provider自身＋依存hheaの二search、
+合計五searchを渡す。metadata比較、script検査、backend output allowance、scratch／output callbackの
+前に受け入れさせる。metricsのfont／face失敗は元InvalidFontMetricsを保ち、Source work拒否は
+既存Storageが捕捉した最初のcause／実paragraph・text・generated-label ownerへ復元する。
+coverage内のborrowed readerも共用するが、§324の二request [1, 3×numTables＋16]は全く同じである。
+ordinary NoStorageは追加header読取りと全budget hooksを通らず、元FontRef::from_indexを直接呼ぶ。
+新reader自身はrecord／spool reserveを呼ばず、一時allocationも作らない。
+
+二unit testsでは実SFNT／TTCのborrowed pointer、head／hhea／nominal結果、
+0／1／5／255 table-read allowance、二requestの全拒否点でのaccepted work prefixを検査した。
+invalid header／faceより先にbudget拒否を返し、ordinary経路がStorage hooksを一つも呼ばないことも検査した。
+別のshared preflight unitはhmtx依存lookupを含む全allowanceが不足するとAllocationFailure、
+全量受入後にadmitted UPEMの不一致をFontMetadataMismatchとして返す。
+全caseでscratch reserve・retained records・output callbackへ到達していない。
+
+七integration testsはordinaryのglyph／instance fingerprints、独立record和、
+requested三軸のexact／1不足と、CFF／TrueTypeの本文・生成labels・header／footerを検査した。
+TrueType本文の最初のtext-owner cutoffは21,808で、R=196／S=12,648／W=21,808だった。
+その直前の44 work（header 1＋setup 43）はparagraph hhea metricsであり、
+このrequestを拒否するとparagraph node 2、受入後のcoverageを拒否するとtext node 3を保つ。
+partial allowanceを受け入れず、いずれもglyph output reportは0で、R／Sも同じである。
+
+§324との七control比較でR／S・Source flow観測は全て同じだった。
+単一Result本文はcoverage以外のmetrics 44＋linked preflight 112だけWが増え、
+最終R=209／S=16,874／W=25,604となった。line contexts／複数runs・labelsに応じ、
+他の増分は156／268／604／736 workで、headerは268、footerは156だった。
+原Harano Mincho CFFの本文・柱・footerは同じreceiptsのままR=309／S=131,577／W=354,427、
+§324からの追加2,127 workは三metrics setupsと十二linked preflightsである。
+CFF coverageの最初のtext-owner cutoffはmetrics 65の追加で21,923へ進み、元の1 workずつの拒否を保つ。
+
+nominal regression三testsも再実行し、7,656 queries／41,416全refusal cutoffs、
+六retained fontsの全BMP／supplementary group境界629,484 queriesと20,353,963 workは§324と一致した。
+reader二testsとpreflight一testは各runtime0.01秒未満、nominal三testsは4.40秒、
+body／region七testsは1.19秒で成功した。初期testのFontRef Debug制約compile failureと、
+original-font環境変数を付け忘れたtest実行の失敗はexit 101／当時source／environmentごと保持し、
+修正後の最終結果と混同しない。
+
+CLI testsのtype checkは35.476秒、default shapingとscoped formatが成功した。
+strict shaping Clippyは既存五findingsを残す。primary位置はbeforeと全byte同一の
+旧equation_number_font_metrics／glyph_growth_font内にあり、元function bytesとの照合を保存した。
+既存redundant_field_names／useless_conversionだけをcommand上で除外したcheckは成功した。
+strict全成功や全CLI runtime成功へは読み替えない。
+private CLI buildは25.305秒で成功し、元wide jobのPDF 614,129 bytes・trace 736 bytes・
+manifest 26,402 bytesは§324と全byte一致した。PDF SHA-256は3c546093…のままである。
+新しいraster／全巻受入を行ったとは扱わない。
+
+Root sourceは1,910 inputs、SHA-256 552c1668a4a0109b1caf0e55dabb19916e1822ce1d10bc0b71a0ef3623d6a6ac、変更は八Rust filesだけ。
+§317／320／321／322／323／324とbefore／中間／finalから全producer source cohortsを再構成できる。
+/tmp/typaxis-checkpoint-325-checkoutへ独立regular copyを作り、source guards／Cargo metadataを検査した。
+旧copy／commandsを保持し、旧§324 sourceは最新runnerがtests／output作成前に拒否する。
+1分以上の全回帰はユーザー指示に従って未開始で、次をユーザーへ渡す。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-font-reader-work/run_long_checks.py --group shaping-layout --output /tmp/typaxis-font-reader-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-font-reader-work/run_long_checks.py --group cli --output /tmp/typaxis-font-reader-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-font-reader-work/。
+completed-probesは12,845,398 bytes、SHA-256 c72f41e0169fcf01ae99f3579d3abff5ec63d01b7b531f5a055f9a50bf8501de。
+実行した62,500,552-byte CLI（SHA-256 177116b99a543986c1fafa1b30d82dc6a18d53a77254d4a98b74004e7a55278e）を
+regular member typaxisへ直接保存し、全bytes／hash／mode 0755を読み戻して確認した。
+凍結public CLI・五producer・policyを変更していない。
+
+他Harfrust／font consumers、式番号display側の旧metrics、残るkernel／error work、CFF admission全体、
+allocator実capacity／overcapacity、同時live graphsと全CLI／shaping-layout回帰は未完である。
+元e4fd7415… packageとresource／node同一性、全inline authored speech欠落、原font全巻／多言語、
+公開次期識別子／四manifests・両管理host／性能・著者／人手／PDF-UA受入も未完で、
+formal 9/12 groupsとfull goalの完了条件を変更しない。
+
+
+<a id="observed-shape-output-work-design-14326"></a>
+### 326. borrowed output・glyph変換・post-shape coverageのworkと失敗prefix（設計§14.326、2026-10-17）
+
+shared_shape_storageのborrowed glyph-info検査をprivate helperへ抽出した。
+char boundary／text length、clusterの方向・連続性、先頭source zeroの元predicateとerror優先順を保つ。
+各infoを検査する前に1 workを払い、output callback／retained glyph・cluster vectorsより前に拒否する。
+visual cluster構築・visual／logical隣接検査、glyph scaling／GID検査、source cluster変換も
+各visit前にworkを払う。logical Vecへの既存slice copyは全len workを一つのrequestで先払いする。
+既存のsort work／reserve／output-record paymentをこの新workで置き換えず、R／Sを増やさない。
+
+本文のpost-shape glyph coverageはclusterと実glyphの各visitをfallibleにした。
+最初の.notdefで元MissingShapedGlyphのsource span、generated sourceでは元MissingGeneratedGlyphを保つ。
+生成list／footnote labelsもzero-glyph検査とadvance加算の各visitを払う。
+zeroの早期return、advance overflow／nonpositiveの元InvalidFontMetrics、ordinary NoStorageの
+glyph／cluster orderとfingerprintsを保ち、Sourceの最初のWork causeは実ownerへ復元する。
+
+九cluster casesはvalid LTR／RTL・同cluster複数glyph・日本語UTF-8境界と、
+char途中／text end外／逆順／source zero欠落を含み、元のtyped errorsと24全visit拒否を検査した。
+実Result numberをordinaryと比較し、231個の全work-request refusalで後続requestがなく、
+受入済みinvoiceのprefixとR／S／Wが一致した。全量はR=13／S=4,322／W=3,919である。
+同じ231 work requestsを実Book Source loanでも拒否し、全点でObservedAccounting(Work)、
+実owner 91とatomic三軸prefixを保持した。開始[7,11,13]後の全量は[20,4333,3932]だった。
+post-shape coverageの合成glyph casesは全coverage／先頭zero／途中zeroと各拒否点を含み、
+元span 17..20を保ち、zero以降の未訪問glyphを課金しない。
+
+四新unit testsはruntime0.02秒、既存のnested-bidi／多script number controlは0.01秒で成功した。
+七body／region integration testsは1.45秒で、ordinary receipts、独立record和、requested三軸の
+exact／1不足、本文・生成labels・header／footerと原Harano Mincho CFFを検査した。
+§325との七controlsでR／SとSource flow観測は同じで、追加Wだけが50／52／104／107／115／134となる。
+単一Result本文は[209,16874,25656]で52 work増、原Harano CFF三領域は[309,131577,354547]で120 work増だった。
+前段coverageの最初のtext-owner frontierはTrueType 21,808／CFF 21,923のままである。
+
+strict Clippyが新testsのtype_complexity／needless_range_loop二件を検出したため、
+type aliasとzipへ直し、当時sourceと七findingsのlogも保存した。
+最終strictは既存五findingsであり、primary位置はbeforeと同一の旧二functionsへ照合した。
+既存redundant_field_names／useless_conversionだけを除いたcheckは成功し、strict全成功とは扱わない。
+修正前source indexと中間bytesを保持し、未凍結private checkoutの二test filesだけを更新後、
+source guards／Cargo metadataを再検査した。以前の凍結checkoutを変更していない。
+
+CLI testsは36.359秒でtype check成功、default shapingとscoped formatも成功した。
+private CLI buildは24.583秒で成功し、元wide jobのPDF 614,129 bytes・trace 736 bytes・
+manifest 26,402 bytesは§325と全byte一致した。PDF SHA-256は3c546093…のままである。
+新しいraster比較や全巻受入、全CLI runtime成功へは読み替えない。
+Root sourceは1,910 inputs、SHA-256 7f8300759d3b72447121fa9a4786f154bebb10c619eea8cdf8fd03d10b8134c4、変更は五Rust filesだけ。
+§317／320／321／322／323／324／325とbefore／中間／finalから全producer cohortsを再構成できる。
+/tmp/typaxis-checkpoint-326-checkoutは最終sourceと一致する独立regular copyである。
+1分以上の全回帰はユーザー指示に従って未開始で、最新commandsを次に保存した。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-shape-output-work/run_long_checks.py --group shaping-layout --output /tmp/typaxis-shape-output-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-shape-output-work/run_long_checks.py --group cli --output /tmp/typaxis-shape-output-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-shape-output-work/。
+completed-probesは13,018,968 bytes、SHA-256 062122f3befabbb322005731d64a9112a24329841dcd0d31dbb12eb2bc76fe4d。
+実行した62,486,832-byte CLI（SHA-256 c5e4272c250f3572082b672515b0f01322a760c44ab5ddfce42fbc751e81073a）を
+regular member typaxisへ直接保存し、全bytes／hash／mode 0755を読み戻して確認した。
+凍結public CLI・五producer・policyを変更していない。
+backend内部・他kernel／error work・hashing／dispatch、CFF admission全体、allocator実capacity／overcapacity、
+同時live graphsと全CLI／shaping-layout回帰は未完である。
+元e4fd7415… packageとresource／node同一性、全inline authored speech欠落、原font全巻／多言語、
+公開次期識別子／四manifests・両管理host／性能・著者／人手／PDF-UA受入も未完で、
+formal 9/12 groupsとfull goalの完了条件を変更しない。
+
+
+<a id="observed-shape-digest-work-design-14327"></a>
+### 327. shape receiptsの同一bytesをfallible digest sinkでhashする（設計§14.327、2026-10-17）
+
+本文paragraph、生成list／footnote labels、line-context rolling hashes、本文全体と最終context foldを
+private production_shape_digestへ接続した。SHA-256のfield順／整数幅／nested digestは同じまま、
+初期化1 work、updateはinput bytes＋1、finalizationは最大二64-byte blocksの128 workを
+実行前に受け入れさせる。これはbyte/updateと固定finalizationのwork規則であり、CPU命令数や
+実行秒数の主張ではない。nested hashの初期化／bytes／finalizationと親への32 bytesも別に払う。
+source spanのframing・unsupported generation-kindの元error順、algorithm IDsを保つ。
+
+Digestは固定SHA stateとloanをstack上に保持し、canonical String／Vecやheap bufferを追加しない。
+record／spool hooksを呼ばず、NoStorageはowner／work hooksも全て通らない。
+paragraph guardのrun走査も先払いし、hash fieldのparagraph／run／reference／generated-label ownerへ更新する。
+最終line-context bindingは最後に検証したcontext ownerを使い、Sourceの最初のWork causeを復元する。
+
+実装変更前の§326 product codeで十fingerprintsを採取した。その時のsource差分はtest-only tapsだけである。
+変更後の五本文controls（line contexts・list／footnoteを含む）、header／footer、
+原Harano Mincho CFFの本文／header／footerは全十hashが一致した。
+新旧sourceとmeasurement logsを保存し、新しいNoStorage実装だけをoracleにはしていない。
+
+二digest unit testsはempty／abc golden、0／1／55／56／63／64／65／127／128／129／1024／4096 bytes、
+三chunk splitsとnested hashを含む36 casesで元byte streamに一致し、324全request cutoffsで
+実ownerとaccepted work prefixを保った。reserve／recordsとordinary hooksはpanicで禁止した。
+unit runtimeは0.01秒、八integration testsは1.25秒で成功した。
+新しい二paragraph testは最終bindingの1不足でowner 4、full [238,22324,45067]から
+accepted [238,22324,44939]を保ち、128-work requestを一部も受け入れない。
+paid outputsは30のまま、失敗後にfingerprintを公開しない。
+
+新しい後段hashではparagraph ownerも正当であるため、元region testのinline-only仮定を修正した。
+最終work拒否は実last paragraphとexactに照合し、spool拒否は元inline ownerの検査を保つ。
+coverage frontier探索はretained output後の別ownerを考慮した単調predicateへ直し、
+TrueType 21,808／CFF 21,923の元frontierとglyph report 0を保持した。
+初期tapのcompile failure、旧owner仮定の失敗、font環境変数を付け忘れた実行は、
+exit 101／当時source／environmentごと保存し、最終成功へ読み替えない。
+
+§326との七control比較でR／SとSource flow観測は全て同じだった。
+単一Result本文は[209,16874,27373]でhash work 1,717増、原CFF三領域は
+[309,131577,361633]で7,086増だった。fingerprintsとglyph output recordsを変えた差ではない。
+CLI testsのtype checkは37.018秒、default shaping／scoped formatが成功した。
+strict Clippyの既存五findingsはbeforeの未変更functionsへ照合し、既存二categoriesだけを除いたcheckは成功した。
+private CLI buildは23.458秒で成功し、元wide jobのPDF 614,129 bytes・trace 736 bytes・
+manifest 26,402 bytesは§326と全byte一致した。新しいraster／全巻／全CLI runtime成功とは扱わない。
+
+Root sourceは1,911 inputs、SHA-256 cc72afaed8fb943f2259378526c8d34725e130c9f3dcb99b029d32dfbf370e0a、変更は四Rust filesだけ。
+§317／320／321／322／323／324／325／326とbefore／中間／finalで全producer cohortsを再構成できる。
+RAM-backed tmpfsの容量を使わず、/root/typaxis/workspace/target/vmb-checkpoint-327-checkoutへ
+独立regular copyを作り、source guards／Cargo metadataを検査した。旧checkoutsを保持する。
+1分以上の全回帰はユーザー指示に従って未開始で、次をユーザーへ渡す。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-shape-digest-work/run_long_checks.py --group shaping-layout --output /tmp/typaxis-shape-digest-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-shape-digest-work/run_long_checks.py --group cli --output /tmp/typaxis-shape-digest-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-shape-digest-work/。
+completed-probesは13,461,243 bytes、SHA-256 05e92330f690f34b98bb76e7d5ef9d2f5c3de6ee031263193081e88b165f605a。
+実行した62,512,512-byte CLI（SHA-256 20135efd6c19654583f16922494f9248083f1026dcb13e9142b7e4fd219ea9fb）を
+regular member typaxisへ直接保存し、全bytes／hash／mode 0755を読み戻して確認した。
+凍結public CLI・五producer・policyを変更していない。
+dispatch／他kernel／error work、CFF admission全体、allocator実capacity／overcapacity、同時live graphs、
+全CLI／shaping-layout回帰、元e4fd7415… packageとresource／node同一性、全inline authored speech欠落、
+原font全巻／多言語、公開次期識別子／四manifests・両管理host／性能・著者／人手／PDF-UA受入は未完である。
+formal 9/12 groupsとfull goalの完了条件を変更しない。
+
+
+<a id="observed-grapheme-work-design-14328"></a>
+### 328. grapheme kernelの実訪問とcontext assemblyのwork（設計§14.328、2026-10-17）
+
+新private package typaxis-unicode-segmentation 1.12.0を追加した。元unicode-segmentation 1.12.0
+（checksum f6ccf251212114b54433ec949fd6a7841275f9ada20dddd2f29e9ceea4501493）は通常経路と
+独立比較用にそのまま保持する。local copyの元src／Unicode 16 corpus／両license／COPYRIGHTを保存し、
+grapheme.rsにはchild moduleの宣言だけを追記した。元word／sentence／backward APIsをmeteredとは扱わない。
+
+新forward iteratorはrequest入口、前進scalar read・終端、rule visit、Indic GB9c・regional indicator・
+emoji GB11のlook-backでwork 1を実行前に受け入れる。固定Unicode tablesのlookupを含む
+訪問単位の規則であり、CPU命令数や時間の計測ではない。拒否時は固定cursor cloneで前進状態を復元し、
+受け入れ済みworkを返さない。借用readerとcursorだけを保持し、heap／record／spool要求を加えない。
+
+shared itemizationのcount／materialize二走査、段落site境界とline endsのmergeをfallible readerへ結んだ。
+contextのlength集計はsiteごと1、text copyはbytes＋1、site start／end・line end・隣接順序比較も先払いする。
+context／itemizationのwork ownerは当該paragraphを保ち、生成numberは既存Source ownerを保つ。
+境界readerは既存のgrapheme starts＋最後のtext.len()を返し、peekの再読は二重課金しない。
+通常readerは元registry iteratorを使い、既存境界判定・error順・receipt framingを保った。
+
+新vendor二testsはextended／legacyのUnicode 16 goldens 2,186 casesに一致し、30,942全request cutoffsで
+拒否後のcursor／accepted prefixと再試行を検査した。Indic 387 bytes、regional indicator 256 bytes、
+emoji ZWJ 452 bytes、combining 2,049 bytesのstressとmixed forward／backwardも成功した。
+adapter二testsは別registryの1,093 extended casesと16,431全拒否点、空文字・終端・cached peekを検査した。
+既存output四testsは実numberの307全work拒否点でSource owner 91とatomic accepted prefixを保ち、
+full [20,4333,4008]を観測した。多言語number一test、original fontsを含むbody／region八testsも成功した。
+合計17 focused testsであり、全shaping／layout／CLI runtime回帰の完了ではない。
+
+§326で実装変更前に採取し§327でも照合した十receipt fingerprintsが今回も全て一致した。
+七controlsのSource countersとrecord／requested spoolは同じで、Result本文は[209,16874,27497]
+（work＋124）、原Harano CFFのbody／header／footerは[309,131577,362032]（work＋399）となった。
+coverage最初のtext-owner frontierはTrueType 21,932／CFF 22,017へ増え、追加paragraph workが先に消費される。
+最終line-binding hashの拒否はowner 4、full [238,22324,45393]からaccepted [238,22324,45265]、
+paid output 30を保持する。hashやglyph outputを変更してcounterを合わせたものではない。
+
+初期testのToOwned import不足とtestdata相対pathのcompile失敗、copied parity式への新lint二件、
+receipt抽出器のfull-line仮定による二失敗を当時source／script／exitごと保存した。
+parity式は同値のbit判定へ修正し、serial log内のtest-name prefixも許す抽出器で全十hashを照合した。
+strict shapingの五findingsは元functions、vendor standaloneの十二findingsは元upstream行へbyte照合した。
+no-depsを付けない試行のfont／document-package二十二findingsも変更前と同一filesに由来する。
+既存categoriesだけを除外した両scoped checks、default shaping、scoped formatは成功した。
+CLI testsのtype checkは36.243秒、private CLI buildは23.482秒。
+元wide jobのPDF 614,129 bytes・trace 736 bytes・manifest 26,402 bytesは§327と全byte一致した。
+新raster検証や実全巻受入の成功とは扱わない。
+
+Root sourceは1,926 inputs、SHA-256 e4f1592f0e1512a360fe74f0e5b5bb64d03db14825c6c98d5913dd6bc7e9ce36、本stage差分は21 files。
+既存六filesの変更と新十五filesを、§317／320〜327・before／中間／finalのsource poolで再構成できる。
+独立regular copy /root/typaxis/workspace/target/vmb-checkpoint-328-checkoutを作り、source guardsと
+Cargo metadataを確認した。旧checkoutsを保持し、長時間runnerのshaping-layout groupにも新vendor testsを加えた。
+1分以上の全回帰はユーザー指示に従って未開始で、次をユーザーへ渡す。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-grapheme-work/run_long_checks.py --group shaping-layout --output /tmp/typaxis-grapheme-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-grapheme-work/run_long_checks.py --group cli --output /tmp/typaxis-grapheme-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-grapheme-work/。
+completed-probesは13,507,903 bytes、SHA-256 9d3737df5302205235f5f9af70a48e940c390fff69deb7dea29a63dd3b3d3021。
+今回の62,583,408-byte CLI（SHA-256 81da0647a83618cd3b507a08cef8ff89ffc59c0af7e7333ddebf590ddcdadd83）を
+regular member typaxisへ保存し、全bytes／hash／mode 0755を読み戻した。
+容量確保ではCargo lockを保持し、inactive compiler cache 58 files／413,769,334 logical bytesを
+88,459,682-byte archive（SHA-256 f9df0f62c26ceed5f42cb2a3b984ee093eb3e2a3645ac133d4edcd0b14ebe438）へ
+全bytes／hash／modeを読み戻した後でunlinkした。後の再compileで同pathは再生成され得る。
+凍結public CLI・五producer・policy・VMB codeを保った。
+
+font-family lookup・script-extension・段落dispatch／他kernel／error work、CFF admission全体、
+allocator実capacity／overcapacity・同時live graphs、長時間全回帰、元e4fd7415… packageと
+node／resource対応、全inline authored speech欠落、原font全巻／多言語、公開次期識別子／四manifests、
+両管理host／性能・著者／人手／PDF-UA受入は未完。formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+<a id="observed-itemization-dispatch-work-design-14329"></a>
+### 329. itemizationとparagraph／run selectionの実訪問をSource workへ接続（設計§14.329、2026-10-17）
+
+shared_text_workへ四borrowed helpersを追加した。script候補はpinned unicode-script 0.5.7の
+for_strと同じ初期Common・scalar順のintersectionを保ち、scalar read／終端の直前に1 workを払う。
+bidi-level比較は各byte-levelの読取り前、line-end binary searchは入口と各probeの前、
+number widthはrun／glyphごとの加算前に払う。三u64 bitsets・固定Unicode tablesの訪問単位の規則で、
+CPU命令数や実行秒数を意味しない。通常helpersは元library operationsを呼び、全hooksを通らない。
+新helpersはheap／record／requested spoolを追加しない。
+
+shared itemizationの二grapheme走査の後段へscript／bidi visitsを結び、group／candidate／resolve訪問も払う。
+本文のparagraph／context-claim／pending-reference／site／spec／run訪問、生成list／footnote label訪問、
+number run dispatchと最終幅集計も同じloanへ接続した。ordered partitionsのmoving cursorとline lookupの
+結果を保ち、数値幅は元のi64 checked sum→最終Length／PositiveLength検証を維持する。
+段落graphのsite dispatchはparagraph owner、選択後のrun／line lookupは実text ownerへ帰属する。
+
+四unit testsはscript 1,097 cases／4,925拒否点、line search 14,453 cases／100,001拒否点、
+bidi 561 cases／6,512拒否点、幅の空／非正／Length範囲外／正負i64 overflowを含む八cases／2,066拒否点を検査した。
+計113,504全request cutoffsで即時停止とaccepted work prefixを保ち、reserve／records呼出しをpanicで禁止した。
+重複line ends、u32::MAX／usize::MAX、空配列も元partition_pointと一致した。
+Unicode 16 corpusと多言語／invalid controlsの1,099 complete itemizationsも通常経路と一致した。
+通常hooksは別Silent observerでpanicとして禁止した。unit runtimeは0.07秒だった。
+
+既存output四tests、多言語number一test、original fontsを含むbody／region九integration testsも成功し、
+合計18 focused testsとなった。実number Sourceは340全work request cutoffsでowner 91を保ち、
+full [20,4333,4041]とatomic accepted prefixを検査した。九integrationのうち新一testはline-contextの
+claim owner 999を拒否し、直前のwork不足を信頼済みparagraph owner 2へ帰属させる。
+full [196,11948,21752]→accepted [196,11948,21751]、paid output 0で、失敗したreceiptを返さない。
+最終line-context foldもowner 4、full [238,22324,45461]→accepted [238,22324,45333]、paid output 30を保った。
+
+初期integration一失敗は、hhea setupとcoverageの間に新しいparagraph-owned site visitが入ったための
+旧testの隣接仮定だった。元directory allowanceのatomic拒否を保ち、追加visitの1 work境界も検査する形へ直した。
+font reader／TrueType／CFF coverage kernelsのbytesは§328から変えず、coverage frontierはTrueType 21,960／
+CFF 22,049となった。新testdata二重moduleのClippy findingは、既存corpus moduleのcrate内test共有で解消した。
+両失敗の当時source／exitを保存し、成功へ読み替えない。
+
+§326で変更前採取し§327／328でも照合した十receipt fingerprintsは今回も全て一致した。
+七controlsのSource countersとrecord／requested spoolも同じで、Result本文は[209,16874,27528]
+（§328からwork＋31）、原Harano CFFのbody／header／footerは[309,131577,362199]（＋167）となった。
+strict shapingの五findingsはbeforeの同一functionsへbyte照合し、既存二categoriesだけを除くscoped checkは成功した。
+元vendor bytesとCargo pinsを保ち、既存upstream warningsを新kernelの成功として扱わない。
+default shaping・scoped format、CLI testsのtype check（36.780秒）、
+private CLI build（24.784秒）も成功した。
+元wide jobのPDF 614,129 bytes・trace 736 bytes・manifest 26,402 bytesは§328と全byte一致した。
+新raster検証・全CLI runtime・実全巻受入の成功ではない。
+
+Root sourceは1,928 inputs、SHA-256 0e10f8bba71980937f014ff0a3544b9a75e926dc146891dea34b469ba2773ca8、本stage差分は九Rust files。
+§317／320〜328とbefore／中間／finalのpoolで全producer source cohortsを再構成できる。
+独立regular copy /root/typaxis/workspace/target/vmb-checkpoint-329-checkoutを作り、source guards／
+Cargo metadataを確認した。旧checkoutsを保持し、1分以上の全回帰はユーザー指示に従って未開始である。
+最新source用のcommandsを次に保存する。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-itemization-dispatch-work/run_long_checks.py --group shaping-layout --output /tmp/typaxis-text-dispatch-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-itemization-dispatch-work/run_long_checks.py --group cli --output /tmp/typaxis-text-dispatch-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-itemization-dispatch-work/。
+completed-probesは13,144,578 bytes、SHA-256 55627800815d3c6eda593b0b0cdc39c4d9e6c0db5074523517c4a5f33ea5d2e8。
+今回の62,596,496-byte CLI（SHA-256 b6e49155e48ee926c897bf4b24c9de43beb13ea0d47f9139fafe12f98764e168）を
+regular member typaxisへ直接保存し、全bytes／hash／mode 0755を読み戻した。
+容量確保ではCargo lockを保持し、inactive compiler cache 28 files／251,888,360 logical bytesを
+53,407,340-byte archive（SHA-256 47650463246e9ebb718284bdc4ddd045988cf14f909df7c927cb757d0f9afb83）へ
+読み戻し検証した後でunlinkした。再compileで同pathは再生成され得る。凍結public CLI・五producer・policyを保った。
+
+font-family／generated-overlay lookup、他dispatch／kernel／error work、CFF admission全体、
+allocator実capacity／overcapacity・同時live graphs、長時間全回帰、元e4fd7415… packageと
+node／resource対応、全inline authored speech欠落、原font全巻／多言語、公開次期識別子／四manifests、
+両管理host／性能・著者／人手／PDF-UA受入は未完である。formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+<a id="observed-font-selection-work-design-14330"></a>
+### 330. native font-family lookupとface選択をSource loanへ接続（設計§14.330、2026-10-17）
+
+FontFamilyTableの元constructor／resolveとBTreeMapを保ち、fallible try_resolve_with_workを加えた。
+入口1 work、試すfallbackごとに1＋（declared family数＋1）×（query UTF-8 bytes＋2）を先払いする。
+installed rustc 1.97.0のget／search_tree／node searchのprimary sourceを保存した。
+searchは一経路を下り、各nodeの互いに異なるkeysを比較するため、全宣言数とquery bytesから
+conservative allowanceを求める。これは実comparison数・CPU命令数・実行秒数の観測ではない。
+checked arithmetic失敗とcallback refusalをfamily lookupのsemantic failureから区別し、refusal後はlookupを実行しない。
+通常resolveは元bytesのままで、fallback順・case・Unicode byte区別を保持する。
+
+BodyFontsの共通selectorへ結び、本文paragraphと生成list／footnote labelsが利用する。
+family解決後はlegacy ledgerのface候補ごとに1 work、BookV2のdense instance／face joinに1 workを払う。
+equation-number consumerにも接続し、専用storage adapterが最初のSource Accounting causeを復元する。
+新selectorはfamily index／String clone／結果bufferやrecord／requested spoolを追加しない。
+NoStorageは元family resolve／face lookupを使う。公開contract／profile識別子を昇格させる変更ではない。
+
+二font unit testsは650 fallback casesを元resolveと比較し、first-known順、空／unknown、大小文字、
+合成／分解Unicode、長い日本語／ASCII queryを検査した。1,366全request cutoffsで直ちに停止し、
+seeded prefixから各requestが1不足の1,366点でも一部課金しない。allowance算術の42組とoverflowも検査した。
+新body integrationは576-byte missing family queryを使い、元MissingSelectedFont errorを保持した。
+その直前の1,735-work requestが1不足ならowner 2、full [196,18368,41187]から
+accepted [196,18368,39452]を保持し、paid glyph output 0で失敗する。入口の1 work不足も検査した。
+
+original-font body／region十integration、既存output四tests、多言語number一testを含む計17 focused testsが成功した。
+実number runsの340全work拒否点とowner 91／accepted prefixも保った。
+新missing-family testは本文selectorの拒否を検査し、number consumer全体の新しいfont-selection拒否matrixや
+legacy observed selectorの実入力回帰を証明したものではない。全CLI／長時間回帰とともに受入の残件とする。
+
+§326で変更前採取し§327〜329でも照合した十receipt fingerprintsは今回も一致した。
+七controlsのSource countersとrecord／requested spoolは同じで、Result本文は[209,16874,27549]
+（§329からwork＋21）、原Harano CFFのbody／header／footerは[309,131577,362262]（＋63）となった。
+coverage frontierはTrueType 21,981／CFF 22,070、最終line-context foldはowner 4、
+full [238,22324,45503]→accepted [238,22324,45375]、paid output 30を保持した。
+strict font 23／shaping 5 findingsをbeforeの同一source／functionへ照合し、既存categoriesだけを除く
+両scoped Clippyは成功した。新しいfindingを除外して成功させたものではない。
+default shaping・scoped format、CLI testsのtype check（38.188秒）と
+private CLI build（23.841秒）も成功した。
+元wide jobのPDF 614,129 bytes・trace 736 bytes・manifest 26,402 bytesは§329と全byte一致した。
+新raster検証や実全巻受入の成功とは扱わない。
+
+Root sourceは1,930 inputs、SHA-256 1007f92e12db6d70e1e1092f39a6a3e55c523697f9502e2fbc72e90f0eaf7c0e、本stage差分は九Rust files。
+§317／320〜329とbefore／中間／finalで全producer source cohortsを保持した。
+独立regular copy /root/typaxis/workspace/target/vmb-checkpoint-330-checkoutを作り、source guards／Cargo metadataを確認した。
+旧checkoutsを保持し、1分以上の全回帰はユーザー指示に従って未開始である。最新commandsは次のとおり。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-font-selection-work/run_long_checks.py --group shaping-layout --output /tmp/typaxis-font-selection-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-font-selection-work/run_long_checks.py --group cli --output /tmp/typaxis-font-selection-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-font-selection-work/。
+completed-probesは12,882,404 bytes、SHA-256 8452ad49140c6d6d32c2ed648f0bed4ee15e18c4a29a073f222aa9241f58042d。
+62,597,696-byte CLI（SHA-256 661e5b24481e8f70f17895f4e6352de11afcf444c0f3463c16b8769ad1cdd5cc）をregular member typaxisへ保存し、
+全bytes／hash／mode 0755を読み戻した。Cargo lock下でinactive compiler cache 26 files／188,342,573 logical bytesを
+40,515,992-byte archive（SHA-256 fa430eabd5057416a3fdd5698d51325a6a18bb656f5f7624052a8c3d967e4c13）へ
+読み戻し検証した後でunlinkした。再compileで同pathは再生成され得る。
+凍結public CLI・五producer・policy・VMB codeを保った。
+
+generated-overlay lookup、他dispatch／kernel／error work、CFF admission全体、allocator実capacity／overcapacityと
+同時live graphs、長時間全回帰、元e4fd7415… packageとnode／resource対応、全inline authored speech欠落、
+原font全巻／多言語、公開次期識別子／四manifests、両管理host／性能・著者／人手／PDF-UA受入は未完である。
+formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+<a id="font-selection-caller-verification-design-14331"></a>
+### 331. font-selection callersの実ledger／Source拒否matrix（設計§14.331、2026-10-17）
+
+§330で未確認としたlegacy observed selectorとnumber storage adapterへ実入力の検査を加えた。
+公開HostResourceAdmissionSessionとlegacy／production-v3 resolversで、保存済みTrueType fixtureを
+四logical facesとして実際に読取り・admitした。font namesの宣言順をB-tree順と変え、V3 instancesも
+公開constructorから発行した。caller側でadmission tokenやledger内部を偽造していない。
+四facesのbytesが同じでもface／instance IDsを別々に検査し、content hashだけの一致で済ませない。
+
+二ledger kinds×八fallback controlsの16 direct casesで、first-known・Unicode byte区別・missing／空fallback、
+legacy候補の先頭／途中／末尾とV3 dense joinを検査した。通常selectorには全hooksがpanicのSilentを渡し、
+観測selectorのreserve／recordsもpanicで禁止した。57全request cutoffsで即時停止とaccepted fee prefixを保った。
+
+同じ実ledgersをnumberのselect_font_observedへ渡し、Source owners 91／205の各々で
+seed [7,11,13]から全work capsを走査した。32 cases／12,958 capsで、成功／MissingSelectedFontの
+元結果、拒否時の外側number ownerと内側Work owner、atomic accepted prefixが一致した。
+record／requested spoolは常に[7,11]を保った。これはresource admissionとinstance constructionを済ませた後の
+selector loanの検査であり、それら前段の容量・workを観測した主張ではない。
+公開number carrierの全verify／hash／receipt pipelineや全巻受入の代用にもならない。
+
+二testsのruntimeは0.01秒で成功した。新testのtype-complexity findingは型aliasへ整理して解消し、
+strict shapingの既存五findingsをbeforeの同じfunctionsへ照合した。既存二categoriesだけを除くscoped Clippyと
+scoped formatは成功した。最初の実行で必要なlock更新はtypaxis-shapingの開発依存typaxis-document一edgeだけで、
+package versions／sourcesと通常manifest sectionsが同じことをTOMLで比較した。以後の実行はoffline／lockedである。
+
+差分はtest用Rust二files、cfg(test) module anchors二files、Cargo.toml／Cargo.lockの計六files。
+二anchorsは元fileの全bytesへtest-gated suffixだけを追記し、他の全production inputsを§330へhash照合した。
+従って本stageのruntime証拠は§330を参照し、新しいCLI build／PDF／raster probeを開始したとは記録しない。
+§330の62,597,696-byte CLI（SHA-256 661e5b24481e8f70f17895f4e6352de11afcf444c0f3463c16b8769ad1cdd5cc）を保った。
+
+Root sourceは1,932 inputs、SHA-256 cc4c90806bb586219ded322690f10ab4bdcbec9364960085501f455424066fea。
+§317／320〜330とbefore／中間／finalで全producer source cohortsを保持した。型alias後・format前の一sourceも、
+保存したbeforeから同じ編集を適用し、当時commandが記録したSHA-256との完全一致を確認して保存した。
+独立regular copy /root/typaxis/workspace/target/vmb-checkpoint-331-checkoutを作り、source guards／Cargo metadataを確認した。
+旧checkoutsを保持し、1分以上の全回帰はユーザー指示に従って未開始である。最新commandsを次に保存する。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/font-selection-caller-verification/run_long_checks.py --group shaping-layout --output /tmp/typaxis-selector-callers-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/font-selection-caller-verification/run_long_checks.py --group cli --output /tmp/typaxis-selector-callers-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/font-selection-caller-verification/。
+completed-probesは446,736 bytes、SHA-256 cbbadb7efd5e523e9881d6adae8ae233441252a833f58152fb2f844c3b2d95e2。
+本stageでcompiler cacheや旧binaryを削除せず、凍結public CLI・五producer・policy・VMB codeを保った。
+generated-overlay lookup・他dispatch／kernel／error work、CFF admission全体、allocator実capacity／overcapacityと
+同時live graphs、長時間全回帰、元e4fd7415… packageとnode／resource対応、全inline authored speech欠落、
+原font全巻／多言語、公開次期識別子／四manifests、両管理host／性能・著者／人手／PDF-UA受入は未完である。
+formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+<a id="observed-generated-text-lookups-design-14332"></a>
+### 332. generated overlay lookup・reference／label dispatchのwork（設計§14.332、2026-10-17）
+
+GeneratedTextOverlayへ借用・fallibleなbuffer／provenance helpersを追加した。
+入口1 work、canonical keyのbinary searchの各probe前に1 workを受理し、refusal後に次のprobeを実行しない。
+key比較は三integer fieldsで、search用index・text clone・結果bufferを作らない。
+provenanceはunknown key／UTF-8内部offset／逆spanなどの元semantic errorを保持し、固定span検証前に1 workを払う。
+これはprobe／固定operationのwork規則で、CPU命令数や秒数の実測ではない。
+
+SourceTextFlowのreference／footnote／list helpersはtextとprovenanceを組で借用し、
+list item訪問・text長とu32 span化も先払いする。page keyが存在すれば空でもcounterへfallbackしない。
+lookupだけではsource authorizationを与えず、改変flowは既存verify_forでReceiptMismatchになる。
+本文contextの長さ／copy二走査、pending reference判定、site／run準備、生成list／footnote labelsが
+観測時だけこのhelperを使う。paragraph中はtrusted paragraph owner、独立labelsはlabel ownerを保ち、
+元Source Accounting causeを一般missing／receipt errorへ変換しない。
+NoStorageは元overlay／flow methodsを使い、生成文字列・receipt fields・record／requested spoolを保つ。
+
+二text testsはnative binary searchと21,440 lookup casesを比較し、167,614全request拒否点で即時停止を検査した。
+既知／未知keyとUTF-8・空／逆／範囲外spanの27 cases／81拒否点も元provenanceの結果と一致した。
+二syntax testsは実validated BookV2 inputsから作るpage／counter／list／footnote／missingの45 cases／
+296拒否点と、空page優先の8拒否点を検査した。最初のtestは空spanを無効と誤って期待して失敗したため、
+元GeneratedTextSpanが空範囲を許すことへtestを修正した。productのspan規則を変えず、失敗logと当時sourceも保持した。
+空page用に内部overlayを変えたflowはverify_forが引き続き拒否する。
+
+新integrationは実flowのinline footnote／definition／list／missing referenceの四casesを
+seed [7,11,13]のSource loanへ結び、37 work capsでowners 4／7／3とaccepted prefixを検査した。
+record／spoolは[7,11]を保ち、lookupそのものに新reserve／recordsを加えていない。
+この直接loan検査を公開carrier全体の拒否matrixやadmission前段の観測へ読み替えない。
+original-font body／region十一integration、既存output四tests、多言語number一testと合わせて20 focused testsが成功した。
+
+§326で変更前採取した十receipt fingerprintsは今回も一致した。七controlsのSource countersと
+record／requested spoolは同じで、mixed-label bodyだけfull [339,38598,74300]から
+[339,38598,74341]へwork＋41となった。plain body／regionsは同じで、
+原Harano CFFのbody／header／footerも[309,131577,362262]を保つ。
+最終line-context foldはowner 4、full [238,22324,45503]→accepted [238,22324,45375]、paid output 30を保った。
+
+text strict Clippyは成功した。syntax strict 33／shaping strict 5 findingsはbeforeの同じ完全file／prefix／functionへ照合し、
+既存categoriesだけを除く両scoped checksは成功した。新findingを除外したものではない。
+default shaping・scoped format、CLI testsのtype check（37.663秒）、
+private CLI build（24.354秒）も成功した。
+元wide jobのPDF 614,129 bytes・trace 736 bytes・manifest 26,402 bytesはruntime §330と全byte一致した。
+§331はtest-only stageなので新PDFの比較元とせず、新raster／実全巻受入の成功とも扱わない。
+
+Root sourceは1,936 inputs、SHA-256 2a46866108b79095b0c9c02ca74f860bc9ae8aabad8f7326e4fbe3e338da476f、差分は十二Rust files（新規四files）。
+§317／320〜331とbefore／中間／finalで全producer source cohortsを保持した。
+独立regular copy /root/typaxis/workspace/target/vmb-checkpoint-332-checkoutを作り、source guards／Cargo metadataを確認した。
+長時間shaping-layout groupへ新testsを持つtypaxis-text／typaxis-syntaxも加えた。
+旧checkoutsを保持し、1分以上の全回帰はユーザー指示に従って未開始である。最新commandsは次のとおり。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-generated-text-lookups/run_long_checks.py --group shaping-layout --output /tmp/typaxis-generated-lookup-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-generated-text-lookups/run_long_checks.py --group cli --output /tmp/typaxis-generated-lookup-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-generated-text-lookups/。
+completed-probesは13,241,101 bytes、SHA-256 4fc085b9d760a7be3f4a916c599183d88f80fc2a038adcc0069b7de9ae8878f4。
+62,603,168-byte CLI（SHA-256 f612af869773968f27a40d723de1f03bfc6e19231b2a6de77780d1bb33b11a76）をregular member typaxisへ保存し、
+全bytes／hash／mode 0755を読み戻した。§330 CLIも既存archive内のregular memberを読み戻してからprivate cacheを再buildした。
+Cargo lock下でinactive compiler cache 29 files／217,133,160 logical bytesを46,296,278-byte archive
+（SHA-256 f8c1972a827b1b58e8e5842bfa6fc68346c28d109d6aa9de118e4d734dfefc04）へ保存し、
+全bytes／hash／modeを読み戻した後でunlinkした。同pathは再compileで再生成され得る。
+凍結public CLI・五producer・policy・VMB codeを保った。
+
+他dispatch／kernel／error work、CFF admission全体、allocator実capacity／overcapacityと同時live graphs、
+長時間全回帰、元e4fd7415… packageとnode／resource対応、全inline authored speech欠落、
+原font全巻／多言語、公開次期識別子／四manifests、両管理host／性能・著者／人手／PDF-UA受入は未完である。
+formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+<a id="cff-base-cmap-admission-storage-design-14333"></a>
+### 333. CFF /2 base cmapのtree除去とfallible storage（設計§14.333、2026-10-17）
+
+§323で残したadmission時の一時base-map BTreeMapを除去した。format 4／12のvalidation statementsを
+共通visitorへ移し、旧CFF /1は元Vec push／tree mergeを保つ。CFF /2は同じvisitorで先に行数を確認し、
+その正確な行数だけtry_reserve_exactしてからmaterializeする。各subtableは昇順を保ち、
+linear mergeの最初の走査でGID衝突とunique行数を確認する。alias／subsetなら既存の完全なvectorを保持し、
+新vectorが必要なときだけunique行数を一回予約して二回目の走査で埋める。sort／tree nodeや最後のtree copyを使わない。
+各pushは予約済み行数内で、allocation refusalは既存のcmap Storage／AllocationFailure型へ戻す。
+format 14 validation・owned supplement、元cmap coverage searchと公開admission exportsは変更していない。
+
+変更前の§332 sourceで独立したpublic-API probeを先にcompileし、mapping全体または元診断のDebug bytesを
+SHA-256へ束縛した。55 synthetic seeds、そのbyte置換・全prefix、六original-font cmap controlsの計34,306 outcomesを採取し、
+変更後と全hash一致した（accepted controls 1,954）。六font controlsはcmap単位の結果比較で、全六fontの全巻受入の主張ではない。
+初回のvisitor抽出でformat 12のreserved-field検査を落とし、baselineが不一致を検出したため元検査を復元した。
+semantic期待値を変えず、8 reserved-field casesでallocation前の拒否を追加検査した。
+最初の失敗source／probe／compiler inputsも保持し、最終のstatement照合は両formatsで成功した。
+後続probe helperのlabel参照誤りと、metadata未生成時に呼んだ保存処理の失敗も別logとして保持した。
+修正後の最終probeを成功証拠とし、途中失敗を成功へ読み替えない。
+
+四新unit testsは27,037 base-parser casesを旧tree出力と元contextへ比較し、その前のvariation validatorによる
+7,263拒否も区別した。55 allocation fixturesの106全row requestsで実try_reserve_exactのcapacity-overflowを
+注入し、各prefixで直ちに既存Storage errorとなることを確認した。OSのmemory exhaustionは起こさない。
+alias／subsetでの元pointer保持、衝突時のmerge allocation禁止と、重複を除いた正確な行数も検査した。
+既存cmap五tests（元Haranoの15,815 base mappingsと全listed variation pairsを含む）、旧CFF九tests、
+実host admission六tests、original-font body／region十一testsと合わせて35 focused testsが成功した。
+
+十receipt fingerprintsと七controlsのSource／full countersは§332と同じで、元Harano CFFのbody／header／footerは
+[309,131577,362262]を保った。admissionは当該Source loanより前なので、この一致をadmissionのwork課金と扱わない。
+本変更はbase cmapの要求行storageをfallibleにした段階であり、実allocator capacity／overcapacityや
+admission全体のwork／spool・同時live graphsを計測したものではない。二走査と各recordのmergeも今後の観測対象として残る。
+原format grammar、nonzero-GID／surrogate／重複・衝突判定、元semantic contextと上位font identityを維持した。
+
+font strict Clippyには既存23 findingsが残り、beforeの同じfile／完全functionへ照合した。
+既存五categoriesだけを除くscoped check、scoped format、CLI testsのtype check（41.464秒）と
+private CLI build（23.325秒）は成功した。
+元wide jobのPDF 614,129 bytes・trace 736 bytes・manifest 26,402 bytesは§332と全byte一致した。
+新raster／実全巻受入の成功や、長時間CLI testsのruntime成功へ読み替えない。
+
+Root sourceは1,940 inputs、SHA-256 e5cedb9436d79e5ee4e46cd8efd76b78756a69ade7c6acf146bcae4f20c53b72。差分は六Rust files（新規四files）で、
+manifest／lock・vendorと公開profile識別子を保った。§317／320〜332とbefore／中間／finalで全producer source cohortsを保持した。
+最初のcompile前・Debug derive追加前の一fileは、保存sourceからderiveだけを除いて当時のhashと完全一致させた。
+before／不一致版／finalのcompiler inputsは三archiveへbyte／hash検証して保存した。
+独立regular copy /root/typaxis/workspace/target/vmb-checkpoint-333-checkoutを作り、source guards／Cargo metadataを確認した。
+旧checkoutsを保持し、1分以上の全回帰はユーザー指示に従って未開始である。最新commandsを次に保存する。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/cff-base-cmap-admission-storage/run_long_checks.py --group shaping-layout --output /tmp/typaxis-direct-cmap-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/cff-base-cmap-admission-storage/run_long_checks.py --group cli --output /tmp/typaxis-direct-cmap-long-cli
+```
+
+証跡はworkspace/target/vmb-design/20261017/cff-base-cmap-admission-storage/。
+completed-probesは17,549,601 bytes、SHA-256 fca01cea2a59c0cd5d4ad40744e2c38d7c55c5512bd0036a109d05394c523329。
+62,608,968-byte CLI（SHA-256 526e94e4774775aecbc793a7b29b89cca22a64b98454aeff11f9836ce3863a53）をregular member typaxisへ保存し、
+全bytes／hash／mode 0755を読み戻した。§332 CLIも既存archive内のregular memberを確認してからprivate cacheを再buildした。
+Cargo lock下でinactive compiler cache 28 files／221,337,177 logical bytesを47,147,478-byte archive
+（SHA-256 b7e923f595f8aa57d8b9c096043844a0bb7502ebfbf21ba1321d75d677f9fc9a）へ保存し、
+全bytes／hash／modeのreadback後にunlinkした。同pathは再compileで再生成され得る。
+凍結public CLI・五producer・policy・VMB codeを保った。
+
+CFF admission全体・他dispatch／kernel／error work、allocator実capacity／overcapacityと同時live graphs、
+長時間全回帰、元e4fd7415… packageとnode／resource対応、全inline authored speech欠落、原font全巻／多言語、
+公開次期識別子／四manifests、両管理host／性能・著者／人手／PDF-UA受入は未完である。
+formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+<a id="observed-cff-base-cmap-admission-design-14334"></a>
+### 334. CFF /2 base cmap admissionのSource work／要求storage（設計§14.334、2026-10-17）
+
+§333のfallible vectorsにCffBaseCmapBudgetV2を接続した。header入口・各encoding record、format 4／12の
+固定header・segment／group・scalar（notdef sentinelを含む）、merge入口・各comparison／残りrowのvisitを
+実行前にworkへ払う。count／materializeとunion count／copyの両走査を観測する。
+vector確保前に完全な要求行数とrows×sizeof((u32,u16))を一回のreservationとして払い、
+alias／subset再利用ではmerge reserveを発生させない。native try_reserve_exactの失敗後も払い済みprefixを返金しない。
+これは要求行storageで、allocatorの実capacityや過剰確保・同時live graphsの測定ではない。
+
+公開observed APIはResult<Result<T,元native error>,typed budget failure>を返す。
+新budget errorは元semantic failureへ読み替えず、callback causeとtable offset／formatを保持する。
+SFNT wrapperは実cmap TableRecordからfile offsetを付与し、production resolverは実FontFaceIdを保持する。
+旧ordinary APIはconst OBSERVED=falseのadapterを使い、hooksを呼ばず元Resultを返す。
+予算callbackを出力に保持せず、失敗したfontをresolver ledgerへ挿入しない。
+
+BookV2ObservedBaseCmapBudgetは既存Source accountingを借用し、reserveをatomicなrecords／spool debitへ、
+workを同じwork cellへ渡す。独立counter・事後推定や新しいresource authorityを作らない。
+CLIのcounted initial-style preparationはstyleの直後に実command cellsをこのadapterへ貸し、
+実hostのfont読み取り／parse／bindへ接続する。quota ownerはcommand root NodeId(0)、resource subjectは実FontFaceIdである。
+refusalはbodyとtyped causeを保持したBaseCmap variantで返す。
+このCLI経路の新ignored testはtype check済みで、runtimeは長時間compileを伴うため未開始である。
+下記initial-admission commandで個別に実行できる。
+
+六base-map tests（新規二tests）には55 fixtures・4,226全request cutoffsがあり、元native結果と
+ordinary hooks不呼出し、refusal直後の停止とaccepted prefixを照合した。
+固定format 12の三mappingは[3,24,13]、format 4の三mapping＋notdef sentinelは[3,24,17]、
+不正reserved fieldは[0,0,3]となる。既存の27,037 semantic cases・7,263 prior variation rejectsと
+106実capacity-overflow拒否も通る。
+
+Source側の新二testsではowners 91／205、seed [7,11,13]と92 capsで三軸のatomic reservation／同cells retryを確認した。
+原HaranoMincho SHA-256 66ef3270…の実host admissionではCFF二aliasと既存TrueTypeを同じresolverへ通した。
+全成功prefixは[124387,995051,491411]で、同じcellsへ続くSource preparation後は[124574,1006980,512722]となる。
+三軸それぞれのone-shortはfont subject 2／quota owner 0を保持し、resolver.finishは未完ledgerを拒否する。
+spool上限を下げるfixtureではM4 font subset上限も同じ有効domain内へ下げる。
+既存cmap五・legacy CFF九・host admission六・body／region十三と合わせて39 focused testsが成功した。
+
+§333の変更前public probe（六original-font cmap controlsを含む34,306 outcomes／1,954 accepted）を参照し、
+全mapping／元diagnostic Debug bytesのhashが一致した。before compiler inputsは§333凍結archiveを参照し、
+今回のprobeと最終compiler inputsも保存した。十receipt fingerprints、七controlsのSource／full cellsは§333と同じである。
+当該controlsはordinary resource admissionをSource loan前に行うため、この一致を新admission counter検査と混同しない。
+原wide jobのPDF 614,129 bytes・trace 736 bytes・manifest 26,402 bytesも全byte一致した。
+
+CLI tests type checkは修正後20.921秒、private buildは24.254秒で成功した。
+strict Clippyのfont 23／resource-admission 162／shaping 5 findingsはbeforeの完全file／function／enum、
+または元ordinary wrapperの同じsignature／error return typeへ照合した。既存categoriesだけを除くchecksとscoped formatは成功した。
+途中のmissing export／guard assertion、invalid spool-domain fixture／未設定env、共有test moduleの二重load、
+新testのCopy clone、CLI fixtureのString／bytes不一致を修正し、失敗logと各sourceを保持した。
+最終focused tests以後の変更はCLI test内のString処理二行だけで、他cratesの検証済みbytesを保持する。
+最初のCLI helper sourceは保存variantへ二重borrow一箇所を戻し、当時採取したhashと完全一致させた。
+これら途中失敗を成功へ読み替えない。
+
+Root sourceは1,945 inputs、SHA-256 c0702f6072e3d726d3b3beaa5a373a2afb8fec233064099756b50051f99abb6a、差分19 Rust files（新規5files）である。
+manifest／lock・vendorとprofile identifiersを保ち、§317／320〜333と今回before／中間／finalで全producer source cohortsを保持した。
+独立regular copy /root/typaxis/workspace/target/vmb-checkpoint-334-checkoutを復元し、三groupのsource guards、旧checkout拒否とCargo metadataを確認した。
+1分以上の全回帰・新CLI runtime・全巻testsはユーザー指示に従って未開始である。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-base-cmap-admission/run_long_checks.py --group shaping-layout --output /tmp/typaxis-observed-admission-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-base-cmap-admission/run_long_checks.py --group cli --output /tmp/typaxis-observed-admission-long-cli
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-base-cmap-admission/run_long_checks.py --group initial-admission --output /tmp/typaxis-observed-admission-long-initial-admission
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-cff-base-cmap-admission/。
+completed-probesは15,737,151 bytes、SHA-256 17e146d07de674dcae85a5f1bcabd135ed0e527e4e19c6a463b6dd92affe92d2。
+62,614,296-byte private CLI（SHA-256 3987e7de71a5342144a554fa800f92fa68990c8d703e23e8773369c1398b8179）をregular member typaxisへ保存し、
+全bytes／hash／mode 0755を読み戻した。§333のprivate CLIも元archiveのregular memberを確認してから再buildした。
+inactive default incremental cacheはCargo lockと24時間以上未使用のregular-file条件下で
+1,189 files／688,983,234 logical bytesを七archives（合計273,303,923 bytes）へ保存した。
+今回の別inactive compiler cacheも187,941,440 logical bytesを40,849,704-byte archiveへ保存した。
+両方とも全bytes／hash／modeを読み戻してからunlinkし、再生成され得るpathの恒久的な不在は主張しない。
+凍結public CLI・五producer・policy・VMB code・authoring／speech／review状態を保った。
+
+base以外のcmap variation validation／owned copy、source／checksum／directory／names／hmtx／program／variation admissionと
+他dispatch／kernel／error work、実allocator capacity／overcapacity・同時live graphsは未観測の範囲として残る。
+元e4fd7415… packageとnode／resource対応、inline authored speech欠落、原font全巻／多言語、
+公開次期識別子／四manifests、両管理host／性能・著者／人手／PDF-UA受入も未完である。
+formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+<a id="observed-cff-variation-admission-design-14335"></a>
+### 335. CFF /2 variation cmap admissionのSource accounting（設計§14.335、2026-10-17）
+
+§334のbase-only policyをCffCmapBudgetV2へ拡張した。format 14のheader／encoding record／selector、
+default・non-default payload recordとdefault cursorの各visitを実行前にworkへ払う。
+default rangeのvalidationは元どおり範囲演算であり、不要なUnicode展開を追加しない。
+一時spansは元native要求と同じ2×selector rowsを予約し、bytesはtuple実sizeから計算する。
+observed pathのheapsortは各comparison／swapを事前に払い、ordinary pathは元sort_unstableを保つ。
+元のpayload共有・kind間の重複／交差、selector／value上限と元semantic diagnostic fieldsを保持する。
+
+owned format-14 bytesは全要求bytesを先に予約し、最大256-byte chunkごとにcopy workを払ってからcopyする。
+empty baseのusable non-default判定は元と同じ全pair走査を払い、.notdefだけならowned copy前に拒否する。
+base-only APIはBaseOnly adapterでvariation hooksを止め、ordinary APIは全hooksを止める。
+新outer budget errorはBase／Variationを区別し、元native failureはinner Resultへ保つ。
+SFNT wrapperは実cmap recordからfile offsetを付与する。ただしsource-lessなbase merge workは元のNoneを保ち、
+存在しない精密位置を生成しない。resolverは実FontFaceIdを付与し、未完fontをledgerへ公開しない。
+CLI initial preparationはfull cmap adapterへ切り替え、style後の実command records／spool／workをそのまま借用する。
+
+変更前の§334 libraryで13,420 outcomes（six original-font controls、943 full-cmap accepted）を採取し、
+元mapping／diagnostic Debug bytesをhashへ束縛した。変更後のordinaryとfull observed public APIの両方が全byte一致した。
+以前の34,306 outcomesも全byte一致した。before／中間／finalのcompiler inputsは三archivesへ保存し、
+最終native cmap probeも同じ保存済みfont／core librariesへ束縛した。
+
+三新font testsは84 casesを元native結果へ比較し、small fixturesの2,636全request拒否点（variation 961点）を検査した。
+大きなselector controlsはwarm結果を照合し、その全cutoff走査とは区別した。
+heapsortは0〜512 spansの80独立casesを標準sortと比較し、1,944拒否点で直ちに停止する。
+empty-baseのusable走査／owned copyは33拒否点を検査した。
+Sourceの新cap testはowners 91／205・seed [7,11,13]で378 capsを通し、固定fixtureのdeltaは[5,110,68]となる。
+最初のspan reservation失敗はrecords／spoolを同時に保ち、work 17→21の同cells retryも保持する。
+
+原HaranoMinchoの実host admissionはCFF二aliasと既存TrueTypeを使い、
+[124455,1051317,574175]から同cellsのSource preparation [124642,1063246,595486]へ継続した。
+三軸one-shortはfont subject 2／quota owner 0を保ち、base-onlyとのledger fingerprintも一致した。
+base-onlyの元[124387,995051,491411]とSource continuationも保った。
+base六・cmap五・variation七・legacy CFF九・host六・body／region十五・新font三の計51 focused testsが成功した。
+十receipt fingerprintsと七controlsのSource／full cellsは§334と同じで、controlsのordinary事前admissionと
+今回のfull cmap accountingを混同しない。元wide PDF／trace／manifestも全byte一致した。
+
+CLI tests type checkは40.553秒、private buildは22.419秒で成功した。
+font 23／resource-admission 162／shaping 5のstrict findingsはbeforeの同じfile／function／signatureへ照合し、
+既存categoriesだけを除くscoped checksとformatは成功した。
+初回body suiteは新しいposition assertionがbase mergeにもSomeを要求したため13成功／2失敗となり、
+fixtureを元optional table positionと実SFNT directoryへの照合へ直した。修正後は15成功で、失敗log／sourceを保持した。
+この最後の変更は独立したshaping integration fixtureだけで、先行font／resource testsとCLI type checkの
+production／CLI test bytesが最終sourceと同じであることを別に照合する。
+中間font library build中の下流三fileのdriftも記録し、font/core inputs不変と最終clean buildを確認した。
+formatter前の保存が欠けた一variantは一行の一時indentを戻し、採取hashとの完全一致で復元した。
+
+Root sourceは1,949 inputs、SHA-256 00974625ce84c18cde8935ed1d130c3604047bcb654bc0ec1ecd2cee0a2bd670、差分17 Rust files（新規4files）である。
+§317／320〜334と今回before／中間／finalで全producer cohortsを保持し、manifest／lock・vendor・profile IDsを保った。
+独立checkout /root/typaxis/workspace/target/vmb-checkpoint-335-checkoutは最終sourceを復元したregular copyである。
+最初のposition fixtureを持つ旧copyも別名で保持した。三groupのsource guards・旧source拒否とCargo metadataを確認した。
+1分以上の全回帰・新CLI test runtime・全巻testsはユーザー指示に従って未開始である。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-variation-admission/run_long_checks.py --group shaping-layout --output /tmp/typaxis-variation-admission-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-variation-admission/run_long_checks.py --group cli --output /tmp/typaxis-variation-admission-long-cli
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-variation-admission/run_long_checks.py --group initial-admission --output /tmp/typaxis-variation-admission-long-initial-admission
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-cff-variation-admission/。
+completed-probesは19,409,698 bytes、SHA-256 d427fba2b7485dcc31c198ceedc24e97ddc3bc141ebaee0fd7e8f6d61d53a7b0。
+62,615,088-byte private CLI（SHA-256 9ddc4cb5ea61db2ad1b8b6a98c5496ce2b9314b688453493c9b6c5989f889a04）をregular member typaxisへ保存し、
+全bytes／hash／mode 0755を読み戻した。§334 CLIも元archiveへ照合してから再buildした。
+inactive compiler cache 206,960,132 logical bytesは47,335,080-byte archive
+（SHA-256 f6449c9f9243eee632b3683ebedcf12127be6dc2fb44bc6f9fa665d0e7a7ec61）へCargo lock下で保存し、
+全bytes／hash／modeのreadback後にunlinkした。再生成pathの恒久的不在は主張しない。
+凍結public CLI・五producer・policy・VMB codeとauthoring／speech／review状態を保った。
+
+complete cmapの要求storage／workは接続したが、その他source／checksum／directory／names／hmtx／program／variation admission、
+他dispatch／kernel／error work・実allocator capacity／overcapacity・同時live graphsは残る。
+元e4fd7415… package・node／resource対応、inline authored speech欠落、原font全巻／多言語、
+公開次期識別子／四manifests、両管理host／性能・著者／人手／PDF-UA受入も未完で、formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+<a id="observed-cff-sfnt-preflight-design-14336"></a>
+### 336. CFF SFNT directory／checksum preflightのSource accounting（設計§14.336、2026-10-17）
+
+CffAdmissionBudgetV2はSFNT preflightと§335のcmapを同じSourceへ接続する。
+元preflight grammarを共通moduleへ抽出し、old ordinary APIはchecksum用Vec copy・directory clone／stable sortを保つ。
+base-only／cmap-only APIも追加のSFNT hooksを呼ばない。新observed pathは次を実行前に払う。
+
+- directory／ordering vectorsの完全な要求rows×sizeof(TableRecord)をatomic records／spool reservationへ渡す。
+- table checksumは元bytesを借用し、headの8..12だけを計算上ゼロとして扱う。checksum用heap requestはない。
+- 最大256-byte batchの4-byte words数を払い、whole-font checksumでも同じbounded recipeを使う。
+- required-tableの各検索comparison、directory copyとheapsortの各comparison／swapを払う。
+- gap／paddingは最大256-byte batchのallowanceを前払いする。不正byteで途中停止しても払い済み分を返金しない。
+
+observed orderingは(offset,tag)順とし、既にtag順を検証した入力の元stable offset orderを保つ。
+二vectorsはtry_reserve_exactへ接続し、native failureは既存typed AllocationFailureへ投影する。
+budget refusalは別outer Sfnt／Cmap variantとしてcauseを保ち、SFNT work pointにphase・table・適用可能なoffsetを添える。
+sort／copy等のsource-less workに精密byte位置を捏造しない。resolverは真正なFontFaceIdを保持し、未完fontをledgerへ公開しない。
+CLI initial preparationはstyle後の実command cellsを新adapterへ貸し、別counterやauthorityを作らない。
+
+変更前の§335 libraryで旧CFF /1詳細診断とCFF /2の6,223 outcomesを採取した。
+synthetic headers／directory／padding、byte置換／truncated prefixesと六original-font controlsを含み、
+modern positiveは元Harano二fontである。errorの全Debug fieldsとpositiveのsource／admission hash・metrics等を束縛し、
+変更後のordinaryとobserved双方が全hash一致した。before／中間observed／finalのcompiler inputsを三archivesへ保存した。
+これは全六fontがCFF /2で受理された主張ではない。
+
+四新kernel testsは32 native/context casesを比較し、3,733全request cutoffsで即時停止とaccepted prefixを検査した。
+36独立checksum casesはhead mask／tail／batch境界と53拒否点を検査し、heap requestsを禁止した。
+55独立ordering casesは等offsetを含む元stable orderと一致し、1,111拒否点を検査した。
+二directory確保で実capacity-overflowを注入し、native AllocationFailureと払い済みreservationを保持した。
+OSのmemory exhaustionを起こす試験ではない。
+
+Sourceの新controlはowners 91／205、seed [7,11,13]で1,610 capsを通し、deltaは[18,576,205]となる。
+最初のdirectory reserve失敗はrecords／spoolを同時に保ち、同cells retryはwork 14→15だけを進める。
+このfixtureはpreflightを通った後にInvalidHeadとなる構造negativeであり、font admission positiveの代替ではない。
+原HaranoMincho SHA-256 66ef3270…の実hostではCFF二alias・既存TrueTypeを同じresolverへ通し、
+[124519,1053365,6997523]から同cellsのSource preparation [124706,1065294,7018834]へ継続した。
+三軸one-shortはfont subject 2／quota owner 0を保ち、cmap-onlyのledger fingerprintとも一致した。
+既存base-only／cmap-onlyのcells、十receipt fingerprintsと七controlsのSource／full cellsは§335と同じである。
+
+新kernel四・既存cmap関連二十一・legacy九・host六・body／region十七の計57 focused testsが成功した。
+body十七は16＋1の二commandsで全件を検査し、一commandが1分を超えないようにした。
+CLI tests type checkは41.308秒、private buildは23.382秒で成功した。
+strictの既存font 23／resource-admission 162／shaping 5 findingsはbeforeの同じfile／function／signatureへ照合し、
+既存categoriesだけを除くscoped checksとformatは成功した。
+最初のinline rewrite guardは既存map_errのformat差を検出して変更前に停止し、保存scriptで接続した。
+初回compileの未使用wrapper warningsも接続後に解消した。native結果や期待値を変更して成功を作らない。
+元wide PDF 614,129 bytes・trace 736 bytes・manifest 26,402 bytesは§335と全byte一致した。
+
+Root sourceは1,955 inputs、SHA-256 63908fdca8311643164971a0f6cc7fc4496f8e38cf1faf0c72cad37fe92c7557、差分18 Rust files（新規6files）である。
+manifest／lock・vendor・profile IDsとVMB codeを保ち、§317／320〜335と今回before／中間／finalで全producer cohortsを保持した。
+独立regular copy /root/typaxis/workspace/target/vmb-checkpoint-336-checkoutを復元し、三groupのsource guards／旧source拒否とCargo metadataを確認した。
+長時間全回帰・新CLI test runtime・全巻testsはユーザー指示に従い未開始である。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-sfnt-preflight/run_long_checks.py --group shaping-layout --output /tmp/typaxis-sfnt-preflight-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-sfnt-preflight/run_long_checks.py --group cli --output /tmp/typaxis-sfnt-preflight-long-cli
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-sfnt-preflight/run_long_checks.py --group initial-admission --output /tmp/typaxis-sfnt-preflight-long-initial-admission
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-cff-sfnt-preflight/。
+completed-probesは21,422,476 bytes、SHA-256 7f5b351bbd4ba2cff1ee991f125eb87bebd852244efdfa412efcb8028f9e2d7f。
+62,634,776-byte private CLI（SHA-256 7a0d72d63b14ca6be7c75c5156e2eb0706c50d36c841d308feeae87fe5674d63）をregular member typaxisへ保存し、
+全bytes／hash／mode 0755を読み戻した。§335 CLIも元archiveへ照合してから再buildした。
+inactive default incremental cache 827 files／391,327,906 logical bytesを四archives（合計136,557,464 bytes）へ保存し、
+別inactive compiler cache 207,422,006 logical bytesを47,413,202-byte archiveへ保存した。
+Cargo lockと対象の限定・全bytes／hash／modeのreadback後にunlinkし、再生成されるpathの恒久的不在は主張しない。
+凍結public CLI・五producer・policyとVMB authoring／speech／review状態を保った。
+
+table-map／names／hmtx・source／program copies、admission hashes・CFF program／他table validation、TrueType admission、
+他dispatch／kernel／error work、実allocator capacity／overcapacity・同時live graphsは残る。
+元e4fd7415… packageとnode／resource対応、inline authored speech欠落、原font全巻／多言語、
+公開次期識別子／四manifests、両管理host／性能・著者／人手／PDF-UA受入も未完である。
+formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+<a id="observed-cff-font-metadata-design-14337"></a>
+## 337. CFF metadataとadmission digestを既存Sourceへ接続する（設計14.337）
+
+CffAdmissionBudgetV2へ独立opt-inのOBSERVE_METADATA、reserve_metadata／work_metadataと
+CffMetadataStorageV2／StageV2／WorkPointV2、typed Metadata failureを追加した。
+既存adapterはopt-inしないのでordinary／base-only／cmap-only／SFNT-onlyのbillingを変えない。
+BookV2ObservedFontMetadataBudgetとaccounting.font_metadata_budget(owner)は既存三cellsを借用し、
+実host resolverの同じadmission APIとCLI initial preparationへ接続する。別ledgerや新command ownerを作らない。
+
+hmtxは元numHMetrics／exact-length policyを保ち、advances／bearingsを各glyph_count rows・2 bytes/rowで
+native try_reserve_exact前にatomic予約する。各glyphのmetric decode前にworkを払い、途中失敗でもaccepted prefixを保つ。
+nameは元record boundsとrank tuple、同rankの先頭優先、全eligible candidateのUTF-16／BMP／control検証を保つ。
+ignored recordでもpayload rangeを先に検査する。candidate String vectorを除き、best三borrowed spansだけをstackに保持し、
+選択後に正確なUTF-8 byte数を予約して三Stringを各一度だけ確保する。再decode／copyとPostScript名検査も前払いする。
+下位rankの不正candidateを無視したり、入力にないnameを補ったりしない。
+
+source digestはSHA state setup 1、最大256-byte updateごとlen+1、finalization 128のworkを先払いする。
+元identity JSONのliteral／小文字hex／quotesを固定stack bufferへ生成し、assemblyと同じhash recipeを観測する。
+identity String allocationを除き、元source hashとadmission fingerprintを保つ。
+metadata failureはhmtx／nameのtable offsetを実SFNT directoryのfile offsetへ束縛する。
+source digestは実file位置、derived identityは位置なしで報告し、quota causeとfont subjectを保つ。
+新observed native allocation failureは既存typed AllocationFailureであり、元ordinary error policyを変更しない。
+
+変更前§336 libraryで旧CFF /1 detailed error fieldsとCFF /2の6,223 SFNT outcomes、
+checksumsを再計算してmetadataへ到達する577 outcomesを採取した。
+ordinary／observed双方が変更前の全hashへ一致した。六original font controls中modern positiveは元Harano二fontであり、
+全六fontの受理やsynthetic structural negativeのfont admission成功を主張しない。
+before／final compiler inputsを二archivesへ保存し、全producer source cohortsをbefore／中間／final bytesへ束縛した。
+
+新kernel五testsは404 name cases／16,089全request拒否点、125 metric cases／229拒否点、
+17 exact hash cases／228拒否点を確認した。259 eligible name recordsが同payloadをaliasしても、
+選択三stringsのexact UTF-8 bytesだけを予約する。二metric vectors・三Stringの計五箇所で実capacity-overflowを注入し、
+typed native failureと払い済みreservationを保つ。OS memory exhaustionを起こす試験ではない。
+Source controlはowners 91／205、seed [7,11,13]、2,262 caps（metadata phaseで268拒否）を通し、
+全deltaは[27,627,471]となる。first hmtx spool refusalでrecords／spoolを原子的に保ち、
+同cells retryは元prefixから再開して先行SFNT reservationで拒否する。fixtureはCFF program検査で止まる構造negativeである。
+
+無変更の原HaranoMincho（SHA-256 66ef3270…）の実hostではCFF二alias・既存TrueTypeを同resolverへ通し、
+admission [216759,1237939,19941601]から同cellsのSource preparation [216946,1249868,19962912]へ継続した。
+三軸one-shortはfont subject 2／quota owner 0とaccepted prefixを保ち、SFNT/cmap-onlyのledger fingerprintと一致した。
+SFNT-onlyの元cells [124519,1053365,6997523]、十receipt fingerprints、七controlsのSource／full cellsは§336と同じである。
+
+kernel五・SFNT四・cmap二十一・legacy九・host六・body／region二十の計65 focused testsが成功した。
+body二十は18＋1＋1のcommandsへ分け、各producerをtimeout 55sに限定した。
+CLI tests type check 43.536秒とprivate build 26.342秒が成功した。
+strictのfont 23／resource-admission 162／shaping 5 findingsはbeforeの同file／item、rustfmt正規化した同一item、
+または同じordinary/admission signatureへ照合した。既存categoriesだけを除くscoped lintと変更14filesのformatが成功した。
+最初のtest compileはprivate push_hashの誤ったimportで停止し、修正後に成功した。
+初回lintの型複雑度とMSRV findingsはtype aliasesとmap_orへ修正した。
+一cmap controlは明示original-font環境を付け忘れて失敗し、必要環境を設定した再実行で成功した。
+最初のlint照合helperはformat差のある既存evaluate_flexを拒否し、完全itemのrustfmt一致で照合した。
+各失敗と中間source/helper bytesを保持し、期待値やnative outcomesを変更して成功を作らない。
+元wide PDF 614,129 bytes・trace 736 bytes・manifest 26,402 bytesは§336と全byte一致した。
+
+Root sourceは1,959 inputs、SHA-256 96a58970367840aed1b062682ad0d6018aa18bcad8408233766a11798d9a2165、差分14 Rust files（新規4）である。
+manifest／lock・vendor・profile IDs・VMB codeを保ち、独立regular copy
+/root/typaxis/workspace/target/vmb-checkpoint-337-checkoutを復元した。
+三groupのsource guards／旧source拒否とCargo metadataを確認した。長時間全回帰・新CLI runtime・全巻testsは未開始である。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-font-metadata/run_long_checks.py --group shaping-layout --output /tmp/typaxis-font-metadata-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-font-metadata/run_long_checks.py --group cli --output /tmp/typaxis-font-metadata-long-cli
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-font-metadata/run_long_checks.py --group initial-admission --output /tmp/typaxis-font-metadata-long-initial-admission
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-cff-font-metadata/。
+completed-probesは25,107,302 bytes、SHA-256 dd2ca6816247226939494730b5c35b0af9a7209f63cc2c0bad13f0546c27904f。
+62,634,944-byte private CLI（SHA-256 f75be0949a605b2925b3ce51170d36a240768ddeb3cd1b45c60681197515eeda）をregular member typaxisへ保存し、
+全bytes／hash／mode 0755を読み戻した。§336 CLIも元archiveで検証してから再buildした。
+root diskがfullとなり、二cache archivesの初回作成はENOSPCで失敗した。元cacheをunlinkする前の停止である。
+不完全archivesだけを除き、再生成可能な24時間以上inactiveのdefault Cargo incremental cache 3,859 files／3,222,650,539 logical bytesを
+Cargo lock保持・各hash記録後にreclaimした。source・実行binary・retained evidenceは除いている。
+private Cargo cache 2,129 files／1,175,433,705 logical bytesは全bytes／mode／linksを保持してrootの空き領域へ移し、
+元/tmp pathをsymlinkで保った。dataは復元可能で、cache manifestの各entryをimmutable build artifactとは扱わない。
+凍結public CLI・五producer・policyとVMB authoring／speech／review状態を保った。
+
+残件はtable-map BTreeMap、他header／optional／vertical tables・CFF program検査、source／program copies、
+host初期hash・TrueType admission、他dispatch／kernel／error work、実allocator capacity／overcapacity・同時live graphsである。
+元10,672,653-byte e4fd7415… packageは今回のVMB checkoutにもなく、original node／resource対応、
+7,739 authored inline defsのSpeechUnit／SemanticRef欠落、原font全巻／多言語、公開次期識別子／四manifests、
+両管理host／性能・著者／人手／PDF-UA受入も未完である。formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+<a id="observed-cff-table-decoders-design-14338"></a>
+## 338. CFF table access・fixed decoders・vertical validatorをSourceへ接続する（設計14.338）
+
+CffAdmissionBudgetV2にOBSERVE_TABLES／work_tablesを独立opt-inとして追加し、
+CffTableAdmissionStageV2／WorkPointV2／BudgetFailureV2をtyped Tables refusalへ接続した。
+BookV2ObservedFontTablesBudgetとfont_tables_budget(owner)は既存Source cellsを借用し、
+実host resolverとCLI initial preparationへ接続する。既存ordinary／base-only／cmap-only／SFNT-only／metadata-onlyのbillingを保つ。
+
+observed table indexはpreflightで検証済みのrequired九・optional七・vertical三tagsを固定19 slotsへ借用する。
+BTreeMap allocationを除き、native slicesと同じtable bytesを返す。ordinary pathのnative mapとerror policyは保つ。
+19 slots初期化は19 units、directory recordのrange／tag／duplicate／slot処理は32 units、
+local lookupは最大19 tag比較のallowanceを先払いする。五fixed decodersは最大54-byteの有限処理へ64 unitsを払い、
+拒否時にはnative decoderを呼ばない。embedding permissionも先払いする。
+context-directory lookupを払い、terminal error位置束縛へ最大三directory walksを先払いする。
+optional validatorは共有Lookup interfaceを使い、local最大24queries＋八context walksのallowanceを入口で払う。
+これは保守的な有限処理の上限予約であり、全workを実比較数と同一に扱う主張ではない。
+
+VORG／vhea／vmtxは元grammarを一箇所へ保ち、ordinary wrapperはhooksを呼ばない。
+observed wrapperはheaderの有限処理、VORG各recordとvhea各reserved wordを読む前にworkを払い、
+元のversion／length／pair／glyph order／range／metric countのnative errorsと全fieldsを保つ。
+vertical budget refusalのtable offsetは実directoryへ束縛し、directory indexは実record位置を報告する。
+derived lookup／decoder boundaryは位置なしで報告し、架空のsource positionを作らない。
+このindex／fixed／vertical kernelは追加heap reserveを呼ばない。固定stack bytesを実command peak memoryの完了とは扱わない。
+
+変更前§337 libraryの旧CFF /1 detailed fields・CFF /2 metadata／hashesを束縛し、
+6,223 SFNT・577 metadata・889 fixed/vertical outcomesの合計7,689 recordsを保存した。
+新889 recordsはtable内容のmutationsごとにdirectory／checksumsを再構成し、native header／vertical validationへ到達させる。
+ordinary／observed双方が変更前の全hashへ一致した。六original controls中modern positiveは元Harano二fontである。
+synthetic standard fixtureはheader等を通ってCFF program検査で止まる構造negativeで、font admission positiveではない。
+
+新kernel四testsは657 index cases／7,803全request拒否点、201 vertical cases／1,466全request拒否点、
+五fixed decoder boundariesの拒否前未実行とordinary zero hooks、共有optional Lookupの有限query数を確認した。
+Sourceの二new controlsはowners 91／205、seed [7,11,13]で5,608 capsを通し、
+new table phaseで3,154拒否、metadataで268拒否、全delta [29,691,2078]となる。
+first hmtx spool refusalのatomic records／spoolとsame-cell retryも保った。
+元HaranoMincho SHA-256 66ef3270…の実hostではCFF二alias・既存TrueTypeを同resolverへ通し、
+[216759,1237939,19945725]から同cellsのSource preparation [216946,1249868,19967036]へ継続した。
+三軸one-shortはfont subject 2／quota owner 0を保つ。metadata-onlyの元cellsとledger fingerprintも一致した。
+
+new kernel四・既存metadata五・SFNT四・cmap二十一・legacy九・vertical六・host六・body／region二十三の計78 focused testsが成功した。
+bodyは20＋1＋1＋1 commandsへ分け、各producerはtimeout 55sに限定した。
+十receipt fingerprintsと七controlsのSource／full cellsは§337と同じである。
+CLI tests type check 41.743秒、private build 23.784秒が成功した。
+strict font 23／resource-admission 162／shaping 5 findingsはbeforeの同file／item／signatureへ照合し、scoped lintと16filesのformatが成功した。
+最初のkernel test compileはprivate vertical moduleへのtest accessで停止し、crate内visibilityを適正化して成功した。
+初回lintの重複fixture module読込は、変更前fixture由来の同一bytesをtest sourceへ保存して解消した。
+失敗と中間sourceを保持し、native grammar／期待値を変えて成功を作らない。
+wide PDF 614,129 bytes・trace 736 bytes・manifest 26,402 bytesは§337と全byte一致した。
+
+Root sourceは1,963 inputs、SHA-256 e3a273169c519592397d2e9bac607751e646fc2591c4872251c32081b2ab5332、差分16 Rust files（新規4）である。
+manifest／lock・vendor・profile IDsとVMB codeを保ち、全producer epochsをbefore／中間／final sourceへ束縛した。
+独立regular copy /root/typaxis/workspace/target/vmb-checkpoint-338-checkoutを復元し、
+三groupのsource guards／旧source拒否とCargo metadataを確認した。
+長時間全回帰・新CLI runtime・全巻testsはユーザー指示に従い未開始である。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-table-decoders/run_long_checks.py --group shaping-layout --output /tmp/typaxis-table-decoders-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-table-decoders/run_long_checks.py --group cli --output /tmp/typaxis-table-decoders-long-cli
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-table-decoders/run_long_checks.py --group initial-admission --output /tmp/typaxis-table-decoders-long-initial-admission
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-cff-table-decoders/。
+completed-probesは32,448,675 bytes、SHA-256 5d34fcfb1487cb68886987debced95b275c1a7c028d9c0018d973971f2c21a5c。
+62,643,136-byte private CLI（SHA-256 5fa4b0eb863855123b50c96ec14a0632dadddfce69f419b4207873cdf39776b9）をregular member typaxisへ保存し、
+全bytes／hash／mode 0755を読み戻した。§337 binaryとbaseline libraryも元immutable archiveへ照合した。
+凍結public CLI・五producer・policyとVMB authoring／speech／review状態を保つ。
+
+optional read-fonts／MATH等の内部walks・IntSet等のstorageは入口allowanceの対象外であり、未観測のままである。
+CFF program検査とsource／program copies、host初期hash・TrueType admission、他dispatch／kernel／error work、
+実allocator capacity／overcapacity・同時live graphsも残る。
+元e4fd7415… packageとnode／resource対応・authored inline speech、原font全巻／多言語、
+公開次期識別子／四manifests、両管理host／性能・著者／人手／PDF-UA受入は未完である。
+formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+
+<a id="observed-cff-program-admission-design-14339"></a>
+## 339. CFF program admissionの要求storage・workと元SFNT allocation共有（設計14.339）
+
+CffAdmissionBudgetV2へ独立OBSERVE_PROGRAM・reserve_program／work_programを追加した。
+CffProgramStorageV2／StageV2／WorkPointV2／BudgetFailureV2とtyped Program refusalを公開し、
+BookV2ObservedFontProgramBudget／font_program_budget(owner)が既存Source cellsを借用する。
+実host resolverとCLI initial preparationへ接続し、ordinary／base／cmap／SFNT／metadata／tables-onlyのbillingを保つ。
+standalone inspect_cff1_program_v2_with_budgetは同じkernelを使うが、raw program検査成功をfont resource authorityへ昇格しない。
+
+INDEX objects・DICT operands／entries・real String・font dictionaries・structure spans・glyph FD／CID vectorsは、
+要求rows／bytesを予約してからtry_reserve_exactを呼び、確保失敗でも成功済み予約を払い戻さない。
+INDEX header／offset、DICT token／number／duplicate／lookup、FD／private context、FDSelect／charset各rangeとfill、
+CID count・span overlapを処理前に払う。derived spansはfallible in-place heapsortで比較／swapを先払いする。
+固定header／numeric validationは有限上限allowance、data-dependent walksは各visitまたは最大256要素batchで払う。
+real tokenは最大64 text bytes／bounded nibblesをstackで検証し、exact String一個だけをfallible確保する。
+decimal normalization・integer decimal化・fixed変換からVec／Stringの一時heapを除いた。
+これは要求storageと保守的workの接続で、実allocator capacity・全比較数・同時live memoryと同一視しない。
+
+SFNT admissionはauthenticated CFF table sliceのrangeと元Arcを共有する。
+CffProgramV2のsource_spanとbytes accessorをcharstring／private／global・local subroutine／evaluatorへ通し、
+standalone inspectionは元whole Arcを保つ。原HaranoMinchoのCFF rangeは257972..6173011で、
+一admission当たり5,915,039 bytesのCFF copyを除く。ordinary pathもこの所有改善を共有する。
+元fontの23,060 glyphのFD／CID／charstring viewsと26,556 subroutine viewsを比較し、
+12 selected FDs各代表glyphのcanonical executionがstandaloneと一致した。宣言FDsは18で、六FDsはglyphから選択されない。
+全glyph executionは未開始である。positive ownerのDebug構造にはsource_spanが増えるため、全Debug bytes同一とは主張しない。
+
+変更前§338 libraryの6,223 SFNT・577 metadata・889 table outcomesと、直接programの3,298・real-width programの19 outcomesを保存し、
+ordinary／observedの全positive fields／view hashesとnative diagnostic Debug bytesが一致した。
+numeric private kernelの変更前・stack化後・bounded-real後は71,001 cases（29,040 accepted）で全stream一致し、
+最終Rootの14 production itemsが保存したfinal kernelとverbatim一致することも確認した。
+合計82,007保存outcomesは異なるcorporaのrecords数で、全input空間・全allocator failureの網羅数ではない。
+raw synthetic program controlsとSFNT構造negativesをfont admission positiveとして扱わない。
+
+新program四testsは3,297 native casesに対し24,736 sampled／small全request拒否点、
+32 independent span ordersの5,301全比較／swap拒否点、180 actual capacity-overflow拒否／180 successful allocation sitesを確認した。
+全mutationで全callback cutを走査したわけではなく、mutationは先頭cut、small prefixes・whole controlsは全cutを検証した。
+Source新controlはowners 91／205・seed [7,11,13]で1,010 boundary caps／250 requestsを通し、
+delta [63,1537,63317]と三軸atomic prefixesを保った。
+元Harano二aliasの実host admissionは[409515,3001157,21512677]、
+同cellsのSource continuationは[409702,3013086,21533988]となる。
+三軸one-shortはfont subject 2／quota owner 0を保ち、tables-onlyの元cells／ledger fingerprintも一致した。
+
+program四・table四・metadata五・SFNT四・cmap二十一・legacy九・vertical六・host六・
+native program十一・execution controls十二・body／region二十五の計107 focused testsが成功した。
+bodyは21＋1＋1＋1＋1へ分け、全producerをtimeout 55sに限定した。
+十receipt fingerprintsと七preadmitted controlsのSource／full cellsは§338と同じである。
+CLI tests type check 41.087秒、private build 24.928秒が成功した。
+strict font 22／resource-admission 162／shaping 5 findingsをbeforeの同file／item／signatureへ照合し、
+scoped lintと18filesのformatが成功した。変更したFD match内の既存unused-unit一件を除いたため、以前の190から189となる。
+最初のtest compileはtest helper accessとmanual owner constructorで停止し、test plumbingを修正した。
+初回lintの新type-complexity／drop-non-dropはaliasesと不要drop除去で解消した。
+一部controlの明示font環境不足は環境を指定して再実行した。
+拡張owner testの「全18FDが選択される」という誤った仮定は、全glyph mappingが変更前と一致する証跡と併せ、
+18 declared／12 selectedへ修正した。失敗・中間source・exact logsを保持した。
+wide PDF 614,129 bytes・trace 736 bytes・manifest 26,402 bytesは§338と全byte一致した。
+
+Root sourceは1,967 inputs、SHA-256 5fbfbf4700350999755d437b8ce08077a824b594a71cbf135db6602df5cac2a3、差分18 Rust files（新規4）である。
+manifest／lock・vendor・profile IDsとVMB codeを保ち、全producer epochsをbefore／中間／final sourceへ束縛した。
+二intermediate formatted filesは保存済みunformatted bytesへ同じrustfmtを適用し、
+既存producer recordのSHA-256へ厳密一致させて復元した。
+独立regular copy /root/typaxis/workspace/target/vmb-checkpoint-339-checkoutと、
+三groupのsource guards／旧source拒否・Cargo metadataを確認した。
+長時間全回帰・新CLI runtime・全巻testsはユーザー指示に従い未開始である。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-program-admission/run_long_checks.py --group shaping-layout --output /tmp/typaxis-program-admission-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-program-admission/run_long_checks.py --group cli --output /tmp/typaxis-program-admission-long-cli
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-program-admission/run_long_checks.py --group initial-admission --output /tmp/typaxis-program-admission-long-initial-admission
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-cff-program-admission/。
+completed-probesは44,931,270 bytes、SHA-256 b99970f619c3ac6469ca718949d72e40ad7d2aba23c9978b962c2ec019c35343。
+62,646,928-byte private CLI（SHA-256 c589a5f9904de1a2d6717f9747014202189cf6789cad8f8b36e81b9debc37afa）をregular member typaxisへ保存し、
+全bytes／hash／mode 0755を読み戻した。§338 binaryとbaseline librariesもimmutable archivesへ照合した。
+凍結public CLI・五producer・policyとVMB authoring／speech／review状態を保つ。
+
+optional read-fonts／MATH内部walks・IntSet storage、初期host bytes／hash・TrueType admission、
+他dispatch／kernel／error work、実allocator capacity／overcapacity・同時live graphsが残る。
+元e4fd7415… packageとnode／resource対応・authored inline speech、原font全巻／多言語、
+公開次期識別子／四manifests、両管理host／性能・著者／人手／PDF-UA受入は未完である。
+formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+
+<a id="observed-cff-local-optional-validation-design-14340"></a>
+## 340. CFF BASE・GDEF・kernのlocal validation workをSourceへ接続する（設計14.340）
+
+CffAdmissionBudgetV2へ独立OBSERVE_OPTIONAL_LOCAL／work_optional_localを追加した。
+元16 local functionsをcff_local_optional.rsへ移し、同じgrammarをordinary／observedで共有する。
+BASEのaxis／script／language／min-max／coordinate／device、GDEFのcoverage／class／attach／caret／mark sets、
+kernのsubtable headers／search fields／glyph pair orderを扱う。JSTFとMATHのlocal walksは今回の対象外である。
+
+各local function入口とprimitive field read／range／relative offset検査の前に、固定64 unitsの有限上限allowanceを払う。
+loop内のdata-dependent visitsも、そのfield／range処理のcallbacksを通る。
+これは保守的work unitsであり、実CPU命令数／全比較数と同一とは主張しない。
+拒否はCffTableAdmissionStageV2のOptionalLocalHeader／Field／Range／Offsetと実tagを保持する。
+位置は検証済みtable sliceへ束縛し、untrusted offsetやabsolute加算overflowはNoneとする。
+derived header位置を作らない。local grammarはborrowed slicesと固定stackを使い、追加heap reserveを呼ばない。
+callbackや周囲のread-fonts／IntSet allocationsまでzeroと主張するものではない。
+
+BookV2ObservedFontOptionalLocalBudget／font_optional_local_budget(owner)は既存program budgetを包み、
+同じcommand Source cellsへworkを払う。実host resolverとCLI initial preparationを接続した。
+既存ordinary／base／cmap／SFNT／metadata／tables／program-only billingとledger identityを保つ。
+read-fontsの事前table reads・GSUB／GPOS closure等はこのlocal workへ含めない。
+
+変更前§339 sourceからpure local kernelを保存し、独立したnested BASE／GDEF／kern controlsとそのprefixes・mutations・
+glyph counts／trailing bytesを作った。3,539 raw outcomes（883 accepted）は変更後ordinary／observedと全stream一致し、
+SHA-256 a06c981dc4873d9bbca495b7d249bde0050654ed5c11dbf2e5d6ba6ee6e693c7となる。
+最終Rootのlocal production kernelと五native helpersが保存済みtested sourceへverbatim一致することも確認した。
+三new unit testsは630 small／whole casesの全cutとmutationsの先頭cut、計36,687拒否点、
+五primitive boundariesで拒否後のnative未実行・unknown位置とabsolute overflowのNoneを確認した。
+全mutationの全callback cutを走査したという主張ではない。
+
+同じtable payloadsからSFNT directory／checksumsを再構成した新3,545 outcomesは、
+旧CFF /1 detailedとCFF /2 fields／native diagnosticsの双方でordinary／observedが変更前へ一致した。
+既存6,223 SFNT・577 metadata・889 table・3,298 program・19 real-program outcomesの計11,006 recordsも、
+§339のimmutable saved streamsへ照合した。raw＋new SFNT＋既存の合計18,090 recordsを保存した。
+raw table成功やsynthetic SFNTの構造negativeをfont resource admission positiveとして扱わない。
+
+Source新controlは他phasesのobservationを無効にしてlocal callbacksだけを実cellsへ通し、
+owners 91／205・seed [7,11,13]、2,500 work caps／416 requestsでdelta [0,0,26624]となる。
+records／spoolは保ち、実table／file位置・paid prefixとsame-cell retry historyを確認した。
+元Harano二aliasの実host full admissionは[409515,3001157,21575525]、
+同cellsのSource continuationは[409702,3013086,21596836]となる。
+追加local workは62,848 unitsで、program-onlyの元cells／ledger fingerprintと三軸one-short subject 2／quota owner 0を保った。
+
+既存107＋new local三／Source一／host一の112 focused testsが成功した。
+bodyは22＋1＋1＋1＋1＋1へ分け、各producerをtimeout 55sに限定した。
+十receipt fingerprintsと七preadmitted controlsのSource／full cellsは§339と同じである。
+CLI tests type check 42.481秒、private build 23.934秒が成功した。
+strict font 22／resource-admission 162／shaping 5 findingsはbeforeの同file／item／signatureへ照合し、
+scoped lintと13filesのformatが成功した。
+最初のstandalone raw probeはinner doc commentsをinclude macroへ入れたためcompileで停止し、
+元production sourceを変えずpath moduleへ切り替えて成功した。
+lint comparatorの不足していた四before filesは、source-before SHA-256と厳密一致する未変更Root bytesから復元した。
+失敗・中間source・probe driversを保持した。
+wide PDF 614,129 bytes・trace 736 bytes・manifest 26,402 bytesは§339と全byte一致した。
+
+Root sourceは1,971 inputs、SHA-256 4ebfcc6357d8f677c1ffc5645231fd3668954fc24f8f94c2ea774588873b300f、差分13 Rust files（新規4）である。
+manifest／lock・vendor・profile IDsとVMB codeを保ち、全producer epochsをbefore／中間／final sourceへ束縛した。
+独立regular copy /root/typaxis/workspace/target/vmb-checkpoint-340-checkoutと、
+三groupのsource guards／旧source拒否・Cargo metadataを確認した。
+長時間全回帰・新CLI runtime・全巻testsはユーザー指示に従い未開始である。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-local-optional-validation/run_long_checks.py --group shaping-layout --output /tmp/typaxis-local-optional-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-local-optional-validation/run_long_checks.py --group cli --output /tmp/typaxis-local-optional-long-cli
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-local-optional-validation/run_long_checks.py --group initial-admission --output /tmp/typaxis-local-optional-long-initial-admission
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-cff-local-optional-validation/。
+completed-probesは40,881,142 bytes、SHA-256 2427ee9baeb022dff618c667f56f8047d45923aa8f54a5a86ce4e99c9d643152。
+62,684,072-byte private CLI（SHA-256 c0d5ff87988f6172f3be0ad08bfdca5817529117b6c1ca0c99fe3cd9a2e75f26）をregular member typaxisへ保存し、
+全bytes／hash／mode 0755を読み戻した。§339 binary／baseline librariesと今回のintermediate／final librariesも保存して照合した。
+凍結public CLI・五producer・policyとVMB authoring／speech／review状態を保つ。
+
+JSTF／MATH local walks・optional read-fonts／IntSet内部、初期host bytes／hash・TrueType admission、
+他dispatch／kernel／error work、実allocator capacity／overcapacity・同時live graphsが残る。
+元e4fd7415… packageとnode／resource対応・authored inline speech、原font全巻／多言語、
+公開次期識別子／四manifests、両管理host／性能・著者／人手／PDF-UA受入は未完である。
+formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+
+<a id="observed-cff-math-validation-design-14341"></a>
+## 341. CFF MATH table validationをSource workへ接続する（設計14.341）
+
+CffAdmissionBudgetV2へ独立OBSERVE_MATH／work_mathを追加した。
+元MATH table検査の七functionsをmath_validation.rsへ共有し、ordinary MathFontFace／CFF callsはhooksを無効にする。
+constantsの51 value recordsと取得値、glyph info／value maps、coverage、
+vertical／horizontal variants・glyph construction／assemblyを同じgrammarで検査する。
+native MathFontErrorの分類、None readとunsupported device／kerning policy、各factsを保つ。
+
+各local function入口・u16／i16／u32 reads・checked relative offset処理の前に、固定64 unitsの有限上限allowanceを払う。
+これは保守的workであり、CPU命令数／比較数と同一視しない。parserはborrowed bytesと固定stackを使い、追加heapを持たない。
+callback allocationsや周囲のTrueType／read-fonts storageの完了を意味しない。
+CFF relayはMathHeader／MathField／MathOffsetのtyped Tables refusalへ変換し、実MATH tagとtable／file位置を保つ。
+derived header位置はNone、untrusted offsetはbounded検査後にのみ束縛する。
+BookV2ObservedFontMathBudget／font_math_budget(owner)が既存command Source cellsを借用し、
+実host resolverとCLI initial preparationへ接続する。既存ordinaryと全phase-only billingを保つ。
+
+変更前§340 sourceのpure MATH kernelを保存し、独立minimal／nested／shared-construction controlsと既存math.ttfから、
+prefixes・byte mutations・glyph counts／trailing bytesを作った。
+7,125 raw outcomes（2,279 accepted）の全facts／native errorsがordinary／observedへ一致し、
+SHA-256 2dd1a71f131385b96ce8ec2e64bb02be7e9b802ea0b8d88f16c1dcde33a78559となる。
+最終production kernel、四native helpersと二facts structsが保存済みtested sourceへverbatim一致することも確認した。
+new三testsは1,418 small／whole casesの全cutとmutationsの先頭cut、計57,080拒否点、
+四primitive boundariesの拒否後native未実行・unknown位置Noneを確認した。全mutationの全cutという主張ではない。
+既存MathFontFaceの四API testsも成功した。
+
+新5,715 SFNT outcomesはtable payloadに応じdirectory／checksumsを再構成し、
+旧CFF /1 detailed・CFF /2 fieldsとnative diagnostic bytesでordinary／observed双方が変更前へ一致した。
+既存6,223 SFNT・577 metadata・889 table・3,298 program・19 real-program・3,545 local SFNTと
+3,539 raw local outcomesの計18,090 recordsも元immutable streamsと最終unit checksへ束縛した。
+新raw／SFNT・原table一件との合計30,931 recordsを保存した。
+raw table成功とsynthetic SFNT構造negativeをfont resource admission positiveとして扱わない。
+
+Source新controlは他phasesのobservationを無効にしてMATH callbacksだけを実cellsへ通し、
+owners 91／205・seed [7,11,13]、1,372 work caps／228 requestsでdelta [0,0,14592]となる。
+records／spoolを保ち、実table／file位置・paid prefixとsame-cell retry historyを確認した。
+元Harano二aliasはMATH tableを持たず、full admission [409515,3001157,21575525]から
+同cellsのSource continuation [409702,3013086,21596836]へ進み、local-only ledger identityを保った。
+三軸one-shortはfont subject 2／quota owner 0を保つ。
+
+元733,736-byte math CFF（SHA-256 6075562b…）は、旧／新admissionともFFTM tagを
+SfntDirectory／UnsupportedTable・file offset 28で拒否する。MATH requestsは0であり、元policyを緩めない。
+同fontの25,280-byte MATH tableを直接検査した変更前／後も、glyphs 4,802・MalformedTable(MATH)の同結果を返す。
+直接observed検査は5,619 requests／359,616 work unitsと五sampled refusal cutsを確認した。
+これは既存table policyの結果であり、この原fontをadmission positive／全巻font受入へ扱わない。
+最初のoriginal Source controlはMATHまで到達すると誤って仮定したが、実native rejectionを調査し、
+directory拒否のzero-work controlと直接table controlへ分けた。期待native grammarを変えて成功を作らない。
+
+既存112＋new MATH四・既存MathFontFace四・Source／host三の123 focused testsが成功した。
+bodyは23＋1＋1＋1＋1＋1＋1＋1 commandsへ分け、各producerをtimeout 55sに限定した。
+十receipt fingerprintsと七preadmitted controlsのSource／full cellsは§340と同じである。
+CLI tests type check 42.146秒、private build 25.616秒が成功した。
+strict font 22／resource-admission 162／shaping 5 findingsをbeforeの同file／item／signatureへ照合し、
+scoped lintと13filesのformatが成功した。
+最初のbaseline producerは依存filename記録で停止し、実行済みstreamと修正後streamの一致を保存した。
+最初のkernel compileのrelative offsetに重複した?を入れた機械的抽出誤りを修正した。
+失敗・中間source・driversを保持し、wide PDF 614,129 bytes・trace 736 bytes・manifest 26,402 bytesは§340と全byte一致した。
+
+Root sourceは1,976 inputs、SHA-256 b2332c29629d150f548c584434cdd86c72b67f2f96608e1aa66e5802b8ff5e3a、差分13 Rust files（新規5）である。
+manifest／lock・vendor・profile IDsとVMB codeを保ち、全producer epochsをbefore／中間／final sourceへ束縛した。
+独立regular copy /root/typaxis/workspace/target/vmb-checkpoint-341-checkoutと、
+三groupのsource guards／旧source拒否・Cargo metadataを確認した。
+長時間全回帰・新CLI runtime・全巻testsはユーザー指示に従い未開始である。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-math-validation/run_long_checks.py --group shaping-layout --output /tmp/typaxis-math-validation-long-shaping
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-math-validation/run_long_checks.py --group cli --output /tmp/typaxis-math-validation-long-cli
+PYTHONDONTWRITEBYTECODE=1 python3 /root/typaxis/workspace/target/vmb-design/20261017/observed-cff-math-validation/run_long_checks.py --group initial-admission --output /tmp/typaxis-math-validation-long-initial-admission
+```
+
+証跡はworkspace/target/vmb-design/20261017/observed-cff-math-validation/。
+completed-probesは51,319,943 bytes、SHA-256 3124ed141b14bb5d630d7abf9a22137bd130e5ba9a1798f590b8fdb1679f334a。
+62,711,744-byte private CLI（SHA-256 6c1475ea8f17ad495eab1989f3f74c8c5ff06a5738bd61f5d792db69d502e147）をregular member typaxisへ保存し、
+全bytes／hash／mode 0755を読み戻した。§340 binary／baseline librariesと今回のintermediate／final librariesも保存して照合した。
+凍結public CLI・五producer・policyとVMB authoring／speech／review状態を保つ。
+
+JSTF local walks・optional read-fonts／IntSet内部、初期host bytes／hash・TrueType admission、
+他dispatch／kernel／error work、実allocator capacity／overcapacity・同時live graphsが残る。
+元math fontを含む原font全巻／多言語、元e4fd7415… packageとnode／resource対応・authored inline speech、
+公開次期識別子／四manifests、両管理host／性能・著者／人手／PDF-UA受入は未完である。
+formal 9/12 groupsとfull goalの完了条件を保つ。
+
+
+
+<a id="observed-cff-jstf-validation-design-14342"></a>
+## 342. CFF JSTF grammarとGPOS intersectionのSource work（設計14.342）
+
+§341の残件からJSTFを接続した。共有local grammarと、Max table内のPositionLookupが使う
+Single／Pair 1・2／Cursive／MarkToBase・Ligature・Mark／Context・Chain各1・2・3／extensionを対象にする。
+read-fonts 0.31.3のlazy error・short circuit・class zero・壊れたrangeの順序を保つ。
+ordinary APIは従来のIntSet／Intersect、独立OBSERVE_JSTFのobservedだけがborrowed readerとglyph domain 0..glyph_countを使う。
+Sourceのfont_jstf_budgetはMath loanを包み、CLI initial preparationの二か所も同じcellsを借用する。
+従来のSFNT／cmap／metadata／tables／program／local optional／MATHだけのbillingは保つ。
+
+JSTF header／field／range／relative offset、bounded reader、各visit、set初期化にtyped stageを付けた。
+local stepは64、定数個のborrowed header／u16 binary searchは512、1024-word bitmap初期化は65,536を処理前に払う。
+実table spanへ確定できる位置だけtable／file offsetを付け、derived visit・setや未確定位置はNoneにする。
+context 2は最大五つの8192-byte bitmap、logical bits計40 KiBを使う。実stack peakやcommand全体の同時memoryの証明ではない。
+
+保存した変更前streamとordinary／observedの36,027 raw outcomesが一致した。
+Ok結果10,787はlookup falseやlocal syntax成功も含み、font resource positive件数ではない。
+stream SHA-256は3d301431774de62f929c6e2533e6a8a162c4aa60121f7bc1a9c4b49fc6f13997。
+既存32 debug native panicはPanicという分類も一致する。これをtyped rejection成功と扱わず、互換policyの残件にする。
+locked ClassDef 1のzero-class constant cursorはordinaryで変更せず、観測pathの三つの有限callback capで停止することを確認した。
+nativeで終了しない当該controlは実行していない。
+664 whole controlsでは全callback cutを検査し、prefix／byte mutationsは先頭cutで検査、計157,347拒否点が成功した。
+四local primitiveとborrowed readerはnative failureを読む前に拒否する。
+別315 helper comparisonsではglyph domains 0／1／3／64／65535、各結果の全65536 membershipを比較した。
+duplicate／overlap／reversed／unsorted records、class zeroとcoverageのnative差を保つ。
+
+新7,817 SFNT outcomesではordinary／全phase observedと変更前のlegacy／modern positive facts・native error debug digestが一致した。
+SFNT streamは827,177 bytes、SHA-256 adbe80f3287b1c82bd27cfc04f248d71a46d2285f18622c405805e721367499f。
+positiveは元Harano二fontのみ。合成SFNTはJSTFを通過しても既存program rejectionを返す構造negativeで、receiptを発行しない。
+§341の30,931比較outcomesはfrozen証拠として継承し、今回の43,844と合わせた保存比較trialは74,775である。
+全継承streamを再実行したという主張ではない。
+
+Source seed [7,11,13]、owners 91／205、1111 requests・delta [0,0,403392]について、
+各要求境界の前後を含む6,670 work capsを検査した。atomic refusal・paid prefix・位置・同じcellsでのretry履歴を保つ。
+実hostの原Mincho二logical aliasesはJSTFを持たず追加課金なしで、
+admission [409515,3001157,21575525]からSource [409702,3013086,21596836]へ進む。
+三axis one-shortのfont subject 2／quota owner 0とMath modeと同じledger fingerprintを保つ。
+十shaping receipts・七つのpreadmitted Source／full cellsとwide PDF／trace／manifestも一致した。
+
+allocation probeは正常終了／native error 35,995例でobserved parserのallocator calls 0を検査した。
+同じallocatorのordinary positive controlは2 callsである。32 panic例、caller callback、admission全体やcommand全体をzero allocationへ含めない。
+129 focused testsが成功した。最終formatではJSTFのindentationを直し、意図せずformatterが触ったsubset fileを§341のbytesへ戻した。
+その二つのcomplete filesはrustfmt正規化で同一で、format前source cohortと最終sourceを結び付けた。
+新五tests、raw／SFNT streams、allocation probeは最終formatted sourceでも再確認した。
+最終CLI tests type check 45.037秒、private build 23.329秒が成功した。
+strict lintは既存189件（font 22／resource 162／shaping 5）で失敗し、既存file／item／signatureとの比較とscoped lintは成功した。
+strict lint cleanとは扱わない。個々のproducerは55秒timeoutを使い、既知の長時間suiteとCLI test executable buildは開始しない。
+
+初期二compile failure、helper driverでcoverage.intersectsとretained-set非空を同一視した一回の失敗、
+format check一回の失敗とstrict lint失敗を保存した。helperは対応するnative演算同士の比較へ直し、Root grammar／goldenは変えていない。
+旧archiveから検証済みELF 60個・445,477,264 bytesをreclaimした記録もあり、元archiveとhashで復元できる。
+
+最終sourceは1981 inputs、13 changed Rust files／5 new、SHA-256 118fbc6016a474fcdf9d9d6fb8abfebc4138ac1f99c6ad91ee94a770a48ac90a。
+standalone compiler最終26 inputsは7,065,192 bytes、SHA-256 65d4cf89fb1c19fff54754b041571feb131a5fe985db307948283cbd9c2d06a0のarchiveに保存した。
+before／intermediate／final librariesと全95 input requestsをread backした。
+completed-probesは29,913,370 bytes、SHA-256 33eca107712497c83dcbe71ec83590eb02b81d407ff0eb0e2f1637ed0c434fad。
+private CLIは62,988,632 bytes、SHA-256 7bb884838aa54ff39299b68895626f268902eeb45f57e900248e8d3d4e2a5b79、regular 0755である。
+証拠はworkspace/target/vmb-design/20261017/observed-cff-jstf-validation/のartifact-index.json・evidence-audit.jsonを参照する。
+
+独立復元checkoutはworkspace/target/vmb-checkpoint-342-formatted-checkout。
+長時間回帰のsource guardは最終sourceを許可し、旧cohortを拒否し、tests／outputを開始しないことを確認した。
+明示的な後続実行用commands（このcheckpointでは未実行）は次のとおり。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-cff-jstf-validation/run_long_checks.py --group shaping-layout --output /tmp/typaxis-jstf-validation-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-cff-jstf-validation/run_long_checks.py --group cli --output /tmp/typaxis-jstf-validation-long-cli
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-cff-jstf-validation/run_long_checks.py --group initial-admission --output /tmp/typaxis-jstf-validation-long-initial-admission
+```
+
+VMB HEAD 9efff4aを再確認し、backend／auditは存在する。今回の限定scanでも元package
+10,672,653 bytes／SHA-256 e4fd7415cb33de5afff8c3b2a335c2afa06df1e22780c9913813d95536efffbbは同定できない。
+他GPOS／GSUB library walks／IntSet・他admission、実allocator capacity・peak live graphs、
+既存native panic／zero-class cursorと元math fontのFFTM／MATH互換policy、元package／意味入力・原font全巻／多言語、
+public profile／四manifest・managed Linux／macOS・性能・著者／人手／PDF-UA受入は未完である。
+VMB authoring／speech／review状態を変更せず、公開compiler・producer／raster policyも保つ。
+新initial-admission CLI targeted runtimeと元font全glyph executionも未開始で、goal全体の完了ではない。
+
+
+
+<a id="cli-initial-admission-runtime-design-14343"></a>
+## 343. 初期font admissionのprivate CLI runtimeと原CFF PDF（設計14.343）
+
+前goal turnの§342は、JSTF実装・保存stream・Source cap検証・独立auditによるprogressと分類した。
+今回のcurrent-state照合では、当該CLI initial-style testsがtype checkだけで未実行であることを再確認した。
+book-2 public CLI dispatchは依然閉じているため、現CLI module treeをそのままcompileする小さなruntime hostを作った。
+新tools/verify_vmb_initial_admission.pyとtools/vmb_book_initial_admission_probe.rsは、現在のpinned fixture区間と
+三test functionsを抽出する。test attributes／親module importだけを外し、production moduleを変換・mockしない。
+実HostBookV2InputSession→counted initial style→本物のresource-set /3→同じcommand Source cellsを使う。
+full CLI test executableと既知の長時間suiteは作成・実行しない。
+
+六cases（cff／pdf／limits／original-cff-pdf／japanese-cff-pdf／jstf）が成功した。
+既存三functionsは、原CFFのstyle prefixとtyped Metadata::IdentityDigest拒否・retry、
+counted initial preparation後の実PDFとapplication sentinel retry、work exact／one-shortと後続resource failureのprefixを検査する。
+既存三functionsのこのruntime gapは解消したが、CLI全testsの実行済みを意味しない。
+initial styleは[265,14641,53915]、原CFF admission後は[205019,1515214,10841671]。
+one-shortでは[205019,1515214,10841543]を保持し、retryは[205052,1516010,10841670]となった。
+font subject 0／quota owner 0を保ち、counter resetやfabricated receiptを使わない。
+
+無変更の原Mincho（SHA-256 66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717）を使うsmall fixtureを、
+実初期preparationからprivate convergence／subset／marked PDFまで通した。
+Latin fixtureは11,590 bytes／SHA-256 30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55、
+日本語・IVS fixtureは10,713 bytes／SHA-256 8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21で、いずれも二pages・六text occurrences。
+synthetic fixtureのtextであり、元書籍の意味入力・speech・reviewを補完／変更したものではない。
+各PDFの同じresource ownerでの二回目はbyte-identicalとなり、command R/S/Wは増加し、CFF glyph cacheは維持した。
+Latinは7 cached glyphs／757 operations／148 segments、日本語・IVSは5 glyphs／954 operations／182 segments。
+日本語fixtureの同一source GIDを使う基底「日」とIVS付き「日」を別のsource textとして保つ。
+
+pinned Poppler 26.08.0で両PDFの全十二occurrencesをexact extractionし、六IVS ActualText spansも構造で検査した。
+pypdfの単独extract_textはActualText内VSを反映しないため、その出力をIVS抽出の成功判定に使わない。
+FontFile3/OpenType・CIDFontType0・Identity-HとCIDToGIDMap欠如を検査し、embedded subsetを独立parseした。
+ToUnicode→CID→embedded cmap／UVS→元source GIDをjoinし、全選択十二glyphについてoutline・hmtx・dense CID・
+projected cmap／UVSを既存verify_harano_cff_subset.pyで比較した。使用source FDは5／12／14、projected UVS pairsは3である。
+Unicode join・PDF width・outlineを壊した三controlsと、checksumを更新した上でActualTextを消した一controlを拒否した。
+source font全glyph／全FDを実行したという主張ではない。
+MuPDF 1.28.2／Poppler 26.08.0とruntime librariesのhashを既存tool policyへ照合し、72 dpiの八renderability smokesが成功した。
+renderabilityはpixel equivalence・baseline／spacing全巻比較・人手承認やPDF-UA受入の代用ではない。
+
+JSTFの実CLI positiveは、原Minchoをmemory上で明示的にderived fixtureへ変換し、JSTF tableとSFNT checksumを追加する。
+元font fileと上記二PDFのfont bytesは変更しない。derived font SHA-256はee6ec933340224b66594525eaaa1ea24dc7f8009c4f6b1486d57ff41f7690fb0。
+native admissionが成功する当該fixtureで1111 JSTF requests／403392 workを確認し、
+実初期CLI preparationのfull cells [205021,1515278,11245385]が独立Source loan referenceと一致した。
+JstfHeaderとJstfSetInitの要求直前prefixへcapを置き、同じtyped table point・font subject／owner・paid cells・retryを確認した。
+固定name-keyed fixtureの既存ExpectedCidFont rejectionも維持し、unsupported入力をpositiveに転用しない。
+
+managed cacheからのstandalone compileは2.828秒、六casesと保存archiveまでのverifier全体は
+21.808秒で成功した。各childとproducerは55秒以内に制限し、timeoutではchild process groupを終了する。
+71 compiler inputs（logical 322,269,838 bytes）は72,836,672 bytesのgzip level 1 archiveへ保存・read backした。
+runtime source guard 930 filesも5,114,539 bytesのarchiveへ保存し、source driftは0。
+new outputが既存directoryやsource directoryを指す二controlsは拒否し、既存sentinelを保った。
+original font／pinned fixture／source bytesのhashを保存し、全巻やpublic profileの成功fieldは常にfalseで区別する。
+
+初回のquoted marker検査、name-keyed fixtureをCID positiveに使おうとした失敗、gzip level 9 packagingの55秒timeout、
+PATH上の旧rendererを検出した失敗と、retentionで新toolsを旧saverが列挙していなかった失敗を保存した。
+全runtime controlsが成功した後のpackaging timeoutはcompression level 1へ直して解消した。
+必要な四つの過去tool sourceは、保存済みgenerated probeまたはexact inverse patchから復元し、
+各producerが記録したSHA-256と完全一致することを確認した。Root code／goldenを成功へ合わせて変更しない。
+最終product Rustと既存1981 inputsは§342から同一で、new tool files二つを含む1983 inputsのSHA-256は
+60cf57660f3522ef60bde6c62c3afeae9686721df43652249b87976cd34c0ee4。completed-probesは191,193,324 bytes、SHA-256 cce227d527dd3c8d6eae8ccf25d45d43c95fb17ef6a6c3bc5bd363bf42eb239a。
+証拠はworkspace/target/vmb-design/20261017/cli-initial-admission-runtime/のartifact-index.json・evidence-audit.jsonを参照する。
+独立復元checkoutはworkspace/target/vmb-checkpoint-343-checkout。長時間suiteのsource guardだけを確認し、suiteは開始しない。
+
+再実行command（新しいoutput directoryと明示managed cacheが必要）:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-initial-admission-review --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+```
+
+元package同定・意味入力／著者review、他library walks／TrueTypeを含むwhole-admissionとallocator capacity／peak live graphs、
+既存native panic／zero-class cursor・元math fontのFFTM／MATH互換、原font全巻／多言語、
+public profile・四manifest・managed Linux／macOS・性能・独立全巻render／人手／PDF-UA受入は引き続き未完である。
+new initial-admission targeted runtimeだけを確認済みとし、その他CLI runtime・full regressions・元font全glyph executionを実行済みにしない。
+VMB authoring／speech／review、公開compiler・既存五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+<a id="observed-host-resource-read-design-14344"></a>
+## 344. Host resource readとSHAの同一Source予算（設計14.344）
+
+前goal turnの§343は、六private CLI controlsと独立PDF検証を完結したprogressと分類した。
+現物を再照合すると、font／imageのstable readとSHAはcounted font admissionより前に実行され、
+そのowned buffer／read workは当該command Source cellsへ未接続だった。
+host専用のHostReadBudget／HostReadRequestとtyped failureを追加し、resource resolverとCLI initial preparationへ接続した。
+generic Hostにはfont／image語彙を入れず、resource ownerがauthentic FontFaceId／ImageResourceIdを添える。
+
+HostRootSetTokenは従来と同じbinding検証後にだけcounted readを開始する。
+Buffer requestはnative try_reserve_exact前にlogical capacityとbuffer occurrence一件を要求し、
+8192-byte stack chunk初期化と固定準備へ8256 workを先払いする。
+各read前にrequested extent＋64 workを払い、short read／native failureでも返却しない。
+same-handle snapshotとpath resolution再検証が成功した後、SHA最終化前に192 workを要求する。
+workはbyte処理と固定allowanceでありCPU instruction数ではない。
+native host identity、exact length、post-read mutation検査を保ち、拒否では部分receiptを公開しない。
+
+旧ordinary readは同じ実装のunobserved branchを使う。native aggregate/per-resource byte上限、
+kind／declaration／root検証は予算hookより前である。attempted logical IDとnative byte消費は拒否後も保ち、
+同resolverでの二度目は従来のConflictingLogicalResourceとなる。
+新resolverでのretryもcaller Sourceの既払いprefixを保持する。同hashのaliasも宣言ごとに読む／課金する。
+新BookV2ObservedResourceAdmissionBudgetはhost readと既存CFF/JSTF loanを同じcellsへ合成する。
+既存font_jstf_budget等のphase-only APIの課金は増やさず、公開profileのdispatchも開かない。
+
+native short readが続く場合のStreamingSha256::updateには、未完成blockを次のupdate時に消す既存bugがあった。
+追加unit testでlength 55／chunk 1の失敗を保存し、partial blockを保持してreturnする修正を行った。
+before／afterのhasher本体を無変更抽出して別executableへcompileし、Python hashlib.sha256へ照合した。
+length 0..256と8191／8192／8193／20000、十chunk sizesの計2,610 vectorsで、
+beforeは1,448不一致（最小例length 2／chunk 1）、afterは0不一致だった。
+これは元SHA-256契約の実装bug修正であり、新しいhash算法やresource grammarの採用ではない。
+
+host全18 unit＋2 doc tests、resource全71 unit＋3 doc testsと、明示原Minchoを使う既存alias test一件が成功した。
+zero／SHA block境界／8192-byte境界、全request拒否とpaid prefix、truncate／growth／path replacement、
+foreign session、wrong kind、native byte上限の先行拒否、hash mismatch、alias二回分の支払いを検査した。
+maintained verifierは七casesが21.744秒で成功した。新reads caseは実初期CLIで二font／一PNGの九requestsを使い、
+records／spool／workの15 typed refusals、三軸exact成功、authentic subject／owner 0、same cells retryとoutput 0を確認した。
+TT fixtureのstyle [265,14641,53915]からfull [268,17116,81926]へ進む。
+既存三initial-style functionsは新read課金の独立referenceを加え、元Metadata::IdentityDigest拒否等を維持する。
+JSTF derived positiveの1111 requests／403392 work、Header／SetInit typed refusalも成功した。
+
+無変更原Minchoでのinitial Sourceは[205022,7939405,17341574]となり、§343からの増分は
+[3,6424191,6499903]である。Latin PDFは11,590 bytes／SHA-256 30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55、
+日本語・IVS PDFは10,713 bytes／SHA-256 8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21。
+両者の全bytes／package hash／source font hash／cache statisticsは§343と同じで、retryもbyte-identicalである。
+独立四page／十二text occurrences／六IVS spans、十二selected glyph／三FD／UVS、四damage controlsと八renderability smokesは、
+再実行済みとは扱わず、このexact PDF identityによって§343の凍結証拠を継承する。
+
+private CLI build 31.610秒、CLI tests type check 39.876秒、host strict Clippyとresource／shapingのscoped Clippyが成功した。
+scoped lintは既存result_large_err／large_enum_variant／redundant_field_names／useless_conversionのallowを明示する。
+既存dependency警告・CLI staging警告をログへ残す。full CLI test executableと既知の長時間suiteは開始しない。
+初回のtest include path失敗と、実SHA bugの失敗を保持した。metadata-only試行もcache executableを更新したため、
+最終private CLIを明示build／保存し、旧§342 executableは元archive memberのhashで再確認した。
+最終private CLIは63,007,000 bytes／SHA-256 fd0611ef68fd445524d0b6305438702eb1b503813a6de014bf496066935ecae5。
+
+14 changed/new files（新Rust五files）を含む1988 source inputsのSHA-256は
+db76b209979ad9bd252a006121f801c534c249e5f78497dd5c6c19089189706c。
+二runtime jobsの各71 compiler inputs／935 source inputsをarchiveへ保存・read backした。
+completed-probesは196,774,751 bytes／SHA-256 9d48b34778aacc44475e8bca3d9eca1394576825ee2221e168773239dadd084f。
+証拠はworkspace/target/vmb-design/20261017/observed-host-resource-read/のartifact-index.json・evidence-audit.jsonを参照する。
+独立復元checkoutはworkspace/target/vmb-checkpoint-344-checkout。長時間suiteのsource guardは新cohortを許可し旧cohortを拒否した。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-host-read-review --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（本checkpointでは未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-host-resource-read/run_long_checks.py --group shaping-layout --output /tmp/typaxis-host-read-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-host-resource-read/run_long_checks.py --group cli --output /tmp/typaxis-host-read-long-cli
+```
+
+この会計はnative Vecのlogical容量とbounded read／digest workまでである。
+host path／ledger／clone allocations、Vec→Arc conversion、TrueType／image parsers・他GPOS／GSUB walks、
+allocator overcapacity／peak live graphsとwhole-command memoryは引き続き未完である。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・性能・全巻render／人手／PDF-UA受入も残る。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+<a id="observed-cff-source-owner-design-14345"></a>
+## 345. CFF stable bufferの共有とowned source予算（設計14.345）
+
+前goal turnの§344は、host read／SHAのSource接続と独立SHA比較を完結したprogressと分類した。
+現物では、resource-set /3のCFF handoffがstable VecをArc<[u8]>へ変換し、全font bytesを再allocation／copyしていた。
+SourceBytesV2を導入し、既存Arc sliceと、元Vecを保持するArc<Vec<u8>>を同じimmutable viewで扱う。
+resource ownerは新owned APIへVecをmoveし、admissionとprogram spansが同じownerをcloneする。
+公開済みslice APIの引数型と元Arc pointer affiliationを保ち、native grammar／hash／admission identityを共有する。
+
+新owned／owned-base-cmap／owned-cmap／owned-admission-budget APIは同じsource preflightとadmission kernelを使う。
+face indexとsource-byte上限はowner requestより前に従来のtyped native errorとなる。
+OBSERVE_SOURCE_OWNERはdefault falseで、従来のbase／cmap／SFNT／metadata等のphase-only billingを増やさない。
+新resource_admission_budgetだけがこのflagを有効にし、Metadata::SourceOwnerで64 work、その後
+SharedSourceOwner一件とlogical header bytesを同じcaller Source cellsへ予約する。
+headerはVec payloadと二reference countersのlogical量で、このLinux hostでは40 bytesである。
+input Vec allocationはcaller／先行host readの責務で、ここで全font extentを再予約／copyしない。
+拒否ではshared owner／admissionを返さず、work後のrecords／spool拒否も既払いprefixを返却しない。
+点はfont tableを指さないためtable tag／table offset／file offsetをNoneとし、resource ownerがauthentic FontFaceIdを保持する。
+
+元Minchoは6,422,896 bytes／SHA-256 66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717のままである。
+新owned admissionのdata pointerが受け取ったVecと同じで、program ownerも同じArcを持つことを検査した。
+owned／sliceの全23,060 glyphについてcommandsとsource widthを比較し、18 FD contexts、
+8,376,159 operations／1,572,638 segmentsが一致した。元outline digest
+f3a7b806eb38a37c56ec76eac5b80dd21a1bfe1f17a71650c971b3c399bace38とも一致した。
+これは当該Mincho全glyphの実行であり、他font／元math font／全巻・多言語の受入へ拡張しない。
+resource-set /3の元CFF aliasesも、各stable readからledgerまで元data pointerを保持し、別aliasのbufferは別ownerのままとした。
+
+無変更のsource-owner moduleをreal font budget typesとともにcompileした独立allocator probeを保存した。
+0／1／63／64／8192／65536／1048576-byte入力の七casesで、ownerは常に一allocation／40 bytesであった。
+cloneは0、二request各拒否の14casesは0、予約前allocationも0である。
+旧Vec→Arc slice controlは1 MiB入力で1,048,592-byte allocationとなり、data pointerも変わった。
+元fontのpublic slice／owned APIを直接比較し、同fingerprint、slice APIのowner hooks 0、
+旧billing flagでのowned hooks 0、opt-in owned hooks 2も確認した。
+probe callbackは固定counterのみで、caller input allocation／cleanup、他admission allocationやwhole-command peak memoryはこの値へ含めない。
+
+font 106 unit tests、明示原fontのowned全glyph test一件、resource 71 unit＋明示原alias一件＋3 doc testsが成功した。
+default font runの15 ignoredのうち新owned testだけを実行し、残る14を実行済みにしない。
+maintained verifierは八casesが29.719秒で成功した。従来readの15 typed cutsに加え、
+新ownerのrecords／spool／work三拒否と三軸のexact成功、owner 0、same cells retryとoutput非返却を検査した。
+原CFF initial Sourceは[205023,7939445,17341638]となり、§344から[1,40,64]増える。
+既存三initial-style functionsとJSTF derived positiveも新owner feeを含む独立referenceで成功した。
+
+原fontのLatin／日本語・IVS PDFは§344と全byte一致し、hashはそれぞれ
+30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21である。
+package／source-font hash、cache statisticsとretry byte identityも保つ。
+独立四page／十二text occurrences／六IVS spans、十二selected glyph／三FD／UVS、四damage controlsと八renderer smokesは、
+このexact PDF identityで前の凍結証拠を継承し、再実行・新全巻pixel受入とは扱わない。
+
+private CLI最終build 34.293秒、CLI tests type check 40.935秒、既存allow classesを明示したfont／resource／shaping scoped Clippyが成功した。
+private CLIは63,011,688 bytes／SHA-256 debb871864fce071ae104d89f401b3f4c22944912957a1e987136d8cfe70b0ed、regular 0755で保存した。
+初期export漏れ、private-field／old Arc testの型移行、iterator比較、再試行roleのenv欠落による失敗も保持した。
+Root全fontやgoldenを成功へ合わせて変更せず、Source ownerの移行と試験harnessを修正した。
+14 changed/new files（新Rust一file）を含む1989 source inputsのSHA-256は
+cc58865f73457ea123c7d13b5a7efb1ccc190000353c0320d2e18e1b5055f3ea。
+71 compiler inputsと936 runtime source inputsをarchiveへ保存・read backした。
+completed-probesは106,969,334 bytes／SHA-256 abd5081faa0456adacdacab13a911eecc09e3c06e6f65d596bfd7430c157aabf。
+証拠はworkspace/target/vmb-design/20261017/observed-cff-source-owner/のartifact-index.json・evidence-audit.jsonを参照する。
+独立復元checkoutはworkspace/target/vmb-checkpoint-345-checkout。source guardsだけを実行し、長時間suiteとfull CLI test executableは開始しない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-source-owner-review --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-cff-source-owner/run_long_checks.py --group shaping-layout --output /tmp/typaxis-source-owner-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-cff-source-owner/run_long_checks.py --group cli --output /tmp/typaxis-source-owner-long-cli
+```
+
+host解決／ledger／declaration clone、TrueType／image parsers、他GPOS／GSUB walks、native small Arcのallocator failure policy、
+実allocator capacity／同時graphs／whole-command memoryと性能baselineは引き続き残る。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UA受入も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+
+<a id="observed-resource-ledger-finalization-design-14346"></a>
+## 346. Resource ledgerのdense出力・canonical化のSource予算（設計14.346）
+
+前goal turnの§345はCFFのowned source共有と原Mincho全glyph比較を完結したprogressと分類した。
+今回は、その後のresource-set /3 ledger finalizationを調べ、dense出力bufferとcanonical化が
+commandのSource予算へ接続されていなかった部分を実装した。
+ProductionResourceLedgerBudgetV3とtyped point／storage／stage／budget errorを追加し、
+finish_with_budgetを初期CLIの既存resource_admission_budgetへ接続する。
+ordinary finishはunobservedのnative経路を呼び、従来error型／native grammarを保つ。
+missing logical resourceは最初のbudget hookより前に従来native errorとなる。
+
+observedはimage dense-ID、TrueType kind、二font mapsのconflict scanを各64 workで処理前に支払い、
+nativeのkind→conflict→font dense-IDというerror優先順を保つ。
+font mapsは借用key scanの後、二ordered iteratorsから直接dense Vecへmergeする。
+ordinary経路の二番目のBTreeMapは残し、observed側ではそのallocationを除く。
+font／image Vecは実element型のlogical bytesと件数を予約した後try_reserve_exactし、各fillを64 workで先払いする。
+canonical容量は従来の512＋各record 512＋family／URIのUTF-8 bytesの六倍という保守的上限を使う。
+容量計算の各recordを64 workで払い、native max_spool検査後、一件と全容量を予約してStringを確保する。
+encodingはrecord allowanceを先払いし、整数の一時to_string allocationをwrite!へ置き換えた。
+digestは256-byte chunkごとにlength＋64 work、finish前に128 workを払う。
+records／spool reservationは既存atomic cellsを使い、refusalでも先行work／historyを返却しない。
+
+unit testsは実hostのTT／PNGから0／1／16 fontsを逆順admitし、ordinary ledgerと
+observed ledgerのcanonical bytes／fingerprint／dense IDs／family tableを比較した。
+quoted Japanese family名も含み、canonical lengthsは433／614／3356 bytesである。
+10／15／86 requestsの全111 callback拒否でtyped pointと正確なprefix、成功retryを確認した。
+別testはmissing resourceがhookを呼ばないことを確認した。
+最終resource suiteは73 unit＋3 doc、明示原fontのCFF alias一件も成功した。
+
+maintained verifierへledger controlを追加し、九casesが38.364秒で成功した。
+test-only独立referenceは実ordinary ledgerからrequestsを組み立て、初期CLI本体の実行量と比較する。
+TT二font／PNG一imageの20 requestsでは全非zero cost軸23拒否、
+原Mincho／TT／PNGの20 requestsではconflict・font reserve二軸・hash・finishの五選択拒否を実行した。
+authentic font／image ID、aggregate点のNone、owner 0、正確な先行prefix、cap内のsame-cells retryと
+partial ledger 0を確認した。既存read 15拒否とowned source三拒否・各三軸exact成功も保つ。
+新TT initial Sourceは[272,21570,85479]、原CFFは[205027,7943899,17345273]となる。
+§345からそれぞれ[4,4454,3553]／[4,4454,3635]増加し、canonical実byte数の差をhash workへ反映する。
+TT／CFF canonical bytesは787／869で、SHA-256は
+d2a67fc7505b896e7122179219913526abff15e97397370d9e2932a33aa3ace0／
+319a78be37619314aa50c4851181e8a62a9d3291ea09752c53f42b7e3df4833dである。
+
+独立Python checkerはunit三件とruntime二件の五ledgers・21 font recordsについて、
+duplicate-key拒否、固定ASCII keys／u32 integersのJSON canonical bytes、dense IDs、fieldsと
+Python hashlib SHA-256を検査した。wrong digest、逆順font IDs、不要Unicode escape、duplicate keyの
+四damage controlsもそれぞれ対応する理由で拒否した。
+このcheckerは固定ledger schemaのJCS部分集合を検証するもので、一般JSON数値canonicalizerではない。
+
+原Minchoは6,422,896 bytes／SHA-256 66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717のまま。
+Latin／日本語・IVS二PDFは§345と全byte一致し、hashは
+30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21である。
+package／font hash、cache glyph／operation／segment数とretry byte identityも保つ。
+独立四pages／十二text occurrences／六IVS spans、十二selected glyph／三FD／UVS、
+四semantic damage controlsと八renderer smokesはexact PDF identityで継承し、再実行や全巻pixel受入とは扱わない。
+
+最終private CLI build 30.657秒、CLI tests type check 39.418秒、既存allow classesを明示した
+resource／shaping scoped Clippy、六Rust filesのformatとdiff checkが成功した。
+最終private binaryは63,011,552 bytes／SHA-256 331a9ccbbe818947a2d682579efea081f21bb0cc8689903a0fbea74e39434cdd、regular 0755。
+初期Sha256 API名の誤りによる二compile failures、最初の成功nine-case runと各source versionsも保存する。
+native SHAのfinishへ修正し、goldenや元font／authoringを成功に合わせて変更しなかった。
+10 changed/new files（新Rust二files）を含む1991 source inputsのSHA-256は
+e559aefbd4d59cb9bc2556300564f980d9d2082d4f0fce175b45781db44e5bdf。
+first／final各71 compiler inputs・938 runtime source inputsをarchiveへ保存・read backした。
+completed-probesは194,428,193 bytes／SHA-256 72b2604a4599076ed84fbe996831f4eaf2c86bc4788947e0e21f88cb0a5cb64d。
+証拠はworkspace/target/vmb-design/20261017/observed-resource-ledger-finalization/のartifact-index.json・evidence-audit.jsonを参照する。
+独立復元checkoutはworkspace/target/vmb-checkpoint-346-checkout。旧checkoutを拒否するsource guardsのみを実行し、
+既知の長時間suiteとfull CLI test executableは開始しない。
+
+storage不足は未使用incremental cache 9279 files／logical 9,838,343,658 bytesを除いて回復した。
+完了済み§343／344／345のbulk evidenceはRoot target配下へ移し、元/tmp pathsをsymlinkで維持した。
+全leafのsize／hash／modeを照合し、凍結済み証拠の内容と元logical pathsを保った。
+storage-recovery.jsonに全tree manifestと検査を保存する。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-resource-ledger-review --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-resource-ledger-finalization/run_long_checks.py --group shaping-layout --output /tmp/typaxis-resource-ledger-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-resource-ledger-finalization/run_long_checks.py --group cli --output /tmp/typaxis-resource-ledger-long-cli
+```
+
+alias検査／family構築のmaps・stringsと各loop、host解決／declaration clone、TrueType／image parsing、
+他GPOS／GSUB library walks、実allocator capacity／peak live graphs／whole-command memoryと性能baselineは残る。
+このcheckpointはdense出力とcanonical化のlogical予算であり、whole-finalization accounting完了とはしない。
+元package同定・意味入力／著者review、native panic／zero-class cursor・元math font互換、
+原font全巻／多言語、公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UA受入も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+
+<a id="observed-ledger-vector-aliases-design-14347"></a>
+## 347. Safe-vector alias indexと比較のSource予算（設計14.347）
+
+前goal turnの§346はdense ledger出力とcanonical化のSource接続を完結したprogressと分類した。
+残るsafe-vector alias finalizationは、image数分の一時Vecとdigest BTreeMapを作り、
+同digestの全payloadを未課金で比較していた。今回はそのindexと比較を同じresource ledger budgetへ接続した。
+ordinary finishは既存Vec／digest mapの経路を保ち、image dense-ID→alias検査→family構築というnative error順も保つ。
+
+observedはAliases storageへimage宣言数と実tuple型のlogical bytesを先に予約し、その後try_reserve_exactする。
+tupleはdigest・借用bytes・authentic ImageResourceIdで、このhostでは56 bytes。PNG等を含む最大image数分を予約する。
+全imageをAliasesの64 workでscanし、vectorだけをindexへ入れる。SVG payloadはcloneしない。
+追加BTreeMapは作らず、digest／ImageResourceId順の明示heap sortを使う。
+各sift loopは64、key比較は64、swapは128 workを実行前に支払い、callback errorをunwindせず伝える。
+sortはそのVec内だけで行い、別のsort scratch bufferを作らない。
+同digest groupでは最小ImageResourceIdのbytesを基準にする。header／length比較を64 workで払い、
+同lengthのpayloadは最大256-byte chunksごとに2×length＋64 workを払ってから比較する。
+workは保守的なpolicy単位で、CPU命令数や実allocator capacityの測定値ではない。
+budget failureはAliases／AliasOrder／AliasCompareとimage subjectを保持し、aggregate reserveだけはsubject Noneとなる。
+native collisionは従来InvalidSafeVectorV2(ResourceConflict)のまま。途中のindexやledgerは返さない。
+
+raw helper testsは0／1／2／7／33／1024／8192 entriesでnative validatorとsort結果を照合した。
+実SHAで作る31種類のpayloadを使い、small全requestとlarge先頭／末尾の68 callback拒否で
+typed point・正確なprefixと成功retryを確認した。8192例は422,050 requests／41,959,064 workであった。
+これはraw borrowed indexのscale試験で、8192 SVGをparse／配置したPDFの証拠ではない。
+private validator seamへ明示投入した六collision controlsはlength差と0／255／256／512／1024位置のbyte差を使い、
+native conflict理由と、比較したchunkまでの課金を確認した。host receiptやadmitted resourceは偽造しない。
+
+実host testは既存precomposed-vectorのfraction-equality.svgを九logical aliasesとしてadmitした。
+SVGは539 bytes／SHA-256 bce289809a11cdf3f6713f40dd34cd5df5091e602c16ec2194aae38ca147fd89。
+ordinary／observedのcanonical bytes／fingerprintが一致し、全133 alias callback拒否を検査した。
+PNGを使う既存0／1／16-font ledger testも12／17／88 requestsの全117拒否で成功した。
+最終resource suiteは76 unit＋3 doc、明示原Mincho alias一件も成功した。
+
+maintained verifierへaliases controlを加え、十casesが40.657秒で成功した。
+新controlは実Book wire／host／CLI initial preparationへSVG九aliasesを渡す。
+fixture copyのprovenanceはtypaxis.test-fixture-copy／1／typaxis.test-vector-aliases/1と明示し、実VMB engine由来とは扱わない。
+ordinary ledgerとのcanonical identityを確認し、Sourceはalias直前[276,21868,155350]、完了時[297,34706,184682]となる。
+records／spoolのreserve、scan、sort、最初のpayload chunkの五typed拒否で、owner 0とpartial ledger 0を確認した。
+sort／comparison境界は実CLIへwork capを変えて探索し、sort実装をreferenceへ複製しなかった。
+全五拒否で同じcellsを再利用し、既払いprefixが減らず対象capを超えないことを確認した。
+既存ledger controlのTTは全非zero cost軸26拒否、CFFは五選択拒否へ更新し、read 15／owner 3拒否も保つ。
+PNG fixtureのinitial SourceはTT[273,21626,85543]／原CFF[205028,7943955,17345337]となり、
+§346から[1,56,64]増える。canonical bytes／fingerprintは同じである。
+
+独立Pythonはunit三件・TT／CFF二件・新SVG alias一件の六canonical ledgers・23 font recordsを検査し、
+duplicate keys、不要Unicode escape、逆順IDs、wrong digestの四damage controlsも拒否した。
+SVG九recordsのmedia／hashは上記保存bytesに結び付け、source cohort内の元fixture hashも照合した。
+原fontのLatin／日本語・IVS二PDFは§346と全byte一致し、hashはそれぞれ
+30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21を保つ。
+package／font hash、cache statistics、retry identityも同じ。独立四page／十二text／六IVS、
+十二selected glyph／三FD／UVS、四semantic damagesと八renderer smokesはexact PDF identityで継承し、再実行・全巻pixel受入にはしない。
+
+private build 30.621秒（test helper修正後のbuild 3.331秒）、CLI tests type check 39.367秒、
+resource scoped Clippy 3.159秒と六Rust filesのformat／diff checkが成功した。
+private binaryは63,011,608 bytes／SHA-256 a1fc01310b5f72bdcbe02bc164d02167060b4fd8ff22fd9906fa6e001cb3a795、regular 0755。
+最初の実host testはvectorを逆順admitしたため従来のidentity検査で失敗した。fixtureを宣言順に修正し、native規則を保った。
+新CLI harnessの二未存在API呼出しと、SVG provenance欠落の失敗も保存した。
+既存の実accounting APIと明示fixture provenanceへ修正し、入力規則やgoldenを緩めなかった。
+最後の修正はCLI test helper／toolのみである。resource test／lintの依存701 inputsの全hash一致を別記録し、
+影響のないlibrary testsを繰り返さず、最終CLI compile／runtime／type checkを実行した。
+
+8 changed/new files（新Rust二files）を含む1993 source inputsのSHA-256は
+216d56351073309bbac9e77cfcc9dd288cfdb54175c747ec834f2211e21ae74c。
+失敗二runと成功runの各71 compiler／940 runtime source inputsをarchiveへ保存・read backした。
+SVG bytesもruntime factsへ結び付けて別途保存した。completed-probesは127,805,896 bytes／SHA-256 d033ae36e2bedb8ac9f80fe939464f7182af39649a729d0909f14d8a761f3651。
+証拠はworkspace/target/vmb-design/20261017/observed-ledger-vector-aliases/のartifact-index.json・evidence-audit.jsonを参照する。
+復元checkoutはworkspace/target/vmb-checkpoint-347-checkout。source guardsのみを実行し、長時間suiteとfull CLI test executableは開始しない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-vector-aliases-review --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-ledger-vector-aliases/run_long_checks.py --group shaping-layout --output /tmp/typaxis-vector-aliases-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-ledger-vector-aliases/run_long_checks.py --group cli --output /tmp/typaxis-vector-aliases-long-cli
+```
+
+family table構築のclone／map／loop、host解決／declaration clone、TrueType／image／SVG parsing、
+他GPOS／GSUB walks、実allocator capacity／peak live graphs／whole-command memoryと性能baselineは残る。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UA受入も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+
+<a id="observed-ledger-font-families-design-14348"></a>
+## 348. Font-family index構築のSource予算（設計14.348）
+
+前goal turnの§347はsafe-vector alias index／比較のSource接続を完結したprogressと分類した。
+今回は残るfamily構築を接続し、declarationから全namesをcloneするtemporary listと、observed側のBTreeMapを除いた。
+FontFamilyTableにborrowed exact-size iteratorから構築するbudgeted APIを追加し、
+ordinary constructorは従来BTreeMap、observed constructorはsorted Vecを内部indexとして保持する。
+familyのvalidation／duplicate理由、fallbackのquery順とcase／Unicodeの扱いは変えない。
+両indexのequalityをmappingとして比較し、通常lookupと既存try_resolve_with_workも同じ結果／課金となる。
+
+declared count×size_of<(String,FontFaceId)>を一度予約し、try_reserve_exact後に処理を始める。
+logical entryはこのhostで32 bytes。各nameは一件／UTF-8 lengthを予約し、String::try_reserve_exactしてcopyする。
+caller iteratorの実数を検査し、超過はinsert前、不足はtable返却前にIteratorLengthとして拒否する。
+count×slotのoverflowは最初のhookより前にArithmeticOverflowとなる。
+最初の実装は各entryでVecをgrowしていたが、reallocationを避けるため一括予約へ改善した。
+初期版の成功試験とsourceも残し、最終版の同一source cohortで必要なchecksを実行した。
+
+各nameのvalidationは64＋2×UTF-8 length、lookupは既存family policyと同じ
+1＋(登録済数＋1)×(query bytes＋2)、name copyは64＋lengthを処理前に支払う。
+insert前には64＋(移動entry数×slot bytes)を払う。index searchは借用だけで行い、二次map／sort bufferを作らない。
+これらは保守的なwork policyで、CPU命令数やallocator roundingの測定値ではない。
+resource adapterはFamilyEntries／FamilyValidate／FamilyLookup／FamilyNameCopy／FamilyInsertへ接続する。
+aggregate entry reserveのsubjectはNone、それ以外はauthentic FontFaceIdを保持し、command ownerは0のままとする。
+missing resource検査とimage IDs／alias検査は先行し、funded時のnative error優先順を保つ。
+refusalではtable／ledgerを返さず、先行Source historyも返却しない。
+
+new font testsは0／1／2／16／64／512 namesを三入力順で構築し、quoted Japanese／emoji名を使った。
+ordinaryとのmapping equalityを両方向、clone、全query／fallbackの結果、既存lookup callback列を比較した。
+small全requestとlarge先頭／末尾の計306 callback拒否で、typed stage／face、正確なprefixと成功retryを確認した。
+空白／control／duplicateのnative error順、case／NFC・NFDを区別する文字列、三inconsistent-count例と一capacity overflowも検査した。
+最終font suiteは109 unit成功・15 ignored、resourceは76 unit＋3 doc、明示原Mincho alias一件も成功した。
+当runのfont ignored testsは実行せず、§345の元Mincho全glyph実行を新規再実行したとは扱わない。
+CFF parser／evaluatorのsource filesと元font bytesは保つ。
+
+実hostの0／1／16-font ledgerは12／23／169 requestsの全204 callback拒否で成功し、
+ordinary／observedのfamily tableとcanonical bytes／fingerprintが一致した。
+SVG九aliasesの既存133 callback拒否とraw aliasの68拒否／8192-entry scaleも保つ。
+maintained verifierの十CLI casesは52.398秒で成功した。
+TT ledgerの33 requestsは全非zero cost軸40拒否、CFF ledgerの33 requestsは13選択拒否を検査した。
+合計53にはnew family 22拒否を含み、entry reserve二軸、validation、lookup、name reserve二軸／copy、insertを通る。
+test-only独立referenceは先行nameの集合から移動数を数え、実装のbinary searchやVec insertを複製しない。
+既存read 15／owner 3／SVG alias 5拒否とsame-cells retry、partial ledger 0も成功した。
+TT initial Sourceは[277,21704,86001]、原CFFは[205032,7944033,17345795]となり、
+§347から[4,78,458]増える。当該二ASCII familyの費用であり、他name長／順序へ固定値として一般化しない。
+SVG九aliasesのalias直前は[276,21868,155350]を保ち、全finalization後は[301,34784,185140]となる。
+
+独立Pythonは六canonical ledgers・23 font recordsと四damage controlsを検査した。
+原MinchoのLatin／日本語・IVS二PDFは§347と全byte一致し、hashは
+30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21を保つ。
+package／font hash、cache statisticsとretry identityも同じである。
+独立四page／十二text／六IVS、十二selected glyph／三FD／UVS、四semantic damagesと八renderer smokesは
+exact PDF identityで継承し、再実行・全巻pixel受入とは扱わない。
+
+最終private build 33.950秒、CLI tests type check 44.137秒、font／resource／shaping scoped Clippy 8.109秒、
+八Rust filesのformat／diff checkが成功した。legacy libの無関係なformatを保持し、追加index blockは別に整形した。
+private binaryは63,016,816 bytes／SHA-256 005df3ea3b69103275814ebd13214717c08983502bba5f2253e1c074e0594973、regular 0755。
+10 changed/new files（新Rust三files）を含む1996 source inputsのSHA-256は
+a9fef8e5321fac610f1488021626e467341bed658f941f4c898b58c2fd4a5479。
+71 compiler inputs・943 runtime source inputsをarchiveへ保存・read backした。
+completed-probesは104,798,146 bytes／SHA-256 bfc0c059f7269550befc3fc41b82e0b6742f46de3eb9ecae6db2b5fb77e64e46。
+証拠はworkspace/target/vmb-design/20261017/observed-ledger-font-families/のartifact-index.json・evidence-audit.jsonを参照する。
+復元checkoutはworkspace/target/vmb-checkpoint-348-checkout。source guardsのみを実行し、長時間suiteとfull CLI test executableは開始しない。
+完了済み§347 bulkの189 files／350,716,284 logical bytesはRoot targetへ移し、元/tmp pathをsymlinkで維持した。
+copy後と切替後に全size／hash／modeを検査し、凍結済み証拠の内容と元logical pathsを保つ。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-font-families-review --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-ledger-font-families/run_long_checks.py --group shaping-layout --output /tmp/typaxis-font-families-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-ledger-font-families/run_long_checks.py --group cli --output /tmp/typaxis-font-families-long-cli
+```
+
+family構築を含むledgerのlogical stagesを接続したが、allocator rounding／capacity、cleanup、
+先行declaration／host解決・他clone、TrueType／image／SVG parsing、他GPOS／GSUB walksと
+同時graphs／whole-command memory／性能baselineは残る。
+元package同定・意味入力／著者review、native panic／zero-class cursor・元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UA受入も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+
+<a id="observed-svg-source-validation-design-14349"></a>
+## 349. Safe-SVG 2 source validationのSource予算（設計14.349）
+
+前goal turnの§348はfamily index構築のSource接続を完結したprogressと分類した。
+image admissionを調べ、Safe-SVG 2が三decode passesごとにnative source validatorを呼んでいたことを確認した。
+今回はそのUTF-8／forbidden-byte／BOM・directive・entity validationを同じcommand budgetへ接続する。
+geometry／IR constructionの全予算を実装したとは扱わない。
+
+SafeSvgSourceBudgetとtyped request／failureを追加した。authentic session／kind／declared media／expected hash、
+vector declaration順、remaining native node／path limitsを検査した後に、source validationの許可を得る。
+各最大256-byte範囲について16×byte length＋64 workを先払いし、空inputも0..0範囲に64 workを求める。
+全chunk feesが受理された後、native validatorを一度呼ぶ。byte_offset／byte_lengthは先払い範囲であり、
+native parserがそこまで処理済みという位置ではない。refusalまでの先行feesは返却しない。
+workは保守的なpolicy単位で、CPU命令数・実allocator使用量の測定値ではない。
+
+成功したnative validatorだけがprivate ValidatedSvgSourceを作り、同じimmutable strを三passesへ渡す。
+各passのmarkup cursor／stackは新しく作り、tag／attribute／geometry／clip grammarは従来どおり実行する。
+SVG bytesやsource textを新たにcopyせず、source validation用のowned buffer／indexを追加しない。
+native failuresのspan・line／byte column等も従来のlocation処理を使う。
+ordinary finish／image APIとSafe-SVG 1はunobserved経路を保ち、旧三passのnative behaviorを変更しない。
+Safe-SVG 2のparser／IR／allocation-charge識別子、canonical bytes／fingerprint／chargeも保つ。
+
+new resource methodsを通じてactual initial CLIへ接続した。BookV2ObservedResourceAdmissionBudgetは
+同じSource loanのowner 0へworkだけをdebitする。failureはauthentic ImageResourceIdとrequestを保持し、
+初期styleの同じownerを返す。PNG／JPEGは従来parserを呼び、Safe-SVG 1へこのfeeを加えない。
+source refusalではadmitted vector／ledgerを返さず、native alias／family／layout／PDF outputへ進まない。
+
+raw testsは55 casesをordinary／observedで比較した。元fixture、0／1／63／255／256／257／511／512／1024／8192
+leading spaces、UTF-8／BOM／control／directive／entity failuresとgeometry／paint／feature failuresを含む。
+成功時の全IRとfingerprint、失敗時の全native errorを一致させ、全240 callback拒否でrequestと正確なprefixを確認した。
+invalid node limitが最初のhookより前にnative拒否となること、unobserved hooks 0も確認した。
+実host testはPNG一件と同じ539-byte SVGの二aliasesを使う。PNG source hooksは0、SVGは六requests。
+全六拒否でauthentic subject／prefixを確認し、同じpending inputからのretryでordinaryと同じledger／IRを得た。
+最後のresource suiteは79 unit＋3 doc、明示原Mincho alias一件も成功した。
+
+maintained verifierへsvg-source controlを加え、十一casesが51.451秒で成功した。
+既存fixture copy九SVGで全27 requestsを各one-short work capで拒否し、actual CLIのSvgSource typed failure、
+owner 0、正確な先行R/S/W、same-cells retryの非減少history／cap内停止、partial ledger 0を確認した。
+当SVGは539 bytes／SHA-256 bce289809a11cdf3f6713f40dd34cd5df5091e602c16ec2194aae38ca147fd89。
+一SVGは8816 work、九件は79344 work。source-controlの最終Sourceは[301,34730,264421]となった。
+既存SVG alias controlも各read直後の新feeを独立referenceへ加え、alias直前[276,21868,234694]、
+完了時[301,34784,264484]となる。source-controlとURI文字列が異なるため、canonical容量／workの差は保つ。
+TT／原CFF fixtureはPNGを使い、initial Sourceは§348の[277,21704,86001]／[205032,7944033,17345795]のまま。
+既存ledger 53・read 15・owner 3・SVG alias 5拒否も成功した。
+
+独立Pythonは六canonical ledgers・23 font recordsを検査し、四damage controlsを拒否した。
+最初のcaptureはparallel test stdoutがJSON行へ混じったため失敗した。元log／checkerを保存し、
+最終source cohortでserial resource testを実行して完全なJSONを取得した。checksやgoldenを緩めなかった。
+原MinchoのLatin／日本語・IVS二PDFは§348と全byte一致し、hashは
+30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21を保つ。
+package／font hash、cache statisticsとretry identityも同じである。
+独立四page／十二text／六IVS、十二selected glyph／三FD／UVS、四semantic damagesと八renderer smokesは
+exact PDF identityで継承し、再実行・全巻pixel受入とは扱わない。
+
+private build最終32.211秒、CLI tests type check 40.127秒、resource／shaping scoped Clippy 6.883秒、
+七Rust filesのformat／diff checkが成功した。legacy大fileの無関係なformatを保持した。
+初期testのprivate type参照と、test-only decoder importのlint失敗も保存し、crate内test exportを修正した。
+private binaryは63,023,456 bytes／SHA-256 caf83a1792ce1fe93fe8271bab88e7a2bd7a4e696f27344b181d97b364a3d70a、regular 0755。
+11 changed/new files（新Rust二files）を含む1998 source inputsのSHA-256は
+6d91d077b9cdf7755719bedc7ee5e0bf08424331ad6b8ba39ff1035ba2e6d301。
+71 compiler inputs・945 runtime source inputsをarchiveへ保存・read backした。元native safe_vector.rsも別途保全した。
+completed-probesは104,900,890 bytes／SHA-256 7eebca072bef57f1363a74854266ebbf44edefa93aef6f276da9b69a3998e584。
+証拠はworkspace/target/vmb-design/20261017/observed-svg-source-validation/のartifact-index.json・evidence-audit.jsonを参照する。
+復元checkoutはworkspace/target/vmb-checkpoint-349-checkout。source guardsのみを実行し、長時間suiteとfull CLI test executableは開始しない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-svg-source-review --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-svg-source-validation/run_long_checks.py --group shaping-layout --output /tmp/typaxis-svg-source-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-svg-source-validation/run_long_checks.py --group cli --output /tmp/typaxis-svg-source-long-cli
+```
+
+geometry／path／clip passes・IR／canonical allocation／hash、Safe-SVG 1・PNG／JPEG／TrueType parsers、
+先行host解決／declaration clone、他GPOS／GSUB walks、actual allocator capacity／cleanup／同時graphsと
+whole-command memory／性能baselineは残る。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UA受入も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+
+<a id="observed-svg-count-pass-design-14350"></a>
+## 350. Safe-SVG 2 native count passのSource予算（設計14.350）
+
+前goal turnの§349はsource validation接続を完結したprogressと分類した。
+今回は既存のallocation-free native Count passが行うmarkup／attribute／geometry grammarとcardinality計算のworkを接続する。
+後続Analyze／Build／clip closure、IR確保・canonicalization／hashまで完結したとは扱わない。
+
+SafeSvgSourceBudgetにOBSERVE_COUNT=falseを追加し、source-only callersの既存requestsを保った。
+実BookV2ObservedResourceAdmissionBudgetだけがtrueへopt-inし、同じSource loan／owner 0へworkをdebitする。
+§349のValidation feeとnative checked immutable sourceを受けた後、全Count chunk feesを先払いする。
+各chunkは最大256 bytes、128×byte length＋64 work。空inputも0-byte requestに64 workを求める。
+byte_offset／byte_lengthは先払い範囲であり、parserがそこまで実行済みという位置ではない。
+受理済みfeesは後続refusalでも返却しない。workは保守的policy単位で、CPU命令数・実allocator bytesの測定値ではない。
+
+その後、従来と同じscan_v2のScanMode::Countを同じnode／path／depth capsとchecked sourceで一度実行する。
+native失敗は従来どおりlocationを付け、CountFinishへ進まない。成功時だけEOF offset・length 0・64 workを求める。
+CountFinish拒否では後続Analyze／Buildへ進まず、typed failureはauthentic image subjectと正確なrequestを保持する。
+成功したprivate ScanResultV2を後続decodeへ渡すため、Count passの重複呼出しも新たなIR／source copyも加えない。
+ordinary／unobserved decoderは従来のnative Countを呼ぶ。Safe-SVG 1とPNG／JPEGの経路、
+parser／IR／allocation-charge識別子、canonical bytes・fingerprint、既存native limits／errorsを保つ。
+
+raw比較は13 cases（1／2／8／64 repeated paths、rect／ellipse／Q・C path、compact path・negative rect・script・
+empty／bad markup／invalid UTF-8）で全native IRまたは全native errorを一致させた。
+各Validation／Count／CountFinish feeとauthentic image 8を確認し、全60 callback拒否で正確なprefixとtyped requestを検査した。
+node cap 1／path cap 4のnative拒否は同じerrorとなり、CountFinishへ進まなかった。
+既存55 source cases／240拒否、実host二SVGの六拒否／PNG hooks 0とalias controlsも成功した。
+最終resource suiteは81 unit＋3 doc、明示原Mincho alias一件も成功した。
+
+standalone System allocator probeを実host／declarations／resource-set /3と同じ新RA rlibへリンクした。
+最後のCount許可時にcounterをarmし、CountFinish入口でdisarmする。CountFinish拒否と成功の両方で
+native count windowのalloc／alloc_zeroed／reallocは0だった。元539-byte SVG、1／8／64／256 repeated paths、
+local clipの六inputsを使い、後続phaseのpositive controlsでは各176／45／160／1062／4138／76 allocationsを検出した。
+caller準備・先行validation・後続decode／ledgerはこのzero測定範囲に含めない。deallocation数・実capacity・peak live graph、
+whole-command memoryの証明とは扱わない。probe source／compiler inputs／binary・実行結果を保存した。
+
+十一CLI controlsは51.778秒で成功した。九SVGで一件七requests、計63 requestsを
+各one-short work capで拒否し、actual initial CLIのtyped SvgSource failure／owner 0、正確なR/S/W prefix、
+same-cells retryの非減少history／cap内停止、partial ledger 0を確認した。
+元539-byte SVGの一件feeはValidation 8816＋Count 69184＋CountFinish 64＝78064 work、九件702576 work。
+§349からのCount分は九件623232 workで、source-controlの最終Sourceは[301,34730,887653]となった。
+既存alias controlは各read後のCount feeも独立referenceで計算し、alias直前[276,21868,857926]、
+完了時[301,34784,887716]となる。TT／原CFF controlsは[277,21704,86001]／[205032,7944033,17345795]を保つ。
+既存ledger 53・read 15・owner 3・SVG alias 5 typed拒否も成功した。
+
+独立Pythonは六canonical ledgers・23 font recordsを検査し、四damage controlsを拒否した。
+原Mincho Latin／日本語・IVS二PDFは§349と全byte一致し、SHA-256は
+30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21を保つ。
+package／font hash・cache statistics・retry identityも同じである。独立四page／十二text／六IVS、
+十二selected glyph／三FD／UVS、四semantic damagesと八renderer smokesはexact PDF identityで継承し、
+再実行や全巻pixel受入とは扱わない。
+
+private build 31.979秒、CLI tests type check 40.143秒、
+resource／shaping scoped Clippy 6.466秒、四Rust filesのformatと五filesのdiff checkが成功した。
+legacy safe_vector.rsの無関係なformatを保持した。新Root filesはなく、変更は五files。
+1998 source inputsのSHA-256は88a4c4ac67ff1ece019ea863654217c4fad293565570b47f2a448721bd677b0a。
+private binaryは63,024,096 bytes／SHA-256 38b7e1f1e72a74ba6c88f215b05c2773a8ab5fde0bf6fa738777b6c79b2601e1、regular 0755。
+71 compiler inputs・945 runtime source inputsをarchiveへ保存・read backした。
+completed-probesは107,601,161 bytes／SHA-256 5034919d46a7db3c653e2fa6e709c2ce8ef6ae2bdc9350d25cab3b6cdc05e7bf。
+証拠はworkspace/target/vmb-design/20261017/observed-svg-count-pass/のartifact-index.json・evidence-audit.jsonを参照する。
+復元checkoutはworkspace/target/vmb-checkpoint-350-checkout。source guardsのみ実行し、長時間suite／full CLI test executableは開始しない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-svg-count-review --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-svg-count-pass/run_long_checks.py --group shaping-layout --output /tmp/typaxis-svg-count-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-svg-count-pass/run_long_checks.py --group cli --output /tmp/typaxis-svg-count-long-cli
+```
+
+Analyze／Build／clip closureとIR／canonical／hash、Safe-SVG 1・PNG／JPEG／TrueType parsers、
+先行host解決／declaration clone、他GPOS／GSUB walks、actual allocator capacity／cleanup／同時graphsと
+whole-command memory／性能baselineは残る。元package同定・意味入力／著者review、native panic／zero-class cursorと
+元math font互換、原font全巻／多言語、公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UA受入も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+
+<a id="observed-svg-clip-closure-design-14351"></a>
+## 351. Safe-SVG 2 clip closureのSource予算（設計14.351）
+
+前goal turnの§350はnative Count pass接続を完結したprogressと分類した。
+後続decodeを調べ、native Analyze後のclip closureが一時BTreeMap／BTreeSetを作っていたことを確認した。
+今回はこのdefinition／referenceの閉包検査を、実初期CLIの同じSource R/S/W cellsへ接続する。
+native Analyze内のpath／definition／reference生成やBuild／IR／canonical／hashは今回の接続範囲に含めない。
+
+SafeSvgSourceBudgetのOBSERVE_CLIP_CLOSUREはdefault false。旧source-only／Count-only callerのbillingを保ち、
+BookV2ObservedResourceAdmissionBudgetだけがtrueへopt-inする。SafeSvgSourceRequestにrecords／storage_bytesを加え、
+従来のValidation／Count／CountFinishは双方0を送る。新requestsは同じSource loan／owner 0で三cellsへatomic debitし、
+refusalはauthentic ImageResourceId・stage・三allowancesを保持する。clip bookkeepingのbyte offset／lengthは0である。
+新flagだけを有効にしたcallerもnative Countを一度行い、Count料金自体はOBSERVE_COUNTで選択する。
+
+同じimmutable checked sourceのnative Countとallocation／node／path capsを閉じた後、native Analyzeを一度呼ぶ。
+Countとのcounts／root一致を確認し、借用definition ID・segment数・used flagのprivate indexを構築する。
+現在の64-bit hostでrowは32 bytes。実definition数×32 bytesと同じlogical row数をClipStorageで先払いし、
+try_reserve_exactを一度呼ぶ。ID文字列／path／SVG payloadをcopyせず、borrowed rowsだけをpushする。
+過小／過大ExactSizeIteratorは予約範囲外pushの前に拒否し、size積のoverflowは最初のhookより前に拒否する。
+allocatorの実capacity／peak live bytesをlogical quotaと同一視しない。
+
+収集64 work／row、明示heap sortのloop 64・swap 128、比較64＋2×短いIDのbyte長を先払いする。
+lookupも同じ比較feeでbinary searchし、成功後にused flagを記録する。reference順を保って各replay加算前に64を求め、
+checked additionと元stored-segment＋replay capを検査する。finishはphase 64＋検査rowごと64でunused定義を拒否する。
+空indexにもstorage／finish各64を求め、allocationは行わない。受理済みfeesはrefusalでも返却しない。
+workは保守的policy単位で、CPU命令数やallocator bytesの測定値ではない。
+
+duplicate／missing／unusedのnative拒否と、reference-localなClipReplay budget／locationを保つ。
+成功したclosureのprivate path_workを後続decodeへ渡し、同じAnalyze／closureを重複実行しない。
+ordinary／unobserved・source-only callerは従来のnative tree経路を呼ぶ。
+Safe-SVG 1・PNG／JPEGのparser、Safe-SVG 2 grammar／IR／allocation-charge識別子とcanonical／fingerprintを保つ。
+
+raw index testsは0／1／2／17／512 entries・正順／逆順／回転順、長い共通prefixを検査した。
+小さいcasesの全1042 callback拒否でrequest・正確なaccepted prefixを確認し、duplicate／unused／missing、
+四false ExactSize countsとusize overflowも検査した。native decoder比較は九cases（0／1／2／17／64 clips、
+duplicate／unused／missing・transform）で全IRまたは全native errorを一致させ、選択八casesの全517 callback拒否を確認した。
+stored/replay caps 14／19／20もnativeと一致した。最終resource suiteは85 unit＋3 doc、明示原Mincho alias一件も成功した。
+初回scoped lintはtest helperの不要lifetime一件を検出した。元cohort／logを保存し、lifetimeを除いてsuite／lintを再実行した。
+
+standalone System allocator probeはactual host／declarations／resource-set /3と新RA rlibを使う。
+ClipStorage許可以後から最後のClipFinish入口までを測定し、0／1／2／8／64／256 clip rowsで
+index allocationは0／1／1／1／1／1、全storage拒否では0だった。
+後続Build等のpositive controlsは168／75／119／383／2803／11066 allocationsを検出した。
+先行native Analyze、caller準備、後続Build／ledgerをindex測定に含めず、deallocation・実capacity・whole-command memoryの証明としない。
+probe source、compiler inputs・binary、実行結果も保存した。
+
+十二CLI controlsは54.431秒で成功した。
+新svg-clips controlは由来を明示した242-byte SVG（clip cの一definition、group／path二references）を九aliasesで使う。
+SHA-256 aafbe1249f1f771120e7bfe2cdf968b67e31bd3892077d04d7c98a1384141b17。
+各imageはValidation／Count／CountFinishと八clip requests、合計99 requests／320004 work。
+一件一row／32 bytesを含み、九件9 rows／288 bytes。全work cutsとstorageのR/S cutsを合わせ117 typed refusalsで
+actual CLIのSvgSource error／owner 0・正確なpaid R/S/W prefix、same-cells retryの非減少history／cap内停止、output charge 0を確認した。
+native／observed ledger canonical bytes／fingerprintは一致し、完了Sourceは[310,32345,496632]となった。
+
+従来539-byte SVG source controlは九件81 requests／703728 work、全81 typed work refusalsが成功した。
+空clip indexの新128 work×九件＝1152 workを含み、最終Sourceは[301,34730,888805]。
+既存alias controlはalias直前[276,21868,859078]／完了時[301,34784,888868]となった。
+TT／原CFF controlsの[277,21704,86001]／[205032,7944033,17345795]、ledger 53・read 15・owner 3・alias 5拒否は保つ。
+
+独立Pythonは六canonical ledgers・23 fontsを検査し、四damage controlsを拒否した。
+原Mincho Latin／日本語・IVS二PDFは§350と全byte一致し、SHA-256は
+30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21を保つ。
+package／font hash・cache statistics・retry identityも同じで、独立四page／十二text／六IVS、
+十二selected glyph／三FD／UVS、四semantic damages・八renderer smokesはexact PDF identityで継承する。
+新たな全巻pixel受入や再実行とは扱わない。
+
+private build 31.872秒、CLI tests type check 39.870秒、
+resource／shaping scoped Clippy 4.079秒、六Rust filesのformat／八filesのdiff checkが成功した。
+2000 source inputs（八changed/new files、新Rust二files）のSHA-256は
+ebd019415c95c5c7e03738c912fc85b6a92398ef90f865e203199876f49b2c94。
+private binaryは63,024,672 bytes／SHA-256 7add0a58c621db9b82560fca255fb31b95378aec58e6c41b9e48b1b51e031f95、regular 0755。
+71 compiler inputs・947 runtime source inputsをarchiveへ保存・read backした。
+completed-probesは107,779,336 bytes／SHA-256 8b888b58872c070af3dc098bcc9e65283fcb3554892dc8176ffa7be5bfad224b。
+§350 completed bulkの124 files／148710386 logical bytesはRoot側へ全hash／mode照合後に移し、元/tmp pathをsymlinkで保った。
+証拠はworkspace/target/vmb-design/20261017/observed-svg-clip-closure/のartifact-index.json・evidence-audit.jsonを参照する。
+復元checkoutはworkspace/target/vmb-checkpoint-351-checkout。source guardsのみ実行し、長時間suite／full CLI test executableは開始しない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-svg-clips-review --case svg-clips --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-svg-clip-closure/run_long_checks.py --group shaping-layout --output /tmp/typaxis-svg-clips-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-svg-clip-closure/run_long_checks.py --group cli --output /tmp/typaxis-svg-clips-long-cli
+```
+
+native Analyze内のgeometry／path／definition／referenceとclip-transform検査、Build／IR／canonical／hash、
+Safe-SVG 1・PNG／JPEG／TrueType parsers、先行host解決／declaration clone、他GPOS／GSUB walks、
+actual allocator capacity／cleanup／同時graphsとwhole-command memory／性能baselineは残る。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UA受入も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+
+<a id="observed-svg-ir-admission-design-14352"></a>
+## 352. Safe-SVG 2 Analyze／Build・canonical IRのSource予算（設計14.352）
+
+前goal turnの§351はclip closure接続を完結したprogressと分類した。
+今回は残るdecoder内のAnalyze／Build buffers、IR definitions移動、canonical measure／storage／write／hashを実初期CLIへ接続した。
+外側のadmitted owner／binding cachesやactual whole-command memoryまで完結したとは扱わない。
+
+SafeSvgSourceBudget::OBSERVE_IRはdefault falseで、trueはCount・clip closureも含む。
+BookV2ObservedResourceAdmissionBudgetがopt-inし、同じSource cells／owner 0へrecords・storage bytes・workをatomic debitする。
+既存source-only／Count-only／clip-only callersのfeesとordinary API、Safe-SVG 1のcanonical／fingerprint／chargeを保つ。
+新flagも同じnative source proofをimmutable bytesへ結び、別grammarや入力の書換えを加えない。
+
+native Countにprivate StorageCountsを加え、definitions／references／drawsの正確な数を全passesで比較する。
+Analyze／Buildは各最大256-byte範囲の256×length＋64 workを全て先払いし、censusに従うVecをtry_reserve_exactで確保する。
+各pathは同じallocation-free geometry visitorで数え、segment reservation後に同じvisitorから保存する。
+予約外push、census不一致、size積overflowを拒否し、clip lookupsの文字比較と二つのgeometry走査にも許可を求める。
+Buildの各drawのclip listと、最終definitions Vecもexact reserveしてpayloadをmoveする。
+feesは保守的policy単位で、CPU命令数や実resident bytesの測定値ではない。
+chunkのoffset／lengthは先払い範囲であり、parser処理済み位置ではない。他IR requestsのoffset／lengthは0である。
+受理済みR/S/Wは後続refusalでも返却しない。
+
+V2 canonical encoderはordinary／observedの共通visitorへ変更した。V1 encoderは保つ。
+数値は40-byte stack bufferでdecimal化し、measureは256-byte分のworkを先払いしてallocationなしで正確な出力長を得る。
+canonical Stringは一record／正確なlengthを予約し、一度だけfallible reserveする。
+write workを先払いした後、lengthを超えないsinkへ同じencoderを流す。fingerprint wrapperを別Stringにせず、
+algorithm prefix／canonical bytes／suffixを最大256-byte単位でSHA-256へ渡し、各updateとfinishの許可を先払いする。
+parser／IR／allocation-charge識別子、grammar／native limits／failure locationとcanonical／fingerprintを保つ。
+
+十六unit cases（元fixture、rect／circle／ellipse／polygon／polyline／line、relative Q/C path・paint、
+clip／unused／missing・invalid cases、64／512 paths）の十一positiveと全native errorsを比較した。
+小さい十四casesの全425 callback拒否でauthentic image 12、正確なrequest／accepted prefixを確認した。
+decimal極値、measure境界0／1／255／256／257／512／513、誤ったprivate census六種類を両passes、予約外push・overflowも検査した。
+最終resource suiteは88 unit＋3 doc、明示原Mincho alias一件も成功した。
+
+独立比較は§351保存済み71 rlibsを復元し、凍結実装のdriverを実行した。
+当初のcompiler archiveにはserde_derive／bytemuck_deriveのdynamic librariesが含まれず、metadataをreloadできなかった。
+元Cargo artifact recordsが示す変更のないmanaged cacheの二filesをhashで固定して補い、旧71 rlibs自体は変更しなかった。
+maintained verifierも今後はこのproc-macro librariesを保存する。新73 compiler inputsだけを別directoryへ復元し、
+registry／active compiler cacheへ依存するsearch pathを加えずdriverをcompileした（同じ記録済みRust toolchainを使用）。
+33 corpus cases（28 positive／5 native errors）と正確なCLI二SVG payloadsで、旧／新ordinary／observedのIR bytes・
+fingerprint・全debug IR・ledger canonical／fingerprintまたはnative errorが一致した。
+初期driverのerror型修正と、runtime unionのJSON key順比較修正、compile／lint失敗のcohort・scripts・logsも保存した。
+
+独立Pythonは凍結compilerのcanonical IRと正確なSVG bytesから両CLI permit列を再構成した。
+現在の64-bit targetのlogical row bytesはdefinition tuple 72／reference 80／draw 120／segment 56／clip use 32／final definition 56。
+539-byte fixtureは一image 102 requests、89 rows／9713 bytes／506774 work、canonical 4273 bytes。
+clip付き242-byte fixtureは一image 54 requests、30 rows／2981 bytes／207642 work、canonical 1237 bytes。
+各九imagesの全reference列を検査し、実CLIでは全旧stagesに加え新stagesの代表first／last、最後のfinishを選び、
+非zero R/S/W axesを208／226 typed cutsで拒否した。全新requestをCLIで網羅したとは扱わず、unitの小casesは全cutを検査する。
+authentic image／owner 0、正確なpaid prefix、same-cells retryの非減少history／cap内停止、partial output 0を確認した。
+完了Sourceはfixture [1102,122147,4746043]／clip [571,58886,2045406]、alias controlは
+直前[1077,109285,4716316]／完了[1102,122201,4746106]となった。
+TT／原CFFの[277,21704,86001]／[205032,7944033,17345795]と既存ledger 53・read 15・owner 3・alias 5拒否を保つ。
+
+standalone System allocator probeはactual host／resource-set /3と復元73 inputsで六inputs（元fixture、1／2／8／64／256 clips）を使った。
+Analyze allocationsは8／4／6／18／130／514、Buildは9／6／9／27／195／771で、予約回数と一致した。
+closure／final definitionsは非空caseごと一回、canonicalは各一回、Count／measure／hash updatesは0。
+各phaseのrequested Layout bytesもlogical storage permitsの合計と一致し、測定phasesのreallocは0だった。
+小さい四inputsの全storage sitesと、大きい二inputsのstage別first／last、合計125 storage拒否で、その後のallocation 0を確認した。
+finish／外側owner・bindingのpositive controlは全六件で各3 allocationsを検出した。
+これはphysical allocator slack／usable bytes・deallocation／cleanup・同時graphs／peak live memoryの証明ではない。
+
+十二controlsは短い二groups（base 31.170秒、SVG／ledger 35.869秒）で成功した。
+同じ2002 source inputs・73 compiler dependenciesと同じharnessを検査し、重複のない12 casesをunionへ記録した。
+六canonical ledgers・23 fontsと四damage controls、原Mincho Latin／日本語・IVS二PDFの§351との全byte一致も成功した。
+PDF SHA-256は30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21。
+既存の独立四page／十二text／六IVS・十二glyph／三FD／UVS・四semantic damages／八renderer smokesはexact PDF identityで継承する。
+新たな全巻pixel受入とは扱わない。
+
+private build 30.819秒、CLI tests type check 40.858秒、scoped lintとformat／diff checkが成功した。
+八changed/new files（新Rust二files）の2002 source index SHA-256は
+367eca53dc89b00379677a94806b7ef04a624e02586e2b6688d97df2a4093f86。
+private CLIは63,172,040 bytes／SHA-256 b065c436cb8170d7903b76f9a283669f8d785903d2a95f4c350a2daea045f83e、regular 0755。
+両runの73 compiler inputs・949 source inputsを保存・read backし、completed-probesは
+132,918,893 bytes／SHA-256 e48a380b8a41b4a4d208c8427cd4f06c0a8b9068bbac028047da59414bbfe194。
+§351 completed bulkの134 files／149868935 logical bytesは全hash／mode照合後にRoot側へ移し、元/tmp pathsを保った。
+証拠はworkspace/target/vmb-design/20261017/observed-svg-ir-admission/のartifact-index.json・evidence-audit.json。
+復元checkoutはworkspace/target/vmb-checkpoint-352-checkout。長時間suite／full CLI test executableは開始しない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-svg-ir-review --case svg-source --case svg-clips --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-svg-ir-admission/run_long_checks.py --group shaping-layout --output /tmp/typaxis-svg-ir-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-svg-ir-admission/run_long_checks.py --group cli --output /tmp/typaxis-svg-ir-long-cli
+```
+
+decoder外のowner／binding caches・先行host解決／declaration clone、Safe-SVG 1・PNG／JPEG／TrueType parsers、
+他GPOS／GSUB walks、actual capacity／cleanup／peak live graphs・whole-command memory／性能baselineは残る。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UAと長時間回帰も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+
+<a id="observed-svg-binding-design-14353"></a>
+## 353. Safe-SVG 2 IR owner／image bindingのSource予算（設計14.353）
+
+前goal turnの§352はdecoder buffers／canonical接続を完結したprogressと分類した。
+そのallocator positive controlはdecoder後に各3 allocationsを検出していた。実装を調べると一時receiptのBox、
+AdmittedImageのArc owner、image BTreeMap nodeだった。今回はobserved Safe-SVG 2のownerとbindingを同じSourceへ接続した。
+
+OBSERVE_BINDINGはdefault false。Book observed budgetだけがtrueへopt-inする。
+既存ordinary／source-only／Count-only／clip-only／IR-only callerの要求列を保ち、native pathのBox receiptも保つ。
+observedはcrate-owned decoderから受けたIRをprivate binding helperへ渡し、同じsession／kind／declaration URI／hash／
+media／M4 limits／profile検査を共有して、unforgeable pending sourceから直接admitted ownerを構築する。
+一時Boxを作らず、IR payloadをcopyしない。現在の64-bit hostではArc header＋IR本体のrequested Layoutは208 bytes。
+一record／208 bytes／64 workをIrOwnerで先払いしてArcを一度だけ構築し、その同じownerをAdmittedImageへmoveする。
+これはquota refusalをallocation前へ接続するもので、固定sizeのstd Arc allocation自体をfallible APIへ変更したとは扱わない。
+
+private image bindingsはNative BTreeMapとreserved sorted Vecの二経路を持つ。
+最初のobserved SVGで全image declaration数×AdmittedImageのlogical bytesをBindingStorageへ予約し、try_reserve_exactする。
+現在のdescriptorは392 bytes。既存PNG等のnative entriesは順序を保ってmoveし、各移行rowの64 workを全て許可してからmapを置き換える。
+移行中のquota refusalではnative mapを保つ。移行後のrefusalでもadmitted contentsは変えず、予約済み空容量とpaid historyは返却しない。
+以後は同じ容量を再利用し、宣言数を超えるpush／insertと異なるcensusを拒否する。
+lookupは開始64＋各binary comparison64、insertは64＋移動descriptor bytesを先払いする。
+vector declaration advanceもpublish前に許可し、node／path totals・cursorの更新はinsert成功後だけ行う。
+
+共有tableはPNG／JPEG／Safe-SVG 1のnative binding順序も保ち、already-reserved容量でのinsertを認める。
+それらparser本体・work、先行read attempted-set、declaration clone、caller-owned progress snapshot等まで今回accountしたとは扱わない。
+work／storageはpolicy unitsとlogical requested storageであり、physical slack／resident bytesやCPU命令数ではない。
+
+低層testは準備の全七callback拒否で正確なrequest／prefix、既存resources保存と同じtableからのretryを検査した。
+capacity／overflow／duplicate／orderingも検査し、8192 entriesを一予約、512 entriesの逆順／回転でもsorted IDsを保った。
+実hostのPNG／SVG／PNG／SVGはnativeと全AdmittedImages／fingerprintが一致し、最初のPNGを移行した。
+二SVGの全14 binding callback拒否でauthentic subjects・正確なprefix、progress保存、同じpending inputからのretryと最終一致を確認した。
+最終resource suiteは92 unit＋3 doc、明示原Mincho alias一件も成功した。
+
+十二actual CLI controlsはbase 30.345秒、SVG／ledger 36.286秒の二groupsで成功した。
+新referenceは同じhost／resource-set /3で九imagesを順にadmitして一度だけのtable reservationと各lookup状態を保持する。
+独立Pythonは凍結§352の正確なcanonical IR・二SVG bytesと、別allocator probeのrequested Layoutから全permit列を再構成した。
+九imagesのbinding追加分は18 records／5400 bytes／3392 workで、tableは九rows／3528 bytes、ownerは各一row／208 bytes。
+539-byte fixtureは971 requests／4564358 work、242-byte clip fixtureは539 requests／1872170 workとなる。
+代表新stages・既存stagesの全旧cuts等を224／242 typed R/S/W拒否で検査し、owner 0・authentic image、正確なpaid prefix、
+same-cells retryの非減少history／cap内停止・partial output 0を確認した。全requestのCLI網羅とは扱わない。
+Source完了はfixture [1120,127547,4749435]／clip [589,64286,2048798]、alias直前[1095,114685,4719708]／
+完了[1120,127601,4749498]。TT／原CFF [277,21704,86001]／[205032,7944033,17345795]と
+ledger 53・read 15・owner 3・alias 5 typed拒否も保つ。
+
+復元73 compiler inputsで新driverをcompileし、§352の凍結binaryと33 cases（28 positive／5 errors）を比較した。
+新ordinary／observedの全IR bytes・fingerprint・debug IR・ledger／native errorsが一致した。正確なCLI二payloadsも同様に一致した。
+実host allocator六inputsはdecoderに加えてbinding storage／IR ownerを測り、各caseでtable一回／392 requested bytes、
+owner一回／208 requested bytes、binding control 0、各phaseのallocation回数・Layout bytesの予約一致とrealloc 0を確認した。
+Count／measure／hash updatesのallocation 0とcanonical一allocationも保つ。
+小さい四inputsの全storage sites・大きい二inputsのstage別first／last、合計137拒否後のallocationは0だった。
+別のcaller-driven unobserved finalizationをpositive controlとして全六casesでallocationを検出した。
+physical capacity／usable bytes・cleanup・peak live graphs／whole-command memoryの証明とは扱わない。
+
+六canonical ledgers・23 fontsと四damage controls、原font Latin／日本語・IVS二PDFの§352との全byte一致も成功した。
+SHA-256は30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21。
+既存の独立四page／十二text／六IVS・十二glyph／三FD／UVS・四semantic damages／八renderer smokesはexact PDF identityで継承する。
+全巻pixel受入や再実行とは扱わない。
+
+初回host testのcore importsと、runtime reference loopのimage index不足を修正し、元source cohorts／logsを保存した。
+private build 33.503秒、最終cohortのwarm build、CLI tests type check 42.597秒、
+scoped lint・七Rust filesのformat／八filesのdiff checkが成功した。
+2004 source inputs（八changed/new files、新Rust二files）のSHA-256は
+419a1bdd772ade1e54d519ca408da5541b750fd699a92eb997ee8069c3eeefce。
+private CLIは63,183,808 bytes／SHA-256 ca319d2db5f3a7afc93af4d11af5ca9b927bc8efa87efe17dd1c9825cbcff927、regular 0755。
+各runの73 compiler inputs／951 source inputsを保存・read backし、completed-probesは
+127,137,255 bytes／SHA-256 456d1042ba25135449efced93ed6e2527f5d3a0b7991c46e71d1c817cb238994。
+§352 bulkの288 files／332411501 logical bytesは全hash／mode照合後にRoot側へ移し、元/tmp pathsをsymlinkで保持した。
+証拠はworkspace/target/vmb-design/20261017/observed-svg-binding/のartifact-index.json・evidence-audit.json。
+復元checkoutはworkspace/target/vmb-checkpoint-353-checkout。長時間suite／full CLI test executableは開始しない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-svg-binding-review --case svg-source --case svg-clips --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-svg-binding/run_long_checks.py --group shaping-layout --output /tmp/typaxis-svg-binding-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-svg-binding/run_long_checks.py --group cli --output /tmp/typaxis-svg-binding-long-cli
+```
+
+先行host解決／declaration clone／attempt indices、他parser、progress snapshots・cleanup・actual capacity／peak live graphsと
+whole-command memory／性能baselineは残る。元package同定・意味入力／著者review、native panic／zero-class cursor・元math font互換、
+原font全巻／多言語、公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UAと長時間回帰も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+<a id="observed-host-read-attempts-design-14354"></a>
+## 354. Host read attempt indexのSource予算（Design 14.354）
+
+§353で残った先行attempt BTreeSetを調べ、実font／image readのbuffer permitより前にnode allocationが起きることを確認した。
+今回はBook observed pathのattempt bookkeepingを同じSource R/S/Wへ接続した。既存host capability／pending sourceの権限は変えない。
+HostReadBudget::OBSERVE_ATTEMPTSはdefault false、Book adapterだけがtrueとなる。
+ordinary APIと既存read-buffer-only observerはnative BTreeSetと元のrequest列を保つ。
+
+private AttemptsはNative BTreeSetとPacked Vec<u64>の二形態を持つ。既存のdense declaration ID検査に基づき、
+最初のobserved readで各resource classの全宣言に対応するbitmapを一度だけtry_reserve_exactする。
+AttemptStorageは一buffer record／ceil(N÷64)×8 bytes／64＋bytes workを先払いする。
+既存native attemptsは各64 workのAttemptMigrateを全て許可してからbitmapを確保・zero fillし、bitsを移してnative setを置き換える。
+移行許可の拒否では元setを保持する。lookup／markは各64 workで、移行後は固定capacityのbit操作を使う。
+bitmapを持つresolverでordinary readへ戻っても同じbitsを使い、二重readを許さない。
+
+read入口のroot／kind／declaration identity検査はそのまま保つ。attempt lookup後のnative aggregate byte limitを計算だけ行い、
+mark許可成功後にattemptとaggregate bytesを共にcommitする。Storage／Migrate／Lookup／Mark拒否では未attemptのresourceを同じresolverからretryできる。
+移行済み空bitmapと既に支払ったSource historyは返却しない。Buffer以後の拒否では従来と同じくattemptとaggregate bytesを保持する。
+Bookでは同じquota owner 0へ一括debitし、refused requestのsubject／stageをauthentic font／imageと共に返す。
+新opt-inではattempt permitsがaggregate byte checkより先に来るため、その段階のquota refusalがnative byte-limit errorに先行し得る。
+quotaが足りる場合のnative error／bytes／hashとresource orderを保つ。
+
+新しい四testsは1／63／64／65／127／128／129／8192宣言の三orders、capacity／bounds、native三bitsの移行、
+全五migration準備拒否とretry、mark拒否後のordinary reuse、実host font／imageの全十二callback拒否を検査した。
+各拒否の正確なrequest／paid prefixとsubject、commit前のaggregate 0・retry後一回だけのbyte予約、
+read開始後のduplicate拒否、ordinary／observedのcanonical ledger一致も確認した。
+最終18 host unit＋2 doc、96 resource unit＋3 doc、明示原Mincho alias一件が成功した。
+
+十二actual CLI controlsはbase 34.554秒／SVG・ledger 36.395秒の二groupsで成功した。
+read traceは17 requests、全27 nonzero R/S/W cutsを検査し、exact prefix・authentic subject／owner 0、
+same-cells retryの非減少history・cap内停止とpartial receipt 0を保つ。
+独立Pythonは凍結§353のread contractから新Storage／Lookup／Mark列を再構成し、全cutを照合した。
+三resource fixtureの追加は[2 records,16 bytes,528 work]で、TT完了[279,21720,86529]、原CFF完了[205034,7944049,17346323]。
+九SVG fixtureの追加は[2,16,1552]で、source完了[1122,127563,4750987]、clip完了[591,64302,2050350]、
+alias直前[1097,114701,4721260]／完了[1122,127617,4751050]となる。
+ledger 53・owner 3・alias 5・SVG 224／242 typed cutsは各permit量を保ったまま新prefixで成功した。
+SVG／image binding／ledger実装のsource hashesは§353と同一であり、33 raw oracle casesと正確な二CLI payloadsのproofを継承する。今回はそれらoracleを再実行していない。
+
+復元した73 compiler inputsだけで独立System allocator driverをcompile・実行した。
+font／image、1／63／64／65／129／8192宣言、新規／既存native attempt移行の22 casesを測った。
+Storage／MigrateからLookup入口までbitmap allocation一回、requested Layout bytesはceil(N÷64)×8と一致し、realloc 0だった。
+LookupからMark、MarkからBufferのallocationも0、全142 callback拒否後のallocation 0を確認した。
+同じdriverでhost buffer allocationを全22 positive controlsとして検出した。
+これはrequested storageと特定windowの証拠であり、allocator usable capacity／peak live graph・cleanup／whole-command memoryやCPU命令数の証明ではない。
+
+六canonical ledgers・23 font recordsと四damage controls、原font Latin／日本語・IVS二PDFの§353との全byte一致も成功した。
+PDF SHA-256は30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21。
+既存の独立四pages／十二text／六IVS、十二glyph／三FD／UVS、四semantic damage controls・八renderer smokesはexact byte identityで継承する。
+
+初期test harnessのprivate field／closure lifetimeの四compile失敗と、allocator positive-controlの誤った仮定による一失敗を保存した。
+修正後のsource／driverで上記検査が成功した。private build 31.456秒、CLI tests type check 43.233秒、scoped lint 7.138秒、
+七Rust filesのformat／八filesのdiff checkも成功した。2006 source inputsのSHA-256は
+ad7b25b3a003554fb323fbface9adfcce86a8475e9dfafcab1ec18a6e0c56ec1。
+private CLIは63,194,568 bytes／SHA-256 cc447868fadfb50c7152e634c2021d4296f58dc01758ff005b4054830c1d3e7d、regular 0755。
+各runの73 compiler inputs／953 runtime source inputsを保存・read backした。
+completed-probesは125,421,666 bytes／SHA-256 174c4accef68e8cd7d22522678c48aab86d6143558d2a037b54aec4dd3d11dc9。
+§353 bulkの270 files／311650998 logical bytesは全hash／mode照合後にRoot側へ移し、元/tmp pathsをsymlinkで保持した。
+証拠はworkspace/target/vmb-design/20261017/observed-host-read-attempts/のartifact-index.json・evidence-audit.json。
+復元checkoutはworkspace/target/vmb-checkpoint-354-checkout。長時間suite／full CLI test executableは開始していない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-attempt-review --case reads --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-host-read-attempts/run_long_checks.py --group shaping-layout --output /tmp/typaxis-attempt-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-host-read-attempts/run_long_checks.py --group cli --output /tmp/typaxis-attempt-long-cli
+```
+
+先行host解決／declaration clones、他parser・library walks、snapshot／cleanup／actual capacity／peak live graphs・whole-command memory／性能baselineは残る。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UA、長時間回帰も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+<a id="observed-read-declarations-design-14355"></a>
+## 355. Borrowed host declarationsとpending URIのSource予算（Design 14.355）
+
+前goal turnの§354はattempt indexを完結・監査したprogressである。今回はその前後に残ったresource declaration copiesを調べた。
+resource host adapterはopenごとに宣言をcloneし、readでも比較用に再cloneし、stable read後にURIをもう一度cloneしていた。
+VerifiedResourceSourceのprivate declarationを、同じhost sessionに属するimmutable catalogの借用へ変更した。
+元からhost rootsへ束縛されたlifetimeを使い、source自身がhostを越えない。resource層でopen時のfont family／URI payload cloneを作らず、
+比較も同じfull declarationのborrowed Eqを使う。host内のgeneric candidate／path所有、constructorのcatalog clonesは今回の完了範囲に含めない。
+
+HostReadBudget::OBSERVE_DECLARATIONSはdefault false、Book adapterだけがtrueへopt-inする。
+ordinary／既存read-buffer-only／attempt-only observersの要求列を保ち、URIの従来cloneもそれら経路では保つ。
+observedのDeclarationCheckは、sourceとexpected双方のfamily／URI byte lengths合計の2倍＋64 workをEqより前に求める。
+root／kind／logical IDの既存検査はその前に保ち、full font ID／family／URI／face index／expected hashとimage declarationの同一性を省略しない。
+新quota拒否はidentity comparisonの前に起き得るが、十分なquotaでのnative errors／bytes／hashとresource orderを保つ。
+
+stable read／DigestFinish後のDeclarationUriは一buffer record／URI UTF-8 byte length／16×length＋64 workを先払いする。
+String::try_reserve_exactで確保し、同じURI bytesをcopyして既存PortablePath constructorへStringごと渡す。
+constructorのvalidationも許可したworkに含め、追加のURI bufferを作らない。新APIやunchecked path constructorは公開しない。
+URI拒否ではpending receiptを返さず、host read開始後のattempt／aggregate bytesとSource paid historyは保持する。
+Check拒否はattempt前なので同じresolverでretryできる。pending URIは独立ownerとなり、host drop後にもbytes／URIを利用できる。
+
+新しい四testsは全font identity fields、異kind declaration、長いfamily／URI・UTF-8、URI独立buffer、
+host catalogへのpointer identityとpendingのhost後lifetime、実host font／imageの全十六callback拒否を検査した。
+正確なrequest／prefix／subject、commit前後のaggregate bytes・retry／duplicate拒否とidentity mismatchの優先順を確認した。
+最終18 host unit＋2 doc、100 resource unit＋3 doc、明示原Mincho alias一件も成功した。
+
+十二actual CLI controlsはbase 36.560秒／SVG・ledger 39.308秒の二groupsで成功した。
+read traceは23 requests／全39 nonzero R/S/W cuts。authentic subjects・owner 0、exact prefix、same-cells retryの非減少historyと
+cap内停止・partial receipt 0を確認した。独立Pythonは凍結§354のread traceとcanonical font family／URIから新permit列を再構成した。
+三resource fixtureの追加は[3 records,31 bytes,1060 work]、TT完了[282,21751,87589]／原CFF完了[205037,7944080,17347383]。
+九source-SVGの追加は[11,130,4064]で完了[1133,127693,4755051]、clip完了[602,64432,2054414]。
+九aliasのURIは一byte長いため追加[11,139,4244]、alias直前[1108,114840,4725504]／完了[1133,127756,4755294]となる。
+ledger 53・owner 3・alias 5・SVG 224／242 typed拒否は各permit量を保ったまま新prefixで成功した。
+SVG／image binding／ledger／attempt implementationのsource hashesは§354と同一であり、33 raw oracle cases＋正確な二CLI payloadsのproofを継承する。
+今回はそれらoracleを再実行していない。
+
+復元73 compiler inputsだけで独立System allocator driverをcompile・実行した。
+font／image、1／63／64／65／129／8192宣言とnative attempts移行、UTF-8 URI、8192／1048576-byte family、
+255／256／257／1842-byte URIの32 actual host casesを含めた。
+opened sourceを受けたreadからpending returnまでを測り、最初のCheck前・borrowed Eq・lookup／setupのallocationは0だった。
+bitmapは一allocation／ceil(N÷64)×8 requested bytes、pending URIは一allocation／exact URI bytesで、測定区間のrealloc 0。
+全266 callback拒否以後のallocation 0も確認した。host bufferの32 allocationsもpositive controlsとして検出した。
+
+この測定は別の未完箇所も示した。Linuxのnative revalidate_open_resolutionはrustix openat2へ&strを渡す。
+固定したrustix 1.1.4 sourceでは256 bytes以上をCString::newのdynamic pathへ回し、実測でも256／257／1842-byte URIの
+font／image六casesに各URI length＋1、合計4716 bytesの追加allocationがあった。このnative path storageはまだSourceへ接続していない。
+最初のallocator assertion失敗と診断runを残し、短いURIだけの結果で全host memoryを完了扱いしない。
+後続probe wrapperのoutput-directory／expected-countの二失敗も保存し、修正後に32 cases／266拒否を確認した。
+次のhost owner作業はこのC-string変換とroot解決／candidate所有を対象にする。caller preparation・cleanup・physical capacity／peak live graph／whole-command memoryも未完である。
+
+六canonical ledgers・23 font recordsと四damage controls、原font Latin／日本語・IVS二PDFの§354との全byte一致も成功した。
+PDF SHA-256は30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21。
+独立四pages／十二text／六IVS、十二glyph／三FD／UVS、四semantic damages・八renderer smokesはexact PDF identityで継承する。
+private build 33.129秒、CLI tests type check 42.506秒、scoped lint 8.093秒、七Rust filesのformat／八filesのdiff checkも成功した。
+2008 source inputsのSHA-256は2bfe44ff4a54742105851329ddb1bf55f5175e6fd823673fa087a87e7bc0ad03。
+private CLIは63,196,520 bytes／SHA-256 746b62af5b6bb7ad6ec848661b7a05fab360199efaf7d2b2b6aadddb8ebccb6f、regular 0755。
+各runの73 compiler inputs／955 runtime source inputsを保存・read backした。
+completed-probesは129,573,607 bytes／SHA-256 4a94d9060ff5b338685f08e46a7714aaa30ceb771eff73f34c987f066407a2fc。
+§354 bulkの230 files／300363933 logical bytesを全hash／mode照合後にRoot側へ移し、元/tmp pathsをsymlinkで保持した。
+証拠はworkspace/target/vmb-design/20261017/observed-read-declarations/のartifact-index.json・evidence-audit.json、
+復元checkoutはworkspace/target/vmb-checkpoint-355-checkout。長時間suite／full CLI test executableは開始していない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-declaration-review --case reads --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-read-declarations/run_long_checks.py --group shaping-layout --output /tmp/typaxis-declaration-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-read-declarations/run_long_checks.py --group cli --output /tmp/typaxis-declaration-long-cli
+```
+
+host resolution／catalog clones・他parser／library walks、snapshot／cleanup／actual capacity／peak live graphs・whole-command memory／性能baselineは残る。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UAと長時間回帰も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+<a id="observed-host-revalidation-design-14356"></a>
+## 356. Native host read再検査のSource予算（Design 14.356）
+
+前goal turnの§355はborrowed declarations／pending URIを完結・監査したprogressである。
+同probeは256 bytes以上のnative revalidationに六CString allocations／4716 requested bytesが残ることを示した。
+今回はそのnative再検査を同じBook Sourceへ接続した。host opening／candidate登録・constructorのcatalog clonesまで完了とは扱わない。
+
+HostReadBudget::OBSERVE_RESOLUTIONはdefault false、Book adapterだけがtrueへopt-inする。
+ordinary／read-buffer-only／attempt-only／declaration-only observerは元のnative再検査とrequest列を保つ。
+observedは既存のread後FileSnapshot一致を確認してからRevalidatePathを求める。
+URIが256 bytes未満なら一つの256-byte stack buffer、以上なら一buffer record／UTF-8 length＋1 bytesを予約したVecを使う。
+後者はtry_reserve_exactからcopy／NUL appendし、再確保を要しない。OS path lengthの新しいhard capは追加しない。
+Path workは16×length＋64に、stackの場合はzero initializationの256 workも加える。
+許可はcopy／zero fill・component censusより前に行い、同じbufferを全rootへ再利用する。
+
+各admitted rootの直前にRevalidateRootの16×length＋128×component count＋64 workを求める。
+Linux／Androidのopenat2はborrowed CStrを受け、BENEATH／NO_MAGICLINKS／NO_SYMLINKS・NOFOLLOW／NONBLOCK等のflagsを保つ。
+NOSYS fallbackとmacOS用component walkerも同じbufferからCStrを借り、separatorを一時NUL化してsyscall後・error時に元へ戻す。
+共通のdirectory／regular-file helpersを使い、全rootのpresence／identityを調べる。複数candidate、失踪・置換・symlink等のnative拒否を省略しない。
+再検査成功後だけ既存DigestFinishへ進み、quota拒否ではstable receiptを発行しない。既に支払ったhistoryは返却しない。
+workはpolicy units、storageはlogical requested bytesであり、CPU命令数／allocator usable capacityの証明ではない。
+
+新しい三host testsは1／63／64／255／256／257／1842-byte URIと0／1／8193-byte readsを組み合わせ、全105 callback拒否を検査した。
+正確なrequest／accepted prefix、fresh authentic openによるretryとnative bytes／SHA一致を確認した。
+八path casesでは通常openとprepared component walker／通常prepared openを比較し、missing・symlink・directory・non-directory parent等のnative errorsと
+繰り返し利用後のpath復元を検査した。read中に二番目のrootへ新しいaliasが生じた場合も全二rootsを調べてLengthMismatchで拒否した。
+これはLinux上のforced component walker比較であり、managed macOSでの実行証拠とは扱わない。
+最終21 host unit＋2 doc、100 resource unit＋3 doc、明示原Mincho alias一件も成功した。
+
+維持runnerにpaths caseを加え、十三actual controlsをbase九cases 31.865秒／SVG・ledger四cases 37.128秒で検査した。
+既存no-page readは29 requests／全45 nonzero R/S/W拒否。新しいpathsはregular fileの実resource readをBook Source cellsへ接続し、
+短い／UTF-8・255／256／257／1842-byte URIの六cases、全102 typed拒否（新Path／Rootの18拒否を含む）を確認した。
+各axisのauthentic image subject／quota owner 0、正確なprefix・same-cells retryの非減少history／cap内停止、partial receipt 0を検査した。
+pathsはreadまでのsynthetic controlであり、PNG parser／ledger publicationや全巻受入の証明ではない。
+独立Pythonは凍結§355のread trace／canonical URIsから追加列を再構成し、新pathsの全request列とcutsも別計算した。
+
+三resource fixtureの追加は[0 records,0 bytes,2528 work]、TT完了[282,21751,90117]／原CFF完了[205037,7944080,17349911]。
+九source-SVGは追加[0,0,9792]、完了[1133,127693,4764843]／clip完了[602,64432,2064206]。
+九aliasは追加[0,0,10080]、直前[1108,114840,4735584]／完了[1133,127756,4765374]。
+ledger 53・owner 3・alias 5・SVG 224／242 typed cutsは各permit量を保ったまま新prefixで成功した。
+resource-admission／fontの93 source filesは§355から同一であり、33 raw SVG oracle cases＋正確な二CLI payloadsのproofを継承する。
+今回はそれらoracleを再実行していない。
+
+復元73 compiler inputsだけでSystem allocator driverをcompile・実行した。
+§355と同じ32 actual host casesは255／256／257／1842-byte境界、UTF-8・8192／1048576-byte family、
+8192 declarationsとnative attempt移行も含む。新Path permitからRoot入口まで、六long-path casesは一allocation／URI length＋1 bytes、計4716 bytesで予約と一致した。
+短いpathはallocation 0、root walkは全32 casesでallocation 0。bitmap／host buffer／pending URI各一allocationも保ち、realloc 0だった。
+全330 callback拒否後のallocation 0を確認し、§355で検出したnative C-stringの未予算allocationはこのobserved windowでは0になった。
+これはhost open前後・cleanup／peak live graph／physical memory／whole-command memoryの完了証明ではない。
+
+初回compileのgeneric Arg dereference／test formatと、stack initialization work追加後の古いtest expectationを修正し、失敗source／logsを保存した。
+初期二base runsも保持したが、最終受入は同じfinal cohortの九＋四casesだけとした。
+private build 32.951秒、最終cohort warm build 0.329秒、CLI tests type check 43.536秒、scoped lint 7.131秒、
+十Rust filesのformat／十一filesのdiff checkが成功した。2011 source inputsのSHA-256は
+f867bad3a7accaca8520ce00f477f197905ffc05730934bc580c35ca5491c48a。
+private CLIは63,201,024 bytes／SHA-256 cd7d46a1359efa52fca8b73bb6f113b4fd39a5e489789ee146c969cf20f82c74、regular 0755。
+各runの73 compiler inputs／958 runtime source inputsを保存し、最終二runsと初期二runsの八archivesをread backした。
+completed-probesは234,223,639 bytes／SHA-256 4a0e3563bab76b5a69cd250702f8e5aab8baa52c377229eb1139af576f83e7a4。
+§355 bulkの261 files／322684317 logical bytesと、terminal producerのみの現bulk 415560218 logical bytesを
+それぞれ全hash／mode照合後にRoot側へ移し、元/tmp pathsをsymlinkで保持した。
+六canonical ledgers・23 fonts／四damage controls、原font Latin／日本語・IVS二PDFの§355との全byte一致も成功した。
+PDF SHA-256は30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21。
+独立四pages／十二text／六IVS、十二glyph／三FD／UVS、四semantic damages・八renderer smokesはexact PDF identityで継承する。
+証拠はworkspace/target/vmb-design/20261017/observed-host-revalidation/のartifact-index.json・evidence-audit.json、
+復元checkoutはworkspace/target/vmb-checkpoint-356-checkout。長時間suite／full CLI test executableは開始していない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-resolution-review --case reads --case paths --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-host-revalidation/run_long_checks.py --group shaping-layout --output /tmp/typaxis-resolution-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-host-revalidation/run_long_checks.py --group cli --output /tmp/typaxis-resolution-long-cli
+```
+
+host opening／candidate登録・read ledger／catalog clones、他parser／library walks、snapshot／cleanup／actual capacity／peak live graphs・whole-command memory／性能baselineは残る。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UAと長時間回帰も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+<a id="observed-host-open-design-14357"></a>
+## 357. Registered host openのSource予算（Design 14.357）
+
+前goal turnの§356はread再検査を完結・監査したprogressである。今回はそれより前のopenを調べ、
+locator URIの二copies、opened_by_candidate／opened_identitiesのBTree nodes、fresh read identityのArcがopen時に作られることを確認した。
+登録済みpathのURIをArc<PortablePath>で共有し、ledgerの各candidateへ非再利用のopened slot番号を割り当てた。
+登録時のfallible VecにOption<FileIdentity>のslotを置き、registered capabilityはroot順のslot番号をprivateに保持する。
+openは選択rootのslotだけをO(1)で検査・更新する。後の登録でVecが移動しても既存番号は変わらない。
+
+二つのopened BTree collectionsをstateから除き、snapshot時に既存のopened_by_candidate／unique opened_identitiesを投影する。
+同じpathの再openは同identityならgenerationを進めず、置換identityはLengthMismatchで拒否する。
+別URIのhardlink aliasesはsnapshot上のunique countを保ち、追加登録／初回openは元通りtokenをstaleにする。
+public sealed token・publication conflict／revalidationの意味を保つ。ledger自身のnon-exhaustive Debugはopened_candidates数を表示する。
+URI owner／root別slot arrays・candidate metadataの登録時確保、snapshotの構築／dedupは今回Sourceへ接続したとは扱わない。
+
+HostReadBudget::OBSERVE_OPENはdefault false、Book adapterだけがtrueへopt-inする。
+HostRootSetToken::open_registered_with_budgetとresource adapterのopen_font_with_budget／open_image_with_budgetを追加し、
+同じsession／roots／registered capability検査の後に課金する。font／imageのauthentic subjectは新open拒否にも保持する。
+Bookのnative open failureは従来のResource failure分類を保ち、budget failureは同じRead failure／Source owner 0へ接続する。
+ordinary／既存observerは元のfee列を保つ。
+
+OpenPathは§356と同じshort stack／fallible long bufferを使い、準備work・必要なlength＋1 bytesを先払いする。
+OpenRootは全rootへ16×length＋128×component count＋64 work、OpenLockは128、OpenLedgerは64 workを求める。
+OpenOwnerは一record／Arc marker headerのrequested bytes／64 workを予約する。現64-bit hostでは16 bytesである。
+全callbackはledger mutex外で行い、全許可後にslot／generationを更新し、fresh markerを構築する。
+quota拒否ではopened capabilityを返さず、ledger generationを変えない。既に支払ったhistoryは返却しない。
+markerのstd Arc::new自体はinfallible allocationのままで、system OOMをfallibleへ変えたとは扱わない。
+
+新しい四host testsは七URIの全35 callback拒否でexact request／prefix・同じregistered sourceからのretry、
+未変更generation、callbackからのledger token取得がdeadlockしないこと、same-path fresh identity・alias unique count／後続登録を検査した。
+missing／symlink／directory等のnative errorsとforeign tokenのhook前拒否も確認した。
+8192 pathsを二rootsへ登録し、第二rootにだけ存在するfilesを逆順openして全slots／identitiesと再openのstalenessを検査した。
+resource testはfont／imageの全十拒否とauthentic subjects、native bytes・retryを確認した。
+最終25 host unit＋2 doc、101 resource unit＋3 doc、明示原Mincho alias一件が成功した。
+
+十三actual CLI controlsは最終base九cases 32.995秒／SVG・ledger四cases 37.628秒で成功した。
+no-page traceは44 requests／全66 nonzero R/S/W cuts、六paths casesは全150 typed cuts（新openの48拒否を含む）。
+owner 0／authentic resource・exact prefix、same-cells retryの非減少history／cap内停止とpartial receipt 0を確認した。
+独立Pythonは凍結§356のtraceとcanonical URIsから全open列／feesを再構成し、六pathsの全requests／cutsも照合した。
+三resource fixtureの追加は[3 records,48 bytes,3296 work]、TT完了[285,21799,93413]／原CFF完了[205040,7944128,17353207]。
+九source-SVGは追加[11,176,12608]で完了[1144,127869,4777451]／clip完了[613,64608,2076814]。
+九aliasは追加[11,176,12896]、直前[1119,115016,4748480]／完了[1144,127932,4778270]。
+ledger 53・owner 3・alias 5・SVG 224／242 cutsは各permit量を保ったまま新prefixで成功した。
+SVG／image binding／ledger／fontの75 source filesは§356と同一で、33 raw SVG oracle cases＋正確な二CLI payloadsのproofを継承する。今回は再実行していない。
+
+復元73 compiler inputsでSystem allocator driverをcompile・実行し、§356と同じ32 actual host casesの測定窓をopen前からpending returnへ広げた。
+新openは六long scratch allocations／4716 requested bytes、全32 casesでfresh marker一allocation／16 bytesとなり、permitと一致した。
+open root／lock／ledger更新のallocationは0で、登録URIの一時copies／opened BTree nodesを作らない。
+read側のbitmap／buffer／URI各一allocationとrevalidation scratch六buffersも保ち、realloc 0・全490拒否後のallocation 0を確認した。
+caller準備／登録・catalog clones・snapshot／cleanup・physical capacity／peak live graph／whole-command memoryの証明ではない。
+
+初回resource helperのlifetime compile失敗、captureとrestoreの実行順による一失敗を保存し、後者はcapture後に復元して検査した。
+CLIのmissing-file testは新たに支払うpath／root workを期待値へ加えた。十分なquotaでは同じnative Resource errorを保つ。
+最終source／独立復元checkoutで検査を揃えた。private build 32.278秒、最終cohort build 3.608秒、CLI tests type check 45.521秒、
+scoped lint 7.765秒、十二Rust filesのformat／十三filesのdiff checkが成功した。
+2014 source inputsのSHA-256は7ca51dd8cae8823ef18d5da6911dbe546084a747aeb0ca99882bb4cfb9adfcff。
+private CLIは63,402,904 bytes／SHA-256 6192cc299297c76cb637c62521f9b32b470f12378f7f4bc929e3ddbc513fffac、regular 0755。
+各最終runの73 compiler inputs／961 runtime source inputsを保存・read backした。
+completed-probesは136,407,165 bytes／SHA-256 8916a2c43738acdfb36653501dc5d6e2b692fe3ad38fa4c10c484d6a14bc54fa。
+immutable compiler snapshotsの294 duplicate filesは全bytes／mode照合後にhardlinkへ置き換え、logical contentを保ち764428288 bytesのblocksを回収した。
+mutable Cargo cachesは対象外とした。六canonical ledgers・23 fonts／四damage controls、原font二PDFの§356との全byte一致も成功した。
+PDF SHA-256は30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21。
+既存の独立四pages／十二text／六IVS、十二glyph／三FD／UVS、四semantic damages・八renderer smokesはexact PDF identityで継承する。
+証拠はworkspace/target/vmb-design/20261017/observed-host-open/のartifact-index.json・evidence-audit.json、
+最終復元checkoutはworkspace/target/vmb-checkpoint-357-final-checkout。長時間suite／full CLI test executableは開始していない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-open-review --case reads --case paths --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-host-open/run_long_checks.py --group shaping-layout --output /tmp/typaxis-open-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-host-open/run_long_checks.py --group cli --output /tmp/typaxis-open-long-cli
+```
+
+root admission／candidate登録・catalog clones・snapshots、他parser／library walks、cleanup／actual capacity／peak live graphs・whole-command memory／性能baselineは残る。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UAと長時間回帰も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+<a id="borrowed-host-catalog-design-14358"></a>
+## 358. Book resource hostのcatalog借用（Design 14.358）
+
+前goal turnは§357のfreeze後に独立auditを完了したprogressである。最初のaudit invocationは--auditを欠いて検査前に失敗し、
+正しいflagを付けた再実行が成功した。失敗command／logとcorrected-final-auditの成功command／logを共に保全した。
+今回はledger snapshotの残るcloneと、Book初期admissionが先に通るHostResourceAdmissionSessionのcatalog cloneを確認した。
+後者はcallerがimmutableなStagingDeclaredBaseCatalogを保持する間に全宣言・family／URIをもう一度copyしていたため、そのcopyを除いた。
+
+HostResourceAdmissionSession<C = ResourceCatalog>は既定型・既存constructorsで従来のowned catalogを保持する。
+new_borrowed／new_borrowed_with_read_ledgerは同じ登録helperを通り、callerのResourceCatalogへの共有参照を保持する。
+Book初期admissionは後者を使う。genericなstorageはprivate fieldであり、callerから任意storageを組み立てるconstructorは設けない。
+ordinary open／subject付きopen／observed openはすべて同じcatalogを参照し、VerifiedResourceSourceもその宣言rowを借用する。
+元の宣言とresolver宣言の完全比較、session／root／open identity、候補全登録、native errorsとauthentic subjectを保つ。
+新たなSource feeは加えず、今回消したcopyを実行したとは課金しない。最初のstaging catalog生成は別に残る。
+
+新しい三unit testsはcatalog／font／image rowのpointer同一性、実host bytes／digest、共有ledgerのcandidate countsとstaleness、
+foreign session／変更されたfamilyの拒否、missing logical ID／fileとconstructorの宣言順・root alias errorsを検査した。
+二compile-fail doc testsはcatalogからescapeする参照をE0515、session生存中の宣言変更をE0502で拒否した。
+最終25 host unit＋2 doc、104 resource unit＋5 doc、明示原Mincho alias一件が成功した。
+
+独立System allocator probeはfonts／imagesの0、1、63／65、8192の九組を両constructor順で実行した十八casesを持つ。
+owned／borrowedの構築全体を測り、差を別に測ったResourceCatalog::cloneのallocations／requested bytesと一致させた。
+8192 fonts＋8192 imagesではowned 148,856／borrowed 124,278 allocations、7,635,264／5,742,912 requested bytesだった。
+差の24,578 allocations／1,892,352 bytesは二Vecとfontのfamily／URI・imageのURIのcloneに一致した。
+両方に残るregistration reallocは十二回で同一、control cloneのreallocは0だった。
+各kindは同じmissing URIを共有する構築試験であり、16384 logical candidate attemptsとunique identitiesの一致を確認した。
+8192個のdistinct画像のparse／配置やwhole-command peak memory／allocator usable size／cleanupの証明ではない。
+
+復元73 compiler inputsで既存allocator driverも借用hostへ切り替えてcompile・実行した。
+32 actual-host cases／全490 callback拒否、bitmap／host buffer／pending URI各一allocation、六long open scratch buffersと六revalidation buffersの各4716 bytes、
+fresh owner各16 bytes、open root／lock／ledger allocation 0、realloc 0・拒否後allocation 0を保った。
+十三CLI controlsはbase九cases 33.418秒とSVG／ledger四cases 37.911秒で成功した。
+独立Pythonは§357の保存済み全十三factsと新factsの完全一致を検査した。44 host requests／66 read cuts・六pathsの150 cuts、
+ledger 53／owner 3／alias 5／SVG 224・clip 242 cuts、prefix／same-cells retry・partial receiptなしを保つ。
+六canonical ledgers・23 fonts／四damage controlsも成功した。
+host／font／SVG／binding／ledgerの87 source filesは同一で、33 raw SVG oracle cases＋二exact CLI inputsの証拠を継承する。今回は再実行していない。
+
+原font二PDFは§357とbyte単位で同一で、Source量の差も[0,0,0]だった。
+PDF SHA-256は30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21。
+独立四pages／十二text／六IVS、十二glyph／三FD／UVS、四semantic damages・八renderer smokesはexact PDF identityで継承する。
+private build 36.200秒、CLI tests type check 42.425秒、scoped lint 6.901秒、四Rust filesのformatと五filesのdiff checkが成功した。
+formatterが辿った無関係な四十filesは全て保存し、凍結§357へ同じformatterを適用した結果との一致を検査後、元bytesへ戻した。
+2016 source inputsのSHA-256は02ebf166ead3ae66beeee9103ced4329cd40b95fb91dea38ae623524b7991c93。
+private CLIは63,404,704 bytes／SHA-256 a4bd0e99da4619c010ba0e0c01ef7eddf97d686afc64c8033affc2aeffe2b396、regular 0755。
+各runの73 compiler inputs／963 runtime source inputsを保存・read backし、独立復元checkoutとcompiler inputsも照合した。
+completed-probesは125,139,393 bytes／SHA-256 76e7a908c678e41b160ffe26edb9e998f4d202339adb901728668787073eb856。
+完了§357の264 files／349706687 logical bytesはbytes・mode照合後にcompleted-workへ移し、元/tmp pathをsymlinkで保持した。
+immutable compiler snapshotsの58 duplicate filesは同じ内容・modeのhardlinkへ置き換え、151789568 bytesのblocksを回収した。
+mutable Cargo cacheは対象外である。証拠はworkspace/target/vmb-design/20261017/borrowed-host-catalog/のartifact-index.json・evidence-audit.json、
+復元sourceはworkspace/target/vmb-checkpoint-358-checkout。長時間suite／full CLI test executableは開始していない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-borrowed-catalog-review --case reads --case paths --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/borrowed-host-catalog/run_long_checks.py --group shaping-layout --output /tmp/typaxis-borrowed-catalog-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/borrowed-host-catalog/run_long_checks.py --group cli --output /tmp/typaxis-borrowed-catalog-long-cli
+```
+
+最初のstaging catalog生成・root admission／candidate登録・ledger snapshots、他parser／library walks、cleanup／actual capacity／peak live graphs・whole-command memory／性能baselineは残る。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UAと長時間回帰も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+<a id="observed-staging-catalog-design-14359"></a>
+## 359. Staging resource catalogのSource予算（Design 14.359）
+
+前goal turnの§358はhost catalogの借用を実装し、freeze／独立auditを完了したprogressである。
+今回はそれより前のstaging_declared_base_catalogが確保する四arraysとfamily／URI copiesを調べた。
+末尾のvalidate_declaration_orderもfamily namesをcopyして一時BTree tableを構築・破棄していたため、観測経路ではこれを除いた。
+
+ResourceCatalogBudget／ResourceCatalogRequestはstage・authentic FontFaceId／ImageResourceIdとR/S/Wを一requestに保持する。
+staging_declared_base_catalog_with_budgetはStart、font rows／media、各fontとfamily／URI copy、image rows／mediaと各image、
+font／image IDs、family index／validate／lookup／insert、Finishを同じsource cellsへ接続する。
+全arrays／stringsは許可後にtry_reserve_exactし、拒否ではcatalogを返さない。過去の許可は返却しない。
+OBSERVED=falseのcallerは従来関数を通り、ordinary fee列を変えない。Book counted経路は新adapterへopt-inする。
+Bookのnative catalog errorは従来のResource failure分類を保ち、quotaは元bodyとtyped Catalog failureを返す。
+各requestにdeclared resource IDを保持し、Source quota ownerはNodeId 0である。
+
+arrayはlogical rowsとcount×size_ofのrequested bytes、work 64を求める。
+family／URI copyは非emptyなら一record、UTF-8 bytes、16×length＋64 workを先払いする。
+URIは予約したStringをPortablePathへmoveし、追加buffer copyを作らない。
+font／imageのmedia・SVG hash条件とID検査、Start／Finishは各64 workである。
+family validationは予約したVec<&str>を用い、trim／control検査に2×length＋64、lookupに1＋(既存件数＋1)×(length＋2)、
+insertに移動件数×size_of<&str>＋64 workを先払いする。比較・shift中にnamesをcopyせず、indexもfallible reserveする。
+全font media、全image media／SVG hash、全font IDs、全image IDs、宣言順のfamily検査というnative error順を保つ。
+
+新しい三unit testsは0／1／7 declarationsの全96 callback拒否でexact request／prefix、元入力不変・同じ入力からのretryを検査した。
+十invalid／overlapping入力でlegacy media・SVG hash欠落・非dense IDs・Unicode whitespace／control／duplicate familyのnative reasonを照合した。
+ordinary observerはhookを呼ばず、64／8192 fonts＋imagesでも全catalog／media fieldsとduplicate rejectionが一致した。
+最終25 host unit＋2 doc、107 resource unit＋5 doc、明示原Mincho alias一件が成功した。
+
+maintained CLI verifierへcatalog caseを加えた。実fixtureの全24 requestsを独立Rust referenceと照合し、
+全44 nonzero R/S/W cutsでauthentic ID・owner 0・元body limits・exact prefix、same-cells retryの非減少history／cap内停止を検査した。
+拒否時のresource candidate登録は0で、元のinput ledgerを再検証でき、partial catalog／outputはない。
+base十casesは31.502秒、SVG／ledger四casesは35.990秒で成功した。全十四casesを一括した長いrunは開始していない。
+
+復元73 compiler inputsで独立System allocator driverをcompile・実行した。
+十三catalog casesは0／1／7／64・65／8192 entriesとURI lengths 1／63／64／255／256／257／1842を含む。
+全217 callback拒否後のallocationは0。observed全stagesのrequested bytesはfunded bytesと一致し、reallocは0だった。
+8192 fonts＋8192 imagesでは81927 requests・24581 allocations／1728512 requested bytes、native positive controlは34138 allocationsとなった。
+family検査／lookup／insertにはallocationがなく、borrowed index一bufferの131072 bytesだけを予約した。
+これはstaging catalog構築内のrequested allocationsの測定で、allocator usable size／cleanup／peak live graphs／whole-command memoryの証明ではない。
+既存open／read driverも32 actual-host cases／全490 callback拒否で成功し、各bitmap／read buffer／pending URI一allocation、
+六long open scratchと六read再検査scratchの各4716 bytes、owner各16 bytes、root／lock／ledger allocation 0・realloc 0・拒否後allocation 0を保った。
+
+独立Pythonは凍結§358のcanonical宣言と、native allocatorから観測したslot sizes（font96／image64／各media1／borrowed name16 bytes）から
+全catalog requests・feesを再構成し、各typed cutのprefix／capとretryを照合した。
+no-pageの追加は[13 records,336 bytes,2188 work]、九source-SVGは[37,955,5308]、九aliasは[37,964,5452]。
+TT完了は[298,22135,95601]／原CFFは[205053,7944464,17355395]、SVGは[1181,128824,4782759]／clipは[650,65563,2082122]、
+alias直前は[1156,115980,4753932]／完了は[1181,128896,4783722]。
+read 66・ledger 53・owner 3・alias 5・SVG 224／242 cutsは元permit量を保つ新prefixで成功し、六path cases／150 cutsの全factsは§358と同一だった。
+六canonical ledgers・23 fonts／四damage controlsを保つ。host／font／SVG／binding／ledgerの87 source filesは同一で、
+33 raw SVG oracle cases＋二exact CLI inputsの証拠を継承する。今回はraw oracleを再実行していない。
+
+原font二PDFも§358と全byteが一致した。SHA-256は30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21。
+独立四pages／十二text／六IVS、十二glyph／三FD／UVS、四semantic damages・八renderer smokesはexact PDF identityで継承する。
+private build31.595秒、CLI tests type check39.703秒、scoped lint6.516秒、六Rust filesのformat／八filesのdiff checkが成功した。
+2018 source inputsのSHA-256は53802f05e0a65d79a17905bb13ce38a79b4c9e681bcaa4d02aa5dd30398ed6d9。
+private CLIは63,404,704 bytes／SHA-256 6c292b08dec3336a2a18615c4bfc4360f75e43b80e75c5534d6703cc99718d4c、regular0755。
+各runの73 compiler inputs／965 runtime source inputsを保存・read backし、独立復元source／compilerからdriversを検査した。
+completed-probesは125,390,660 bytes／SHA-256 dbe446a269dbf64133e54bc6c04718e64f78b0f129e7fe7a8154edfa96ebe267。
+全producer source epochsと最初のunit cohortも保全した。
+完了§358の218 files／297897254 logical bytesは照合後completed-workへ移し、元/tmp pathをsymlinkで保持した。
+immutableな357-final／358／359 source checkoutsの4205 duplicate filesは全bytes／mode照合後hardlinkへ置き換え、85884928 bytesのblocksを回収した。
+active worktrees／mutable compiler cachesは対象外である。証拠はworkspace/target/vmb-design/20261017/observed-staging-catalog/のartifact-index.json・evidence-audit.json、
+復元sourceはworkspace/target/vmb-checkpoint-359-checkout。長時間suite／full CLI test executableは開始していない。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-catalog-review --case catalog --case reads --case paths --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-staging-catalog/run_long_checks.py --group shaping-layout --output /tmp/typaxis-catalog-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-staging-catalog/run_long_checks.py --group cli --output /tmp/typaxis-catalog-long-cli
+```
+
+root admission／candidate登録・host／resolver再検証とresolver catalog／media copies・ledger snapshots、他parser／library walks、cleanup／actual capacity／peak live graphs・whole-command memory／性能baselineは残る。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UAと長時間回帰も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+<a id="observed-resolver-setup-design-14360"></a>
+## 360. Resource resolver setupのSource予算とsealed catalog再利用（Design 14.360）
+
+前goal turnの§359は最初のstaging catalog構築をSourceへ接続し、freeze／独立auditを完了したprogressである。
+今回はhostが同じ宣言からvalidation tableを再構築し、resolverも再検証とcatalog／media／limits copiesを行う箇所を調べた。
+HostResourceAdmissionSession::new_with_declared_catalog_and_read_ledgerはprivate fieldsのsealed catalogを要求し、
+済んだdense IDs／unique valid families／closed mediaの検査を再利用する。root admissionと全candidate登録は従来通り必須で、raw catalog constructorsの検査は保つ。
+compile-fail testはResourceCatalogをこの入口へ渡すことをE0308で拒否した。
+
+StagingProductionResourceResolverV3::new_with_catalog_budgetは同じResourceCatalogBudgetとSource cellsへ接続する。
+ResolverStartのcount／limits確認、font／image arraysと各family／URI copy、media arrays／copy、media policyとfresh sessionの二Arc owners、
+limits保持、最初のimage cursor探索、ResolverFinishを先払いする。全resource-local requestはauthentic IDを保持し、Source ownerはNodeId 0である。
+arrays／stringsは許可後try_reserve_exactし、quota拒否は元bodyとtyped Catalog failureを返してresolverを公開しない。
+resolver native errorは従来のProductionResourceError／Admission分類を保つ。OBSERVED=falseは元のordinary setupを通る。
+media ownerは現64-bit hostで64 bytes、session ownerは16 bytes。std Arc::newは許可後のinfallible allocationのままである。
+
+最初のallocator runはlimits.cloneがcanonical JSONを二回copyする未課金allocationを検出した。
+limitsは完成ledgerへ移るowned receiptでもあるため、cached StringをArc<String>で共有する形へ変更した。
+base／extension／fingerprintは同じ値を持ち、Cloneはowned lifetimeを維持してcanonical bytesを共有する。
+新core testはpointer共有、別に構築した同内容receiptとのvalue equality、元receipt drop後の所有とdigestを確認した。
+初回receipt構築時のArc ownerとconfiguration全体のaccountingは今回の完了対象には含めない。
+
+三resolver unit testsはnativeと同じcanonical ledger／fingerprint、全16 callback拒否・exact prefix／same-input retry、
+callbackからのledger参照とtoken不変、native limit error、fresh receipt session identity、最初のvectorまでで止まるimage cursorを検査した。
+最終22 core unit＋25 host unit＋110 resource unit、host2／resource6 doc、明示原Mincho alias一件が成功した。
+初回helper visibility／test lifetime compile失敗を保存して修正した。
+
+maintained verifierへresolver caseを追加した。実fixtureの全19 setup requestsを独立Rust referenceと照合し、全41 nonzero R/S/W cutsを検査した。
+body limits・authentic IDs／owner 0・exact prefix、same-cells retryの非減少history／cap内停止とoutput 0を確認した。
+失敗前に三resource candidatesは登録済みだがresource openは0で、保持したinput ledgerを再検証でき、partial resolverはない。
+十五controlsの最終base十一casesは34.064秒、SVG／ledger四casesは37.462秒で成功した。
+全casesを一括した長いrunと長時間regressions／full CLI test executableは開始していない。
+
+復元73 compiler inputsで独立allocator driversをcompile・実行した。
+setup十三casesは0／1／7／64・65／8192 entriesとURI byte lengths1／63／64／255／256／257／1842を含む。
+全186 callback拒否後のallocationは0、observed requested bytesはfunded bytesと一致し、reallocは0だった。
+8192 fonts＋8192 imagesでは40971 requests／24582 allocations／1597520 requested bytes、native controlは34140 allocationsとなった。
+limits保持／cursor探索にはallocationがなく、二owners各64／16 bytesも予約と一致した。
+最初のprobeのarray serialization compile失敗、続くlimits string allocation検出も、source／scripts／binary／logsを保存した。
+host constructorsの差分十八casesでは別に測ったvalidation table構築をpositive controlとし、
+8192 fonts＋8192 imagesで9558 allocations／906080 requested bytesを除いた。candidate attempts／identitiesは同一だった。
+従来のcatalog十三cases／217拒否、open／read32 cases／490拒否も最終compilerで成功した。
+physical allocator usable bytes／cleanup／peak live graphs／whole-command memoryの証明ではない。
+
+独立Pythonは凍結§359のcanonical宣言・native allocation slot sizesとlimits layoutから全setup requests・fees、各cutのprefix／cap／retryを再構成した。
+no-page setupは追加[13 records,384 bytes,2651 work]、九source-SVGは[37,1003,5267]、九aliasは[37,1012,5411]。
+別々の凍結compilerでlayout probesを実行し、M4 receipt288→272 bytes、production font variant872→856 bytes、image392 bytes不変を確認した。
+そのため最終ledgerの二font rowsのspoolは32 bytes減り、no-page完了差は[13,352,2651]となる。
+TT完了は[311,22487,98252]／原CFFは[205066,7944816,17358046]、SVGは[1218,129795,4788026]／clipは[687,66534,2087389]、
+alias直前は[1193,116992,4759343]／完了は[1218,129876,4789133]。
+read66・ledger53・owner3・alias5・SVG224／242 cutsを新prefix／row量で照合し、read／SVG permit量と六path cases／150cutsの全factsを保った。
+六canonical ledgers・23 fonts／四damage controls、host／font／SVG／binding／ledgerの87 source filesも同一である。
+33 raw SVG oracle cases＋二exact CLI inputsの証拠を継承し、今回はraw oracleを再実行していない。
+
+原font二PDFは§359と全byteが一致した。SHA-256は30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55／
+8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21。
+独立四pages／十二text／六IVS、十二glyph／三FD／UVS、四semantic damages・八renderer smokesはexact PDF identityで継承する。
+最終private build37.928秒、CLI tests type check42.894秒、scoped lint8.956秒、七Rust filesのformat／十一filesのdiff checkが成功した。
+2020 source inputsのSHA-256は4b0296c1da255e3f678d4d8123a035cf647652a8874cc58f12660f3a8219317c。
+private CLIは63,408,856 bytes／SHA-256 c9484e7333a849fd6d539f556f64306f07a7526dfbf098f5ee9aca74c4467252、regular0755。
+各final runの73 compiler inputs／967 runtime source inputsを保存・read backし、最終復元source／compilerからdriversを検査した。
+completed-probesは318,909,293 bytes／SHA-256 de40b1044de721cc4512c78f3fec4e2c5e5cfbdb04498630ef32000cfbe159bb。
+旧cohorts・private binary・失敗／部分archiveを含めて保存した。
+
+storage確保では最初のsource dedupが55秒で停止したため、scriptとexit124を保持して三bounded batchesで完結した。
+checkpoint359 manifestと同一の70389 filesを照合し、paths／bytes／modesと必要なhardlink関係を検証した。
+完了§359の228 files／299461957 logical bytesもcompleted-workへ移し、元/tmp pathsを保持した。
+/tmp不足で一shared-limits runの全case終了後にinput archive生成が失敗したため、partial runとexit120を保存した。
+terminalなcurrent bulkの473176601 logical bytesをin-progress-workへ照合移動し、元pathをsymlinkで保持した。
+immutable input archivesの十八duplicatesは照合後hardlinkで共有し、792711168 bytesのblocksを回収した。
+その後に最終runs／compiler保存を完結した。mutable caches／active worktreesはdedup対象外である。
+最初のretention helperのtest-count照合失敗も保存し、正しい25 host testsを照合してretentionを完了した。
+証拠はworkspace/target/vmb-design/20261017/observed-resolver-setup/のartifact-index.json・evidence-audit.json、
+最終復元sourceはworkspace/target/vmb-checkpoint-360-final-checkout、compilerはworkspace/target/vmb-checkpoint-360-shared-limits-compiler。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-resolver-review --case resolver --case catalog --case reads --case paths --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-resolver-setup/run_long_checks.py --group shaping-layout --output /tmp/typaxis-resolver-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-resolver-setup/run_long_checks.py --group cli --output /tmp/typaxis-resolver-long-cli
+```
+
+初回configuration／limits receipt owner・root admission／candidate登録・ledger snapshots、後続cursor／parser／library walks、cleanup／actual capacity／peak live graphs・whole-command memory／性能baselineは残る。
+元package同定・意味入力／著者review、native panic／zero-class cursorと元math font互換、原font全巻／多言語、
+公開profile／四manifest・managed Linux／macOS・全巻render／人手／PDF-UAと長時間回帰も未完である。
+VMB authoring／speech／review、公開compiler・五producer・render policyを保ち、goal全体はactiveのままにする。
+
+
+<a id="observed-font-media-design-14361"></a>
+## 361. CFF resource media attestationと失敗診断の観測（設計14.361）
+
+VMB checkoutは9efff4aで、internal/rendertypaxisとtools/typaxis-book-auditを含む。book／原fontも利用可能である。
+SVG bindingの後続cursorは既存BindingAdvance許可で保護されていたため、ここでは新たな変更を加えない。
+今回閉じた範囲はCFF resource layerのoutline table attestationと、その失敗時のcontainer診断walkである。
+SFNT parserの許可前にtable directoryを読んでいた経路へ、独立したOBSERVE_RESOURCE_MEDIA（既定false）を追加した。
+BookV2ObservedResourceAdmissionBudgetはこれを有効化し、既存work_sfntから同じSourceのWorkを使う。
+古いSFNT／cmap／metadataだけのadaptersと直接font APIsのbillingは保つ。
+
+native attestationをfont_media_budget.rsへ移し、通常APIもその同じgrammarを使用する。
+headerは64 work、各directory recordは64、診断headerは64、各TTC faceは128、診断recordは64を実作業前に得る。
+CffSfntStageV2の既存八variantsの後に五variantsを追加し、既存discriminantsを保つ。
+record／faceは実file offsetを持つ。tagを読む前の許可なのでtable_tag／table_offsetはNoneである。
+host／session／URI／face／hash／duplicate／宣言mediaの検証を先行し、拒否時はfontを保存しない。
+新しいclosure contextでattestationとfont parserが同じbudgetを順に借り、callbackの保管・RefCell・heap wrapperを増やさない。
+
+検査結果:
+
+- 113 resource unitsと6 doc tests成功。synthetic header／truncation／outline／TTCと65535 recordsまでを含む。
+- 原CFF aliasと新しい同resolver retryの二explicit ignored testsを原font hashで実行し、27.868秒で成功。
+  新testはFontFaceId=1で17 cutsを試し、拒否後の同pending bytes retry、別session拒否とnative ledger bytes／fingerprintを確認した。
+- 既存15＋新media／media-errorsの17 CLI controls成功。base 34.374秒、SVG 39.341秒、media二controls 41.821秒。
+  原fontで17、明示派生CFF2 negativeで20のtyped Work cutsを検査し、owner 0・file offset・body／limits・history／cap・output 0を保つ。
+- checkpoint360から保存したnative grammarと診断を独立driverへ組み込み、519 casesを照合した。
+  2139 refusal cutsと最大65535 recordsを含め、観測walkのSystem allocation／reallocationは0。
+  native before／afterの結果と詳細診断は一致した。派生fontを元fontと扱わない。
+- 原fontのmedia feeは[0,0,1088]。CFF initialは[205066,7944816,17359134]、TT／SVG側のfactsは前checkpointと一致する。
+  ledgerのCFF prefix、source ownerのcuts、JSTFのreferenceにも、この先行feeを明示的に加えた。
+- Latin PDF 11590 bytes／30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55、
+  Japanese PDF 10713 bytes／8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21はcheckpoint360と同一。
+  独立四pages／十二text／六IVS、十二glyph／三FD／UVS、四semantic damages・八renderer smokesはexact PDF identityで継承し、今回再実行したとは扱わない。
+- CLI tests type check42.332秒、scoped lint4.521秒、七Rust filesのformat／十二filesの差分を確認した。
+  full CLI test executable、全巻・既知一分超のsuiteは開始していない。
+
+最終codeは2023 source inputs／SHA-256 b396aa08f1447e531782b69a03b2597a3b021457546feb7b993a12d3eb7cfe76。
+十二files差分（新Rust三files）を保存し、sourceはworkspace/target/vmb-checkpoint-361-checkoutへ復元した。
+2011 filesは内容・mode一致のimmutable checkpoint360からhardlinkし、十二changed filesをcopyした。
+compilerはworkspace/target/vmb-checkpoint-361-compilerの73 inputs（proc-macro SO二files）をarchiveから検査復元した。
+17 controlsのcompiler inputsは全て同一。base controlsのsource cohortだけは後のtest型aliasとstandalone ledger controlのfee追加前で、
+non-test production dependency bytesが同一であり、driverは未実行ledger controlを除いて一致することを機械照合した。
+各cohort／reportsとscript variantsを保存し、成功済みcontrolsの無用な再実行で一分超のgroupを作らない。
+private CLIは63414488 bytes／abbf7c9db71973296781afb44ceeaefdbc31c071165773490e63694a779799f7、regular0755で別保存し、公開compilerは変えていない。
+
+最初のcombined runtimeは55秒で停止し、parentの外へ出たchildは後に終了したがexit statusは回収できなかった。
+その出力はpartial evidenceとして保存し、合格runsへ混ぜない。
+verifierは外部SIGTERMでもchild process groupをkill・waitし、terminal recordとfailed reportを残すよう修正した。
+SIGTERMを無視するchildを1.5秒のdeadlineで止めるsmokeが成功し、orphanは0だった。
+最初のtest helperのborrow／visibility／lifetime、oracleのtemporary borrow、lintの型複雑性、古いreference totals、
+retention helperのshape／path解釈とdiff statusの失敗も、commands／logs／variantsとして保存して訂正した。
+
+storage確保では、二つのcheckpoint360 source checkoutsで4019 byte・mode一致filesを照合して85204992 blocks bytesを共有した。
+原files／pathsを保ち、mutable cacheとはhardlinkしない。原checkpoint360の243 artifactsも再照合した。
+四terminal failed runtime foldersの228708683 logical bytesを/tmp/typaxis-font-media-retained-failuresへhash／mode照合して移し、元pathをsymlinkで保った。
+unused check metadata 175 files／205765471 bytesは/tmp/typaxis-font-media-disposable-metadata.tar.gz（78940494 bytes）へ
+全hash／modeをread back後にcompactし、current compilerのmetadata・rlibs・executablesは保った。復元可能なmutable cacheである。
+immutable compiler／source input archivesの同一copiesも検査して共有した。
+
+証拠はworkspace/target/vmb-design/20261017/observed-font-media/のruntime-union.json、artifact-index.jsonとevidence-audit.json。
+source-and-results.tar.gzはsource／compiler inputs・scripts・reports／failed logsを保存する。再構成可能なELF executablesと
+mutable-cache archiveは別の保存objectsとしてindexし、その場所とhashを保持する。全raw executablesをarchiveへ重複格納したとは扱わない。
+公開CLI・五producer・VMBの1369 inputs／著者speech／reviewとrender policyを保つ。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-font-media-review --case font-media --case font-media-errors --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-font-media/run_long_checks.py --group shaping-layout --output /tmp/typaxis-font-media-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/observed-font-media/run_long_checks.py --group cli --output /tmp/typaxis-font-media-long-cli
+```
+
+configuration／limits owner・root／candidate登録・CFF bindingの宣言copy／map・snapshots、TT／PNG／JPEG／その他library walks、
+cleanup／actual capacity／peak live graphs／whole-command memory／性能、元package同定・意味入力／著者review、
+native panic／zero-class cursor・元math font互換、原font全巻／多言語、公開profile／四manifest、managed Linux／macOS、
+全巻render／人手／PDF-UAと長時間回帰は未完である。goal全体はactive、full-book／public acceptanceはfalseのままにする。
+
+
+<a id="original-math-compatibility-design-14362"></a>
+## 362. 原MATH tableの等advance variantと版別admission（設計14.362）
+
+前turnは§361のcode・tests・auditを完結したprogressである。今回は原font互換の残件を調べ、
+原Latin Modern Math（733736 bytes／6075562b771f8b82f0c179e363389684f2dd09de30038269e2628e504bd7be0f）の
+MATH rejectionを特定した。FontTools 4.60.1でglyphs4802・name-keyed CFFと、advance1015の二vertical arrow variantsを確認した。
+旧kernelはtable byte17798、5619 requestsで停止する。primary sourceは
+[OpenType MathGlyphConstruction／MathGlyphVariantRecord](https://learn.microsoft.com/en-us/typography/opentype/spec/math)。
+advanceの一意性要求はなく、private /2はpositive nondecreasingを対応範囲とする。
+共有kernelへVariantOrderを明示的に渡し、既存table()／MathFontFace／CFF /1はLegacyStrictのまま保つ。
+CFF /2 callerがNondecreasingを選び、ordinary／observedのgrammarを同じにする。並べ替え・dedupやbudgetによるgrammar変更はない。
+
+十二focused font testsは3.787秒で成功した。旧7125 raw cases／2279 acceptedのstream SHA-256
+2dd1a71f131385b96ce8ec2e64bb02be7e9b802ea0b8d88f16c1dcde33a78559と、既存57080 cutsを保持した。
+新eight tied constructionsの1824全cutsで、/2受理・legacy拒否とdescending／zero／gid bounds拒否を確認した。
+原25280-byte MATH tableは/2で9622 requests／615808 workにより全constants・glyph info／variantsを検査し、七sampled raw cutsを通した。
+allocation probeではlegacy rejection／/2 positiveと八refusal cutsでallocation／reallocationが0だった。
+この主張はraw kernelだけで、callback・stack・font admission全体やwhole-command memoryを含めない。
+
+元Haranoへ元MATH bytesを加えSFNT checksumsを再構成した明示structural fixtureでは、ordinary／observed /2 admissionが成功した。
+source SHA-256 a7400c7bda6cf0414457a6ca05f8f54b3fcac24503dfefefe260809d331aad46、
+receipt fingerprint 52aa9edd76b1979ffef3f239f3b24ab60f17d0443c1f6aa0724eacde13b70687。
+その五sampled cutsと、Name-keyed negativeの四cutsも検査した。元filesは不変で、font間のglyph意味の一致を主張しない。
+Real Bookの七MATH cuts（0／1／57／5618／5619／6000／9621）は、authentic FontFaceId0／owner0、
+元body／limits／read token、file／table offset、atomic prefix／同history再試行／output0を保った。
+MATH tableのsource baseは5989556、full cellsは[205068,7970176,18038616]。
+
+最終compilerからmath-ties／CFF初期admission／JSTF／原Latin PDF／原Japanese PDFの五controlsが34.480秒で成功した。
+MATHを持たない原font四controlsのfactsは§361と一致する。113 resource unit＋6 doc testsも成功した。
+原Latin PDF 11590 bytes／30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55、
+原Japanese PDF 10713 bytes／8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21を保持した。
+独立四pages／十二text／六IVS、十二glyph／三FD／UVS、四semantic damages・八renderer smokesはexact identityで継承し、今回再実行したとは扱わない。
+元Latin Modernそのものは旧／新font admissionともFFTM／UnsupportedTable／SfntDirectory／file28を保ち、MATH callbacksは0。
+[FontForge FFTM](https://fontforge.org/docs/techref/TrueOpenTables.html)も調べたがwhitelistは緩めていない。/2 name-keyed非対応も残る。
+
+最終private build33.667秒、CLI tests type check41.522秒、font scoped lint4.327秒、七Rust filesのformat／十二filesのdiff checkが成功した。
+最初のhelper visibility、重複path marker・fixture imports、三ignored testsのenv不足はcommands／logs／variantsに保持して訂正した。
+sourceは2025 inputs／SHA-256 a34d436cf17556f7bc590626c2b98fe6498168dbcc93875fde8b41c518bc5eeb。十二files差分（新Rust二files）を保存した。
+workspace/target/vmb-checkpoint-362-checkoutは2013 immutable parent links＋十二copiesを照合済み。
+workspace/target/vmb-checkpoint-362-compilerの73 inputs（proc-macro SO二files）は58 parent links＋十五changed rlibsを検査復元した。
+changed rlibsは/dev/shm/typaxis-retained-evidence/20261017/checkpoint-362/compiler-dataに保存し、元compiler pathsをaliasで保つ。
+private CLIは63486136 bytes／3143e8fef983a8da393952d401b2c0410bcc8578db0513bbf9d6b5964b8106d5、regular0755で/tmp/typaxis-original-math-private-cli/typaxisへ保存した。
+
+storage確保では、完了§360／361 data archives合計505457170 bytesと今回のinitial compiler archiveを
+/dev/shm/typaxis-retained-evidenceへ全hash／mode照合して移し、元pathsをsymlinkで保持した。
+active producersやRoot product sourceは移さず、公開CLI・五producer・VMB1369 inputs／authoring／speech／review・render policyを保った。
+証跡はworkspace/target/vmb-design/20261017/original-math-compatibility/のresults.json／artifact-index.json／evidence-audit.json。
+source-and-results.tar.gzはsource・compiler input archives・scripts・reports／failed logsを保存し、raw ELF executablesは別objectsとしてindexする。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-math-order-review --case math-ties --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/original-math-compatibility/run_long_checks.py --group shaping-layout --output /tmp/typaxis-math-order-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/original-math-compatibility/run_long_checks.py --group cli --output /tmp/typaxis-math-order-long-cli
+```
+
+FFTM／name-keyed原math fontのversioned受入、元package／node対応・意味入力／著者review、
+configuration／root／candidate登録・CFF binding等の未観測work・actual memory／性能、native panic／zero-class cursor、
+原font全巻／多言語・公開profile／四manifest・両管理host・全巻render／人手／PDF-UAと長時間回帰は未完。
+full-book／public acceptanceはfalse、goal全体はactiveのままにする。
+
+
+<a id="original-name-keyed-cff-design-14363"></a>
+## 363. 原Latin Modern Mathのprivate CFF /2受入とdense CID text PDF
+
+2026-10-17。§362後の元font rejectionをFFTM、fsType=12、Mac Roman cmap、name-keyed CFFの順に取り除き、
+原bytes `733736 / 6075562b771f8b82f0c179e363389684f2dd09de30038269e2628e504bd7be0f`をprivate /2でadmitした。
+元font・MATH tableをstrip／rename／rewriteしない。既存 /1 entrypointsのgrammar・permission規則は保つ。
+
+FFTMは[FontForge仕様](https://fontforge.org/docs/techref/non-standard.html)のv1／28-byte header＋timestamps構造を検査する。
+独立したSFNT policyを /2 entrypointが選び、checksum／range／order／paddingは共通grammarを使う。
+`FontForgeMetadata`の32 workをsource fieldの検査前に要求し、FFTMはtable decoder indexを占有しないmetadataとして扱う。
+19-slot indexの既存32-work record allowanceは追加比較を含み、FFTMを持たないfontsのwalk billingを保つ。
+
+[Adobe CFF1仕様](https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf)に従い、ROSのないTop DICTはname-keyed grammarを選ぶ。
+Top Private DICT／local Subrsとglobal Subrsを元bytesのrangeで保持し、一FD・全GIDのimplicit fd=0として共通evaluatorを使う。
+`SourceCharset::{Cid,Name}`と公開inspection `CffSourceGlyphV2::{Cid,Sid}`が意味を分離し、`cid_for_gid`はname-keyed時Noneとなる。
+predefined ISOAdobe／Expert／ExpertSubsetとcustom charset 0/1/2、SID bounds・一意性、encoding 0/1とsupplements／code重複を検証する。
+CID-only operatorsをname-keyed Topへ混入できず、INDEXサイズを保ったnegativeはexact FDSelect operator位置でUnsupportedOperatorを返す。
+新vector storage・implicit map／encoding／charset walksはreserve/work許可後に進め、callback flagsによるgrammar差を作らない。
+
+[OpenType OS/2](https://learn.microsoft.com/en-us/typography/opentype/otspec190/os2)ではv3以降のembedding modesはmutually exclusiveである。
+原fontはv4／fsType=12で、その制約に適合するとは主張しない。private /2の互換policyはexact `0x000c`をEditableと解釈する。
+0／4／8は旧結果を保ち、その他65532値は拒否する。restricted embedding、no-subsetting、bitmap-only、unknown bitをマスクしない。
+元fsType=12はsubsetでも保持し、後のprogram failureでもAllowed(12)と記録する。旧 /1は12を引き続き拒否する。
+Mac Roman `(1,0)` format6／language0は[OpenType cmap構造](https://learn.microsoft.com/en-us/typography/opentype/otspec190/cmap)のlength／byte-code range／glyph boundsを検証する。
+これはUnicode coverageを供給せず、Unicode subtable不足・矛盾・format14規則は従来どおり拒否する。
+
+最終sourceは2027 inputs、SHA-256 `2b79c56cb6d83a04cef215c919ab1c10fdb297af718ecff923bc82f47eaefbd5`。
+20 changed files（新Rust二files）を保存し、workspace/target/vmb-checkpoint-363-checkoutは2007 immutable parent links＋20 copiesを照合した。
+73 compiler inputsは58 parent links／aliases＋15 changed rlibsを復元し、dataは/dev/shm/typaxis-retained-evidence/20261017/checkpoint-363/compiler-dataへ保存した。
+proc-macro SOは実行可能Root上を保つ。private CLIは/tmp/typaxis-name-keyed-private-cli/typaxis、63490368 bytes／0755、
+SHA-256 `1c93b7244ba38ed012a8230b94a93c4cc42a220d6d3562a9d5cbbf5d16246168`である。
+
+検証はすべて各producerをtimeout 55sで上限化した。final-epoch-regressionsは117 font＋113 resource unit＋6 docを10.052秒で完了した。
+原font明示testは0.511秒、15 small controlsの1492 callback cuts／1391 truncations、FFTM経路430 cuts、
+name-keyedの全30 native allocation failure sites、Mac Roman6の全callback cutsも検査した。
+原fontのnative／observed admission fingerprintは同一、50734 sampled-phase requestsの六cutsはexact prefixを保つ。
+4802 glyphのSID stream SHA-256はFontTools 4.60.1と一致する `685e59d62b9682b021e6f4185594018bbcced3740ff5bd6cd1a5c99c0c951a59`。
+全glyphを686247 operations／129304 outline segmentsで評価した。
+
+private CLI buildは33.145秒、tests typecheckは43.294秒、scoped font clippyは3.607秒、十Rust filesのrustfmtを確認した。
+最終のtest-only negative改善後もruntime sourceを再captureし、36.197秒の六controlsが同一facts／同一compiler inputsを返した。
+`math-cff-pdf`は元fontを使い、八cached glyph／838 operations／153 segments、一page・六occurrencesを生成する。
+PDFは12136 bytes／`dec7dface8950fb8830e440e146842ece7018c35959f63139fdac6a167fa5648`、二回生成bytesは同一。
+独立FontTools／pypdf検査は八glyphの全outline、hmtx、PDF W、dense CID map、subset cmap、ToUnicode、ActualText、fsType保持を照合した。
+subsetは1752 bytes／`a5e94e204c4470b5b1ad76389c38f54a72a222b64d6695cdcb2b42ee62e690ca`。
+選択source GID→dense CIDは `0→0, 9→1, 34→2, 1319→3, 1858→4, 3049→5, 3060→6, 3077→7`。
+outline/mapping digestは`43cd7872e6d71d736d7fd2401c5af8e5186a36a5359bdf8a7f89998e815c9d2f`。
+pinned MuPDF 1.28.2／Poppler 26.08による72dpiの二rendersはerror／substitutionなし、Popplerは六text occurrencesをexact抽出した。
+renderability smokeをpixel-equivalence／全巻受入へ読み替えない。
+
+SID/CID enumで /2の二ownerが各8 bytes増え、既存Harano controlsのspoolは16増える。records／work・他factsは同じである。
+二Harano PDFは§362とbyte-identical（Latin `30078b7b…`, Japanese `8a29b4a4…`）。既存の独立outline／IVS・抽出proofはその同一bytesにより継承する。
+MATH/JSTF typed cutsとretry factsは同じ。公開CLI、五producer、VMB1369 source inputsとauthoring／speech／reviewは変更していない。
+
+途中失敗はすべて保存し受入結果に使わない。初回compileのprivate context／moved borrow／新enum arm不足を訂正した。
+元font拒否はfsType、Mac Romanの順に特定した。最初のsubset再admissionは既存のsubset-prefix拒否で失敗したため、独立SFNT／CID検査へ修正した。
+共通program inspectorもoutput専用nominalWidthX=32768を入力の16.16 width domainに収められず拒否する。このinput profile制限は拡張せず、
+生成subsetは独立FontTools・実renderersで検査した。resourceの誤feature名とclippy range-patternを修正し、初回PDF checkerのFontTools import環境／
+二page仮定を訂正した。一pageが実fixtureの結果である。retention scriptのsyntax errorも保存した。
+既存JSTF native panic／zero-class cursorは、このcheckpointでは未修正である。
+
+証跡はworkspace/target/vmb-design/20261017/original-name-keyed-cff/と
+workspace/target/vmb-in-progress-work/20261017/typaxis-original-name-keyed-cff/（/tmp alias）に保存した。
+results.json／artifact-index.json／evidence-audit.jsonが受入範囲を示す。cold archiveはsource・scripts・results・compiler input archivesを含み、
+raw ELF executablesは別objectsとして全hash／modeをindexする。immutable compiler archiveの同一bytesは検査後hardlinkで共有する。
+storage確保では前§362 archiveと完了host-revalidation archiveを全hash／mode照合後/dev/shmへ移し、元path aliasesを保った。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-name-keyed-review --case math-cff-pdf --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/original-name-keyed-cff/run_long_checks.py --group shaping-layout --output /tmp/typaxis-name-keyed-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/original-name-keyed-cff/run_long_checks.py --group cli --output /tmp/typaxis-name-keyed-long-cli
+```
+
+これはoriginal fontのCFF admission／text PDF controlである。native MathFontFaceはなおTrueType metrics／glyf／locaと旧strict MATHを要求し、
+原CFF math fontのnative数式layoutへの接続・全巻での数式受入は未完である。
+元full-book package同定・node対応／意味入力・著者review、configuration／root／candidate登録・CFF binding等の未観測work、
+実memory／性能、原font全巻・多言語／公開profile・四manifest／両managed host・全巻render／人手／PDF-UAと長時間回帰も未完である。
+full-book／public acceptanceはfalse、goal全体をactiveに保つ。
+
+
+<a id="native-cff-math-design-14364"></a>
+## 364. 原CFF math fontのnative layout／command共有Type2 session
+
+2026-10-17。§363のtext-only controlに続き、原Latin Modern Mathを変更せずnative数式へ接続した。
+`MathFontFace::parse`はTrueType／glyf／locaと旧strict MATHのままとし、sealed `Cff1AdmissionV2`を要するborrowed `CffMathFontFaceV2`を追加した。
+検証済みMATHの固定header／constantsを再利用し、directory searches／hashと各lookupを許可後に行う。
+元fontのsetupは1052＋50816 workで、header/constantsだけを再読しMATH全表を再検証しない。
+cmapは /2 admissionの基底mappingから解決し、coverage format1／2とvertical variantsをbounded binary searchする。
+原arrowupdn GID1894／arrowupdn.v1 GID1895のadvance1015のtieは1894を選び、1016要求はMissingVerticalVariantとなる。
+262144 coverage queriesは既存linear readerと一致した。
+
+`CffMathGlyphMetricsV2`はadmission fingerprint／GIDへsealし、既存Type2 evaluatorのcontrol boundsから外向きに丸めたnominal heightを返す。
+opaque metric proofを別GIDに流用するproviderは拒否する。元fontのnominal radical／sum／integralではFontToolsのtight／control boundsが一致した。
+CFF専用MATH identityは`typaxis.opentype-math-table/cff-v2/1`のdomainとadmission／MATH hash・unitsへ結び、旧MathFontFace identityは保つ。
+共通kernelはprivate font accessorを使う。public CFF providerはsealed metricsしか返せず、単体math計算はSource authorityを発行しない。
+旧compute_math API／receipt resultsは維持し、CFF用のsealed receipt検証を加えた。
+
+Book observed native pathのproviderは実Source accountingを所有し、work／cache storage／Type2 executionを先にdebitする。
+Root preflightは従来の独立軸予約を保ち、CFF glyph requestは三軸をatomicに受理する。
+Source/limits／Work ceilingを照合した実`BookV2FontCommandSession`がnative計算と後のPDF font builderへ同じprivate sessionを貸す。
+外部callbackへmutable sessionを渡さず、Source prefixはResult・unwindで保持する。native errorはauthentic math ownerとFontFaceId／元CFF contextを持つ。
+column commandはこのcarrierをoriginal-context準備からpage／PDF候補の全期間にわたり保持する。
+旧unobserved／compatibility native entrypointsはTrueType-onlyのままであり、CFFを黙ってTrueTypeとして扱わない。
+resources→layoutの直接依存は既存display-list経由の依存を明示したもので、font crateへの逆依存を作らない。
+
+六原font computations（scripts／fraction／radical／nested fraction-radical／sum／integral）は3822の全callback cutsを通る。
+共有cacheは13 glyph／1245 operations／255 segmentsで、同一計算を再度行ってもType2 countersは増えない。
+layout不足はfont providerに到達する前に拒否し、setupの二cuts／wrong metric proof／tie選択も検査した。
+119 font＋8 math＋113 resource unit／6 doc testsが成功した。native layoutのatomic computation regressionは19.078秒、
+CLI tests typecheckは34.380秒、private buildは29.440秒、font/math scoped clippyも成功した。各producerはtimeout55sで上限化した。
+長時間のshaping／layout全体とCLI full test executableは開始していない。
+
+最終七CLI controlsは37.078秒で完了した。六既存controlsは§363と同じfactsを保つ。
+JSTF／MATH controlの旧JSON label `name_keyed_negative_preserved`は、既にpositive admissionをassertする実装へ合わせ`name_keyed_positive`に訂正した。
+native controlは明示syntheticなinline radical＋fraction、display sum／integral＋fractionと二text runsを使い、実counted initial-style/resource準備からPDFを生成する。
+原font／VMB authoringを編集せず、synthetic speechを元bookの意味入力へ流用しない。
+
+六typed cutsはpreflight Work（owner0）、CFF header／hash／Records／Spool（owner4）、late Work（owner6）を検査した。
+late cutは12 cached glyph／1180 operationsを保持し、同じcarrierへのretryは予算・cacheを減らさない。
+異なるWork ceilingはLimitsMismatchとなり、Sourceの三cells／Type2 stateを変更しない。
+
+native PDFは12218 bytes／`77800fbfc3689a2ef75d90205eeecee8aeffb6aaa61147d7a25852842d038d3c`。
+一pageに二native receipts、20 cached source glyph／1956 operations／374 segmentsを持ち、再生成bytes／statisticsは同じである。
+初回Sourceは[46991,1669498,4011866]、二回目は[55816,2289424,5201134]。
+独立FontTools／pypdf／pinned Poppler検査は17 glyphのoutline、hmtx／PDF W／CFF widths、dense CID、subset cmap、ToUnicodeとsynthetic ActualTextを照合した。
+Source GID→CIDは0→0,1→1,12→2,14→3,18→4,19→5,51→6,70→7,77→8,84→9,85→10,86→11,89→12,90→13,3063→14,3074→15,3082→16。
+実variantは√3077→3082、∑3060→3074、∫3049→3063で、source MATH recordsへの所属を独立確認した。
+subset SHAは`95c54105ad2c5b60d6b3f99df6e364576835e7f8ecc1cfb5b87d17e18d0aea9c`、
+outline/mapping digestは`00fe529a11ff797bba22ed961e8db1b8c115c56c0cc545fafd06810cd0c12b7c`。
+fsType=12を保存し、FontFile3/OpenType・CIDFontType0を使用する。pinned MuPDF 1.28.2／Poppler26.08の72dpi二rendersはerror／substitutionなし。
+これはrenderability smokeで、pixel-equivalence／全巻／author reviewの受入ではない。
+
+途中失敗は受入から除外して保存した。最初のresource import不足を補い、synthetic text bufferを四つの実source intervalsへ分けてInvalidSourceSpanを解消した。
+そのfixtureのjson! macro expression括弧、runtime helperのbind関数namespace、test stats変数の自己参照、既存TT testの新Cff error variant arm不足も修正した。
+これらのfailed producerはすべてterminalであり、成功runtimeのsource epochを混ぜない。
+
+sourceは2032 inputs／`c34b17fc23e066f6ddfd9d3b81c69a2f1c366ea2f2edd03e75d0c0ac9be2b329`。
+19 changed files（新Rust五files）を保存し、workspace/target/vmb-checkpoint-364-checkoutは2013 immutable parent links＋19 copiesを照合した。
+73 compiler inputsは58 parent links／aliases＋15 changed rlibsを検査復元し、dataは/dev/shm/typaxis-retained-evidence/20261017/checkpoint-364/compiler-dataへ保存した。
+private CLIはworkspace/target/vmb-checkpoint-364-private-cli/typaxis、63500744 bytes／0755、
+SHA-256 `595d722546a034da376dcff94d28694f518f1422bc5fe3fc20105d941332c83c`。
+公開CLI・五producer・VMB1369 source inputsとauthoring／speech／reviewを保った。
+
+証跡はworkspace/target/vmb-design/20261017/native-cff-math/と
+workspace/target/vmb-in-progress-work/20261017/typaxis-native-cff-math/（/tmp alias）のresults.json／artifact-index.json／evidence-audit.json。
+source／scripts／results／compiler input archivesをcold archiveへ保存し、raw ELF executablesは別objectsとしてhash／modeをindexする。
+storage確保では完了host-resource-read／resource-ledger／CLI-runtime archivesをhash／mode照合後/dev/shmへ移し、元aliasesを保った。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_vmb_initial_admission.py --output /tmp/typaxis-native-cff-review --case native-math-cff-pdf --font-list /root/typaxis/workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --cargo-target-dir /tmp/typaxis-column-harfrust-input-build
+# 長時間回帰の明示実行用（未実行）
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/native-cff-math/run_long_checks.py --group shaping-layout --output /tmp/typaxis-native-cff-math-long-shaping-layout
+PYTHONDONTWRITEBYTECODE=1 python3 workspace/target/vmb-design/20261017/native-cff-math/run_long_checks.py --group cli --output /tmp/typaxis-native-cff-math-long-cli
+```
+
+元full-book package／node対応・意味入力・著者review、configuration／root／candidate登録・CFF binding等の未観測work、実memory／性能、
+原font全巻／多言語・全巻render／公開profile・四manifest／両managed host／人手／PDF-UAと長時間回帰は未完である。
+既存native JSTF panic／zero-class cursorも未修正。full-book／public acceptanceはfalse、goal全体はactiveに保つ。
+
+
+<a id="observed-cff-binding-design-14365"></a>
+## 365. CFF resource bindingの宣言copy／persistent tableをSourceへ接続
+
+2026-10-17。§364に続き、CFF resource binderの未観測だった宣言cloneとBTreeMap allocationを実BookのSourceへ接続した。
+additive `parse_and_bind_font_with_binding_budget`はCffAdmissionBudgetV2と既存ResourceCatalogBudgetを同じadapterへ要求する。
+既存APIとそのerror型は保ち、新しいfailureはauthentic FontFaceIdにadmission／bindingのtyped causeを付ける。
+Bookはbinding failureを元body付きCatalog errorとして返す。ownerは実Root node 0で、FontFaceIdもrequestへ残す。
+
+`ResourceCatalogStage`に末尾追加した七stageはCffBindingChecks／Storage／Migrate／Lookup／Insert／Family／Uriである。
+checksはURI両側のbyte lengthと既存二font mapsの保守的lookup上限からworkを先に払う。
+session／kind／dense declarationのguardがcallbackに先行し、URI＋face index、expected hash、duplicate、declared mediaのnative error順序は保つ。
+新しいopt-inはbillingとstorage strategyを選び、font grammarを変えない。TT等のbinding policyは従来経路に残す。
+
+観測CFF tableは宣言数を上限とするsorted Vecで、`try_reserve_exact`前にslot数と各864-byte ownerのstorageを払う。
+既にnative mapにある各entryは864＋64 workの許可を全部得てから元mapを消費する。
+binary lookupは各比較前に許可を得て、insertion時に動く全ownerと新ownerのbytesも先に払う。
+parserに渡る前にinsertion位置を確定し、成功後はallocation／callbackなしでその位置へpublishする。
+family／URIは既存fallible copy helpersで許可後に確保し、scalar declaration fieldsを保持する。
+後のrefusalで残る予約tableは再試行に再利用し、既存fontも保持する。family等の一時copyはdropし、既に払った料金は返さない。
+旧native entry pointsはmap policyを保ち、native→observed／observed→native／observed→observedを同じresolverで検査した。
+ledger finalizationは両storageから同じ順序のfontsを作り、canonical bytes／fingerprintを保つ。
+
+検証はすべてlocalで、各producerを`timeout 55s`で囲んだ。長時間suite／full CLI test binary／GitHub Actionsは起動していない。
+
+- `final-core-tests`：119 font／8 math／115 resource units＋6 compile-fail docs。
+  新binding testは逆順二CFF fontで12 callback cutsを拒否し、accepted prefix／authentic font 1／異session無callback／同resolver retry／duplicateを検査する。
+  別の六caseはkind／missing ID／URI＋hash／face＋hash／expected hash／invalid outlineのnative error順序を観測有無で照合した。
+- `runtime-main-verified`：font-binding／cff／native-math-cff-pdf／original-cff-pdf／japanese-cff-pdf／math-cff-pdfの六controls。
+  実Root 0／font 0を持つ11 quota cutsでrecords／spool／workのatomic prefixと同budget再試行を検査し、output chargeは0。
+- `runtime-media-verified`：原font17 media cutsと明示CFF2 negativeの20 cuts。
+  checksの160 workがmediaに先行する。元のoffset／tag／typed errorとnative結果を保つ。
+- `runtime-aux-verified`：jstf／math-ties／ownedの三controls。
+  全11 controlsは成功し、七parent controlsのfactsはexact binding fee以外同一である。
+- `final-allocation-faults`：test-only System allocator wrapperがstorage／family／URIの実allocationを各一回拒否する。
+  三回ともResourceLimitを返し、accepted requestを保持して同resolverへのretryで一font ledgerを完成した。
+  custom allocatorはretained standalone probeだけにあり、product crateのunsafe禁止は維持する。
+- CLI testsは`final-cli-typecheck`で直前source epochのtypecheckに成功した。以後のproduct変更はprivate bindingのredundant closure訂正一か所だけでCLI sourceは同一である。
+  final epochの`verified-cli-typecheck`／`final-cli-typecheck-retry`はともに55秒capに達し、final epochのtypecheck成功として数えない。
+  `pending-regressions.json`の`cli-typecheck`を未完で保持し、同じ長いcommandを再実行しない。全test executableのbuild／長時間testsも未実行。
+- `final-resource-lint`：resource libのscoped clippy。新redundant closureを訂正した。
+  八つの既存large enum定義が§364と同一であることを`lint-existing-large-enums.json`へ記録し、そのlintだけ既存allowancesに追加した。
+- 新二Rust filesのrustfmt、変更12 filesのdiff check、四positive source guardsと§364 checkoutのnegative guardを確認する。
+
+二font宣言fixtureでは追加slotsは2×864=1728 bytes、familyは4 bytes、URIは8 bytesである。
+追加料金は`[records, spool, work]=[4,1740,1472]`。原Harano initial Sourceは`[205070,7946572,17360606]`。
+native CFF math PDFの一回目は`[46995,1671238,4013338]`、二回目は`[55820,2291164,5202606]`となる。
+PDF bytes／native receipts／Type2 statistics／glyph mappingsは§364から変わらない。
+
+四PDFはbyte-by-byte比較で同一で、既存の独立FontTools／pypdf／pinned MuPDF・Poppler証拠をその同一bytesへ継承する。
+このcheckpointで再renderやpixel equivalence検査を実施したとは主張しない。
+
+```text
+original-cff-pdf  30078b7bce80cf0a13607e88a532504c4cb06eb785f9e9b859e32ffd671f6c55
+japanese-cff-pdf  8a29b4a411e49cae2688cba4ce1b7f8bafef8d067cc374c43038278b42dd5c21
+math-cff-pdf      dec7dface8950fb8830e440e146842ece7018c35959f63139fdac6a167fa5648
+native-math-cff-pdf 77800fbfc3689a2ef75d90205eeecee8aeffb6aaa61147d7a25852842d038d3c
+```
+
+失敗したfirst test compile（map iterator borrow／test closure lifetime）、first CLI typecheck（reference helper引数）、
+最初のcombined runtime batch（55秒cap、media-errorsで終了）、first lint（新closure＋既存large enums）、final CLI typecheckの55秒cap二回を保存する。
+combined batchの途中成功をfinal batchの成功に数えない。closure訂正後にcore／build／runtime三群／allocation／typecheck／lintを再実行した。
+最終CLI typecheckは未完として区別する。その他accepted producerのfinal sourceはすべて同一で、実行中のsource driftは0。
+
+保存先は`workspace/target/vmb-design/20261017/observed-cff-binding/`、bulkは`/tmp/typaxis-observed-cff-binding` aliasである。
+final code 2034 inputs／12 changed filesを`source-final-code.json`／`product-delta.json`／`final-source/`へ保存する。
+`workspace/target/vmb-checkpoint-365-checkout`は§364から2022 immutable links＋12 copiesで復元し、
+`workspace/target/vmb-checkpoint-365-compiler`は73 compiler inputsを保持する。
+private CLIのhash／modeは`private-cli.json`、commands・source hashes・logsとruntime source／compiler archivesはbulkに保存する。
+freezeと独立auditのterminal recordsはself-referenceを避けindexの外へ置き、stageにも保存する。
+六つの完了済みparent archivesと同一runtime compiler archivesはhash／length／modeを検証してdata storageへ移し、元path aliasを保つ。
+固有evidenceを削除せず、executableは実行可能なfilesystemへ残す。
+
+再現commandsは各`*.command.json`のargv／environmentにある。例えば：
+
+```sh
+timeout 55s cargo test --manifest-path workspace/Cargo.toml -p typaxis-font -p typaxis-math -p typaxis-resource-admission --offline --locked -- --nocapture
+timeout 55s cargo check --manifest-path workspace/Cargo.toml -p typaxis-cli --features book-v2-staging --tests --offline --locked
+```
+
+runtimeは`tools/verify_vmb_initial_admission.py`のrepeatable `--case`で6／2／3 controlsへ分ける。
+現時点で全21 controlsを一回に実行しない。private CLIは別producerで先にwarm buildする。
+長時間suiteの明示commandsは`pending-regressions.json`／`run_long_checks.py`に残し、`--verify-source`だけを実行した。
+
+public frozen CLI／五reference producers／VMB 1369 inputsは不変。元package・意味入力／著者review、全巻／多言語／公開profile、
+configuration／root・candidate登録／snapshots、TT・PNG・JPEG／他library walks、実capacity／peak graphs・cleanup／性能、
+managed Linux＋macOS／PDF-UAと長時間回帰は未完である。full_book_acceptance／full_goal_completeはfalse、goalはactiveのままである。
+
+
+<a id="host-ledger-token-metadata-design-14366"></a>
+## 366. Host read tokenのmetadata発行と先行課金したopened-identity index
+
+2026-10-17。§365の次に、実Bookのprovenance／publicationでも使うgeneric host ledgerを修正した。
+以前の`token()`はcandidate map／identity set／opened map・set／root mapを全copyしてから、countsとgenerationだけをtokenへ残していた。
+現在は一つのlock内でmetadataを取得する。counts／generation／ownerは同じauthoritative ledgerに由来し、tokenをcallerが構築するAPIは加えない。
+`current_snapshot`のgeneration比較もcopy前のlock内へ移し、stale tokenはheap allocation／filesystem resolutionを始めずに同じReadIdentityMismatchを返す。
+current tokenによるvalid snapshot／write-target revalidationの内容とroot-handle authorityは維持し、そのcopyはまだ未観測である。
+
+opened-file countは候補slot数ではなく、異なるFileIdentityの数である。hard-link aliasesを二重計上せず、再openもgenerationを進めない。
+実Bookのadapterは新しい`OBSERVE_OPEN_IDENTITIES`を有効化し、保持するAVL indexへlookup／insertする。
+index nodesは`try_reserve_exact`で宣言済みcandidate-attempt数を上限として予約し、明示的なlogical bound以上のallocator overcapacityを利用しない。
+nodeはこのhostで64 bytes、opened slotは48 bytes。lookup／insertionは予約後にallocationせず、heightはcandidate数のbit lengthから保守的に制限する。
+work boundは`512*(2*bit_length(attempts)+1)+1024`。原始FileIdentity比較、node更新と回転を含む許可であり、CPU instruction countではない。
+
+`OpenIdentityStorage`／`OpenIdentityMigrate`／`OpenIdentityLookup`は従来stageの末尾へ追加する。
+Storageは全node rows／bytesと64 workを先に払い、Migrateは既存slotsのscanと旧opened factsのindex化、または既存indexの拡張copyを先に払う。
+Lookupは検索と更新の許可を先に得る。callbackはmutex外で動き、各copy／commit前にgenerationを再確認する。
+callbackが別のregistration／openを行えば、増えた未課金stateを走査せず失敗する。refusal／allocation failureはopened factsとgenerationを変えず、同registered candidateへ再試行できる。
+旧observersのopt-in既定値はfalseで、元のcallback列を保つ。non-opt-in compatibility更新はallocation-free slot scanでcountを保ち、実Bookのindexed経路とは区別する。
+そのunobserved経路を含む全体性能、initial ledger owner／inline index headerを含む全memory closureの達成は主張しない。
+
+検証はlocalのbounded producersだけを使う。
+
+- `indexed-host-final-tests`：31 host units＋2 compile-fail docs。AVLはforward／reverse／permuted各8192 entriesをBTreeSetと照合し、順序／height／balanceを再帰検査する。
+  hard links／重複open、三index callback cuts、reentrant mutation、後からのcandidate登録によるindex拡張と同host retryを確認した。
+- `resource-final-tests`：115 resource units＋6 docs。`indexed-host-lint`はhost全targetsのclippyを通る。
+  短いpathをheap化しない既存stack Storage enumだけlarge-enum lintを許可し、§365との同一file hashを保存した。
+- `parent-token-final`／`current-token-allocations`は同じmaintained Rust probeを、凍結した§365 compilerと現在のcompilerで別々に構築する。
+  5000 candidates／2 distinct opened identitiesでtoken、stale revalidate、stale write guardをglobal allocatorで計測した。
+  parentはいずれも31290 allocations／2995960 requested bytes、currentはいずれも0。currentの256回token発行も0である。
+  これはgeneric host metadataのprobeであり、5000 distinct画像のcheck／build／PDF受入ではない。
+- current probeはさらに512 distinct filesを実openする。5512-attempt boundの352768-byte node tableを一回予約し、
+  各Lookup許可後はindex allocation 0、既存read-identity Arcの一回／16 bytesだけを確保する。
+  514 distinct opened identitiesを保持し、hard-link dedupも維持する。
+- `index-allocation-fault`は同じtemplateから作ったretained test-only allocator probeでtableの実allocationを一回拒否する。
+  typed ReadCapacity、generation不変のrevalidation、同host／candidateのretryと512 opensを確認した。productのunsafe禁止は維持する。
+- `runtime-token-reads`は実CLIの49 read requests／73 R/S/W cutsを検査する。そのうち七cutsはStorage三axis／Migrate work／各resourceのLookup workである。
+  さらにfont-bindingの11 cutsを検査する。いずれもauthentic resource subject／Root 0、accepted atomic prefix、同budget retry、output charge 0を保つ。
+- PDF四controls、cff／jstf／math-ties／owned、media二controlsを追加し、計12 controlsが成功した。
+  Source／binary hashを確認した同じcompiled CLI probeを新しいproducerから再利用し、出力だけを別dirへ保存する。production modulesは書き換えない。
+- private CLI buildは52.586秒、resource testsは24.787秒。すべてのproducerは55秒cap内へ制限し、capに達した実行は成功と数えない。
+  CLI tests typecheck／full CLI test executableと既知の長時間suiteは起動せず、凍結source guard付きのpending commandsへ残す。
+  新三Rust filesのrustfmt、13 filesのdiff check、四positiveと§365のnegative source guardを確認した。
+
+二font＋一image／先行PACKAGE・source二openのfixtureではfirst resource index料金は`[5,320,14192]`、
+全三resourceの追加料金は`[records,spool,work]=[5,320,23408]`である。原Harano initial Sourceは`[205075,7946892,17384014]`。
+parent七controlsの非billing factsとPDF bytesを保持する。JSTF／MATHの最初のrefusal prefix／capはfirst-resource feeだけ増える。
+使い切ったbudgetを再利用するretryでは、新しい許可があるため停止位置と追加prefixが変わり得る。
+そのactual prefixesを`results.json`へ保存し、単一のfull feeだけで全retryを機械的に同一と扱わない。
+四PDFはbyte-by-byteで同一であり、§364〜365の独立FontTools／pypdf／pinned renders証拠をその同一bytesへ継承する。再render／pixel equivalenceを実施したとは主張しない。
+
+失敗したfirst host compile、first metadata testの期待値、初回combined host/resource buildの55秒cap、first lint、
+index bound initializer、capture helperによるPythonのrustfmt誤分類と、whole feeを途中cutにも適用した最初の集計を保存する。
+final sourceではunit／lint／build／runtime／allocation probesが成功し、実行中のcaptured source driftは0である。
+新toolを作成中だった初期combined buildは成功に数えず、その時点のcaptured crate scopeと後のcomplete source cohortを区別する。
+
+memory headroom確保のため、inactive feature variantsの53 compiler files／380609246 bytesを84639550-byte archiveへ保存し、全memberのhash／length／modeをreadbackしてからmutable cacheから除いた。
+active compiler inputsは残した。§365の502583679-byte cold archiveはhash／modeを保ってtmpfsからdiskへ戻し、元pathはaliasとして維持する。
+ほかの完了済み二archiveと現在のcompiler archiveも移動前後を検証し、独自evidenceを削除しない。
+
+保存先は`workspace/target/vmb-design/20261017/host-ledger-token-metadata/`、bulk aliasは`/tmp/typaxis-host-ledger-token-metadata`。
+2038 source inputs／13 changed filesを凍結し、checkoutは§365から2025 immutable links＋13 copies、compilerは73 inputsを保持する。
+private CLI／source・compiler／commands・logs・allocator probes・raw executablesとcold archiveのhash／modeは各JSONにある。
+freeze／final-auditのterminal recordsはindexの外へ置き、stageへも保存する。
+
+再現argv／environmentは各command JSONを正本とする。例えばmaintained allocation probeは次を受け取る。
+
+```sh
+python3 tools/verify_vmb_host_read_token.py --compiler-manifest workspace/target/vmb-design/20261017/host-ledger-token-metadata/restored-compiler.json --epoch current --output /tmp/vmb-host-token-independent
+```
+
+public frozen CLI／五reference producers／VMB 1369 inputs、元authoring／review状態は不変。
+valid snapshots、host roots／candidate registration／owners、TT・PNG・JPEG等のlibrary walks、actual capacity／peak graphs・cleanup／性能、
+元package・意味入力／著者review、全巻／多言語・公開profile／managed Linux＋macOS／PDF-UAと長時間回帰は未完である。
+full_book_acceptance／full_goal_completeはfalse、goalはactiveのままである。
+
+
+<a id="host-ledger-validation-views-design-14367"></a>
+## 367. Valid read-ledger revalidationの全snapshotをbounded immutable viewsへ置換
+
+2026-10-17。§366に残したcurrent tokenのvalid snapshotを除去した。candidate identityをregistration時にArcで共有し、
+BTreeMapのlocator順に最大64 rowsをstack上の配列へ取得する。各rowはlocator／expected identity／admitted rootのshallow ownerとopened identityだけを保持する。
+全候補→全opened terminalsの二phaseを維持し、各batchの取得前・filesystem checks前と終了時にgenerationを確認する。
+filesystem I/Oとtest observerはledger mutex外で実行する。write-target resolution後もgenerationを照合し、candidate setとopened AVL index（compatibility経路はslot scan）へ直接照会する。
+全snapshot型／copy関数はcfg(test)だけに残し、test用の独立value snapshotを維持する。
+
+同じmaintained `tools/vmb_host_read_validation_probe.rs`を§366／§367の凍結compilerから別々に構築し、5000 candidates／2 distinct opened identitiesを計測した。
+出力path長を揃え、source hashとcompiler filesのhash／lengthを照合する。数値はglobal allocatorのallocation calls／requested bytesであり、peak live memoryではない。
+
+| 操作 | §366 calls / requested bytes | §367 calls / requested bytes |
+| --- | ---: | ---: |
+| valid revalidate | 51287 / 3660844 | 19997 / 664884 |
+| valid nonconflict write guard | 82581 / 6657107 | 20001 / 665187 |
+| valid conflict write guard | 82581 / 6657111 | 20001 / 665191 |
+| token発行／stale revalidate（各々） | 0 / 0 | 0 / 0 |
+
+差は一回または二回の全metadata snapshotを除去した結果である。filesystem candidate／target resolutionは依然pathごとにallocateする。
+新しいidentity Arcのregistration時ownerも未課金のsetup範囲に属する。valid validation全体のSource work／memory closure、5000 distinct画像のPDF受入、性能達成は主張しない。
+
+- `view-host-final-tests`：35 host units＋2 compile-fail docs。257候補の両phaseで64／64／64／64／1 rows、callbackからの再入、両phase途中のmutation拒否、batch境界を越えるcandidate-before-openedのerror precedence、hard-link／logical-candidate output conflictsを確認する。
+- `view-host-final-lint`：host全targetsのstrict clippy。既存stack Storage enumのlarge-enum lintだけを従来どおり許可する。
+- `view-resource-final-tests`：115 resource units＋6 docs。
+- `runtime-view-base`／`runtime-view-pdfs`／`runtime-view-aux`／`runtime-view-media-final`：同じcompiled CLI probeの計12 controls。§366の全facts（read requests 49／quota cuts 73、font-binding cuts 11を含む）と一致し、四原font PDFはbyte-by-byte同一。過去の独立font／render証拠を同一bytesへ継承し、新しいrenderとして数えない。
+- `view-private-build-headroom`：production CLI buildが33.757秒で成功。全producerはtimeout 55sで制限する。三build caps、first lintのtest-only unused field、修正前tests／最初のparent probeをterminal recordsごと保持する。final source cohortのparent／current allocator probesを正式比較に使う。
+- resource linkingと最初のmedia実行はdisk不足で失敗した。100139008-byte partial cache archiveを検証してSHMへ移した後、新しいproducer名／output dirで再実行した。失敗を成功に数えない。
+- `source-guards`：四positiveと§366 negative guardを検証する。既知の長時間suite／full CLI tests executable／CLI tests typecheckは起動せずpendingに残す。
+
+memory確保ではinactive mutable cacheの114 files／432522036 bytesを115327313-byte archiveへ保存し、全memberのhash／length／modeをreadbackしてからcache copiesを退役した。
+先にdisk不足で失敗した100139008-byte streamもpartialとして保持する。§366 cold archiveは同hash／modeのままdiskへ移し、元pathをaliasで維持する。
+完了済みimmutable JSONの同一hash／length／modeを確認し、285 pathsを同filesystemのimmutable canonical fileへのhard linksへ置換して649101312 bytesを解放した。
+全pathのbytes／modeを保ち、mutable source／Cargo cacheとはhard-linkしていない。現在のcompiler archiveもSHMへ移し、元path／hash／modeを維持する。unique evidenceを削除しない。
+
+保存先は`workspace/target/vmb-design/20261017/host-ledger-validation-views/`、bulk aliasは`/tmp/typaxis-host-ledger-validation-views`。
+2042 source inputs／6 changed filesを凍結し、checkoutは§366から2036 immutable links＋6 copies、compilerは73 inputs（58 parent links＋15 data copies）を保持する。
+commands／logs／private CLI／raw executables／source・compiler・document hashesとcold archiveは同stageのJSONを正本とし、freeze／final-auditのterminal recordsはindex外へ保存する。
+maintained allocator probeの再現例は次のとおり。requested bytesは出力path長にも依存するため、正式比較には保存済みargvを用いる。
+
+```sh
+python3 tools/verify_vmb_host_read_validation.py --compiler-manifest workspace/target/vmb-design/20261017/host-ledger-validation-views/restored-compiler.json --epoch current --output /tmp/vmb-host-validation-independent
+```
+
+public frozen CLI／五reference producers／VMB 1369 inputsと元authoring／review状態は不変。
+元full package・意味入力／著者review・全巻／多言語・公開profile／managed Linux＋macOS／PDF-UA、host setup／registration／filesystem resolution、
+他library walks、actual allocator capacity／peak graphs・cleanup／性能、長時間回帰とCLI tests typecheckは未完である。
+full_book_acceptance／full_goal_completeはfalse、goalはactiveのままである。
+
+
+<a id="host-ledger-path-validation-design-14368"></a>
+## 368. Native read-ledgerのcandidate identity再構築を借用比較へ置換
+
+2026-10-17〜18。§367のbounded viewsでも各candidate再検査でcomponents Vecとsuffix Vec／OsStringsを確保していた。
+現在は既存PreparedReadPathのNUL終端scratchを使い、admitted root handleからparent componentsを開く。
+最初のmissing parent、またはterminal直前のdirectoryからancestor identityを取得し、保持identityのsuffixと元PortablePathの借用bytesを比較する。
+parentを安全に開けない場合は従来candidate_parent_leafへ戻し、logical aliasesとnative errorsを保つ。
+opened-terminal phaseもPreparedReadPath::openへ接続し、openat2／component walkerのflagsとregular-file checksを共有する。
+64-row views／candidate-before-opened順序／generation照合／mutex外のfilesystem I/Oを保持する。
+
+同じmaintained `tools/vmb_host_read_validation_probe.rs`を凍結した§367 compilerと現在のrebuilt production library closureから別々に構築した。
+5000 candidates／2 distinct opened identities、等しい出力path長でglobal allocatorのcalls／requested bytesを比較する。
+
+| 操作 | §367 calls / bytes | §368 calls / bytes |
+| --- | ---: | ---: |
+| valid revalidate | 19997 / 664884 | 0 / 0 |
+| nonconflict write guard | 20001 / 665185 | 4 / 301 |
+| conflict write guard | 20001 / 665189 | 4 / 305 |
+| token発行／stale revalidate（各々） | 0 / 0 | 0 / 0 |
+
+write guardに残る四allocationsはwrite-target identity resolutionである。このprobeのpath長に対するrequested bytesであり、peak live memoryや全pathでのallocation 0ではない。
+長いcandidate pathはfallible scratch一個、aliased-parent fallbackは従来owned resolverのallocationsを使う。
+publication-time validationのSource loan接続、host setup／registrationとそのownersの課金は未完である。
+
+`path-host-final-tests`は37 units＋2 compile-fail docs、`path-host-lint`はhost全targetsのstrict clippyを通る。
+既存stack Storage enumのlarge-enum lintだけを従来どおり許可する。
+新oracle testsはexisting／missing／long paths、255／256／257／1842-byte境界、symlinked／dangling／non-directory parents、
+retained identityとの不一致、missing suffix／parent inode交換とscratch再利用後のcontained-open結果を元resolverと照合する。
+最初のhost commandは37 units成功後のdoc testsで55秒capとなり、compiled artifactsを再利用したfinal commandで両方成功した。
+
+このepochのresource suiteはcompilationで55秒capとなり、115 testsの成功として数えない。
+full CLI buildも成功していない。初期55秒capsとlink時のdisk不足、testを起動しない180秒build capsをすべてterminal recordsへ残す。
+観測したcompiler workerはfilesystem page待ちとなり、約1 CPU秒に対して約1.37 GBのread bytesを記録した。
+`build-process-observation.jsonl`とverbose compiler argvを保存する。LLD wrapper／temporary identical compiler librariesも試したが、成功したCLI buildとして扱わない。
+一回のtemporary-library attemptはdriver位置からのsysroot推定でstdを見失い、元sysrootを明示したattemptもcapとなった。targetをinstallしたとは主張しない。
+このepochの12 CLI controls／四PDF bytesは未検証で、§367の成功を現在sourceの成功へ移さない。
+既知の長時間suite／full CLI tests executable／CLI tests typecheckは起動せず、source guard付きpending commandsへ残す。
+
+capacity対応の全移動・退役はhash／length／modeを照合して行った。
+§367 immutable private CLIと同一のmutable cache二pathsを退役し63283112 unique bytesを解放した。
+完了済み二JSON probe treesの同一bytesを944 pathsでhard-linkし162971648 bytesを解放した。mutable source／Cargo cacheへhard-linkしていない。
+古いresource-test cacheと失敗linker outputの計33013488 bytesはimmutable executable／検証済み2628927-byte archiveへ保持する。
+100139008-byte partial archiveはdisk／SHM間で移し、元aliasesと同一bytesを保つ。
+失敗CLI linkの63323760 bytesも12833084-byte archiveへ保存しreadback後にcacheから退役した。
+一時compiler shared librariesの357350864 bytesは元toolchain filesとの同一性を再確認して退役し、wrapper sourceとrecordsを保持した。
+unique evidenceを削除しない。
+
+保存先は`workspace/target/vmb-design/20261017/host-ledger-path-validation/`、bulk aliasは`/tmp/typaxis-host-ledger-path-validation`。
+2043 source inputs／4 changed filesと73 production-library inputsを凍結する。新private CLIはpendingと記録し、§367 private CLIをcurrent成功とは扱わない。
+commands／logs／allocator executables／host test executable／source・compiler・document hashesとcold archiveを保持し、freeze／audit terminal recordsをindex外へ保存する。
+再現にはmaintained `tools/verify_vmb_host_read_validation.py --compiler-manifest workspace/target/vmb-design/20261017/host-ledger-path-validation/restored-compiler.json --epoch current --output /tmp/vmb-host-path-independent`を新しいoutputへ使う。
+正式数値比較には保存済みargvを用いる。
+
+public frozen CLI／五reference producers／VMB 1369 inputsと元authoring／review状態は不変。
+元full package・意味入力／著者review・全巻／多言語・公開profile／managed Linux＋macOS／PDF-UA、publication Source予算／host setup／registration／alias fallback／target resolution、
+他library walks、actual allocator capacity／peak graphs・cleanup／性能と長時間回帰は未完である。
+full_book_acceptance／full_goal_completeはfalse、goalはactiveのままである。
+
+
+<a id="retained-cli-controls-design-14369"></a>
+## 369. Audited library bundleを使うprivate CLI controlsと広域検証の回復
+
+2026-10-18。§368のRoot host変更に対してpendingだった12 controls／PDF検証を回復した。
+変更は`tools/verify_vmb_initial_admission.py`だけで、Rust library／CLI module／probe template／fixturesは§368から不変である。
+全CLI executableのcodegenを再試行せず、既に凍結・readbackした73 production librariesから同じprivate control harnessを構築する。
+これはfull CLI executable／full CLI testsの成功ではない。
+
+新しい`--compiler-manifest`と`--compiler-source-index`は、既存の`--cargo-target-dir`と排他的に使う。
+retained manifestは同directoryのartifact-index.jsonに記録されたbytesと一致し、source indexもそのbundleのsource hashに一致する必要がある。
+現在のlibrary source inputsがindexから欠落せず、保持した982 source／data filesのhash、全library filesのlength／hash、必要なBook featuresをcompile前後に確認する。
+追加の現在source、source変更、破損したmanifest／source index／library、必要なlibrary／Book features欠落、nonlocal index pathを拒否する。
+full_cli_executable_built／cargo_build_checkedはretained modeではfalseであり、full-book／public acceptanceもfalseである。
+
+11 focused testsは正しいbundle、八negative guards、symlink library archive、二重deadline cleanupを検査する。
+compiler archiveはsymlinksをdereferenceし、linkではなくverified library bytesをreadbackする。
+最初のexternal deadlineはcleanup中の二回目のsignalで中断し、nested commandに古いrunning recordを残した。
+当該PIDが消えていることを確認し、元recordと別のterminal recovery recordを保存した。
+修正後はcleanup中のSIGTERMを無視してprocess groupを回収し、terminal recordを残す。回帰testではその二回目のsignalを実際に送る。
+
+compilation deadlineをruntime caseから分離した。既定値は従来どおり--timeout-secondsを使い、新しい--compile-timeout-secondsはcompile／Cargo buildだけを変更する。
+各runtime caseは最大55秒を保つ。codegen-units=256とmemory headroom確保後のcompileは52.527秒、readsは1.000秒、font-bindingは11.043秒、archiving等を含むproducer全体は74.540秒で成功した。
+その前の55秒／180秒compile refusalsを成功に数えず、terminal recordsとsource snapshotsを保持する。
+変更を分離したperformance benchmarkやwhole-command memory closureを達成したとは主張しない。
+
+同じcompiled probeのsource／binary hashを確認して新しいoutput dirsへ再利用し、次を実行した。
+
+- reads／font-binding：49 read requests／73 quota cuts、font-bindingの11 cutsを含む全factsが§366と同じ。
+- native-math-cff-pdf／original-cff-pdf／japanese-cff-pdf／math-cff-pdf：四PDFがbyte-by-byteで同一。
+- cff／jstf／math-ties／owned：34.338秒のproducerで成功。
+- font-media／font-media-errors：34.578秒のproducerで成功。
+
+計12 controlsの全factsは§366と同じである。四PDFに対して過去の独立font／pinned render証拠を同一bytesへ継承し、新たなrenderを行ったとは数えない。
+§368の37 host＋2 docs／lintとallocator計測は、同一Rust sourceに対する既存証拠として保持する。resource-unit suite／full CLI executable build／CLI tests typecheckは依然pendingである。
+六positiveと§368 negativeのsource guardsを検証し、既知の長時間suite／full CLI tests binaryを起動しない。
+
+capacity確保では§368 cold archiveの135136890 bytesをSHMからdiskへ移し、hash／length／modeと元aliasesを保った。
+新compiler archiveは元の76272291-byte archiveと完全に同一であり、再計算したhash／modeを照合してimmutable archiveへのaliasへ置換した。
+unique bytesを削除せず、mutable cacheへhard-linkしない。
+
+保存先は`workspace/target/vmb-design/20261018/retained-cli-controls/`、bulk aliasは`/tmp/typaxis-retained-cli-controls`。
+2043 source inputs／一changed toolを凍結し、checkoutは2042 immutable links＋一copy、compilerは73 parent links／追加raw compiler bytes 0で保持する。
+commands／logs／original-font identities／raw control executable／source・compiler・document hashesとcold archiveを保持する。
+freeze／audit terminal recordsはindex外へ保存する。再現例は次のとおり。compileが長くてもruntime caseの55秒capは維持する。
+
+```sh
+python3 tools/verify_vmb_initial_admission.py --output /tmp/vmb-retained-control-independent --font-list workspace/target/vmb-design/20261016/column-observed-harfrust-indic/inputs/original-fonts.txt --compiler-manifest workspace/target/vmb-design/20261018/retained-cli-controls/restored-compiler.json --compiler-source-index workspace/target/vmb-design/20261018/retained-cli-controls/source-final-code.json --compile-timeout-seconds 180 --timeout-seconds 55 --case reads
+```
+
+public frozen CLI／五reference producers／VMB 1369 inputsと元authoring／review状態は不変。
+publication Source loan／host setup／registration／alias fallback／target resolution、他library walks、実capacity／peak graphs・cleanup／性能、
+元full package・意味入力／著者review、全巻・多言語・公開profile／managed Linux＋macOS／PDF-UAと長時間回帰は未完である。
+full_book_acceptance／full_goal_completeはfalse、goalはactiveである。
+
+
+<a id="host-ledger-alias-scratch-design-14370"></a>
+## 370. Aliased-parent validationのpath／suffix再構築除去（Book広域検証はpending）
+
+2026-10-18。§368でowned fallbackを残したlogical alias comparisonを変更した。
+candidate registrationは従来どおりidentityを保持する。validation時はcanonical rootのnative bytesとPortablePathを一個のscratchへ連結し、
+existing directory ancestorをnative metadataで探索して、保持したidentityと借用suffixを比較する。
+256 bytes以内はstack、長いrelative／absolute pathはchecked lengthとfallible exact reserveを使う。
+non-UTF-8 root、filesystem root、Japanese components、missing／nondirectory parentsとsymlink cyclesを元resolverに照合する。
+logical alias identityの比較によってcontained readを許可しない。
+
+既存directory発見後のcanonicalize＋canonical resultのmetadataは保持する。
+初期のstat-only implementationではLinux descriptor aliasからunlinked directoryへのmetadataが成功し、元resolverのcanonicalization拒否と異なった。
+最終実装はそのRead errorを保持し、同fixtureを実際にunlinkする回帰testを追加した。
+初期source／allocator resultsをattempts/stat-onlyへ残すが、short aliasの0 allocationsを最終実装の結果として採用しない。
+canonicalizationのallocationは依然Source未課金であり、全alias pathのallocation 0やpublication Source closureを主張しない。
+
+同じallocator sourceと同じ長さのoutput pathで、凍結§369 hostと最終hostを比較した。
+各caseは257 candidatesで、logical alias経由のcontained read拒否後にtokenをrevalidateする。
+
+| case | §369 calls / requested bytes | §370 calls / requested bytes |
+| --- | ---: | ---: |
+| short alias | 1542 / 156770 | 257 / 34952 |
+| deep root（490 bytes） | 2313 / 917747 | 1028 / 517598 |
+| long URI（275 bytes） | 4369 / 632477 | 771 / 210483 |
+
+最終値はrelative／absolute scratchと独立に計測したcanonicalize＋metadataの和に一致する。
+canonicalization一回のcalls／bytesは順に1／136、3／1502、1／139である。
+これは同fixtureのrequested allocationの計測であり、allocator capacity／peak live memory／性能の完了証拠ではない。
+通常pathの5000候補probeはvalid revalidate／token発行／stale revalidateが各0／0、write guardは4／285、conflict guardは4／289である。
+
+最終hostは40 unit tests（1.27秒）＋2 compile-fail docsとstrict clippyを通る。
+既存stack Storage enumのlarge_enum_variant許可だけを保つ。
+compile-only commandは70.138秒、unit binaryは別の55秒capで実行した。
+initial host commandの55秒capと、stat-only epochの39 units等もterminal recordsへ保持し、最終40 testsと混同しない。
+dependent production librariesのcompile-only commandは180秒capで終了し、完成したBook compiler graphとして採用しない。
+同一条件のbuildを反復せず、resource-unit suite／12 Book controls／四PDF・full CLI build／typecheckはこのRust epochでpendingとする。
+§369の成功を変更したRustへ移さない。元Book graphとhost-only mixed manifestの二つがcurrent Book verifierに拒否されることも確認した。
+六positive＋旧§369 negativeのsource guardsを確認し、既知の長時間suiteとfull CLI tests executableは起動しない。
+
+保存先はworkspace/target/vmb-design/20261018/host-ledger-alias-scratch/、bulk aliasは/tmp/typaxis-host-ledger-alias-scratch。
+2044 source inputs／四changed Rust filesを凍結し、checkoutは2040 immutable parent links＋四copiesで保持する。
+最終host library／host unit executableとallocator executables、commands／logs／source epochs、documentsとcold archiveを保存する。
+host-probe-final-compiler.jsonはstandalone host probe専用で、他Book librariesはparent epochである。
+passed:trueを付けず、production Book compilerとして受け入れない。未実行のcapture_library_bundle_deferred.pyも成功済みbundleとは扱わない。
+再現例は以下。新しいoutputを使う。compileとruntimeは各50秒以内、outer capは55秒である。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 timeout 55s python3 workspace/target/vmb-design/20261018/host-ledger-alias-scratch/verify_alias_probe.py --compiler-manifest workspace/target/vmb-design/20261018/host-ledger-alias-scratch/host-probe-final-compiler.json --epoch current --output /tmp/vmb-host-alias-independent
+```
+
+正式なbyte数比較には保存した同じ長さのoutput argvを使う。
+public frozen CLI／五reference producers／VMB 1369 inputsと元authoring／review状態は不変。
+publication Source loan／canonicalization・target resolution／host setup・registration owners、他library walks／実capacity・peak graphs・cleanup・性能、
+元full package・意味入力／著者review、全巻・多言語・公開profile／managed Linux＋macOS／PDF-UAと長時間回帰は未完である。
+full_book_acceptance／full_goal_completeはfalse、goalはactiveのままである。

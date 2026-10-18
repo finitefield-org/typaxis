@@ -2781,6 +2781,14 @@ impl LineReshapeFeedback {
         &'a mut self,
         budget: &'a mut LineLayoutBudget,
     ) -> Result<LineReshapePassPermit<'a>, BreakError> {
+        self.prepare_pass_request(budget)?.reserve()
+    }
+    /// Consume the existing pass/index guards before a concrete caller pays a
+    /// logical backing request. This is not a global allocation/payment receipt.
+    pub fn prepare_pass_request<'a>(
+        &'a mut self,
+        budget: &'a mut LineLayoutBudget,
+    ) -> Result<LineReshapePassRequest<'a>, BreakError> {
         if self.terminal {
             return Err(BreakError::ReshapeTerminal);
         }
@@ -2795,14 +2803,40 @@ impl LineReshapeFeedback {
                 .checked_add(1)
                 .ok_or(BreakError::ArithmeticOverflow)?;
         }
-        self.records
-            .try_reserve(1)
-            .map_err(|_| BreakError::AllocationFailure)?;
-        self.pass_in_flight = true;
-        Ok(LineReshapePassPermit {
+        Ok(LineReshapePassRequest {
             feedback: self,
             budget,
             pass_index,
+        })
+    }
+}
+
+/// One concrete post-guard request; dropping it keeps the pass/index consumed.
+/// It cannot be constructed, cloned or used to manufacture graph payment.
+pub struct LineReshapePassRequest<'a> {
+    feedback: &'a mut LineReshapeFeedback,
+    budget: &'a mut LineLayoutBudget,
+    pass_index: u16,
+}
+impl<'a> LineReshapePassRequest<'a> {
+    /// A declared logical backing target, not a Vec capacity or allocator size.
+    pub fn requested_logical_target(&self) -> Result<usize, BreakError> {
+        self.feedback
+            .records
+            .len()
+            .checked_add(1)
+            .ok_or(BreakError::ArithmeticOverflow)
+    }
+    pub fn reserve(self) -> Result<LineReshapePassPermit<'a>, BreakError> {
+        self.feedback
+            .records
+            .try_reserve(1)
+            .map_err(|_| BreakError::AllocationFailure)?;
+        self.feedback.pass_in_flight = true;
+        Ok(LineReshapePassPermit {
+            feedback: self.feedback,
+            budget: self.budget,
+            pass_index: self.pass_index,
         })
     }
 }

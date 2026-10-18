@@ -81,6 +81,7 @@ impl TableBreakKernel<'_> {
                 (0..source.len()).any(|i| active(i) && next[i] < table.cells[i].content.len());
             if pending && region.repeat_header && header_top.is_none() {
                 let top = add(row_top, self.paint_header_height(), owner)?;
+                self.probe_capacity_event(top)?;
                 if top > capacity {
                     break;
                 }
@@ -114,6 +115,7 @@ impl TableBreakKernel<'_> {
                         owner,
                     )?;
                     if end > cut {
+                        self.probe_capacity_event(end)?;
                         break;
                     }
                     let ProductionTableContentSource::FlowItem(item) = child.source else {
@@ -153,6 +155,7 @@ impl TableBreakKernel<'_> {
                         cell.owner,
                     )?;
                     if end > capacity {
+                        self.probe_capacity_event(end)?;
                         break;
                     }
                     let ProductionTableContentSource::FlowItem(item) = child.source else {
@@ -215,6 +218,11 @@ impl TableBreakKernel<'_> {
             }
             let minimum_end = add(row_top, remaining, owner)?;
             let boundary = minimum_end.max(ending_bottom);
+            if breaks.is_empty() {
+                self.probe_capacity_event(boundary)?;
+            } else {
+                self.probe_strict_capacity_event(boundary)?;
+            }
             if ending_done && boundary <= capacity && (breaks.is_empty() || boundary < capacity) {
                 row_work |= boundary > row_top || row + 1 < region.end;
                 used = used.max(boundary);

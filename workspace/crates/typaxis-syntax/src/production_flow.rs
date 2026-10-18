@@ -7,16 +7,19 @@ use typaxis_document_package::WireStagingM4ReferenceFormat;
 #[path = "production_flow_canonical.rs"]
 mod canonical;
 use canonical::fingerprint_source_flow;
+#[path = "production_source_ops.rs"]
+mod source_ops;
+use source_ops::{OverlayCarrierPermit, SourceOps};
 
 #[path = "production_table.rs"]
 mod table;
-pub use table::{ProductionTable, ProductionTableRow, ProductionTableCell, ProductionTableSection};
+pub use table::{ProductionTable, ProductionTableCell, ProductionTableRow, ProductionTableSection};
 
 #[cfg(feature = "book-v2-staging")]
 #[path = "book_v2_description_flow.rs"]
 mod descriptions;
 #[cfg(feature = "book-v2-staging")]
-pub use descriptions::{BookV2DescriptionList, BookV2DescriptionItem};
+pub use descriptions::{BookV2DescriptionItem, BookV2DescriptionList};
 
 pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/7";
 
@@ -530,7 +533,9 @@ impl<'a, P, N> SourceTextFlow<'a, P, N> {
     }
     #[cfg(feature = "book-v2-staging")]
     pub fn page_break_name(&self, owner: NodeId) -> Option<&typaxis_core::PageName> {
-        self.named_page_breaks.binary_search_by_key(&owner, |p| p.0).ok()
+        self.named_page_breaks
+            .binary_search_by_key(&owner, |p| p.0)
+            .ok()
             .map(|index| &self.named_page_breaks[index].1)
     }
     pub fn figures(&self) -> &[ProductionFigure<'a>] {
@@ -683,10 +688,11 @@ fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
         return Err(failure(ProductionFlowErrorKind::NodeLimit, root));
     }
     source.reserve_records(root, document.footnotes.len() as u64)?;
-    footnote_ordinals
-        .try_reserve_exact(document.footnotes.len())
-        .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, root))?;
+    source
+        .operations()
+        .grow(root, &mut footnote_ordinals, document.footnotes.len(), true)?;
     for (index, footnote) in document.footnotes.iter().enumerate() {
+        source.operations().step(root, 1)?;
         let ordinal = u32::try_from(index)
             .ok()
             .and_then(|n| n.checked_add(1))
@@ -698,7 +704,12 @@ fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
             })?;
         footnote_ordinals.push((footnote.footnote_id.as_str(), ordinal));
     }
-    footnote_ordinals.sort_unstable_by_key(|(id, _)| *id);
+    source.operations().sort(
+        root,
+        &mut footnote_ordinals,
+        |a, b| a.0.cmp(b.0),
+        |a, b| (a.0.len() as u64).saturating_add(b.0.len() as u64),
+    )?;
     let mut collector = Collector {
         source,
         rules,
@@ -725,12 +736,18 @@ fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
     };
     collector.blocks(&document.blocks, None)?;
     let mut footnote_definitions = Vec::new();
-    collector.source.reserve_records(root, document.footnotes.len() as u64)?;
-    footnote_definitions
-        .try_reserve_exact(document.footnotes.len())
-        .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, root))?;
+    collector
+        .source
+        .reserve_records(root, document.footnotes.len() as u64)?;
+    collector.source.operations().grow(
+        root,
+        &mut footnote_definitions,
+        document.footnotes.len(),
+        true,
+    )?;
     let mut footnote_base_style = None;
     for footnote in &document.footnotes {
+        collector.source.operations().step(root, 1)?;
         let owner = NodeId::new(footnote.node_id);
         collector.add_footnote_marker(owner, &footnote.footnote_id)?;
         collector.begin(owner, ProductionFlowRegionKind::Footnote)?;
@@ -760,19 +777,26 @@ fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
         collector.end(owner)?;
     }
     #[cfg(feature = "book-v2-staging")]
-    collector.named_page_breaks.sort_unstable_by_key(|p| p.0);
+    collector.source.operations().sort(
+        root,
+        &mut collector.named_page_breaks,
+        |a, b| a.0.cmp(&b.0),
+        |_, _| 0,
+    )?;
     add_source_text_references(&mut collector, limits)?;
     let page_reference_values = add_page_reference_values(&mut collector, values, limits)?;
     // The overlay builds a new buffer carrier while the input records are held.
-    collector.source.reserve_records(root, collector.generated_records.len() as u64)?;
+    let overlay_permit = collector
+        .source
+        .reserve_overlay_carrier(root, collector.generated_records.len() as u64)?;
     #[cfg(feature = "book-v2-staging")]
     let source_record_charge = collector.source.source_record_charge();
-    let generated = typaxis_text::GeneratedTextOverlay::new(
+    let generated = collector.source.operations().overlay(
         collector.generated_records,
         limits,
         collector.retained_text_bytes,
-    )
-    .map_err(|_| failure(ProductionFlowErrorKind::TextLimit, root))?;
+        overlay_permit,
+    )?;
     let result = SourceTextFlow {
         package,
         navigation,
@@ -803,10 +827,15 @@ fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
 
 trait FlowSource<'a> {
     type Kind: Copy;
+    fn operations(&mut self) -> SourceOps<'_> {
+        SourceOps::legacy()
+    }
     fn limits(&self) -> &'a ValidatedResourceLimits;
-    fn container_inheritance(&self, owner: NodeId)
-        -> Option<&'a SemanticContainerInheritanceStyle>;
-    fn language(&self, owner: NodeId) -> Option<&'a str>;
+    fn container_inheritance(
+        &mut self,
+        owner: NodeId,
+    ) -> Result<Option<&'a SemanticContainerInheritanceStyle>, ProductionFlowError>;
+    fn language(&mut self, owner: NodeId) -> Result<Option<&'a str>, ProductionFlowError>;
     fn anchors(&self) -> &'a [(AnchorId, NodeId)];
     fn reserve_records(&mut self, _owner: NodeId, _count: u64) -> Result<(), ProductionFlowError> {
         Ok(())
@@ -815,17 +844,37 @@ trait FlowSource<'a> {
     fn source_record_charge(&self) -> u64 {
         0
     }
+    fn reserve_overlay_carrier(
+        &mut self,
+        owner: NodeId,
+        count: u64,
+    ) -> Result<OverlayCarrierPermit, ProductionFlowError> {
+        self.reserve_records(owner, count)?;
+        Ok(OverlayCarrierPermit::after_named_reservation(count))
+    }
     fn source_text_references(&self) -> bool {
         false
     }
-    fn reference_number(&self, _anchor: &str) -> Option<&'a str> {
-        None
+    fn reference_number(
+        &mut self,
+        _owner: NodeId,
+        _anchor: &str,
+    ) -> Result<Option<&'a str>, ProductionFlowError> {
+        Ok(None)
     }
-    fn reference_label(&self, _target: NodeId) -> Option<&'a str> {
-        None
+    fn reference_label(
+        &mut self,
+        _owner: NodeId,
+        _target: NodeId,
+    ) -> Result<Option<&'a str>, ProductionFlowError> {
+        Ok(None)
     }
-    fn heading_label(&self, _target: NodeId) -> bool {
-        false
+    fn heading_label(
+        &mut self,
+        _owner: NodeId,
+        _target: NodeId,
+    ) -> Result<bool, ProductionFlowError> {
+        Ok(false)
     }
 }
 struct LegacyFlowSource<'a> {
@@ -838,18 +887,20 @@ impl<'a> FlowSource<'a> for LegacyFlowSource<'a> {
         self.package.limits()
     }
     fn container_inheritance(
-        &self,
+        &mut self,
         owner: NodeId,
-    ) -> Option<&'a SemanticContainerInheritanceStyle> {
-        self.package
+    ) -> Result<Option<&'a SemanticContainerInheritanceStyle>, ProductionFlowError> {
+        Ok(self
+            .package
             .computed_style(owner)
-            .map(|style| style.inheritance_style())
+            .map(|style| style.inheritance_style()))
     }
-    fn language(&self, owner: NodeId) -> Option<&'a str> {
-        self.navigation
+    fn language(&mut self, owner: NodeId) -> Result<Option<&'a str>, ProductionFlowError> {
+        Ok(self
+            .navigation
             .languages()
             .record(owner)
-            .map(|record| record.effective_language.as_ref())
+            .map(|record| record.effective_language.as_ref()))
     }
     fn anchors(&self) -> &'a [(AnchorId, NodeId)] {
         self.navigation.anchors()
@@ -935,9 +986,15 @@ fn footnote_marker_key(owner: NodeId) -> typaxis_core::GeneratedBufferKey {
 impl<'a, S: FlowSource<'a>> Collector<'a, S> {
     fn add_footnote_marker(&mut self, owner: NodeId, id: &str) -> Result<(), ProductionFlowError> {
         let index = self
-            .footnote_ordinals
-            .binary_search_by_key(&id, |(id, _)| *id)
-            .map_err(|_| failure(ProductionFlowErrorKind::ReceiptMismatch, owner))?;
+            .source
+            .operations()
+            .find(
+                owner,
+                &self.footnote_ordinals,
+                |(candidate, _)| candidate.cmp(&id),
+                |(candidate, _)| (candidate.len() as u64).saturating_add(id.len() as u64),
+            )?
+            .ok_or_else(|| failure(ProductionFlowErrorKind::ReceiptMismatch, owner))?;
         let ordinal = self.footnote_ordinals[index].1;
         let bytes = u64::from(ordinal.ilog10()) + 1;
         self.generated_bytes = self
@@ -955,15 +1012,17 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
             return Err(failure(ProductionFlowErrorKind::NodeLimit, owner));
         }
         self.source.reserve_records(owner, 1)?;
+        self.source
+            .operations()
+            .grow(owner, &mut self.generated_records, 1, false)?;
+        let text = self.source.operations().decimal(owner, ordinal, false)?;
         self.generated_records
-            .try_reserve(1)
-            .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
-        self.generated_records
-            .push((footnote_marker_key(owner), ordinal.to_string()));
+            .push((footnote_marker_key(owner), text));
         Ok(())
     }
 
     fn charge(&mut self, owner: NodeId) -> Result<(), ProductionFlowError> {
+        self.source.operations().step(owner, 1)?;
         self.node_charge = self
             .node_charge
             .checked_add(1)
@@ -977,9 +1036,10 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         owner: NodeId,
     ) -> Result<(), ProductionFlowError> {
         self.source.reserve_records(owner, 1)?;
-        self.events
-            .try_reserve(1)
-            .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+        self.source
+            .operations()
+            .grow(owner, &mut self.events, 1, false)?;
+        self.source.operations().step(owner, 1)?;
         self.events.push(event);
         Ok(())
     }
@@ -995,14 +1055,21 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         self.event(ProductionFlowEvent::End { owner }, owner)
     }
     fn ordinary(
-        &self,
+        &mut self,
         owner: NodeId,
         kind: &str,
         classes: &[String],
         parent: Option<&SemanticContainerInheritanceStyle>,
     ) -> Result<SemanticContainerInheritanceStyle, ProductionFlowError> {
-        self.rules.descendant_style(kind, classes, &self.rules.ordinary, parent)
-            .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))
+        self.source.operations().descendant(
+            owner,
+            &self.rules,
+            kind,
+            classes,
+            &self.rules.ordinary,
+            parent,
+            false,
+        )
     }
     fn blocks(
         &mut self,
@@ -1021,7 +1088,10 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                 WireSemanticBlock::Paragraph { .. } => Kind::Paragraph,
                 WireSemanticBlock::Heading { .. } => Kind::Heading,
                 WireSemanticBlock::DescriptionList { .. } => {
-                    return Err(failure(ProductionFlowErrorKind::DescriptionListStaging, owner));
+                    return Err(failure(
+                        ProductionFlowErrorKind::DescriptionListStaging,
+                        owner,
+                    ));
                 }
                 WireSemanticBlock::List { .. } => Kind::List,
                 WireSemanticBlock::Table { .. } => Kind::Table,
@@ -1043,6 +1113,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                     self.inlines(children, language, &mut items)?;
                     // Empty/anchor-only paragraphs need no selected font. All
                     // actual text and generated reference sites require explicit style.
+                    self.source.operations().step(owner, items.len() as u64)?;
                     let needs_font = items.iter().any(|item| {
                         matches!(item.content,
                         ProductionInlineContent::Text { utf8, .. } if !utf8.is_empty())
@@ -1061,13 +1132,17 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                     }
                     let index = u32::try_from(self.paragraphs.len())
                         .map_err(|_| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
-                    self.paragraphs
-                        .try_reserve(1)
-                        .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
-                    let page_name = self
-                        .rules.cascade_ordinary(kind.as_str(), block.classes())
-                        .and_then(|computed| computed.page_name())
-                        .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
+                    self.source
+                        .operations()
+                        .grow(owner, &mut self.paragraphs, 1, false)?;
+                    let page_name = self.source.operations().page_name(
+                        owner,
+                        &self.rules,
+                        &self.rules.ordinary,
+                        kind.as_str(),
+                        block.classes(),
+                        false,
+                    )?;
                     self.paragraphs.push(ProductionTextParagraph {
                         page_name,
                         owner,
@@ -1079,12 +1154,15 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                 WireSemanticBlock::SemanticContainer { blocks, .. } => {
                     let style = self
                         .source
-                        .container_inheritance(owner)
+                        .container_inheritance(owner)?
                         .ok_or_else(|| failure(ProductionFlowErrorKind::ReceiptMismatch, owner))?;
                     self.blocks(blocks, Some(style))?;
                 }
                 WireSemanticBlock::DescriptionList { .. } => {
-                    return Err(failure(ProductionFlowErrorKind::DescriptionListStaging, owner));
+                    return Err(failure(
+                        ProductionFlowErrorKind::DescriptionListStaging,
+                        owner,
+                    ));
                 }
                 WireSemanticBlock::List {
                     ordered,
@@ -1096,18 +1174,22 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                     let style = self.ordinary(owner, "list", block.classes(), parent)?;
                     let list_index = u32::try_from(self.lists.len())
                         .map_err(|_| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
-                    let page_name = self
-                        .rules.cascade_ordinary("list", block.classes())
-                        .and_then(|s| s.page_name())
-                        .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
-                    self.lists
-                        .try_reserve(1)
-                        .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+                    let page_name = self.source.operations().page_name(
+                        owner,
+                        &self.rules,
+                        &self.rules.ordinary,
+                        "list",
+                        block.classes(),
+                        false,
+                    )?;
+                    self.source
+                        .operations()
+                        .grow(owner, &mut self.lists, 1, false)?;
                     self.lists.push(ProductionList {
                         owner,
                         ordered: *ordered,
                         start: *start,
-                        style: style.clone(),
+                        style: self.source.operations().copy_style(owner, &style)?,
                         page_name,
                     });
                     for (index, item) in items.iter().enumerate() {
@@ -1138,31 +1220,39 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                         } else {
                             3
                         };
-                        self.generated_bytes = self
-                            .generated_bytes
-                            .checked_add(size)
-                            .filter(|n| {
-                                self.retained_text_bytes.checked_add(*n).is_some_and(|n| {
-                                    n <= self.source.limits().get().max_text_bytes
-                                }) && size
-                                    <= u64::from(self.source.limits().get().max_text_buffer_bytes)
-                            })
-                            .ok_or_else(|| {
-                                failure(ProductionFlowErrorKind::TextLimit, item_owner)
-                            })?;
+                        self.generated_bytes =
+                            self.generated_bytes
+                                .checked_add(size)
+                                .filter(|n| {
+                                    self.retained_text_bytes.checked_add(*n).is_some_and(|n| {
+                                        n <= self.source.limits().get().max_text_bytes
+                                    }) && size
+                                        <= u64::from(
+                                            self.source.limits().get().max_text_buffer_bytes,
+                                        )
+                                })
+                                .ok_or_else(|| {
+                                    failure(ProductionFlowErrorKind::TextLimit, item_owner)
+                                })?;
                         self.source.reserve_records(item_owner, 1)?;
-                        self.list_items.try_reserve(1).map_err(|_| {
-                            failure(ProductionFlowErrorKind::AllocationFailure, item_owner)
-                        })?;
+                        self.source.operations().grow(
+                            item_owner,
+                            &mut self.list_items,
+                            1,
+                            false,
+                        )?;
                         if self.generated_records.len() as u64
                             >= self.source.limits().get().max_fragments
                         {
                             return Err(failure(ProductionFlowErrorKind::NodeLimit, item_owner));
                         }
                         self.source.reserve_records(item_owner, 1)?;
-                        self.generated_records.try_reserve(1).map_err(|_| {
-                            failure(ProductionFlowErrorKind::AllocationFailure, item_owner)
-                        })?;
+                        self.source.operations().grow(
+                            item_owner,
+                            &mut self.generated_records,
+                            1,
+                            false,
+                        )?;
                         let source = ProductionListItem {
                             owner: item_owner,
                             list_index,
@@ -1175,22 +1265,32 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                             language: self.language(item_owner)?,
                             ordered_value: value,
                         };
-                        self.generated_records.push((
-                            source.key(),
-                            value.map_or_else(|| "•".to_owned(), |v| format!("{v}.")),
-                        ));
+                        let marker = if let Some(value) = value {
+                            self.source.operations().decimal(item_owner, value, true)?
+                        } else {
+                            self.source.operations().string(item_owner, "•")?
+                        };
+                        self.generated_records.push((source.key(), marker));
                         self.list_items.push(source);
                         self.blocks(&item.blocks, Some(&style))?;
                         self.end(item_owner)?;
                     }
                 }
-                WireSemanticBlock::Table { caption, head, body, .. } => {
+                WireSemanticBlock::Table {
+                    caption,
+                    head,
+                    body,
+                    ..
+                } => {
                     let style = self.ordinary(owner, "table", block.classes(), parent)?;
                     let index = self.tables.len();
-                    self.table(block, style.clone())?;
+                    let table_style = self.source.operations().copy_style(owner, &style)?;
+                    self.table(block, table_style)?;
                     if let Some(caption) = caption {
                         self.source.reserve_records(owner, 1)?;
-                        self.table_record_charge = self.table_record_charge.checked_add(1)
+                        self.table_record_charge = self
+                            .table_record_charge
+                            .checked_add(1)
                             .filter(|n| *n <= self.source.limits().get().max_fragments)
                             .ok_or_else(|| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
                         let start = self.events.len();
@@ -1205,13 +1305,12 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                             for cell in &row.cells {
                                 let cell_owner = NodeId::new(cell.node_id);
                                 self.begin(cell_owner, Kind::TableCell)?;
-                                let cell_style = inherit_cell_style(
+                                let cell_style = self.source.operations().cell(
                                     cell_owner,
                                     cell.classes.as_deref().unwrap_or(&[]),
                                     &self.rules,
                                     &style,
-                                )
-                                    .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, cell_owner))?;
+                                )?;
                                 self.blocks(&cell.blocks, Some(&cell_style))?;
                                 self.end(cell_owner)?;
                             }
@@ -1228,13 +1327,17 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                 } => {
                     self.source.reserve_records(owner, 1)?;
                     let style = self.ordinary(owner, "figure", block.classes(), parent)?;
-                    let page_name = self
-                        .rules.cascade_ordinary("figure", block.classes())
-                        .and_then(|computed| computed.page_name())
-                        .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
-                    self.figures
-                        .try_reserve(1)
-                        .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+                    let page_name = self.source.operations().page_name(
+                        owner,
+                        &self.rules,
+                        &self.rules.ordinary,
+                        "figure",
+                        block.classes(),
+                        false,
+                    )?;
+                    self.source
+                        .operations()
+                        .grow(owner, &mut self.figures, 1, false)?;
                     self.figures.push(ProductionFigure {
                         owner,
                         source_span: lower_span(wire_block_span(block)).map_err(|_| {
@@ -1243,27 +1346,43 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                         image_id: typaxis_core::ImageResourceId::new(*image_id),
                         alternative: alt,
                         placement,
-                        style: style.clone(),
+                        style: self.source.operations().copy_style(owner, &style)?,
                         page_name,
                     });
                     self.blocks(caption, Some(&style))?;
                 }
                 WireSemanticBlock::VectorFigure { caption, .. } => self.blocks(caption, parent)?,
-                WireSemanticBlock::PageBreak { .. } => {
+                WireSemanticBlock::PageBreak { .. } =>
+                {
                     #[cfg(feature = "book-v2-staging")]
                     if self.rules.book_v2 {
-                        if let Some(name) = self.rules.cascade_ordinary("page_break", block.classes())
-                            .and_then(|s| s.page_name())
-                            .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))? {
-                            if self.named_page_breaks.len() as u64 >= self.source.limits().get().max_fragments {
+                        if let Some(name) = self.source.operations().page_name(
+                            owner,
+                            &self.rules,
+                            &self.rules.ordinary,
+                            "page_break",
+                            block.classes(),
+                            false,
+                        )? {
+                            if self.named_page_breaks.len() as u64
+                                >= self.source.limits().get().max_fragments
+                            {
                                 return Err(failure(ProductionFlowErrorKind::NodeLimit, owner));
                             }
-                            self.retained_text_bytes = self.retained_text_bytes.checked_add(name.as_str().len() as u64)
+                            self.retained_text_bytes = self
+                                .retained_text_bytes
+                                .checked_add(name.as_str().len() as u64)
                                 .filter(|n| *n <= self.source.limits().get().max_text_bytes)
-                                .ok_or_else(|| failure(ProductionFlowErrorKind::TextLimit, owner))?;
+                                .ok_or_else(|| {
+                                    failure(ProductionFlowErrorKind::TextLimit, owner)
+                                })?;
                             self.source.reserve_records(owner, 1)?;
-                            self.named_page_breaks.try_reserve(1)
-                                .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+                            self.source.operations().grow(
+                                owner,
+                                &mut self.named_page_breaks,
+                                1,
+                                false,
+                            )?;
                             self.named_page_breaks.push((owner, name));
                         }
                     }
@@ -1275,8 +1394,9 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
         }
         Ok(())
     }
-    fn language(&self, owner: NodeId) -> Result<&'a str, ProductionFlowError> {
-        self.source.language(owner)
+    fn language(&mut self, owner: NodeId) -> Result<&'a str, ProductionFlowError> {
+        self.source
+            .language(owner)?
             .ok_or_else(|| failure(ProductionFlowErrorKind::ReceiptMismatch, owner))
     }
     fn inlines(
@@ -1346,9 +1466,19 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                 reference: match inline {
                     WireStagingM4Inline::Reference { target, format, .. } => {
                         let anchors = self.source.anchors();
-                        let index = anchors
-                            .binary_search_by(|(anchor, _)| anchor.as_str().cmp(target.as_str()))
-                            .map_err(|_| {
+                        let index = self
+                            .source
+                            .operations()
+                            .find(
+                                owner,
+                                anchors,
+                                |(anchor, _)| anchor.as_str().cmp(target.as_str()),
+                                |(anchor, _)| {
+                                    (anchor.as_str().len() as u64)
+                                        .saturating_add(target.len() as u64)
+                                },
+                            )?
+                            .ok_or_else(|| {
                                 failure(ProductionFlowErrorKind::ReceiptMismatch, owner)
                             })?;
                         let format = match format {
@@ -1383,9 +1513,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
                 },
             };
             self.source.reserve_records(owner, 1)?;
-            output
-                .try_reserve(1)
-                .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+            self.source.operations().grow(owner, output, 1, false)?;
             output.push(site);
             if let WireStagingM4Inline::Emphasis { children, .. }
             | WireStagingM4Inline::Strong { children, .. }
@@ -1393,9 +1521,7 @@ impl<'a, S: FlowSource<'a>> Collector<'a, S> {
             {
                 self.inlines(children, language, output)?;
                 self.source.reserve_records(owner, 1)?;
-                output
-                    .try_reserve(1)
-                    .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+                self.source.operations().grow(owner, output, 1, false)?;
                 output.push(ProductionInlineSite {
                     content: ProductionInlineContent::EndContainer,
                     link_target: None,
@@ -2075,3 +2201,6 @@ use production_page_references::{add_page_reference_values, page_reference_key};
 #[path = "production_text_references.rs"]
 mod production_text_references;
 use production_text_references::{add_source_text_references, text_reference_key};
+
+#[path = "production_generated_lookups.rs"]
+mod generated_lookups;

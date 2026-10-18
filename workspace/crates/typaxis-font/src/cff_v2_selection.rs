@@ -182,6 +182,11 @@ impl Cff1SubsetSessionV2 {
         self.require_admission(admission)?;
         Ok(self.evaluated.get(&(admission.source_sha256(), gid.get())))
     }
+    pub(crate) fn prepare_math_glyph_with_charge(&mut self, admission:&Cff1AdmissionV2, gid:OriginalGlyphId,
+        charge:&mut dyn FnMut(usize,usize,usize)->Result<(),Cff1Error>)->Result<(),CffSelectionFailureV2>{
+        self.require_admission(admission)?;
+        self.evaluate_with_charge(admission,gid.get(),charge)
+    }
     fn require_admission(&self, admission: &Cff1AdmissionV2) -> Result<(), Cff1Error> {
         if self.limits_fingerprint != admission.limits_fingerprint() {
             return Err(Cff1Error::ReceiptMismatch);

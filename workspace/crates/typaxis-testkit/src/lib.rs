@@ -1818,12 +1818,20 @@ mod tests {
     }
 
     fn dependency_declarations(contents: &str) -> Vec<(String, String)> {
+        dependency_declarations_with_sections(contents)
+            .into_iter()
+            .map(|(_, name, declaration)| (name, declaration))
+            .collect()
+    }
+
+    fn dependency_declarations_with_sections(contents: &str) -> Vec<(String, String, String)> {
         let mut in_dependencies = false;
+        let mut section = "";
         let mut dependencies = Vec::new();
         for line in contents.lines() {
             let line = line.trim();
             if line.starts_with('[') {
-                let section = line.trim_matches(['[', ']']);
+                section = line.trim_matches(['[', ']']);
                 in_dependencies = matches!(
                     section,
                     "dependencies" | "dev-dependencies" | "build-dependencies"
@@ -1839,7 +1847,11 @@ mod tests {
                 continue;
             };
             let name = name.trim();
-            dependencies.push((name.to_owned(), declaration.trim().to_owned()));
+            dependencies.push((
+                section.to_owned(),
+                name.to_owned(),
+                declaration.trim().to_owned(),
+            ));
         }
         dependencies
     }
@@ -2553,8 +2565,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn document_package_exclusively_owns_exact_pinned_json_dependencies() {
+    fn production_json_dependencies(
+        crate_name: &str,
+        manifest: &str,
+    ) -> Result<Vec<String>, String> {
         const JSON_DEPENDENCIES: [&str; 4] = [
             "serde",
             "serde_json",
@@ -2562,6 +2576,79 @@ mod tests {
             "serde_stacker",
         ];
 
+        let mut found = Vec::new();
+        for (section, name, declaration) in dependency_declarations_with_sections(manifest) {
+            let dependency = declared_package_name(name.clone(), &declaration);
+            if !JSON_DEPENDENCIES.contains(&dependency.as_str()) {
+                continue;
+            }
+            // Design 28's fixture editors are test-only consumers of the same
+            // locked JSON implementation. Keep this exception exact: it cannot
+            // authorize a runtime/build parser, another crate or extra features.
+            if matches!(
+                crate_name,
+                "typaxis-cli" | "typaxis-machine-input" | "typaxis-syntax"
+            ) && section == "dev-dependencies"
+                && name == "serde_json"
+                && declaration == "\"=1.0.151\""
+            {
+                continue;
+            }
+            if crate_name != "typaxis-document-package" {
+                return Err(format!(
+                    "{dependency} must only be a direct dependency of typaxis-document-package; \
+                     found {crate_name} [{section}]"
+                ));
+            }
+            if !declaration.contains("\"=") {
+                return Err(format!(
+                    "{dependency} must use an exact version pin: {declaration}"
+                ));
+            }
+            found.push(dependency);
+        }
+        Ok(found)
+    }
+
+    #[test]
+    fn fixture_json_dependency_exception_cannot_authorize_production_parsers() {
+        let fixture = "[dev-dependencies]\nserde_json = \"=1.0.151\"\n";
+        for crate_name in ["typaxis-cli", "typaxis-machine-input", "typaxis-syntax"] {
+            assert!(production_json_dependencies(crate_name, fixture)
+                .unwrap()
+                .is_empty());
+            for section in [
+                "dependencies",
+                "build-dependencies",
+                "target.'cfg(unix)'.dependencies",
+                "target.'cfg(unix)'.dev-dependencies",
+            ] {
+                let manifest = fixture.replace("dev-dependencies", section);
+                assert!(production_json_dependencies(crate_name, &manifest).is_err());
+            }
+            for declaration in [
+                "serde = \"=1.0.151\"",
+                "serde_path_to_error = \"=1.0.151\"",
+                "serde_stacker = \"=1.0.151\"",
+                "serde_json = \"1.0.151\"",
+                "serde_json = \"=1.0.150\"",
+                "json = { package = \"serde_json\", version = \"=1.0.151\" }",
+                "serde_json = { version = \"=1.0.151\", features = [\"unbounded_depth\"] }",
+            ] {
+                let manifest = format!("[dev-dependencies]\n{declaration}\n");
+                assert!(production_json_dependencies(crate_name, &manifest).is_err());
+            }
+            assert!(production_json_dependencies(
+                crate_name,
+                &format!("{fixture}[dependencies]\nserde_json = \"=1.0.151\"\n")
+            )
+            .is_err());
+        }
+        assert!(production_json_dependencies("typaxis-layout", fixture).is_err());
+    }
+
+    #[test]
+    fn document_package_exclusively_owns_exact_pinned_json_dependencies() {
         let crates = workspace_root().join("crates");
         let mut found = Vec::new();
         for entry in fs::read_dir(crates).expect("workspace crates directory must be readable") {
@@ -2575,21 +2662,8 @@ mod tests {
             }
             let crate_name = entry.file_name().to_string_lossy().into_owned();
             let manifest = entry.path().join("Cargo.toml");
-            for (name, declaration) in workspace_dependency_declarations(&manifest) {
-                let dependency = declared_package_name(name, &declaration);
-                if !JSON_DEPENDENCIES.contains(&dependency.as_str()) {
-                    continue;
-                }
-                assert_eq!(
-                    crate_name, "typaxis-document-package",
-                    "{dependency} must only be a direct dependency of typaxis-document-package"
-                );
-                assert!(
-                    declaration.contains("\"="),
-                    "{dependency} must use an exact version pin: {declaration}"
-                );
-                found.push(dependency);
-            }
+            let contents = fs::read_to_string(&manifest).expect("manifest must be readable");
+            found.extend(production_json_dependencies(&crate_name, &contents).unwrap());
         }
         found.sort();
         assert_eq!(

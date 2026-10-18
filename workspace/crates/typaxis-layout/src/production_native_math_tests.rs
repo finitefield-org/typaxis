@@ -69,7 +69,9 @@ fn production_native_math_kernel_keeps_real_computation_atomic() {
             height,
             &mut ProductionLineBreakBudget::new(10, 10)
         ),
-        Err(AtomicVectorInlineError::NoFeasibleLine)
+        Err(AtomicVectorInlineError::InlineSizeExceeded { owner, source_span, required_inline_size, maximum_inline_size })
+            if owner == receipt.node_id() && source_span == source.domain().span
+                && required_inline_size.get() == width && maximum_inline_size == narrow
     ));
     assert!(matches!(
         break_production_inline(&p, size, height, &mut ProductionLineBreakBudget::new(0, 10)),

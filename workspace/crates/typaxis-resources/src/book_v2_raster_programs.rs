@@ -80,18 +80,44 @@ impl<'i, 'v> BookV2RasterProgram<'i, 'v> {
         self.fingerprint
     }
 }
-pub struct BookV2RasterPrograms<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'i BookV2ImageSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2RasterProgramsData<
+    'i,
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'i BookV2ImageSelectionData<'v, 'a, D, P>,
     programs: Vec<Option<BookV2RasterProgram<'i, 'v>>>,
     fingerprint: [u8; 32],
     records: u64,
     spool: u64,
     work: u64,
 }
-impl<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2RasterPrograms<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-{
-    pub fn source(&self) -> &'i BookV2ImageSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+pub type BookV2RasterPrograms<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2RasterProgramsData<
+    'i,
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// Shared raster leaf data grants no conversion of the source display owner.
+///
+/// ```compile_fail
+/// use typaxis_resources::book_v2::{BookV2ColumnRasterPrograms, BookV2RasterPrograms};
+/// fn body<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(v: BookV2ColumnRasterPrograms<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>)
+///     -> BookV2RasterPrograms<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { v }
+/// ```
+pub type BookV2ColumnRasterPrograms<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2RasterProgramsData<
+        'i,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+impl<'i, 'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy> BookV2RasterProgramsData<'i, 'v, 'a, D, P> {
+    pub fn source(&self) -> &'i BookV2ImageSelectionData<'v, 'a, D, P> {
         self.source
     }
     pub fn program(&self, image: usize) -> Option<&BookV2RasterProgram<'i, 'v>> {
@@ -110,14 +136,11 @@ impl<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         self.work
     }
 }
-impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontSelectionBuilder<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-{
+impl<'v, 'a, D: BookV2ResourceDisplay<'a>> BookV2FontSelectionBuilderData<'v, 'a, D> {
     pub fn write_raster_programs<'i>(
         &mut self,
-        source: &'i BookV2ImageSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
-    ) -> Result<BookV2RasterPrograms<'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2RasterError>
-    {
+        source: &'i BookV2ImageSelectionData<'v, 'a, D>,
+    ) -> Result<BookV2RasterProgramsData<'i, 'v, 'a, D>, BookV2RasterError> {
         if !std::ptr::eq(self.display, source.display()) {
             return Err(E::Identity.into());
         }
@@ -221,7 +244,7 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
                 fingerprint: fp,
             }));
         }
-        Ok(BookV2RasterPrograms {
+        Ok(BookV2RasterProgramsData {
             source,
             programs,
             fingerprint,

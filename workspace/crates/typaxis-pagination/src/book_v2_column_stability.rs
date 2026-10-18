@@ -40,13 +40,12 @@ impl<'b, 'f, 's, 'p, 'a> page_stability_kernel::StableSearch
         self.0.inner.content.charge.take(1, NodeId::new(0))
     }
     fn select(&mut self) -> Result<Self::Sequence, ProductionBodyPaginationError> {
-        let sequence = self.0.select_pages()?;
+        let sequence = self.0.select_balanced_pages()?;
         for page in sequence.pages() {
             self.0.inner.content.step(NodeId::new(0))?;
-            if page.candidate().frames().requires_last_page_balance() {
-                return Err(error(NodeId::new(0), E::PendingRegion("column_balance")));
-            }
+            self.0.inner.verify_state(&page.next_state().source_state().source.demand)?;
         }
+        self.0.verify_balanced_selection(&sequence)?;
         Ok(sequence)
     }
     fn same(

@@ -26,13 +26,27 @@ mod subset_diagnostics;
 #[path = "cff_v2.rs"]
 mod v2;
 pub use v2::{
-    admit_sfnt_cff1_v2, inspect_cff1_program_v2, validate_cff_cmap_v2,
+    admit_sfnt_cff1_v2_owned, admit_sfnt_cff1_v2_owned_with_admission_budget,
+    admit_sfnt_cff1_v2_owned_with_base_cmap_budget, admit_sfnt_cff1_v2_owned_with_cmap_budget,
+    admit_sfnt_cff1_v2, admit_sfnt_cff1_v2_with_admission_budget,
+    admit_sfnt_cff1_v2_with_base_cmap_budget, admit_sfnt_cff1_v2_with_cmap_budget,
+    inspect_cff1_program_v2, inspect_cff1_program_v2_with_budget, validate_cff_cmap_v2,
+    validate_cff_cmap_v2_with_base_cmap_budget, validate_cff_cmap_v2_with_cmap_budget,
     validate_cff_variation_sequences_v2, validate_cff_vertical_metrics_v2, Cff1AdmissionV2,
     Cff1FailureKindV2, Cff1FailureV2, Cff1GlyphClosureV2, Cff1SubsetSessionV2, Cff1SubsetV2,
+    CffAdmissionBudgetFailureV2, CffAdmissionBudgetResultV2, CffAdmissionBudgetV2,
+    CffBaseCmapBudgetFailureV2, CffBaseCmapBudgetResultV2, CffBaseCmapBudgetV2,
+    CffBaseCmapStorageV2, CffCmapBudgetFailureV2, CffCmapBudgetResultV2, CffCmapBudgetV2,
     CffCmapFailureV2, CffCmapV2, CffEvaluatedGlyphV2, CffGlyphFailureReasonV2, CffGlyphFailureV2,
-    CffOutlineCommandV2, CffProgramErrorKindV2, CffProgramErrorV2, CffProgramEvaluationSessionV2,
-    CffProgramInspectionV2, CffSelectionFailureV2, CffTableFailureKindV2, CffTableFailureV2,
-    CffVariationSequencesV2, CffVerticalMetricsV2, VariationCoverage,
+    CffMetadataBudgetFailureV2, CffMetadataStageV2, CffMetadataStorageV2, CffMetadataWorkPointV2,
+    CffOutlineCommandV2, CffProgramBudgetFailureV2, CffProgramBudgetResultV2,
+    CffProgramErrorKindV2, CffProgramErrorV2, CffProgramEvaluationSessionV2,
+    CffProgramInspectionV2, CffSourceGlyphV2, CffProgramStageV2, CffProgramStorageV2, CffProgramWorkPointV2,
+    CffSelectionFailureV2, CffSfntBudgetFailureV2, CffSfntStageV2, CffSfntStorageV2,
+    CffSfntWorkPointV2, CffTableAdmissionBudgetFailureV2, CffTableAdmissionStageV2,
+    CffTableAdmissionWorkPointV2, CffTableFailureKindV2, CffTableFailureV2,
+    CffVariationBudgetFailureV2, CffVariationSequencesV2, CffVariationStorageV2,
+    CffVerticalMetricsV2, VariationCoverage,
 };
 
 pub const CFF1_RESOURCE_PROFILE_ID: &str = "typaxis.resource-profile/sfnt-cff1/1";
@@ -396,8 +410,14 @@ impl Cff1SubsetSession {
         selected: &BTreeSet<OriginalGlyphId>,
         max_cids_per_font: u16,
     ) -> Result<Cff1Subset, Cff1Error> {
-        self.subset_detailed(admission, font_face_id, font_instance_id, selected, max_cids_per_font)
-            .map_err(|failure| failure.kind)
+        self.subset_detailed(
+            admission,
+            font_face_id,
+            font_instance_id,
+            selected,
+            max_cids_per_font,
+        )
+        .map_err(|failure| failure.kind)
     }
 
     fn require_admission(&self, admission: &Cff1Admission) -> Result<(), Cff1Error> {
@@ -435,7 +455,7 @@ impl Cff1SubsetSession {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct TableRef<'a> {
     bytes: &'a [u8],
 }
@@ -658,155 +678,7 @@ fn preflight_sfnt_with_vertical(
     context: &mut FontFailureContext,
     allow_vertical: bool,
 ) -> Result<Vec<TableRecord>, Cff1Error> {
-    context.directory(None, Some(0), FontFailureReason::MalformedFont);
-    if source.get(..4) != Some(b"OTTO") {
-        return Err(Cff1Error::InvalidSfnt);
-    }
-    context.file_offset = Some(4);
-    let count = usize::from(read_u16(source, 4, Cff1Error::InvalidSfnt)?);
-    if count == 0
-        || u32::try_from(count).map_err(|_| Cff1Error::TableLimit)? > limits.max_font_tables
-    {
-        context.reason = if count == 0 {
-            FontFailureReason::InvalidTableCount
-        } else {
-            FontFailureReason::BudgetExceeded
-        };
-        context.observed = Some(count as u64);
-        context.limit = Some(u64::from(limits.max_font_tables));
-        return Err(Cff1Error::TableLimit);
-    }
-    context.file_offset = None;
-    let largest_power = 1usize << (usize::BITS - 1 - count.leading_zeros());
-    let expected_search_range = largest_power
-        .checked_mul(16)
-        .and_then(|value| u16::try_from(value).ok())
-        .ok_or(Cff1Error::InvalidSfnt)?;
-    let expected_entry_selector =
-        u16::try_from(largest_power.trailing_zeros()).map_err(|_| Cff1Error::InvalidSfnt)?;
-    let expected_range_shift = count
-        .checked_mul(16)
-        .and_then(|value| value.checked_sub(usize::from(expected_search_range)))
-        .and_then(|value| u16::try_from(value).ok())
-        .ok_or(Cff1Error::InvalidSfnt)?;
-    if read_u16(source, 6, Cff1Error::InvalidSfnt)? != expected_search_range
-        || read_u16(source, 8, Cff1Error::InvalidSfnt)? != expected_entry_selector
-        || read_u16(source, 10, Cff1Error::InvalidSfnt)? != expected_range_shift
-    {
-        return Err(Cff1Error::InvalidSfnt);
-    }
-    let directory_end = 12usize
-        .checked_add(count.checked_mul(16).ok_or(Cff1Error::InvalidSfnt)?)
-        .ok_or(Cff1Error::InvalidSfnt)?;
-    if directory_end > source.len() {
-        return Err(Cff1Error::InvalidSfnt);
-    }
-    let mut records = Vec::new();
-    records
-        .try_reserve_exact(count)
-        .map_err(|_| Cff1Error::TableLimit)?;
-    let mut previous_tag = None;
-    for index in 0..count {
-        let record = 12 + index * 16;
-        let tag: [u8; 4] = source[record..record + 4]
-            .try_into()
-            .map_err(|_| Cff1Error::InvalidSfnt)?;
-        context.directory(
-            Some(tag),
-            Some(record),
-            FontFailureReason::InvalidTableOrder,
-        );
-        if previous_tag.is_some_and(|previous| previous >= tag) {
-            return Err(Cff1Error::InvalidSfnt);
-        }
-        previous_tag = Some(tag);
-        if !REQUIRED_TABLES.contains(&tag)
-            && !OPTIONAL_TABLES.contains(&tag)
-            && !(allow_vertical && [*b"VORG", *b"vhea", *b"vmtx"].contains(&tag))
-        {
-            context.reason = FontFailureReason::UnsupportedTable;
-            return Err(Cff1Error::UnsupportedTable);
-        }
-        context.reason = FontFailureReason::InvalidTableRange;
-        context.file_offset = Some((record + 8) as u64);
-        let expected_checksum = read_u32(source, record + 4, Cff1Error::InvalidSfnt)?;
-        let offset = usize::try_from(read_u32(source, record + 8, Cff1Error::InvalidSfnt)?)
-            .map_err(|_| Cff1Error::InvalidSfnt)?;
-        let length = usize::try_from(read_u32(source, record + 12, Cff1Error::InvalidSfnt)?)
-            .map_err(|_| Cff1Error::InvalidSfnt)?;
-        let end = offset.checked_add(length).ok_or(Cff1Error::InvalidSfnt)?;
-        let padded_end = end
-            .checked_add(3)
-            .map(|value| value & !3)
-            .ok_or(Cff1Error::InvalidSfnt)?;
-        if length == 0
-            || offset < directory_end
-            || offset % 4 != 0
-            || end > source.len()
-            || padded_end > source.len()
-        {
-            return Err(Cff1Error::InvalidSfnt);
-        }
-        let mut checksum_bytes = Vec::new();
-        checksum_bytes
-            .try_reserve_exact(end - offset)
-            .map_err(|_| Cff1Error::InvalidSfnt)?;
-        checksum_bytes.extend_from_slice(&source[offset..end]);
-        if tag == *b"head" {
-            if checksum_bytes.len() < 12 {
-                return Err(Cff1Error::InvalidHead);
-            }
-            checksum_bytes[8..12].fill(0);
-        }
-        context.reason = FontFailureReason::ChecksumMismatch;
-        context.file_offset = Some((record + 4) as u64);
-        if sfnt_checksum(&checksum_bytes) != expected_checksum {
-            return Err(Cff1Error::InvalidSfnt);
-        }
-        if tag == *b"OS/2" {
-            context.permission(&source[offset..end]);
-        }
-        records.push(TableRecord {
-            tag,
-            offset,
-            length,
-            padded_end,
-        });
-    }
-    for required in REQUIRED_TABLES {
-        if !records.iter().any(|record| record.tag == required) {
-            context.directory(Some(required), None, FontFailureReason::MissingTable);
-            return Err(Cff1Error::InvalidSfnt);
-        }
-    }
-    let mut by_offset = records.clone();
-    by_offset.sort_by_key(|record| record.offset);
-    let mut cursor = directory_end;
-    for record in by_offset {
-        context.directory(
-            Some(record.tag),
-            Some(record.offset),
-            FontFailureReason::InvalidTableRange,
-        );
-        // The unit starts here; a bad gap/padding byte can be elsewhere.
-        context.position_is_exact = false;
-        if record.offset < cursor || source[cursor..record.offset].iter().any(|byte| *byte != 0) {
-            return Err(Cff1Error::InvalidSfnt);
-        }
-        let end = record
-            .offset
-            .checked_add(record.length)
-            .ok_or(Cff1Error::InvalidSfnt)?;
-        if source[end..record.padded_end].iter().any(|byte| *byte != 0) {
-            return Err(Cff1Error::InvalidSfnt);
-        }
-        cursor = record.padded_end;
-    }
-    context.directory(None, None, FontFailureReason::ChecksumMismatch);
-    if cursor != source.len() || sfnt_checksum(source) != SFNT_CHECKSUM_MAGIC {
-        return Err(Cff1Error::InvalidSfnt);
-    }
-    Ok(records)
+    sfnt_preflight::ordinary(source, limits, context, allow_vertical)
 }
 
 fn table_map<'a>(
@@ -1013,6 +885,16 @@ fn parse_post(bytes: &[u8]) -> Result<PostFacts<'_>, Cff1Error> {
     Ok(PostFacts { bytes })
 }
 
+// Private /2 compatibility for fonts setting both positive embedding modes.
+// No restriction or unknown bit is masked; the legacy /1 policy stays strict.
+fn embedding_permission_v2(fs_type: u16) -> Result<Cff1EmbeddingPermission, Cff1Error> {
+    if fs_type == 0x000c {
+        Ok(Cff1EmbeddingPermission::Editable)
+    } else {
+        embedding_permission(fs_type)
+    }
+}
+
 fn embedding_permission(fs_type: u16) -> Result<Cff1EmbeddingPermission, Cff1Error> {
     match fs_type {
         0x0000 => Ok(Cff1EmbeddingPermission::Installable),
@@ -1022,13 +904,37 @@ fn embedding_permission(fs_type: u16) -> Result<Cff1EmbeddingPermission, Cff1Err
     }
 }
 
-fn validate_optional_tables(
+fn validate_optional_tables<'a>(
     source: &[u8],
-    tables: &BTreeMap<[u8; 4], TableRef<'_>>,
+    tables: &impl font_tables::Lookup<'a>,
     glyph_count: u16,
     records: &[TableRecord],
     context: &mut FontFailureContext,
 ) -> Result<(), Cff1Error> {
+    let mut budget = v2::admission_budget::UnobservedAdmission;
+    match local_optional::finish(validate_optional_tables_with_budget(
+        source,
+        tables,
+        glyph_count,
+        records,
+        context,
+        crate::math::validation::VariantOrder::LegacyStrict,
+        &mut budget,
+    )) {
+        Ok(v) => v,
+        Err(e) => match e.error {},
+    }
+}
+
+fn validate_optional_tables_with_budget<'a, B: CffAdmissionBudgetV2>(
+    source: &[u8],
+    tables: &impl font_tables::Lookup<'a>,
+    glyph_count: u16,
+    records: &[TableRecord],
+    context: &mut FontFailureContext,
+    math_variant_order: crate::math::validation::VariantOrder,
+    budget: &mut B,
+) -> local_optional::Result<(), B::Error> {
     let font = FontRef::new(source).map_err(|_| Cff1Error::InvalidOptionalTable)?;
     let all_glyphs = || {
         let mut glyphs = IntSet::empty();
@@ -1041,18 +947,35 @@ fn validate_optional_tables(
     if let Some(table) = tables.get(b"BASE") {
         context.table(*b"BASE", records, FontFailurePhase::TableDecode);
         font.base().map_err(|_| Cff1Error::InvalidOptionalTable)?;
-        validate_base_table(table.bytes, glyph_count)?;
+        local_optional::validate(
+            table.bytes,
+            glyph_count,
+            *b"BASE",
+            Some(table.bytes.as_ptr() as usize - source.as_ptr() as usize),
+            budget,
+        )?;
     }
     if let Some(table) = tables.get(b"GDEF") {
         context.table(*b"GDEF", records, FontFailurePhase::TableDecode);
         font.gdef().map_err(|_| Cff1Error::InvalidOptionalTable)?;
-        validate_gdef_table(table.bytes, glyph_count)?;
+        local_optional::validate(
+            table.bytes,
+            glyph_count,
+            *b"GDEF",
+            Some(table.bytes.as_ptr() as usize - source.as_ptr() as usize),
+            budget,
+        )?;
     }
     if tables.contains_key(b"GSUB") {
         context.table(*b"GSUB", records, FontFailurePhase::TableDecode);
         let gsub = font.gsub().map_err(|_| Cff1Error::InvalidOptionalTable)?;
-        if read_u32(tables[b"GSUB"].bytes, 0, Cff1Error::InvalidOptionalTable)? != 0x0001_0000 {
-            return Err(Cff1Error::InvalidOptionalTable);
+        if read_u32(
+            tables.get(b"GSUB").unwrap().bytes,
+            0,
+            Cff1Error::InvalidOptionalTable,
+        )? != 0x0001_0000
+        {
+            return Err(Cff1Error::InvalidOptionalTable.into());
         }
         let feature_list = gsub
             .feature_list()
@@ -1081,14 +1004,19 @@ fn validate_optional_tables(
             .iter()
             .any(|gid| gid.to_u32() >= u32::from(glyph_count))
         {
-            return Err(Cff1Error::InvalidOptionalTable);
+            return Err(Cff1Error::InvalidOptionalTable.into());
         }
     }
     let gpos_lookup_count = if tables.contains_key(b"GPOS") {
         context.table(*b"GPOS", records, FontFailurePhase::TableDecode);
         let gpos = font.gpos().map_err(|_| Cff1Error::InvalidOptionalTable)?;
-        if read_u32(tables[b"GPOS"].bytes, 0, Cff1Error::InvalidOptionalTable)? != 0x0001_0000 {
-            return Err(Cff1Error::InvalidOptionalTable);
+        if read_u32(
+            tables.get(b"GPOS").unwrap().bytes,
+            0,
+            Cff1Error::InvalidOptionalTable,
+        )? != 0x0001_0000
+        {
+            return Err(Cff1Error::InvalidOptionalTable.into());
         }
         let feature_list = gpos
             .feature_list()
@@ -1138,22 +1066,35 @@ fn validate_optional_tables(
     };
     if let Some(table) = tables.get(b"JSTF") {
         context.table(*b"JSTF", records, FontFailurePhase::TableDecode);
-        validate_jstf_table(
+        jstf::validate(
             table.bytes,
             glyph_count,
             gsub_lookup_count,
             gpos_lookup_count,
+            Some(table.bytes.as_ptr() as usize - source.as_ptr() as usize),
+            budget,
         )?;
     }
     if let Some(table) = tables.get(b"MATH") {
         context.table(*b"MATH", records, FontFailurePhase::TableDecode);
-        crate::math::validate_cff_math_table(table.bytes, glyph_count)
-            .map_err(|_| Cff1Error::InvalidOptionalTable)?;
+        math_budget::validate(
+            table.bytes,
+            glyph_count,
+            table.bytes.as_ptr() as usize - source.as_ptr() as usize,
+            math_variant_order,
+            budget,
+        )?;
     }
     if let Some(table) = tables.get(b"kern") {
         context.table(*b"kern", records, FontFailurePhase::TableDecode);
         font.kern().map_err(|_| Cff1Error::InvalidOptionalTable)?;
-        validate_kern_table(table.bytes, glyph_count)?;
+        local_optional::validate(
+            table.bytes,
+            glyph_count,
+            *b"kern",
+            Some(table.bytes.as_ptr() as usize - source.as_ptr() as usize),
+            budget,
+        )?;
     }
     Ok(())
 }
@@ -1201,727 +1142,6 @@ fn optional_relative32(
         .filter(|offset| *offset < bytes.len())
         .map(Some)
         .ok_or(Cff1Error::InvalidOptionalTable)
-}
-
-fn validate_tag_records(
-    bytes: &[u8],
-    start: usize,
-    count: usize,
-    record_size: usize,
-) -> Result<(), Cff1Error> {
-    optional_range(
-        bytes,
-        start,
-        count
-            .checked_mul(record_size)
-            .ok_or(Cff1Error::InvalidOptionalTable)?,
-    )?;
-    let mut previous = None;
-    for index in 0..count {
-        let record = start + index * record_size;
-        let tag: [u8; 4] = optional_range(bytes, record, 4)?
-            .try_into()
-            .map_err(|_| Cff1Error::InvalidOptionalTable)?;
-        if previous.is_some_and(|value| value >= tag) {
-            return Err(Cff1Error::InvalidOptionalTable);
-        }
-        previous = Some(tag);
-    }
-    Ok(())
-}
-
-fn validate_coverage_table(
-    bytes: &[u8],
-    offset: usize,
-    glyph_count: u16,
-) -> Result<usize, Cff1Error> {
-    match read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)? {
-        1 => {
-            let count = usize::from(read_u16(
-                bytes,
-                offset + 2,
-                Cff1Error::InvalidOptionalTable,
-            )?);
-            optional_range(bytes, offset + 4, count * 2)?;
-            let mut previous = None;
-            for index in 0..count {
-                let glyph = read_u16(
-                    bytes,
-                    offset + 4 + index * 2,
-                    Cff1Error::InvalidOptionalTable,
-                )?;
-                if glyph >= glyph_count || previous.is_some_and(|value| value >= glyph) {
-                    return Err(Cff1Error::InvalidOptionalTable);
-                }
-                previous = Some(glyph);
-            }
-            Ok(count)
-        }
-        2 => {
-            let range_count = usize::from(read_u16(
-                bytes,
-                offset + 2,
-                Cff1Error::InvalidOptionalTable,
-            )?);
-            optional_range(bytes, offset + 4, range_count * 6)?;
-            let mut previous_end = None;
-            let mut covered = 0usize;
-            for index in 0..range_count {
-                let record = offset + 4 + index * 6;
-                let first = read_u16(bytes, record, Cff1Error::InvalidOptionalTable)?;
-                let last = read_u16(bytes, record + 2, Cff1Error::InvalidOptionalTable)?;
-                let start_index = usize::from(read_u16(
-                    bytes,
-                    record + 4,
-                    Cff1Error::InvalidOptionalTable,
-                )?);
-                if first > last
-                    || last >= glyph_count
-                    || previous_end.is_some_and(|value| value >= first)
-                    || start_index != covered
-                {
-                    return Err(Cff1Error::InvalidOptionalTable);
-                }
-                covered = covered
-                    .checked_add(usize::from(last - first) + 1)
-                    .ok_or(Cff1Error::InvalidOptionalTable)?;
-                previous_end = Some(last);
-            }
-            Ok(covered)
-        }
-        _ => Err(Cff1Error::InvalidOptionalTable),
-    }
-}
-
-fn validate_class_def_table(
-    bytes: &[u8],
-    offset: usize,
-    glyph_count: u16,
-    max_class: Option<u16>,
-) -> Result<(), Cff1Error> {
-    match read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)? {
-        1 => {
-            let first = read_u16(bytes, offset + 2, Cff1Error::InvalidOptionalTable)?;
-            let count = usize::from(read_u16(
-                bytes,
-                offset + 4,
-                Cff1Error::InvalidOptionalTable,
-            )?);
-            if usize::from(first)
-                .checked_add(count)
-                .map_or(true, |end| end > usize::from(glyph_count))
-            {
-                return Err(Cff1Error::InvalidOptionalTable);
-            }
-            optional_range(bytes, offset + 6, count * 2)?;
-            for index in 0..count {
-                let class = read_u16(
-                    bytes,
-                    offset + 6 + index * 2,
-                    Cff1Error::InvalidOptionalTable,
-                )?;
-                if max_class.is_some_and(|limit| class > limit) {
-                    return Err(Cff1Error::InvalidOptionalTable);
-                }
-            }
-        }
-        2 => {
-            let count = usize::from(read_u16(
-                bytes,
-                offset + 2,
-                Cff1Error::InvalidOptionalTable,
-            )?);
-            optional_range(bytes, offset + 4, count * 6)?;
-            let mut previous_end = None;
-            for index in 0..count {
-                let record = offset + 4 + index * 6;
-                let first = read_u16(bytes, record, Cff1Error::InvalidOptionalTable)?;
-                let last = read_u16(bytes, record + 2, Cff1Error::InvalidOptionalTable)?;
-                let class = read_u16(bytes, record + 4, Cff1Error::InvalidOptionalTable)?;
-                if first > last
-                    || last >= glyph_count
-                    || previous_end.is_some_and(|value| value >= first)
-                    || max_class.is_some_and(|limit| class > limit)
-                {
-                    return Err(Cff1Error::InvalidOptionalTable);
-                }
-                previous_end = Some(last);
-            }
-        }
-        _ => return Err(Cff1Error::InvalidOptionalTable),
-    }
-    Ok(())
-}
-
-fn validate_device_table(bytes: &[u8], offset: usize) -> Result<(), Cff1Error> {
-    let first = read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)?;
-    let last = read_u16(bytes, offset + 2, Cff1Error::InvalidOptionalTable)?;
-    let format = read_u16(bytes, offset + 4, Cff1Error::InvalidOptionalTable)?;
-    let bits = match format {
-        1 => 2usize,
-        2 => 4,
-        3 => 8,
-        _ => return Err(Cff1Error::InvalidOptionalTable),
-    };
-    if first > last {
-        return Err(Cff1Error::InvalidOptionalTable);
-    }
-    let values = usize::from(last - first) + 1;
-    let words = values
-        .checked_mul(bits)
-        .and_then(|value| value.checked_add(15))
-        .map(|value| value / 16)
-        .ok_or(Cff1Error::InvalidOptionalTable)?;
-    optional_range(bytes, offset + 6, words * 2)?;
-    Ok(())
-}
-
-fn validate_base_coord(bytes: &[u8], offset: usize, glyph_count: u16) -> Result<(), Cff1Error> {
-    match read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)? {
-        1 => {
-            optional_range(bytes, offset, 4)?;
-        }
-        2 => {
-            optional_range(bytes, offset, 8)?;
-            if read_u16(bytes, offset + 4, Cff1Error::InvalidOptionalTable)? >= glyph_count {
-                return Err(Cff1Error::InvalidOptionalTable);
-            }
-        }
-        3 => {
-            optional_range(bytes, offset, 6)?;
-            let device = read_u16(bytes, offset + 4, Cff1Error::InvalidOptionalTable)?;
-            if let Some(device) = optional_relative(bytes, offset, device, true)? {
-                validate_device_table(bytes, device)?;
-            }
-        }
-        _ => return Err(Cff1Error::InvalidOptionalTable),
-    }
-    Ok(())
-}
-
-fn validate_base_min_max(bytes: &[u8], offset: usize, glyph_count: u16) -> Result<(), Cff1Error> {
-    optional_range(bytes, offset, 6)?;
-    for field in [0usize, 2] {
-        let raw = read_u16(bytes, offset + field, Cff1Error::InvalidOptionalTable)?;
-        if let Some(coord) = optional_relative(bytes, offset, raw, true)? {
-            validate_base_coord(bytes, coord, glyph_count)?;
-        }
-    }
-    let count = usize::from(read_u16(
-        bytes,
-        offset + 4,
-        Cff1Error::InvalidOptionalTable,
-    )?);
-    validate_tag_records(bytes, offset + 6, count, 8)?;
-    for index in 0..count {
-        let record = offset + 6 + index * 8;
-        for field in [4usize, 6] {
-            let raw = read_u16(bytes, record + field, Cff1Error::InvalidOptionalTable)?;
-            if let Some(coord) = optional_relative(bytes, offset, raw, true)? {
-                validate_base_coord(bytes, coord, glyph_count)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_base_values(bytes: &[u8], offset: usize, glyph_count: u16) -> Result<(), Cff1Error> {
-    let default_index = usize::from(read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)?);
-    let count = usize::from(read_u16(
-        bytes,
-        offset + 2,
-        Cff1Error::InvalidOptionalTable,
-    )?);
-    if count == 0 || default_index >= count {
-        return Err(Cff1Error::InvalidOptionalTable);
-    }
-    optional_range(bytes, offset + 4, count * 2)?;
-    for index in 0..count {
-        let raw = read_u16(
-            bytes,
-            offset + 4 + index * 2,
-            Cff1Error::InvalidOptionalTable,
-        )?;
-        let coord =
-            optional_relative(bytes, offset, raw, false)?.ok_or(Cff1Error::InvalidOptionalTable)?;
-        validate_base_coord(bytes, coord, glyph_count)?;
-    }
-    Ok(())
-}
-
-fn validate_base_script(bytes: &[u8], offset: usize, glyph_count: u16) -> Result<(), Cff1Error> {
-    optional_range(bytes, offset, 6)?;
-    let values = read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)?;
-    if let Some(values) = optional_relative(bytes, offset, values, true)? {
-        validate_base_values(bytes, values, glyph_count)?;
-    }
-    let min_max = read_u16(bytes, offset + 2, Cff1Error::InvalidOptionalTable)?;
-    if let Some(min_max) = optional_relative(bytes, offset, min_max, true)? {
-        validate_base_min_max(bytes, min_max, glyph_count)?;
-    }
-    let count = usize::from(read_u16(
-        bytes,
-        offset + 4,
-        Cff1Error::InvalidOptionalTable,
-    )?);
-    validate_tag_records(bytes, offset + 6, count, 6)?;
-    for index in 0..count {
-        let record = offset + 6 + index * 6;
-        let raw = read_u16(bytes, record + 4, Cff1Error::InvalidOptionalTable)?;
-        let lang =
-            optional_relative(bytes, offset, raw, false)?.ok_or(Cff1Error::InvalidOptionalTable)?;
-        validate_base_min_max(bytes, lang, glyph_count)?;
-    }
-    Ok(())
-}
-
-fn validate_base_axis(bytes: &[u8], offset: usize, glyph_count: u16) -> Result<(), Cff1Error> {
-    optional_range(bytes, offset, 4)?;
-    let tags = read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)?;
-    if let Some(tags) = optional_relative(bytes, offset, tags, true)? {
-        let count = usize::from(read_u16(bytes, tags, Cff1Error::InvalidOptionalTable)?);
-        validate_tag_records(bytes, tags + 2, count, 4)?;
-    }
-    let scripts = read_u16(bytes, offset + 2, Cff1Error::InvalidOptionalTable)?;
-    let scripts =
-        optional_relative(bytes, offset, scripts, false)?.ok_or(Cff1Error::InvalidOptionalTable)?;
-    let count = usize::from(read_u16(bytes, scripts, Cff1Error::InvalidOptionalTable)?);
-    validate_tag_records(bytes, scripts + 2, count, 6)?;
-    for index in 0..count {
-        let record = scripts + 2 + index * 6;
-        let raw = read_u16(bytes, record + 4, Cff1Error::InvalidOptionalTable)?;
-        let script = optional_relative(bytes, scripts, raw, false)?
-            .ok_or(Cff1Error::InvalidOptionalTable)?;
-        validate_base_script(bytes, script, glyph_count)?;
-    }
-    Ok(())
-}
-
-fn validate_base_table(bytes: &[u8], glyph_count: u16) -> Result<(), Cff1Error> {
-    if bytes.len() < 8 || read_u32(bytes, 0, Cff1Error::InvalidOptionalTable)? != 0x0001_0000 {
-        return Err(Cff1Error::InvalidOptionalTable);
-    }
-    for field in [4usize, 6] {
-        let raw = read_u16(bytes, field, Cff1Error::InvalidOptionalTable)?;
-        if let Some(axis) = optional_relative(bytes, 0, raw, true)? {
-            validate_base_axis(bytes, axis, glyph_count)?;
-        }
-    }
-    Ok(())
-}
-
-fn validate_attach_list(bytes: &[u8], offset: usize, glyph_count: u16) -> Result<(), Cff1Error> {
-    let coverage_raw = read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)?;
-    let count = usize::from(read_u16(
-        bytes,
-        offset + 2,
-        Cff1Error::InvalidOptionalTable,
-    )?);
-    let coverage = optional_relative(bytes, offset, coverage_raw, false)?
-        .ok_or(Cff1Error::InvalidOptionalTable)?;
-    if validate_coverage_table(bytes, coverage, glyph_count)? != count {
-        return Err(Cff1Error::InvalidOptionalTable);
-    }
-    optional_range(bytes, offset + 4, count * 2)?;
-    for index in 0..count {
-        let raw = read_u16(
-            bytes,
-            offset + 4 + index * 2,
-            Cff1Error::InvalidOptionalTable,
-        )?;
-        let point =
-            optional_relative(bytes, offset, raw, false)?.ok_or(Cff1Error::InvalidOptionalTable)?;
-        let point_count = usize::from(read_u16(bytes, point, Cff1Error::InvalidOptionalTable)?);
-        optional_range(bytes, point + 2, point_count * 2)?;
-    }
-    Ok(())
-}
-
-fn validate_caret_value(bytes: &[u8], offset: usize) -> Result<(), Cff1Error> {
-    match read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)? {
-        1 | 2 => {
-            optional_range(bytes, offset, 4)?;
-        }
-        3 => {
-            optional_range(bytes, offset, 6)?;
-            let raw = read_u16(bytes, offset + 4, Cff1Error::InvalidOptionalTable)?;
-            let device = optional_relative(bytes, offset, raw, false)?
-                .ok_or(Cff1Error::InvalidOptionalTable)?;
-            validate_device_table(bytes, device)?;
-        }
-        _ => return Err(Cff1Error::InvalidOptionalTable),
-    }
-    Ok(())
-}
-
-fn validate_lig_caret_list(bytes: &[u8], offset: usize, glyph_count: u16) -> Result<(), Cff1Error> {
-    let coverage_raw = read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)?;
-    let count = usize::from(read_u16(
-        bytes,
-        offset + 2,
-        Cff1Error::InvalidOptionalTable,
-    )?);
-    let coverage = optional_relative(bytes, offset, coverage_raw, false)?
-        .ok_or(Cff1Error::InvalidOptionalTable)?;
-    if validate_coverage_table(bytes, coverage, glyph_count)? != count {
-        return Err(Cff1Error::InvalidOptionalTable);
-    }
-    optional_range(bytes, offset + 4, count * 2)?;
-    for index in 0..count {
-        let raw = read_u16(
-            bytes,
-            offset + 4 + index * 2,
-            Cff1Error::InvalidOptionalTable,
-        )?;
-        let ligature =
-            optional_relative(bytes, offset, raw, false)?.ok_or(Cff1Error::InvalidOptionalTable)?;
-        let caret_count = usize::from(read_u16(bytes, ligature, Cff1Error::InvalidOptionalTable)?);
-        if caret_count == 0 {
-            return Err(Cff1Error::InvalidOptionalTable);
-        }
-        optional_range(bytes, ligature + 2, caret_count * 2)?;
-        for caret in 0..caret_count {
-            let raw = read_u16(
-                bytes,
-                ligature + 2 + caret * 2,
-                Cff1Error::InvalidOptionalTable,
-            )?;
-            let value = optional_relative(bytes, ligature, raw, false)?
-                .ok_or(Cff1Error::InvalidOptionalTable)?;
-            validate_caret_value(bytes, value)?;
-        }
-    }
-    Ok(())
-}
-
-fn validate_mark_glyph_sets(
-    bytes: &[u8],
-    offset: usize,
-    glyph_count: u16,
-) -> Result<(), Cff1Error> {
-    if read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)? != 1 {
-        return Err(Cff1Error::InvalidOptionalTable);
-    }
-    let count = usize::from(read_u16(
-        bytes,
-        offset + 2,
-        Cff1Error::InvalidOptionalTable,
-    )?);
-    optional_range(bytes, offset + 4, count * 4)?;
-    for index in 0..count {
-        let raw = read_u32(
-            bytes,
-            offset + 4 + index * 4,
-            Cff1Error::InvalidOptionalTable,
-        )?;
-        let coverage = optional_relative32(bytes, offset, raw, false)?
-            .ok_or(Cff1Error::InvalidOptionalTable)?;
-        validate_coverage_table(bytes, coverage, glyph_count)?;
-    }
-    Ok(())
-}
-
-fn validate_gdef_table(bytes: &[u8], glyph_count: u16) -> Result<(), Cff1Error> {
-    let version = read_u32(bytes, 0, Cff1Error::InvalidOptionalTable)?;
-    let header_length = match version {
-        0x0001_0000 => 12,
-        0x0001_0002 => 14,
-        _ => return Err(Cff1Error::InvalidOptionalTable),
-    };
-    optional_range(bytes, 0, header_length)?;
-    let glyph_class = read_u16(bytes, 4, Cff1Error::InvalidOptionalTable)?;
-    if let Some(class) = optional_relative(bytes, 0, glyph_class, true)? {
-        validate_class_def_table(bytes, class, glyph_count, Some(4))?;
-    }
-    let attach = read_u16(bytes, 6, Cff1Error::InvalidOptionalTable)?;
-    if let Some(attach) = optional_relative(bytes, 0, attach, true)? {
-        validate_attach_list(bytes, attach, glyph_count)?;
-    }
-    let carets = read_u16(bytes, 8, Cff1Error::InvalidOptionalTable)?;
-    if let Some(carets) = optional_relative(bytes, 0, carets, true)? {
-        validate_lig_caret_list(bytes, carets, glyph_count)?;
-    }
-    let mark_class = read_u16(bytes, 10, Cff1Error::InvalidOptionalTable)?;
-    if let Some(class) = optional_relative(bytes, 0, mark_class, true)? {
-        validate_class_def_table(bytes, class, glyph_count, None)?;
-    }
-    if version == 0x0001_0002 {
-        let sets = read_u16(bytes, 12, Cff1Error::InvalidOptionalTable)?;
-        if let Some(sets) = optional_relative(bytes, 0, sets, true)? {
-            validate_mark_glyph_sets(bytes, sets, glyph_count)?;
-        }
-    }
-    Ok(())
-}
-
-fn validate_jstf_mod_list(bytes: &[u8], offset: usize, lookup_count: u16) -> Result<(), Cff1Error> {
-    let count = usize::from(read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)?);
-    optional_range(bytes, offset + 2, count * 2)?;
-    let mut previous = None;
-    for index in 0..count {
-        let lookup = read_u16(
-            bytes,
-            offset + 2 + index * 2,
-            Cff1Error::InvalidOptionalTable,
-        )?;
-        if lookup >= lookup_count || previous.is_some_and(|value| value >= lookup) {
-            return Err(Cff1Error::InvalidOptionalTable);
-        }
-        previous = Some(lookup);
-    }
-    Ok(())
-}
-
-fn validate_jstf_max(bytes: &[u8], offset: usize, glyph_count: u16) -> Result<(), Cff1Error> {
-    let count = usize::from(read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)?);
-    optional_range(bytes, offset + 2, count * 2)?;
-    let mut glyphs = IntSet::empty();
-    for gid in 0..glyph_count {
-        glyphs.insert(GlyphId::new(u32::from(gid)));
-    }
-    for index in 0..count {
-        let raw = read_u16(
-            bytes,
-            offset + 2 + index * 2,
-            Cff1Error::InvalidOptionalTable,
-        )?;
-        let lookup =
-            optional_relative(bytes, offset, raw, false)?.ok_or(Cff1Error::InvalidOptionalTable)?;
-        let lookup = PositionLookup::read(FontData::new(&bytes[lookup..]))
-            .map_err(|_| Cff1Error::InvalidOptionalTable)?;
-        lookup
-            .subtables()
-            .and_then(|subtables| subtables.intersects(&glyphs))
-            .map_err(|_| Cff1Error::InvalidOptionalTable)?;
-    }
-    Ok(())
-}
-
-fn validate_jstf_priority(
-    bytes: &[u8],
-    offset: usize,
-    glyph_count: u16,
-    gsub_lookup_count: u16,
-    gpos_lookup_count: u16,
-) -> Result<(), Cff1Error> {
-    optional_range(bytes, offset, 20)?;
-    for field in [0usize, 2, 10, 12] {
-        let raw = read_u16(bytes, offset + field, Cff1Error::InvalidOptionalTable)?;
-        if let Some(list) = optional_relative(bytes, offset, raw, true)? {
-            validate_jstf_mod_list(bytes, list, gsub_lookup_count)?;
-        }
-    }
-    for field in [4usize, 6, 14, 16] {
-        let raw = read_u16(bytes, offset + field, Cff1Error::InvalidOptionalTable)?;
-        if let Some(list) = optional_relative(bytes, offset, raw, true)? {
-            validate_jstf_mod_list(bytes, list, gpos_lookup_count)?;
-        }
-    }
-    for field in [8usize, 18] {
-        let raw = read_u16(bytes, offset + field, Cff1Error::InvalidOptionalTable)?;
-        if let Some(max) = optional_relative(bytes, offset, raw, true)? {
-            validate_jstf_max(bytes, max, glyph_count)?;
-        }
-    }
-    Ok(())
-}
-
-fn validate_jstf_lang_sys(
-    bytes: &[u8],
-    offset: usize,
-    glyph_count: u16,
-    gsub_lookup_count: u16,
-    gpos_lookup_count: u16,
-) -> Result<(), Cff1Error> {
-    let count = usize::from(read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)?);
-    optional_range(bytes, offset + 2, count * 2)?;
-    for index in 0..count {
-        let raw = read_u16(
-            bytes,
-            offset + 2 + index * 2,
-            Cff1Error::InvalidOptionalTable,
-        )?;
-        let priority =
-            optional_relative(bytes, offset, raw, false)?.ok_or(Cff1Error::InvalidOptionalTable)?;
-        validate_jstf_priority(
-            bytes,
-            priority,
-            glyph_count,
-            gsub_lookup_count,
-            gpos_lookup_count,
-        )?;
-    }
-    Ok(())
-}
-
-fn validate_jstf_script(
-    bytes: &[u8],
-    offset: usize,
-    glyph_count: u16,
-    gsub_lookup_count: u16,
-    gpos_lookup_count: u16,
-) -> Result<(), Cff1Error> {
-    optional_range(bytes, offset, 6)?;
-    let extenders = read_u16(bytes, offset, Cff1Error::InvalidOptionalTable)?;
-    if let Some(extenders) = optional_relative(bytes, offset, extenders, true)? {
-        let count = usize::from(read_u16(bytes, extenders, Cff1Error::InvalidOptionalTable)?);
-        optional_range(bytes, extenders + 2, count * 2)?;
-        let mut previous = None;
-        for index in 0..count {
-            let glyph = read_u16(
-                bytes,
-                extenders + 2 + index * 2,
-                Cff1Error::InvalidOptionalTable,
-            )?;
-            if glyph >= glyph_count || previous.is_some_and(|value| value >= glyph) {
-                return Err(Cff1Error::InvalidOptionalTable);
-            }
-            previous = Some(glyph);
-        }
-    }
-    let default = read_u16(bytes, offset + 2, Cff1Error::InvalidOptionalTable)?;
-    if let Some(default) = optional_relative(bytes, offset, default, true)? {
-        validate_jstf_lang_sys(
-            bytes,
-            default,
-            glyph_count,
-            gsub_lookup_count,
-            gpos_lookup_count,
-        )?;
-    }
-    let count = usize::from(read_u16(
-        bytes,
-        offset + 4,
-        Cff1Error::InvalidOptionalTable,
-    )?);
-    validate_tag_records(bytes, offset + 6, count, 6)?;
-    for index in 0..count {
-        let record = offset + 6 + index * 6;
-        let raw = read_u16(bytes, record + 4, Cff1Error::InvalidOptionalTable)?;
-        let lang =
-            optional_relative(bytes, offset, raw, false)?.ok_or(Cff1Error::InvalidOptionalTable)?;
-        validate_jstf_lang_sys(
-            bytes,
-            lang,
-            glyph_count,
-            gsub_lookup_count,
-            gpos_lookup_count,
-        )?;
-    }
-    Ok(())
-}
-
-fn validate_jstf_table(
-    bytes: &[u8],
-    glyph_count: u16,
-    gsub_lookup_count: u16,
-    gpos_lookup_count: u16,
-) -> Result<(), Cff1Error> {
-    if bytes.len() < 6 || read_u32(bytes, 0, Cff1Error::InvalidOptionalTable)? != 0x0001_0000 {
-        return Err(Cff1Error::InvalidOptionalTable);
-    }
-    let count = usize::from(read_u16(bytes, 4, Cff1Error::InvalidOptionalTable)?);
-    validate_tag_records(bytes, 6, count, 6)?;
-    for index in 0..count {
-        let record = 6 + index * 6;
-        let raw = read_u16(bytes, record + 4, Cff1Error::InvalidOptionalTable)?;
-        let script =
-            optional_relative(bytes, 0, raw, false)?.ok_or(Cff1Error::InvalidOptionalTable)?;
-        validate_jstf_script(
-            bytes,
-            script,
-            glyph_count,
-            gsub_lookup_count,
-            gpos_lookup_count,
-        )?;
-    }
-    Ok(())
-}
-
-fn validate_kern_table(bytes: &[u8], glyph_count: u16) -> Result<(), Cff1Error> {
-    if read_u16(bytes, 0, Cff1Error::InvalidOptionalTable)? != 0 {
-        return Err(Cff1Error::InvalidOptionalTable);
-    }
-    let count = usize::from(read_u16(bytes, 2, Cff1Error::InvalidOptionalTable)?);
-    let mut cursor = 4usize;
-    for _ in 0..count {
-        optional_range(bytes, cursor, 14)?;
-        let version = read_u16(bytes, cursor, Cff1Error::InvalidOptionalTable)?;
-        let length = usize::from(read_u16(
-            bytes,
-            cursor + 2,
-            Cff1Error::InvalidOptionalTable,
-        )?);
-        let coverage = read_u16(bytes, cursor + 4, Cff1Error::InvalidOptionalTable)?;
-        let pair_count = usize::from(read_u16(
-            bytes,
-            cursor + 6,
-            Cff1Error::InvalidOptionalTable,
-        )?);
-        let expected_length = 14usize
-            .checked_add(
-                pair_count
-                    .checked_mul(6)
-                    .ok_or(Cff1Error::InvalidOptionalTable)?,
-            )
-            .ok_or(Cff1Error::InvalidOptionalTable)?;
-        let power = if pair_count == 0 {
-            0
-        } else {
-            1usize << (usize::BITS - 1 - pair_count.leading_zeros())
-        };
-        let expected_search = power * 6;
-        let expected_selector = if power == 0 {
-            0
-        } else {
-            usize::try_from(power.trailing_zeros()).map_err(|_| Cff1Error::InvalidOptionalTable)?
-        };
-        let expected_shift = pair_count * 6 - expected_search;
-        if version != 0
-            || coverage >> 8 != 0
-            || coverage & !0x000F != 0
-            || coverage & 0x0001 == 0
-            || length != expected_length
-            || usize::from(read_u16(
-                bytes,
-                cursor + 8,
-                Cff1Error::InvalidOptionalTable,
-            )?) != expected_search
-            || usize::from(read_u16(
-                bytes,
-                cursor + 10,
-                Cff1Error::InvalidOptionalTable,
-            )?) != expected_selector
-            || usize::from(read_u16(
-                bytes,
-                cursor + 12,
-                Cff1Error::InvalidOptionalTable,
-            )?) != expected_shift
-        {
-            return Err(Cff1Error::InvalidOptionalTable);
-        }
-        optional_range(bytes, cursor, length)?;
-        let mut previous = None;
-        for index in 0..pair_count {
-            let pair = cursor + 14 + index * 6;
-            let left = read_u16(bytes, pair, Cff1Error::InvalidOptionalTable)?;
-            let right = read_u16(bytes, pair + 2, Cff1Error::InvalidOptionalTable)?;
-            if left >= glyph_count
-                || right >= glyph_count
-                || previous.is_some_and(|value| value >= (left, right))
-            {
-                return Err(Cff1Error::InvalidOptionalTable);
-            }
-            previous = Some((left, right));
-        }
-        cursor = cursor
-            .checked_add(length)
-            .ok_or(Cff1Error::InvalidOptionalTable)?;
-    }
-    if cursor != bytes.len() {
-        return Err(Cff1Error::InvalidOptionalTable);
-    }
-    Ok(())
 }
 
 fn read_u16(bytes: &[u8], offset: usize, error: Cff1Error) -> Result<u16, Cff1Error> {
@@ -2183,80 +1403,17 @@ fn parse_cmap_format4(
     offset: usize,
     glyph_count: u16,
 ) -> Result<Vec<(u32, u16)>, Cff1Error> {
-    let length = usize::from(read_u16(table, offset + 2, Cff1Error::InvalidCmap)?);
-    let end = offset.checked_add(length).ok_or(Cff1Error::InvalidCmap)?;
-    if length < 24 || end > table.len() || read_u16(table, offset + 4, Cff1Error::InvalidCmap)? != 0
-    {
-        return Err(Cff1Error::InvalidCmap);
-    }
-    let seg_count_x2 = read_u16(table, offset + 6, Cff1Error::InvalidCmap)?;
-    if seg_count_x2 == 0 || seg_count_x2 % 2 != 0 {
-        return Err(Cff1Error::InvalidCmap);
-    }
-    let seg_count = usize::from(seg_count_x2 / 2);
-    let power = 1usize << (usize::BITS - 1 - seg_count.leading_zeros());
-    if read_u16(table, offset + 8, Cff1Error::InvalidCmap)?
-        != u16::try_from(power * 2).map_err(|_| Cff1Error::InvalidCmap)?
-        || read_u16(table, offset + 10, Cff1Error::InvalidCmap)?
-            != u16::try_from(power.trailing_zeros()).map_err(|_| Cff1Error::InvalidCmap)?
-        || read_u16(table, offset + 12, Cff1Error::InvalidCmap)?
-            != seg_count_x2 - u16::try_from(power * 2).map_err(|_| Cff1Error::InvalidCmap)?
-    {
-        return Err(Cff1Error::InvalidCmap);
-    }
-    let end_codes = offset + 14;
-    let reserved_pad = end_codes + seg_count * 2;
-    let start_codes = reserved_pad + 2;
-    let deltas = start_codes + seg_count * 2;
-    let range_offsets = deltas + seg_count * 2;
-    let arrays_end = range_offsets + seg_count * 2;
-    if arrays_end > end || read_u16(table, reserved_pad, Cff1Error::InvalidCmap)? != 0 {
-        return Err(Cff1Error::InvalidCmap);
-    }
     let mut mappings = Vec::new();
-    let mut previous_end = None;
-    for segment in 0..seg_count {
-        let start = read_u16(table, start_codes + segment * 2, Cff1Error::InvalidCmap)?;
-        let finish = read_u16(table, end_codes + segment * 2, Cff1Error::InvalidCmap)?;
-        if start > finish || previous_end.is_some_and(|previous| previous >= start) {
-            return Err(Cff1Error::InvalidCmap);
-        }
-        previous_end = Some(finish);
-        let delta = read_i16(table, deltas + segment * 2, Cff1Error::InvalidCmap)?;
-        let range = read_u16(table, range_offsets + segment * 2, Cff1Error::InvalidCmap)?;
-        for scalar in start..=finish {
-            let gid = if range == 0 {
-                scalar.wrapping_add_signed(delta)
-            } else {
-                let word_position = range_offsets
-                    .checked_add(segment * 2)
-                    .and_then(|value| value.checked_add(usize::from(range)))
-                    .and_then(|value| {
-                        value.checked_add(usize::from(scalar - start).checked_mul(2)?)
-                    })
-                    .ok_or(Cff1Error::InvalidCmap)?;
-                if word_position + 2 > end {
-                    return Err(Cff1Error::InvalidCmap);
-                }
-                let indexed = read_u16(table, word_position, Cff1Error::InvalidCmap)?;
-                if indexed == 0 {
-                    0
-                } else {
-                    indexed.wrapping_add_signed(delta)
-                }
-            };
-            if gid != 0 {
-                let scalar32 = u32::from(scalar);
-                if (0xD800..=0xDFFF).contains(&scalar32) || gid >= glyph_count {
-                    return Err(Cff1Error::InvalidCmap);
-                }
-                mappings.push((scalar32, gid));
-            }
-        }
-    }
-    if previous_end != Some(0xFFFF) {
-        return Err(Cff1Error::InvalidCmap);
-    }
+    cmap_visitors::visit_format4(
+        table,
+        offset,
+        glyph_count,
+        |scalar, gid| {
+            mappings.push((scalar, gid));
+            Ok::<_, Cff1Error>(())
+        },
+        &mut |_| Ok(()),
+    )?;
     Ok(mappings)
 }
 
@@ -2265,51 +1422,17 @@ fn parse_cmap_format12(
     offset: usize,
     glyph_count: u16,
 ) -> Result<Vec<(u32, u16)>, Cff1Error> {
-    if read_u16(table, offset + 2, Cff1Error::InvalidCmap)? != 0 {
-        return Err(Cff1Error::InvalidCmap);
-    }
-    let length = usize::try_from(read_u32(table, offset + 4, Cff1Error::InvalidCmap)?)
-        .map_err(|_| Cff1Error::InvalidCmap)?;
-    let end = offset.checked_add(length).ok_or(Cff1Error::InvalidCmap)?;
-    let groups = usize::try_from(read_u32(table, offset + 12, Cff1Error::InvalidCmap)?)
-        .map_err(|_| Cff1Error::InvalidCmap)?;
-    if length < 16
-        || end > table.len()
-        || 16usize.checked_add(groups.checked_mul(12).ok_or(Cff1Error::InvalidCmap)?)
-            != Some(length)
-    {
-        return Err(Cff1Error::InvalidCmap);
-    }
     let mut mappings = Vec::new();
-    let mut previous_end = None;
-    for index in 0..groups {
-        let group = offset + 16 + index * 12;
-        let start = read_u32(table, group, Cff1Error::InvalidCmap)?;
-        let finish = read_u32(table, group + 4, Cff1Error::InvalidCmap)?;
-        let start_gid = read_u32(table, group + 8, Cff1Error::InvalidCmap)?;
-        if start > finish
-            || finish > 0x10FFFF
-            || previous_end.is_some_and(|previous| previous >= start)
-            || (start <= 0xDFFF && finish >= 0xD800)
-        {
-            return Err(Cff1Error::InvalidCmap);
-        }
-        previous_end = Some(finish);
-        for scalar in start..=finish {
-            let gid = start_gid
-                .checked_add(scalar - start)
-                .ok_or(Cff1Error::InvalidCmap)?;
-            if gid != 0 {
-                if gid >= u32::from(glyph_count) {
-                    return Err(Cff1Error::InvalidCmap);
-                }
-                mappings.push((
-                    scalar,
-                    u16::try_from(gid).map_err(|_| Cff1Error::InvalidCmap)?,
-                ));
-            }
-        }
-    }
+    cmap_visitors::visit_format12(
+        table,
+        offset,
+        glyph_count,
+        |scalar, gid| {
+            mappings.push((scalar, gid));
+            Ok::<_, Cff1Error>(())
+        },
+        &mut |_| Ok(()),
+    )?;
     Ok(mappings)
 }
 
@@ -2502,46 +1625,87 @@ fn parse_dict_operand(bytes: &[u8], offset: usize) -> Result<(DictOperand, usize
     }
 }
 
-fn parse_dict_real(bytes: &[u8], offset: usize) -> Result<(DictOperand, usize), Cff1Error> {
-    let mut output = String::new();
+struct CffRealText {
+    bytes: [u8; 64],
+    length: usize,
+}
+impl CffRealText {
+    fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.bytes[..self.length]).expect("CFF real decoder emits ASCII")
+    }
+}
+fn decode_dict_real(bytes: &[u8], offset: usize) -> Result<(CffRealText, usize), Cff1Error> {
+    let mut out = CffRealText {
+        bytes: [0; 64],
+        length: 0,
+    };
     let mut cursor = offset + 1;
-    let mut finished = false;
-    while !finished {
+    loop {
         let byte = *bytes.get(cursor).ok_or(Cff1Error::InvalidCff)?;
         cursor = cursor.checked_add(1).ok_or(Cff1Error::InvalidCff)?;
-        for nibble in [byte >> 4, byte & 0x0F] {
-            match nibble {
-                0..=9 => output.push(char::from(b'0' + nibble)),
-                0xA => output.push('.'),
-                0xB => output.push('E'),
-                0xC => output.push_str("E-"),
-                0xE => output.push('-'),
-                0xF => {
-                    finished = true;
-                    break;
+        for nibble in [byte >> 4, byte & 15] {
+            if nibble == 15 {
+                if out.length == 0 || normalize_dict_decimal(out.as_str()).is_none() {
+                    return Err(Cff1Error::InvalidCff);
                 }
-                _ => return Err(Cff1Error::InvalidCff),
+                return Ok((out, cursor - offset));
             }
+            let text: &[u8] = match nibble {
+                0..=9 => &[b'0' + nibble],
+                10 => b".",
+                11 => b"E",
+                12 => b"E-",
+                14 => b"-",
+                _ => return Err(Cff1Error::InvalidCff),
+            };
+            let end = out.length + text.len();
+            if end > 64 {
+                return Err(Cff1Error::InvalidCff);
+            }
+            out.bytes[out.length..end].copy_from_slice(text);
+            out.length = end;
         }
     }
-    if output.is_empty() || output.len() > 64 || normalize_dict_decimal(&output).is_none() {
-        return Err(Cff1Error::InvalidCff);
-    }
-    Ok((DictOperand::Real(output), cursor - offset))
+}
+fn parse_dict_real(bytes: &[u8], offset: usize) -> Result<(DictOperand, usize), Cff1Error> {
+    let (text, consumed) = decode_dict_real(bytes, offset)?;
+    let mut output = String::new();
+    output
+        .try_reserve_exact(text.length)
+        .map_err(|_| Cff1Error::InvalidCff)?;
+    output.push_str(text.as_str());
+    Ok((DictOperand::Real(output), consumed))
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct NormalizedDictDecimal {
     negative: bool,
-    digits: String,
+    digits: [u8; 64],
+    length: usize,
     exponent: i32,
 }
-
-/// Normalize a CFF real as `sign * digits * 10^exponent` using decimal-only
-/// checked arithmetic. This intentionally never routes policy through binary
-/// floating point or libm.
+impl NormalizedDictDecimal {
+    fn single(negative: bool, digit: u8, exponent: i32) -> Self {
+        let mut digits = [0; 64];
+        digits[0] = digit;
+        Self {
+            negative,
+            digits,
+            length: 1,
+            exponent,
+        }
+    }
+    fn digits(&self) -> &[u8] {
+        &self.digits[..self.length]
+    }
+}
+/// Every admitted real has at most 64 encoded text bytes; integers use at most
+/// ten digits. Numeric validation never allocates or uses binary floating point.
 fn normalize_dict_decimal(value: &str) -> Option<NormalizedDictDecimal> {
     let bytes = value.as_bytes();
+    if bytes.len() > 64 {
+        return None;
+    }
     let (negative, unsigned) = match bytes.first() {
         Some(b'-') => (true, &bytes[1..]),
         _ => (false, bytes),
@@ -2549,104 +1713,119 @@ fn normalize_dict_decimal(value: &str) -> Option<NormalizedDictDecimal> {
     if unsigned.is_empty() {
         return None;
     }
-    let exponent_marker = unsigned.iter().position(|byte| *byte == b'E');
-    if exponent_marker.is_some_and(|first| unsigned[first + 1..].contains(&b'E')) {
+    let marker = unsigned.iter().position(|b| *b == b'E');
+    if marker.is_some_and(|i| unsigned[i + 1..].contains(&b'E')) {
         return None;
     }
-    let (mantissa, exponent_bytes) = match exponent_marker {
-        Some(index) => (&unsigned[..index], Some(&unsigned[index + 1..])),
+    let (mantissa, exponent_bytes) = match marker {
+        Some(i) => (&unsigned[..i], Some(&unsigned[i + 1..])),
         None => (unsigned, None),
     };
-    let explicit_exponent = match exponent_bytes {
+    let explicit = match exponent_bytes {
         None => 0i32,
         Some(bytes) => {
             let (negative, digits) = match bytes.first() {
                 Some(b'-') => (true, &bytes[1..]),
                 _ => (false, bytes),
             };
-            if digits.is_empty() || digits.iter().any(|byte| !byte.is_ascii_digit()) {
+            if digits.is_empty() || digits.iter().any(|b| !b.is_ascii_digit()) {
                 return None;
             }
-            let value = digits.iter().try_fold(0i32, |value, byte| {
-                value.checked_mul(10)?.checked_add(i32::from(*byte - b'0'))
+            let n = digits.iter().try_fold(0i32, |n, b| {
+                n.checked_mul(10)?.checked_add(i32::from(*b - b'0'))
             })?;
             if negative {
-                value.checked_neg()?
+                n.checked_neg()?
             } else {
-                value
+                n
             }
         }
     };
-    let decimal = mantissa.iter().position(|byte| *byte == b'.');
-    if decimal.is_some_and(|first| mantissa[first + 1..].contains(&b'.')) {
+    let decimal = mantissa.iter().position(|b| *b == b'.');
+    if decimal.is_some_and(|i| mantissa[i + 1..].contains(&b'.')) {
         return None;
     }
     if mantissa.is_empty()
-        || mantissa
-            .iter()
-            .any(|byte| *byte != b'.' && !byte.is_ascii_digit())
+        || mantissa.iter().any(|b| *b != b'.' && !b.is_ascii_digit())
         || !mantissa.iter().any(u8::is_ascii_digit)
     {
         return None;
     }
-    let fractional_digits = decimal.map(|index| mantissa.len() - index - 1).unwrap_or(0);
-    let mut digits = mantissa
-        .iter()
-        .filter(|byte| **byte != b'.')
-        .copied()
-        .collect::<Vec<_>>();
-    let first_nonzero = digits.iter().position(|byte| *byte != b'0');
-    let Some(first_nonzero) = first_nonzero else {
-        return Some(NormalizedDictDecimal {
-            negative: false,
-            digits: "0".to_owned(),
-            exponent: 0,
-        });
+    let fractional = decimal.map_or(0, |i| mantissa.len() - i - 1);
+    let mut raw = [0u8; 64];
+    let mut end = 0;
+    for byte in mantissa.iter().copied().filter(|b| *b != b'.') {
+        raw[end] = byte;
+        end += 1;
+    }
+    let Some(first) = raw[..end].iter().position(|b| *b != b'0') else {
+        return Some(NormalizedDictDecimal::single(false, b'0', 0));
     };
-    digits.drain(..first_nonzero);
-    let mut exponent = explicit_exponent.checked_sub(i32::try_from(fractional_digits).ok()?)?;
-    while digits.last() == Some(&b'0') {
-        digits.pop();
+    let mut exponent = explicit.checked_sub(i32::try_from(fractional).ok()?)?;
+    while raw[end - 1] == b'0' {
+        end -= 1;
         exponent = exponent.checked_add(1)?;
     }
+    let mut digits = [0; 64];
+    let length = end - first;
+    digits[..length].copy_from_slice(&raw[first..end]);
     Some(NormalizedDictDecimal {
         negative,
-        digits: String::from_utf8(digits).ok()?,
+        digits,
+        length,
         exponent,
     })
 }
-
-fn normalized_dict_operand(operand: &DictOperand) -> Option<NormalizedDictDecimal> {
-    match operand {
-        DictOperand::Integer(value) => normalize_dict_decimal(&value.to_string()),
-        DictOperand::Real(value) => normalize_dict_decimal(value),
+fn normalized_dict_integer(value: i32) -> NormalizedDictDecimal {
+    if value == 0 {
+        return NormalizedDictDecimal::single(false, b'0', 0);
+    }
+    let mut n = value.unsigned_abs();
+    let mut reversed = [0u8; 10];
+    let mut count = 0;
+    while n != 0 {
+        reversed[count] = b'0' + (n % 10) as u8;
+        count += 1;
+        n /= 10;
+    }
+    let mut trailing = 0;
+    while reversed[trailing] == b'0' {
+        trailing += 1;
+    }
+    let length = count - trailing;
+    let mut digits = [0; 64];
+    for (i, byte) in reversed[trailing..count].iter().rev().copied().enumerate() {
+        digits[i] = byte;
+    }
+    NormalizedDictDecimal {
+        negative: value < 0,
+        digits,
+        length,
+        exponent: trailing as i32,
     }
 }
-
+fn normalized_dict_operand(operand: &DictOperand) -> Option<NormalizedDictDecimal> {
+    match operand {
+        DictOperand::Integer(n) => Some(normalized_dict_integer(*n)),
+        DictOperand::Real(s) => normalize_dict_decimal(s),
+    }
+}
 fn dict_operand_equals_integer(operand: &DictOperand, expected: i32) -> bool {
-    normalized_dict_operand(operand) == normalize_dict_decimal(&expected.to_string())
+    normalized_dict_operand(operand) == Some(normalized_dict_integer(expected))
 }
-
 fn dict_operand_equals_milli(operand: &DictOperand) -> bool {
-    normalized_dict_operand(operand)
-        == Some(NormalizedDictDecimal {
-            negative: false,
-            digits: "1".to_owned(),
-            exponent: -3,
-        })
+    normalized_dict_operand(operand) == Some(NormalizedDictDecimal::single(false, b'1', -3))
 }
-
 fn dict_operand_is_number(operand: &DictOperand) -> bool {
     normalized_dict_operand(operand).is_some()
 }
-
 fn dict_operand_to_fixed(operand: &DictOperand) -> Option<i32> {
     let value = normalized_dict_operand(operand)?;
-    if value.digits == "0" {
+    if value.digits() == b"0" {
         return Some(0);
     }
-    let magnitude = value.digits.bytes().try_fold(0i128, |number, byte| {
-        number.checked_mul(10)?.checked_add(i128::from(byte - b'0'))
+    let magnitude = value.digits().iter().try_fold(0i128, |n, b| {
+        n.checked_mul(10)?.checked_add(i128::from(*b - b'0'))
     })?;
     let scaled = if value.exponent >= 0 {
         magnitude
@@ -2660,12 +1839,12 @@ fn dict_operand_to_fixed(operand: &DictOperand) -> Option<i32> {
         }
         numerator / denominator
     };
-    let signed = if value.negative {
+    i32::try_from(if value.negative {
         scaled.checked_neg()?
     } else {
         scaled
-    };
-    i32::try_from(signed).ok()
+    })
+    .ok()
 }
 
 fn dict_entry(entries: &[DictEntry], operator: u16) -> Option<&[DictOperand]> {
@@ -2800,7 +1979,8 @@ fn parse_cff(
     let default_width_x = dict_fixed(&private_entries, 20)?.unwrap_or(0);
     let nominal_width_x = dict_fixed(&private_entries, 21)?.unwrap_or(0);
     context.clear_position();
-    let (local_subrs, local_range, local_data_start) = match one_dict_integer(&private_entries, 19)? {
+    let (local_subrs, local_range, local_data_start) = match one_dict_integer(&private_entries, 19)?
+    {
         Some(relative) => {
             let offset = private_offset
                 .checked_add(usize::try_from(relative).map_err(|_| Cff1Error::InvalidCff)?)
@@ -2861,8 +2041,10 @@ fn parse_cff(
     if cursor != bytes.len() {
         return Err(Cff1Error::InvalidCff);
     }
-    let charstring_offsets = subset_diagnostics::program_offsets(&charstrings.objects, charstrings.data_start)?;
-    let global_subr_offsets = subset_diagnostics::program_offsets(&global_subrs.objects, global_subrs.data_start)?;
+    let charstring_offsets =
+        subset_diagnostics::program_offsets(&charstrings.objects, charstrings.data_start)?;
+    let global_subr_offsets =
+        subset_diagnostics::program_offsets(&global_subrs.objects, global_subrs.data_start)?;
     let local_subr_offsets = subset_diagnostics::program_offsets(&local_subrs, local_data_start)?;
     Ok(CffProgram {
         charstring_offsets,
@@ -3351,8 +2533,15 @@ fn evaluate_type2(
             admission.observe_end(frame.kind, frame.position);
             return Err(Cff1Error::InvalidCharstring);
         };
-        admission.observe(frame.kind, frame.position,
-            if byte == 28 || byte >= 32 { None } else { Some(u16::from(byte)) });
+        admission.observe(
+            frame.kind,
+            frame.position,
+            if byte == 28 || byte >= 32 {
+                None
+            } else {
+                Some(u16::from(byte))
+            },
+        );
         if byte == 28 || byte >= 32 {
             budget.charge_operation()?;
             let (value, consumed) = parse_type2_number(program, frame.position)?;
@@ -3469,20 +2658,26 @@ fn evaluate_type2(
                     admission.observe(frame.kind, frame.position - 1, None);
                     return Err(Cff1Error::InvalidCharstring);
                 };
-                admission.observe(frame.kind, frame.position - 1, Some(0x0c00 | u16::from(escaped)));
+                admission.observe(
+                    frame.kind,
+                    frame.position - 1,
+                    Some(0x0c00 | u16::from(escaped)),
+                );
                 state.frames[frame_index].position = frame.position + 1;
                 if !(34..=37).contains(&escaped) {
                     // Adobe Type 2 #5177, Appendix A/C (16 March 2000).
                     // Known arithmetic/storage/conditional operators and the
                     // deprecated dotsection are outside this evaluator profile.
                     // Report only after charging and decoding actually succeed.
-                    admission.reject_operator(if matches!(escaped,
-                        0 | 3..=5 | 9..=12 | 14 | 15 | 18 | 20..=24 | 26..=30
-                    ) {
-                        Type2OperatorRejection::Unsupported
-                    } else {
-                        Type2OperatorRejection::Reserved
-                    });
+                    admission.reject_operator(
+                        if matches!(escaped,
+                            0 | 3..=5 | 9..=12 | 14 | 15 | 18 | 20..=24 | 26..=30
+                        ) {
+                            Type2OperatorRejection::Unsupported
+                        } else {
+                            Type2OperatorRejection::Reserved
+                        },
+                    );
                     return Err(Cff1Error::InvalidCharstring);
                 }
                 evaluate_flex(escaped, &mut state, budget)?;
@@ -3860,13 +3055,20 @@ fn reserve_segment(
     // cannot trigger an infallible Vec growth or a partial subset.
     budget.charge_segment()?;
     if state.segments.len() == state.segments.capacity() {
-        let next = state.segments.capacity().checked_mul(2).map(|n| n.max(4))
+        let next = state
+            .segments
+            .capacity()
+            .checked_mul(2)
+            .map(|n| n.max(4))
             .ok_or(Cff1Error::OutlineSegmentLimit)?;
         let additional = next - state.segments.capacity();
-        let bytes = additional.checked_mul(std::mem::size_of::<OutlineSegment>())
+        let bytes = additional
+            .checked_mul(std::mem::size_of::<OutlineSegment>())
             .ok_or(Cff1Error::OutlineSegmentLimit)?;
         budget.charge_allocation(additional, bytes)?;
-        state.segments.try_reserve_exact(additional)
+        state
+            .segments
+            .try_reserve_exact(additional)
             .map_err(|_| Cff1Error::OutlineSegmentLimit)?;
     }
     Ok(())
@@ -3890,9 +3092,13 @@ fn relative_cubic(
 // The operand stack keeps its original bounded allocation across path
 // operators. A fixed stack copy avoids abandoning its Vec and regrowing an
 // unaccounted operand buffer for every following path segment.
-fn take_type2_operands(state: &mut Type2State) -> Result<([i32; TYPE2_OPERAND_STACK_LIMIT], usize), Cff1Error> {
+fn take_type2_operands(
+    state: &mut Type2State,
+) -> Result<([i32; TYPE2_OPERAND_STACK_LIMIT], usize), Cff1Error> {
     let count = state.stack.len();
-    if count > TYPE2_OPERAND_STACK_LIMIT { return Err(Cff1Error::InvalidCharstring); }
+    if count > TYPE2_OPERAND_STACK_LIMIT {
+        return Err(Cff1Error::InvalidCharstring);
+    }
     let mut values = [0; TYPE2_OPERAND_STACK_LIMIT];
     values[..count].copy_from_slice(&state.stack);
     state.stack.clear();
@@ -4025,7 +3231,9 @@ fn evaluate_flex(
         34 => {
             let v = exactly(&values, 7)?;
             let return_dy = v[2].checked_neg().ok_or(Cff1Error::InvalidCharstring)?;
-            [v[0], 0, v[1], v[2], v[3], 0, v[4], 0, v[5], return_dy, v[6], 0]
+            [
+                v[0], 0, v[1], v[2], v[3], 0, v[4], 0, v[5], return_dy, v[6], 0,
+            ]
         }
         35 => {
             let v = exactly(&values, 13)?;
@@ -4332,18 +3540,29 @@ trait Type2ByteSink {
     fn extend_from_slice(&mut self, bytes: &[u8]);
 }
 impl Type2ByteSink for Vec<u8> {
-    fn push(&mut self, byte: u8) { Vec::push(self, byte); }
-    fn extend_from_slice(&mut self, bytes: &[u8]) { Vec::extend_from_slice(self, bytes); }
+    fn push(&mut self, byte: u8) {
+        Vec::push(self, byte);
+    }
+    fn extend_from_slice(&mut self, bytes: &[u8]) {
+        Vec::extend_from_slice(self, bytes);
+    }
 }
 struct Type2ByteCount(usize);
 impl Type2ByteSink for Type2ByteCount {
-    fn push(&mut self, _: u8) { self.0 += 1; }
-    fn extend_from_slice(&mut self, bytes: &[u8]) { self.0 += bytes.len(); }
+    fn push(&mut self, _: u8) {
+        self.0 += 1;
+    }
+    fn extend_from_slice(&mut self, bytes: &[u8]) {
+        self.0 += bytes.len();
+    }
 }
 fn canonical_charstring_len(advance: u16, segments: &[OutlineSegment]) -> Result<usize, Cff1Error> {
     // Each command emits at most six five-byte numbers and one operator.
     // Prove counting cannot overflow before walking the shared encoder.
-    segments.len().checked_mul(31).and_then(|n| n.checked_add(6))
+    segments
+        .len()
+        .checked_mul(31)
+        .and_then(|n| n.checked_add(6))
         .ok_or(Cff1Error::SubsetByteLimit)?;
     let mut count = Type2ByteCount(0);
     write_canonical_charstring(advance, segments, &mut count)?;
@@ -4352,11 +3571,17 @@ fn canonical_charstring_len(advance: u16, segments: &[OutlineSegment]) -> Result
 fn canonical_charstring(advance: u16, segments: &[OutlineSegment]) -> Result<Vec<u8>, Cff1Error> {
     let length = canonical_charstring_len(advance, segments)?;
     let mut output = Vec::new();
-    output.try_reserve_exact(length).map_err(|_| Cff1Error::SubsetByteLimit)?;
+    output
+        .try_reserve_exact(length)
+        .map_err(|_| Cff1Error::SubsetByteLimit)?;
     write_canonical_charstring(advance, segments, &mut output)?;
     Ok(output)
 }
-fn write_canonical_charstring(advance: u16, segments: &[OutlineSegment], output: &mut impl Type2ByteSink) -> Result<(), Cff1Error> {
+fn write_canonical_charstring(
+    advance: u16,
+    segments: &[OutlineSegment],
+    output: &mut impl Type2ByteSink,
+) -> Result<(), Cff1Error> {
     let width = i32::from(advance) - 32_768;
     encode_type2_number(
         width.checked_mul(65_536).ok_or(Cff1Error::InvalidSubset)?,
@@ -4703,16 +3928,29 @@ fn build_subset_cmap_with_empty(
     mapping: &BTreeMap<OriginalGlyphId, SubsetGlyphId>,
     allow_empty: bool,
 ) -> Result<Vec<u8>, Cff1Error> {
+    build_subset_cmap_from_pairs(
+        source.len(),
+        source.iter().map(|(&s, &g)| (s, g)),
+        mapping,
+        allow_empty,
+    )
+}
+fn build_subset_cmap_from_pairs(
+    source_count: usize,
+    source: impl IntoIterator<Item = (u32, u16)>,
+    mapping: &BTreeMap<OriginalGlyphId, SubsetGlyphId>,
+    allow_empty: bool,
+) -> Result<Vec<u8>, Cff1Error> {
     let mut selected = Vec::new();
     selected
-        .try_reserve_exact(source.len())
+        .try_reserve_exact(source_count)
         .map_err(|_| Cff1Error::SubsetByteLimit)?;
     for (scalar, source_gid) in source {
-        if *source_gid == 0 {
+        if source_gid == 0 {
             continue;
         }
-        if let Some(subset_gid) = mapping.get(&OriginalGlyphId::new(*source_gid)) {
-            selected.push((*scalar, u32::from(subset_gid.get())));
+        if let Some(subset_gid) = mapping.get(&OriginalGlyphId::new(source_gid)) {
+            selected.push((scalar, u32::from(subset_gid.get())));
         }
     }
     if selected.is_empty() && !allow_empty {
@@ -5692,13 +4930,20 @@ mod tests {
         // Inject at the evaluator boundary, as in the recursion test below.
         // The second cubic would require negating the smallest signed value.
         admission.program.charstrings[1] = vec![
-            139, 139, 21, 139, 139, 255, 128, 0, 0, 0,
-            139, 139, 139, 139, 12, 34, 14,
+            139, 139, 21, 139, 139, 255, 128, 0, 0, 0, 139, 139, 139, 139, 12, 34, 14,
         ];
         let selected = [OriginalGlyphId::new(1)].into_iter().collect();
         let mut session = Cff1SubsetSession::from_admission(&admission);
-        assert_eq!(session.subset(&admission, FontFaceId::new(0),
-            FontInstanceId::new(0), &selected, 1), Err(Cff1Error::InvalidCharstring));
+        assert_eq!(
+            session.subset(
+                &admission,
+                FontFaceId::new(0),
+                FontInstanceId::new(0),
+                &selected,
+                1
+            ),
+            Err(Cff1Error::InvalidCharstring)
+        );
         assert!(session.operations_used() > 0);
     }
 
@@ -5785,3 +5030,23 @@ mod tests {
         }
     }
 }
+
+#[path = "cff_cmap_visitors.rs"]
+mod cmap_visitors;
+
+#[path = "cff_sfnt_preflight.rs"]
+mod sfnt_preflight;
+
+#[path = "cff_font_metadata.rs"]
+mod font_metadata;
+
+#[path = "cff_font_tables.rs"]
+mod font_tables;
+
+#[path = "cff_local_optional.rs"]
+mod local_optional;
+#[path = "cff_math_budget.rs"]
+mod math_budget;
+
+#[path = "cff_jstf.rs"]
+mod jstf;

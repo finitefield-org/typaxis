@@ -8,8 +8,19 @@
 //! reserve their own budgets after inspecting [`OpenedContainedFile::observed_exact_length`]
 //! and only then request a [`BoundedReadPermit`].
 
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+mod open_budget;
 mod platform;
+mod read_budget;
 mod read_ledger;
+mod opened_identity_index;
+pub use opened_identity_index::{host_open_identity_work_bound, HOST_OPEN_IDENTITY_NODE_BYTES, HOST_OPEN_IDENTITY_SLOT_BYTES};
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+mod read_resolution;
+
+pub use read_budget::{
+    HostReadBudget, HostReadBudgetFailure, HostReadError, HostReadRequest, HostReadStage,
+};
 
 pub use read_ledger::{
     HostReadIdentityLedger, HostReadIdentityLedgerToken, RegisteredHostReadCandidate,
@@ -33,7 +44,6 @@ use typaxis_core::{EffectiveConfig, HostAdmissionContext, HostPath, PortablePath
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 use read_ledger::CandidateLocator;
-use read_ledger::HostReadLedgerSnapshot;
 
 /// Failure while establishing or using a host admission capability.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -345,9 +355,14 @@ impl HostAdmissionSession {
             .try_reserve_exact(path_count)
             .map_err(|_| HostAdmissionError::ReadCapacity)?;
         for path in paths_buffer {
+            let path = Arc::new(path.clone());
+            let mut opened_slots = Vec::new();
+            opened_slots
+                .try_reserve_exact(root_count)
+                .map_err(|_| HostAdmissionError::ReadCapacity)?;
             for root in &self.host_roots {
-                let identity = root.candidate_parent_leaf(path)?;
-                self.ledger.register_candidate(
+                let identity = root.candidate_parent_leaf(&path)?;
+                let slot = self.ledger.register_candidate(
                     CandidateLocator {
                         root: root.identity(),
                         path: path.clone(),
@@ -355,11 +370,13 @@ impl HostAdmissionSession {
                     identity,
                     Arc::clone(root),
                 )?;
+                opened_slots.push(slot);
             }
             registered.push(RegisteredHostReadCandidate {
                 session: self.session.clone(),
                 roots: self.roots.clone(),
-                path: path.clone(),
+                path,
+                opened_slots,
             });
         }
         Ok(registered)
@@ -380,23 +397,23 @@ impl HostAdmissionSession {
     ) -> Result<OpenedContainedFile<'_>, HostAdmissionError> {
         self.validate_registered(registered)?;
         let mut candidate = None;
-        for root in &self.host_roots {
+        for (index, root) in self.host_roots.iter().enumerate() {
             let Some(opened) = root.open_candidate(&registered.path)? else {
                 continue;
             };
             if candidate.is_some() {
                 return Err(HostAdmissionError::AmbiguousCandidate);
             }
-            candidate = Some((root.identity(), opened));
+            candidate = Some((root.identity(), opened, registered.opened_slots[index]));
         }
-        let (root, opened) = candidate.ok_or(HostAdmissionError::MissingCandidate)?;
+        let (root, opened, opened_slot) = candidate.ok_or(HostAdmissionError::MissingCandidate)?;
         let (file, snapshot) = opened.lock()?;
         let locator = CandidateLocator {
             root,
             path: registered.path.clone(),
         };
         self.ledger
-            .register_opened(locator.clone(), snapshot.identity)?;
+            .register_opened(opened_slot, snapshot.identity)?;
         let read =
             HostReadIdentity::new(self.session.clone(), self.roots.clone(), snapshot.identity);
         Ok(OpenedContainedFile {
@@ -431,6 +448,9 @@ impl HostAdmissionSession {
             return Err(HostAdmissionError::SessionMismatch);
         }
         if registered.roots != self.roots {
+            return Err(HostAdmissionError::RootSetMismatch);
+        }
+        if registered.opened_slots.len() != self.host_roots.len() {
             return Err(HostAdmissionError::RootSetMismatch);
         }
         Ok(())
@@ -518,6 +538,24 @@ impl<'session> HostRootSetToken<'session> {
         self.owner.open_registered(registered)
     }
 
+    /// Observe a previously registered open without granting new path, root or
+    /// identity authority. No opened capability is returned on quota refusal.
+    pub fn open_registered_with_budget<B: HostReadBudget>(
+        self,
+        registered: &RegisteredHostReadCandidate,
+        budget: &mut B,
+    ) -> Result<OpenedContainedFile<'session>, HostReadError<B::Error>> {
+        #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+        {
+            self.owner.open_registered_with_budget(registered, budget)
+        }
+        #[cfg(not(any(target_os = "android", target_os = "linux", target_os = "macos")))]
+        {
+            let _ = (registered, budget);
+            Err(HostAdmissionError::UnsupportedContainedOpen.into())
+        }
+    }
+
     /// Issue a non-cloneable view of the latest ledger facts for write-target
     /// comparison and immediate revalidation.
     pub fn read_ledger_token(self) -> Result<HostReadIdentityLedgerToken, HostAdmissionError> {
@@ -550,6 +588,17 @@ impl<'session> HostRootSetToken<'session> {
     ) -> Result<StableFileBytesReceipt, HostAdmissionError> {
         self.validate_binding(&permit.opened.binding)?;
         read_bounded(permit)
+    }
+
+    /// Observe buffer allocation and bounded read/SHA work after the same
+    /// authentic binding check as ordinary reads. Refusal publishes no receipt.
+    pub fn read_bounded_with_budget<B: HostReadBudget>(
+        self,
+        permit: BoundedReadPermit<'_>,
+        budget: &mut B,
+    ) -> Result<StableFileBytesReceipt, HostReadError<B::Error>> {
+        self.validate_binding(&permit.opened.binding)?;
+        read_bounded_counted(permit, || {}, budget)
     }
 
     /// Verify a receipt against this session/root and the identity retained by
@@ -596,82 +645,6 @@ impl<'session> HostRootSetToken<'session> {
             return Err(HostAdmissionError::ReadIdentityMismatch);
         }
         Ok(())
-    }
-}
-
-impl HostReadIdentityLedgerToken {
-    fn current_snapshot(&self) -> Result<HostReadLedgerSnapshot, HostAdmissionError> {
-        let snapshot = self.owner.snapshot()?;
-        if snapshot.generation != self.generation {
-            return Err(HostAdmissionError::ReadIdentityMismatch);
-        }
-        Ok(snapshot)
-    }
-
-    /// Re-resolve every registered parent+leaf and every opened terminal.
-    /// Any replacement, disappearance, new symlink, or root-relative identity
-    /// change invalidates the token.
-    pub fn revalidate(&self) -> Result<(), HostAdmissionError> {
-        let snapshot = self.current_snapshot()?;
-        #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
-        {
-            for (locator, expected) in &snapshot.candidates {
-                let root = snapshot
-                    .roots
-                    .get(&locator.root)
-                    .ok_or(HostAdmissionError::RootSetMismatch)?;
-                if &root.candidate_parent_leaf(&locator.path)? != expected {
-                    return Err(HostAdmissionError::ReadIdentityMismatch);
-                }
-            }
-            for (locator, expected) in &snapshot.opened_by_candidate {
-                let root = snapshot
-                    .roots
-                    .get(&locator.root)
-                    .ok_or(HostAdmissionError::RootSetMismatch)?;
-                let opened = root
-                    .open_candidate(&locator.path)?
-                    .ok_or(HostAdmissionError::ReadIdentityMismatch)?;
-                if &opened.identity() != expected {
-                    return Err(HostAdmissionError::ReadIdentityMismatch);
-                }
-            }
-            Ok(())
-        }
-        #[cfg(not(any(target_os = "android", target_os = "linux", target_os = "macos")))]
-        {
-            let _ = snapshot;
-            Err(HostAdmissionError::UnsupportedContainedOpen)
-        }
-    }
-
-    /// Revalidate this sealed ledger and report whether `target` aliases a
-    /// registered logical candidate or an opened file identity.
-    pub fn conflicts_with_write_target(
-        &self,
-        target: &HostPath,
-    ) -> Result<bool, HostAdmissionError> {
-        self.revalidate_write_target(target)
-    }
-
-    /// Publication-facing spelling of [`Self::conflicts_with_write_target`].
-    /// Call immediately before a write-target mutation and reject `true`.
-    pub fn revalidate_write_target(&self, target: &HostPath) -> Result<bool, HostAdmissionError> {
-        self.revalidate()?;
-        let snapshot = self.current_snapshot()?;
-        #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
-        {
-            let target = platform::resolve_write_target(target)?;
-            Ok(snapshot.candidate_identities.contains(&target.candidate)
-                || target
-                    .existing
-                    .is_some_and(|identity| snapshot.opened_identities.contains(&identity)))
-        }
-        #[cfg(not(any(target_os = "android", target_os = "linux", target_os = "macos")))]
-        {
-            let _ = (snapshot, target);
-            Err(HostAdmissionError::UnsupportedContainedOpen)
-        }
     }
 }
 
@@ -824,14 +797,34 @@ impl StableFileBytes {
 fn read_bounded(
     permit: BoundedReadPermit<'_>,
 ) -> Result<StableFileBytesReceipt, HostAdmissionError> {
-    read_bounded_with_observer(permit, || {})
+    match read_bounded_counted(permit, || {}, &mut read_budget::UnobservedRead) {
+        Ok(value) => Ok(value),
+        Err(HostReadError::Native(error)) => Err(error),
+        Err(HostReadError::Budget(failure)) => match failure.error {},
+    }
 }
 
-#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[cfg(all(
+    test,
+    any(target_os = "android", target_os = "linux", target_os = "macos")
+))]
 fn read_bounded_with_observer(
     permit: BoundedReadPermit<'_>,
     observer: impl FnOnce(),
 ) -> Result<StableFileBytesReceipt, HostAdmissionError> {
+    match read_bounded_counted(permit, observer, &mut read_budget::UnobservedRead) {
+        Ok(value) => Ok(value),
+        Err(HostReadError::Native(error)) => Err(error),
+        Err(HostReadError::Budget(failure)) => match failure.error {},
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+fn read_bounded_counted<B: HostReadBudget>(
+    permit: BoundedReadPermit<'_>,
+    observer: impl FnOnce(),
+    budget: &mut B,
+) -> Result<StableFileBytesReceipt, HostReadError<B::Error>> {
     let BoundedReadPermit { opened } = permit;
     let OpenedContainedFile {
         owner,
@@ -844,6 +837,15 @@ fn read_bounded_with_observer(
     } = opened;
     let capacity =
         usize::try_from(observed_exact_length).map_err(|_| HostAdmissionError::ReadCapacity)?;
+    read_budget::charge(
+        budget,
+        HostReadRequest {
+            stage: HostReadStage::Buffer,
+            file_offset: 0,
+            buffer_bytes: observed_exact_length,
+            work: 8192 + 64,
+        },
+    )?;
     let mut bytes = Vec::new();
     bytes
         .try_reserve_exact(capacity)
@@ -855,11 +857,22 @@ fn read_bounded_with_observer(
     while remaining > 0 {
         let allowed = usize::try_from(remaining.min(chunk.len() as u64))
             .map_err(|_| HostAdmissionError::ReadCapacity)?;
+        // Fund the requested upper bound before read, SHA update and buffer
+        // copy. Short reads retain this payment; the next attempt pays again.
+        read_budget::charge(
+            budget,
+            HostReadRequest {
+                stage: HostReadStage::Chunk,
+                file_offset: observed_exact_length - remaining,
+                buffer_bytes: 0,
+                work: allowed as u64 + 64,
+            },
+        )?;
         let read = file
             .read(&mut chunk[..allowed])
             .map_err(|_| HostAdmissionError::Read)?;
         if read == 0 {
-            return Err(HostAdmissionError::LengthMismatch);
+            return Err(HostAdmissionError::LengthMismatch.into());
         }
         hasher.update(&chunk[..read]);
         bytes.extend_from_slice(&chunk[..read]);
@@ -870,9 +883,18 @@ fn read_bounded_with_observer(
     }
     let after_read = platform::FileSnapshot::from_file(&file)?;
     if after_read != snapshot {
-        return Err(HostAdmissionError::LengthMismatch);
+        return Err(HostAdmissionError::LengthMismatch.into());
     }
-    owner.revalidate_open_resolution(&candidate.path, snapshot.identity)?;
+    owner.revalidate_open_resolution_with_budget(&candidate.path, snapshot.identity, budget)?;
+    read_budget::charge(
+        budget,
+        HostReadRequest {
+            stage: HostReadStage::DigestFinish,
+            file_offset: observed_exact_length,
+            buffer_bytes: 0,
+            work: 128 + 64,
+        },
+    )?;
     Ok(StableFileBytesReceipt {
         binding,
         observed_exact_length,
@@ -886,6 +908,15 @@ fn read_bounded(
     _permit: BoundedReadPermit<'_>,
 ) -> Result<StableFileBytesReceipt, HostAdmissionError> {
     Err(HostAdmissionError::UnsupportedContainedOpen)
+}
+
+#[cfg(not(any(target_os = "android", target_os = "linux", target_os = "macos")))]
+fn read_bounded_counted<B: HostReadBudget>(
+    _permit: BoundedReadPermit<'_>,
+    _observer: impl FnOnce(),
+    _budget: &mut B,
+) -> Result<StableFileBytesReceipt, HostReadError<B::Error>> {
+    Err(HostAdmissionError::UnsupportedContainedOpen.into())
 }
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
@@ -975,6 +1006,10 @@ impl StreamingSha256 {
                 let block = self.buffer;
                 self.compress(&block);
                 self.buffered = 0;
+            } else {
+                // All new input was appended to the partial block. Keep it
+                // until a later short read fills the block or finalization.
+                return;
             }
         }
         while input.len() >= 64 {
@@ -1058,7 +1093,27 @@ impl StreamingSha256 {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    mod validation_budget_tests {
+        include!("validation_budget_tests.rs");
+    }
+    #[cfg(any(target_os="android",target_os="linux",target_os="macos"))]
+    mod validation_view_tests {include!("validation_view_tests.rs");}
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    mod token_metadata_tests { include!("token_metadata_tests.rs"); }
     use super::*;
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    mod read_budget_tests {
+        include!("read_budget_tests.rs");
+    }
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    mod read_resolution_tests {
+        include!("read_resolution_tests.rs");
+    }
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    mod open_budget_tests {
+        include!("open_budget_tests.rs");
+    }
     use std::fs;
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     use std::io::Write;

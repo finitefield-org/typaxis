@@ -1,6 +1,9 @@
 //! Actual raster/vector selection, sharing payload identities but never uses.
 use super::*;
-use typaxis_display_list::book_v2::BookV2ImageUse;
+use typaxis_display_list::book_v2::{
+    BookV2BodyDisplay, BookV2BodyPaintIndex, BookV2ColumnDisplay, BookV2ColumnPaintIndex,
+    BookV2ImageUseData, BookV2ResourceDisplay,
+};
 use typaxis_resource_admission::{AdmittedImage, AdmittedImageMediaKind, VectorContentKey};
 
 pub const BOOK_V2_IMAGE_SELECTION_ALGORITHM: &str = "typaxis.book-2-image-selection/1";
@@ -29,43 +32,70 @@ impl<'v> BookV2SelectedImage<'v> {
         self.image
     }
 }
-pub struct BookV2SelectedImageUse<'v> {
+pub struct BookV2SelectedImageUseData<'v, P: Copy> {
     paint: usize,
-    usage: BookV2ImageUse<'v>,
+    usage: BookV2ImageUseData<'v, P>,
     resource: usize,
 }
-impl<'v> BookV2SelectedImageUse<'v> {
+pub type BookV2SelectedImageUse<'v> = BookV2SelectedImageUseData<'v, BookV2BodyPaintIndex>;
+pub type BookV2ColumnSelectedImageUse<'v> = BookV2SelectedImageUseData<'v, BookV2ColumnPaintIndex>;
+impl<'v, P: Copy> BookV2SelectedImageUseData<'v, P> {
     pub fn paint_index(&self) -> usize {
         self.paint
     }
-    pub fn usage(&self) -> &BookV2ImageUse<'v> {
+    pub fn usage(&self) -> &BookV2ImageUseData<'v, P> {
         &self.usage
     }
     pub fn resource_index(&self) -> usize {
         self.resource
     }
 }
-pub struct BookV2ImageSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    display: &'v BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2ImageSelectionData<
+    'v,
+    'a,
+    D: BookV2ResourceDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    display: &'v D,
     images: Vec<BookV2SelectedImage<'v>>,
-    uses: Vec<BookV2SelectedImageUse<'v>>,
+    uses: Vec<BookV2SelectedImageUseData<'v, P>>,
     fingerprint: [u8; 32],
     records: u64,
     spool: u64,
     work: u64,
     prior: [u64; 3],
+    source_lifetime: std::marker::PhantomData<&'a ()>,
 }
-impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2ImageSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    pub fn display(&self) -> &'v BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+pub type BookV2ImageSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2ImageSelectionData<
+    'v,
+    'a,
+    BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2BodyPaintIndex,
+>;
+/// A column selection cannot be substituted for a body resource selection.
+///
+/// ```compile_fail
+/// use typaxis_resources::book_v2::{BookV2ColumnImageSelection, BookV2ImageSelection};
+/// fn body<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(v: BookV2ColumnImageSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>)
+///     -> BookV2ImageSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { v }
+/// ```
+pub type BookV2ColumnImageSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> = BookV2ImageSelectionData<
+    'v,
+    'a,
+    BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookV2ColumnPaintIndex,
+>;
+impl<'v, 'a, D: BookV2ResourceDisplay<'a>, P: Copy> BookV2ImageSelectionData<'v, 'a, D, P> {
+    pub fn display(&self) -> &'v D {
         self.display
     }
     pub fn images(&self) -> &[BookV2SelectedImage<'v>] {
         &self.images
     }
-    pub fn uses(&self) -> &[BookV2SelectedImageUse<'v>] {
+    pub fn uses(&self) -> &[BookV2SelectedImageUseData<'v, P>] {
         &self.uses
     }
-    pub fn for_paint(&self, paint: usize) -> Option<&BookV2SelectedImageUse<'v>> {
+    pub fn for_paint(&self, paint: usize) -> Option<&BookV2SelectedImageUseData<'v, P>> {
         self.uses
             .binary_search_by_key(&paint, |u| u.paint)
             .ok()
@@ -89,12 +119,8 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2ImageSelection<'v, 'd, 'g, 'q, 'b
         self.work
     }
 }
-impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontSelectionBuilder<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-{
-    pub fn select_images(
-        &mut self,
-    ) -> Result<BookV2ImageSelection<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>, E> {
+impl<'v, 'a, D: BookV2ResourceDisplay<'a>> BookV2FontSelectionBuilderData<'v, 'a, D> {
+    pub fn select_images(&mut self) -> Result<BookV2ImageSelectionData<'v, 'a, D>, E> {
         let prior = [
             self.records.checked_sub(1).ok_or(E::Identity)?,
             self.spool,
@@ -102,7 +128,7 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         ];
         let display = self.display;
         let mut count = 0usize;
-        for paint in 0..display.paints().len() {
+        for paint in 0..display.paint_count() {
             self.step()?;
             if display.image_use(paint).map_err(|_| E::Identity)?.is_some() {
                 count = count.checked_add(1).ok_or(E::Records)?;
@@ -115,7 +141,7 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         let bytes = count
             .checked_mul(
                 std::mem::size_of::<BookV2SelectedImage<'v>>()
-                    + std::mem::size_of::<BookV2SelectedImageUse<'v>>(),
+                    + std::mem::size_of::<BookV2SelectedImageUseData<'v, D::Paint>>(),
             )
             .ok_or(E::Spool)?;
         self.closure_charge(records, bytes, 1)?;
@@ -123,14 +149,14 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         let mut uses = Vec::new();
         images.try_reserve_exact(count).map_err(|_| E::Allocation)?;
         uses.try_reserve_exact(count).map_err(|_| E::Allocation)?;
-        for paint in 0..display.paints().len() {
+        for paint in 0..display.paint_count() {
             self.step()?;
             if let Some(usage) = display.image_use(paint).map_err(|_| E::Identity)? {
                 images.push(BookV2SelectedImage {
                     image: usage.image(),
                     key: key(usage.image())?,
                 });
-                uses.push(BookV2SelectedImageUse {
+                uses.push(BookV2SelectedImageUseData {
                     paint,
                     usage,
                     resource: 0,
@@ -185,7 +211,7 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             b[16..].copy_from_slice(&usage.usage.image().image_id().get().to_be_bytes());
             fingerprint = self.fold(fingerprint, &b)?;
         }
-        Ok(BookV2ImageSelection {
+        Ok(BookV2ImageSelectionData {
             prior,
             display,
             images,
@@ -194,6 +220,7 @@ impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             records: self.records,
             spool: self.spool,
             work: self.work,
+            source_lifetime: std::marker::PhantomData,
         })
     }
 }

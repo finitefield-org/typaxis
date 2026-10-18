@@ -158,6 +158,54 @@ impl<'b, 'f, 's, 'p, 'a> BookV2TableBodyContext<'b, 'f, 's, 'p, 'a> {
     pub fn measurements_fingerprint(&self) -> [u8; 32] {
         self.measurements.fingerprint()
     }
+    /// Preserve actual admission at zero or positive capacity without claiming
+    /// a nearest source group, physical column, or paint authorization.
+    #[allow(clippy::too_many_arguments)]
+    pub fn observe_capacity(
+        &mut self,
+        before: &BookV2TableCursor<'b, 'f, 's, 'p, 'a>,
+        capacity: Length,
+        maximum_capacity: PositiveLength,
+        headers: Option<&'b crate::book_v2::BookV2TableHeaderCatalog<'b, 'f, 's, 'p, 'a>>,
+        width: Option<PositiveLength>,
+        page_name: Option<usize>,
+        charge: &mut Charge,
+        steps: &mut u64,
+        spool: &mut u64,
+    ) -> Result<Option<BookV2TableCapacityObservation<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError> {
+        let search = self.searches.get_mut(before.table_index())
+            .ok_or_else(|| error(NodeId::new(0), E::ReceiptMismatch))?;
+        std::mem::swap(&mut search.kernel.charge, charge);
+        std::mem::swap(&mut search.kernel.work.used, steps);
+        let result = search.observe_capacity(before, capacity, maximum_capacity, headers, width, page_name, spool);
+        std::mem::swap(&mut search.kernel.charge, charge);
+        std::mem::swap(&mut search.kernel.work.used, steps);
+        result
+    }
+    /// Nearest actual original-source extension of a fragment replayed from its
+    /// original before cursor. Every accepted failure prefix remains charged.
+    #[allow(clippy::too_many_arguments)]
+    pub fn next_capacity_group(
+        &mut self,
+        before: &BookV2TableCursor<'b, 'f, 's, 'p, 'a>,
+        current_capacity: Length,
+        maximum_capacity: PositiveLength,
+        headers: Option<&'b crate::book_v2::BookV2TableHeaderCatalog<'b, 'f, 's, 'p, 'a>>,
+        width: Option<PositiveLength>,
+        page_name: Option<usize>,
+        charge: &mut Charge,
+        steps: &mut u64,
+        spool: &mut u64,
+    ) -> Result<Option<BookV2TableCapacityGroup<'b, 'f, 's, 'p, 'a>>, ProductionBodyPaginationError> {
+        let search = self.searches.get_mut(before.table_index())
+            .ok_or_else(|| error(NodeId::new(0), E::ReceiptMismatch))?;
+        std::mem::swap(&mut search.kernel.charge, charge);
+        std::mem::swap(&mut search.kernel.work.used, steps);
+        let result = search.next_capacity_group(before, current_capacity, maximum_capacity, headers, width, page_name, spool);
+        std::mem::swap(&mut search.kernel.charge, charge);
+        std::mem::swap(&mut search.kernel.work.used, steps);
+        result
+    }
     pub fn earlier_capacity(
         &mut self,
         cursor: &BookV2TableCursor<'b, 'f, 's, 'p, 'a>,

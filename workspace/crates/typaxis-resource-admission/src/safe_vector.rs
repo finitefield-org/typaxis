@@ -1975,6 +1975,19 @@ fn validate_shape_without_allocation(
     require_closed: bool,
     segment_limit: Option<u64>,
 ) -> Result<u64, ResourceAdmissionError> {
+    visit_shape_without_allocation(name,attrs,transform,physical_transform,(require_area,require_closed),segment_limit, |_|Ok(()))
+}
+
+fn visit_shape_without_allocation(
+    name: &str,
+    attrs: Attrs<'_>,
+    transform: SafeVectorTransform,
+    physical_transform: SafeVectorTransform,
+    requirements:(bool,bool),
+    segment_limit: Option<u64>,
+    mut emit:impl FnMut(SafeVectorSegment)->Result<(),ResourceAdmissionError>,
+) -> Result<u64, ResourceAdmissionError> {
+    let (require_area,require_closed)=requirements;
     let required = |name| {
         attrs
             .get(name)
@@ -2043,7 +2056,7 @@ fn validate_shape_without_allocation(
                 )?;
             }
         }
-        Ok(())
+        emit(segment)
     };
 
     let count = match name {
@@ -3557,8 +3570,12 @@ mod v2 {
         }
     }
 
+    #[derive(Clone,Copy,Debug,Default,Eq,PartialEq)]
+    struct StorageCounts {definitions:usize,references:usize,draws:usize}
+
     struct ScanResultV2<'a> {
         counts: Counts,
+        storage_counts:StorageCounts,
         root: RootGeometry,
         definitions: Vec<(&'a str, SafeVectorClipDefinition)>,
         draws: Vec<SafeVectorDrawV2>,
@@ -3944,19 +3961,66 @@ mod v2 {
         Ok(())
     }
 
+    #[derive(Clone,Copy)]
+    struct ValidatedSvgSource<'a>(&'a str);
+
+    fn resolve_clip_permitted<B:crate::SafeSvgSourceBudget>(
+        definitions:&[(&str,SafeVectorClipDefinition)],id:&str,transform:SafeVectorTransform,root:RootGeometry,
+        budget:&mut B,image:typaxis_core::ImageResourceId,stage:crate::SafeSvgSourceStage,
+    )->Result<SafeVectorClipUse,crate::SafeSvgSourceError<B::Error>>{
+        if !B::OBSERVED || !B::OBSERVE_IR{return resolve_clip_use_v2(definitions,id,transform,root).map_err(Into::into)}
+        for (at,(candidate,definition)) in definitions.iter().enumerate(){
+            let work=u64::try_from(candidate.len().min(id.len())).ok().and_then(|n|n.checked_mul(2)).and_then(|n|n.checked_add(64)).ok_or(ResourceAdmissionError::ResourceLimit)?;
+            crate::safe_svg_source::permit(budget,image,stage,0,0,work)?;
+            if *candidate==id{
+                let work=(definition.path.segments.len() as u64).checked_mul(128).and_then(|n|n.checked_add(64)).ok_or(ResourceAdmissionError::ResourceLimit)?;
+                crate::safe_svg_source::permit(budget,image,stage,0,0,work)?;
+                return resolve_clip_use_v2(&definitions[at..at+1],id,transform,root).map_err(Into::into);
+            }
+        }
+        Err(error(SafeVectorFailureReason::ForbiddenFeature).into())
+    }
+
     fn scan_v2<'a>(
         bytes: &'a [u8],
         mode: ScanMode,
         scan_limits: Option<ScanLimits>,
+        validated: Option<ValidatedSvgSource<'a>>,
     ) -> Result<ScanResultV2<'a>, ResourceAdmissionError> {
-        let mut scanner = scanner(bytes)?;
+        scan_v2_budget(bytes,mode,scan_limits,validated,None,&mut crate::safe_svg_source::Unobserved,typaxis_core::ImageResourceId::new(0))
+            .map_err(|error|match error {crate::SafeSvgSourceError::Native(e)=>e,crate::SafeSvgSourceError::Budget(f)=>match f.error {}})
+    }
+
+    fn scan_v2_budget<'a,B:crate::SafeSvgSourceBudget>(
+        bytes: &'a [u8],
+        mode: ScanMode,
+        scan_limits: Option<ScanLimits>,
+        validated: Option<ValidatedSvgSource<'a>>,
+        storage:Option<StorageCounts>,
+        budget:&mut B,
+        image:typaxis_core::ImageResourceId,
+    ) -> Result<ScanResultV2<'a>, crate::SafeSvgSourceError<B::Error>> {
+        use crate::SafeSvgSourceStage as S;
+        use crate::safe_svg_source::{push_within,reserve_vec};
+        let observed=B::OBSERVED && B::OBSERVE_IR && mode!=ScanMode::Count;
+        let phase=if mode==ScanMode::Analyze {S::Analyze}else{S::Build};
+        if observed {crate::safe_svg_source::charge_stage(bytes.len(),image,phase,budget)?;}
+        let storage=if observed {Some(storage.ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?)}else{None};
+        let definition_bound=storage.map(|s|s.definitions);
+        let reference_bound=storage.map(|s|s.references);
+        let draw_bound=storage.map(|s|if mode==ScanMode::Build {s.draws}else{0});
+        let mut storage_counts=StorageCounts::default();
+        let mut scanner = match validated {
+            Some(ValidatedSvgSource(source))=>MarkupScanner{source,cursor:0,policy:MarkupLexicalPolicy::SafeV2,current_element:None},
+            None=>scanner(bytes)?,
+        };
         let mut stack = [FrameV2::EMPTY; HARD_STACK_DEPTH];
         let mut depth = 0usize;
         let mut counts = Counts::new();
         let mut root = None;
-        let mut definitions = Vec::new();
-        let mut draws = Vec::new();
-        let mut references = Vec::new();
+        let mut definitions = if let Some(n)=definition_bound{reserve_vec(budget,image,if mode==ScanMode::Analyze{S::AnalyzeDefinitions}else{S::BuildDefinitions},n)?}else{Vec::new()};
+        let mut draws = if let Some(n)=draw_bound{if mode==ScanMode::Build{reserve_vec(budget,image,S::BuildDraws,n)?}else{Vec::new()}}else{Vec::new()};
+        let mut references = if let Some(n)=reference_bound{reserve_vec(budget,image,if mode==ScanMode::Analyze{S::AnalyzeReferences}else{S::BuildReferences},n)?}else{Vec::new()};
         let mut root_closed = false;
 
         let mut element_index = 0u32;
@@ -3973,9 +4037,9 @@ mod v2 {
             }
             ResourceAdmissionError::SafeSvg2Detailed(failure)
         })? {
-            let result = (|| {
+            let result = (|| -> Result<(),crate::SafeSvgSourceError<B::Error>> {
                 if root_closed {
-                    return Err(error(SafeVectorFailureReason::MalformedSvg));
+                    return Err(error(SafeVectorFailureReason::MalformedSvg).into());
                 }
                 match tag.kind {
                     TagKind::Start => {
@@ -3984,29 +4048,29 @@ mod v2 {
                             "defs" => ContainerKind::Defs,
                             "clipPath" => ContainerKind::ClipPath,
                             "g" => ContainerKind::Group,
-                            _ => return Err(classify_element(tag)),
+                            _ => return Err(classify_element(tag).into()),
                         };
                         if depth == HARD_STACK_DEPTH {
-                            return Err(ResourceAdmissionError::VectorNestingLimit);
+                            return Err(ResourceAdmissionError::VectorNestingLimit.into());
                         }
                         let next_depth = u32::try_from(depth + 1)
                             .map_err(|_| ResourceAdmissionError::VectorNestingLimit)?;
                         counts.max_depth = counts.max_depth.max(next_depth);
                         if scan_limits.is_some_and(|limits| counts.max_depth > limits.depth) {
-                            return Err(ResourceAdmissionError::VectorNestingLimit);
+                            return Err(ResourceAdmissionError::VectorNestingLimit.into());
                         }
                         counts.nodes = counts
                             .nodes
                             .checked_add(1)
                             .ok_or(ResourceAdmissionError::VectorNodeLimit)?;
                         if scan_limits.is_some_and(|limits| counts.nodes > limits.nodes) {
-                            return Err(ResourceAdmissionError::VectorNodeLimit);
+                            return Err(ResourceAdmissionError::VectorNodeLimit.into());
                         }
                         let parent = depth.checked_sub(1).map(|index| stack[index]);
                         let frame = match kind {
                             ContainerKind::Svg => {
                                 if depth != 0 || root.is_some() {
-                                    return Err(error(SafeVectorFailureReason::MalformedSvg));
+                                    return Err(error(SafeVectorFailureReason::MalformedSvg).into());
                                 }
                                 require_exact_attrs(
                                     tag.attrs,
@@ -4026,7 +4090,7 @@ mod v2 {
                                     failure.attribute = DiagnosticToken::new("viewBox");
                                     // These five segments belong to the implicit viewport clip,
                                     // not to a source path. Do not invent a path/segment index.
-                                    return Err(ResourceAdmissionError::SafeSvg2Detailed(failure));
+                                    return Err(ResourceAdmissionError::SafeSvg2Detailed(failure).into());
                                 }
                                 FrameV2 {
                                     kind,
@@ -4108,23 +4172,22 @@ mod v2 {
                                         counts.commands.checked_add(2).ok_or_else(|| {
                                             error(SafeVectorFailureReason::MalformedSvg)
                                         })?;
+                                    storage_counts.references=storage_counts.references.checked_add(1).ok_or(ResourceAdmissionError::ResourceLimit)?;
                                     if mode != ScanMode::Count {
-                                        references.push(ClipReferenceV2::new(
+                                        push_within(&mut references,ClipReferenceV2::new(
                                             id,
                                             tag,
                                             element_index,
                                             path_index,
-                                        ));
+                                        ),reference_bound)?;
                                     }
                                     if mode == ScanMode::Analyze {
-                                        resolve_clip_use_v2(
-                                            &definitions,
+                                        resolve_clip_permitted(&definitions,
                                             id,
                                             transform,
                                             root.ok_or_else(|| {
                                                 error(SafeVectorFailureReason::MalformedSvg)
-                                            })?,
-                                        )?;
+                                            })?,budget,image,if mode==ScanMode::Analyze{S::AnalyzeClip}else{S::BuildClip})?;
                                     }
                                 }
                                 FrameV2 {
@@ -4157,30 +4220,30 @@ mod v2 {
                             ContainerKind::Group => "g",
                         };
                         if tag.name != expected || tag.attrs.len != 0 {
-                            return Err(error(SafeVectorFailureReason::MalformedSvg));
+                            return Err(error(SafeVectorFailureReason::MalformedSvg).into());
                         }
                         match frame.kind {
                             ContainerKind::Svg if frame.child_count == 0 => {
-                                return Err(error(SafeVectorFailureReason::MalformedSvg));
+                                return Err(error(SafeVectorFailureReason::MalformedSvg).into());
                             }
                             ContainerKind::Svg if !frame.has_visible_draw => {
-                                return Err(error(SafeVectorFailureReason::ForbiddenFeature));
+                                return Err(error(SafeVectorFailureReason::ForbiddenFeature).into());
                             }
                             ContainerKind::Defs if frame.child_count == 0 => {
-                                return Err(error(SafeVectorFailureReason::MalformedSvg));
+                                return Err(error(SafeVectorFailureReason::MalformedSvg).into());
                             }
                             ContainerKind::ClipPath if frame.child_count != 1 => {
-                                return Err(error(SafeVectorFailureReason::MalformedSvg));
+                                return Err(error(SafeVectorFailureReason::MalformedSvg).into());
                             }
                             ContainerKind::Group if frame.child_count == 0 => {
-                                return Err(error(SafeVectorFailureReason::MalformedSvg));
+                                return Err(error(SafeVectorFailureReason::MalformedSvg).into());
                             }
                             _ => {}
                         }
                         depth -= 1;
                         if depth == 0 {
                             if frame.kind != ContainerKind::Svg {
-                                return Err(error(SafeVectorFailureReason::MalformedSvg));
+                                return Err(error(SafeVectorFailureReason::MalformedSvg).into());
                             }
                             root_closed = true;
                         } else if frame.has_visible_draw {
@@ -4190,23 +4253,23 @@ mod v2 {
                     TagKind::Empty => {
                         if !is_geometry(tag.name) || depth == 0 {
                             if matches!(tag.name, "svg" | "defs" | "clipPath" | "g") {
-                                return Err(error(SafeVectorFailureReason::MalformedSvg));
+                                return Err(error(SafeVectorFailureReason::MalformedSvg).into());
                             }
-                            return Err(classify_element(tag));
+                            return Err(classify_element(tag).into());
                         }
                         counts.nodes = counts
                             .nodes
                             .checked_add(1)
                             .ok_or(ResourceAdmissionError::VectorNodeLimit)?;
                         if scan_limits.is_some_and(|limits| counts.nodes > limits.nodes) {
-                            return Err(ResourceAdmissionError::VectorNodeLimit);
+                            return Err(ResourceAdmissionError::VectorNodeLimit.into());
                         }
                         counts.max_depth = counts.max_depth.max(
                             u32::try_from(depth + 1)
                                 .map_err(|_| ResourceAdmissionError::VectorNestingLimit)?,
                         );
                         if scan_limits.is_some_and(|limits| counts.max_depth > limits.depth) {
-                            return Err(ResourceAdmissionError::VectorNestingLimit);
+                            return Err(ResourceAdmissionError::VectorNestingLimit.into());
                         }
                         let parent = stack[depth - 1];
                         let in_clip = parent.kind == ContainerKind::ClipPath;
@@ -4216,12 +4279,12 @@ mod v2 {
                                 "path" | "rect" | "circle" | "ellipse" | "polygon"
                             )
                         {
-                            return Err(error(SafeVectorFailureReason::UnsupportedFeature));
+                            return Err(error(SafeVectorFailureReason::UnsupportedFeature).into());
                         }
                         if !in_clip
                             && !matches!(parent.kind, ContainerKind::Svg | ContainerKind::Group)
                         {
-                            return Err(error(SafeVectorFailureReason::MalformedSvg));
+                            return Err(error(SafeVectorFailureReason::MalformedSvg).into());
                         }
                         validate_attrs(tag.name, tag.attrs, in_clip)?;
                         let local = parse_transform_v2(tag.attrs)?;
@@ -4300,6 +4363,13 @@ mod v2 {
                                     }),
                                 )?,
                             )
+                        } else if observed {
+                            let count=checked(validate_shape_without_allocation(tag.name,tag.attrs,transform,physical_transform,require_area,in_clip,None))?;
+                            let n=usize::try_from(count).map_err(|_|ResourceAdmissionError::ResourceLimit)?;
+                            let mut segments=reserve_vec(budget,image,if mode==ScanMode::Analyze{S::AnalyzePath}else{S::BuildPath},n)?;
+                            let actual=checked(visit_shape_without_allocation(tag.name,tag.attrs,transform,physical_transform,(require_area,in_clip),None,|segment|push_within(&mut segments,segment,Some(n))))?;
+                            if actual!=count || segments.len()!=n{return Err(ResourceAdmissionError::ReceiptIdentityMismatch.into());}
+                            (Some(SafeVectorPath{segments}),count)
                         } else {
                             let path = checked(shape_path(tag.name, tag.attrs))?;
                             if in_clip {
@@ -4322,7 +4392,7 @@ mod v2 {
                         if scan_limits
                             .is_some_and(|limits| counts.stored_segments > limits.stored_segments)
                         {
-                            return Err(ResourceAdmissionError::VectorPathSegmentLimit);
+                            return Err(ResourceAdmissionError::VectorPathSegmentLimit.into());
                         }
                         if in_clip {
                             let fill_rule = match tag.attrs.get("fill-rule") {
@@ -4332,25 +4402,26 @@ mod v2 {
                                     return Err(tag.attrs.failure(
                                         SafeSvg2DetailReason::UnexpectedToken,
                                         "fill-rule",
-                                    ))
+                                    ).into())
                                 }
                             };
+                            storage_counts.definitions=storage_counts.definitions.checked_add(1).ok_or(ResourceAdmissionError::ResourceLimit)?;
                             if mode != ScanMode::Count {
                                 let path = path
                                     .ok_or_else(|| error(SafeVectorFailureReason::MalformedSvg))?;
                                 let id = parent
                                     .clip_id
                                     .ok_or_else(|| error(SafeVectorFailureReason::MalformedSvg))?;
-                                definitions.push((
+                                let definition_id=u32::try_from(definitions.len()).map_err(|_|ResourceAdmissionError::VectorNodeLimit)?;
+                                push_within(&mut definitions,(
                                     id,
                                     SafeVectorClipDefinition {
-                                        clip_id: u32::try_from(definitions.len())
-                                            .map_err(|_| ResourceAdmissionError::VectorNodeLimit)?,
+                                        clip_id: definition_id,
                                         transform: local,
                                         fill_rule,
                                         path,
                                     },
-                                ));
+                                ),definition_bound)?;
                             }
                         } else {
                             let paint = paint
@@ -4369,21 +4440,20 @@ mod v2 {
                                     .commands
                                     .checked_add(2)
                                     .ok_or_else(|| error(SafeVectorFailureReason::MalformedSvg))?;
+                                storage_counts.references=storage_counts.references.checked_add(1).ok_or(ResourceAdmissionError::ResourceLimit)?;
                                 if mode != ScanMode::Count {
-                                    references.push(ClipReferenceV2::new(
+                                    push_within(&mut references,ClipReferenceV2::new(
                                         id,
                                         tag,
                                         element_index,
                                         path_index,
-                                    ));
+                                    ),reference_bound)?;
                                 }
                                 if mode == ScanMode::Analyze {
-                                    resolve_clip_use_v2(
-                                        &definitions,
+                                    resolve_clip_permitted(&definitions,
                                         id,
                                         transform,
-                                        root_geometry,
-                                    )?;
+                                        root_geometry,budget,image,if mode==ScanMode::Analyze{S::AnalyzeClip}else{S::BuildClip})?;
                                 }
                             }
                             counts.commands = counts
@@ -4393,36 +4463,34 @@ mod v2 {
                             if visible {
                                 stack[depth - 1].has_visible_draw = true;
                             }
+                            storage_counts.draws=storage_counts.draws.checked_add(1).ok_or(ResourceAdmissionError::ResourceLimit)?;
                             if mode == ScanMode::Build {
                                 let path = path
                                     .ok_or_else(|| error(SafeVectorFailureReason::MalformedSvg))?;
-                                let mut clips = Vec::new();
+                                let clip_bound=if observed {Some(stack[..depth].iter().filter(|f|f.clip_ref.is_some()).count()+usize::from(clip_ref.is_some()))}else{None};
+                                let mut clips=if let Some(n)=clip_bound{reserve_vec(budget,image,S::BuildClips,n)?}else{Vec::new()};
                                 for frame in &stack[..depth] {
                                     if let Some(id) = frame.clip_ref {
-                                        clips.push(resolve_clip_use_v2(
-                                            &definitions,
+                                        push_within(&mut clips,resolve_clip_permitted(&definitions,
                                             id,
                                             frame.transform,
-                                            root_geometry,
-                                        )?);
+                                            root_geometry,budget,image,if mode==ScanMode::Analyze{S::AnalyzeClip}else{S::BuildClip})?,clip_bound)?;
                                     }
                                 }
                                 if let Some(id) = clip_ref {
-                                    clips.push(resolve_clip_use_v2(
-                                        &definitions,
+                                    push_within(&mut clips,resolve_clip_permitted(&definitions,
                                         id,
                                         transform,
-                                        root_geometry,
-                                    )?);
+                                        root_geometry,budget,image,if mode==ScanMode::Analyze{S::AnalyzeClip}else{S::BuildClip})?,clip_bound)?;
                                 }
-                                draws.push(SafeVectorDrawV2 {
+                                push_within(&mut draws,SafeVectorDrawV2 {
                                     transform,
                                     clips,
                                     path,
                                     fill: paint.fill_layer(),
                                     stroke: paint.stroke_value(),
                                     fill_rule: paint.fill_rule,
-                                });
+                                },draw_bound)?;
                             }
                         }
                         stack[depth - 1].child_count = stack[depth - 1]
@@ -4433,7 +4501,7 @@ mod v2 {
                 }
                 Ok(())
             })();
-            result.map_err(|error| {
+            result.map_err(|error| error.map_native(|error| {
                 if matches!(
                     error,
                     ResourceAdmissionError::ReceiptIdentityMismatch
@@ -4477,7 +4545,7 @@ mod v2 {
                     }
                 }
                 ResourceAdmissionError::SafeSvg2Detailed(failure)
-            })?;
+            }))?;
             if tag.kind != TagKind::End {
                 element_index += 1;
             }
@@ -4489,10 +4557,12 @@ mod v2 {
             return Err(ResourceAdmissionError::SafeSvg2Detailed(
                 SafeSvg2Failure::new(SafeSvg2DetailReason::UnexpectedEndOfInput)
                     .at(bytes.len(), bytes.len()),
-            ));
+            ).into());
         }
+        if storage.is_some_and(|s|s!=storage_counts){return Err(ResourceAdmissionError::ReceiptIdentityMismatch.into());}
         Ok(ScanResultV2 {
             counts,
+            storage_counts,
             root: root.ok_or_else(|| error(SafeVectorFailureReason::MalformedSvg))?,
             definitions,
             draws,
@@ -4524,7 +4594,7 @@ mod v2 {
         node_budget: u64,
         path_work_budget: u64,
     ) -> Result<DecodedSafeVectorV2, ResourceAdmissionError> {
-        decode_v2_impl(bytes, limits, node_budget, path_work_budget).map_err(|error| match error {
+        decode_v2_impl(bytes, limits, node_budget, path_work_budget,None,None,None).map_err(|error| match error {
             ResourceAdmissionError::SafeSvg2Detailed(failure) => {
                 ResourceAdmissionError::SafeSvg2Detailed(failure.locate(bytes))
             }
@@ -4532,11 +4602,88 @@ mod v2 {
         })
     }
 
-    fn decode_v2_impl(
-        bytes: &[u8],
+    pub(crate) fn decode_v2_with_source_budget<B:crate::SafeSvgSourceBudget>(
+        bytes:&[u8],limits:&M4EffectiveResourceLimits,node_budget:u64,path_work_budget:u64,
+        image_id:typaxis_core::ImageResourceId,budget:&mut B,
+    )->Result<DecodedSafeVectorV2,crate::SafeSvgSourceError<B::Error>>{
+        if !B::OBSERVED{return decode_v2_with_work_budget(bytes,limits,node_budget,path_work_budget).map_err(Into::into)}
+        let result=(|| {
+            let extension=limits.extension().get();
+            if node_budget>extension.max_vector_nodes || path_work_budget>extension.max_vector_path_segments{return Err(ResourceAdmissionError::ReceiptIdentityMismatch.into())}
+            crate::safe_svg_source::charge(bytes.len(),image_id,budget)?;
+            // Native validation proves this exact immutable source for all passes.
+            let source=ValidatedSvgSource(scanner(bytes)?.source);
+            let counted=if B::OBSERVE_COUNT || B::OBSERVE_CLIP_CLOSURE || B::OBSERVE_IR {
+                if B::OBSERVE_COUNT || B::OBSERVE_IR {crate::safe_svg_source::charge_stage(bytes.len(),image_id,crate::SafeSvgSourceStage::Count,budget)?;}
+                let counted=scan_v2(bytes,ScanMode::Count,Some(ScanLimits{nodes:node_budget,stored_segments:path_work_budget,depth:extension.max_vector_nesting_depth}),Some(source))?;
+                if B::OBSERVE_COUNT || B::OBSERVE_IR {crate::safe_svg_source::charge_stage(bytes.len(),image_id,crate::SafeSvgSourceStage::CountFinish,budget)?;}
+                Some(counted)
+            }else{None};
+            let closed_path_work=if B::OBSERVE_CLIP_CLOSURE || B::OBSERVE_IR {
+                let counted=counted.as_ref().ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
+                checked_counted_v2(counted,limits,node_budget,path_work_budget)?;
+                let analyzed=scan_v2_budget(bytes,ScanMode::Analyze,None,Some(source),Some(counted.storage_counts),budget,image_id)?;
+                if analyzed.counts!=counted.counts || analyzed.root!=counted.root || analyzed.storage_counts!=counted.storage_counts{return Err(ResourceAdmissionError::ReceiptIdentityMismatch.into())}
+                Some(close_clips_observed(&analyzed,path_work_budget,budget,image_id)?)
+            }else{None};
+            if B::OBSERVE_IR {
+                let counted=counted.as_ref().ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
+                let path_work=closed_path_work.ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
+                let allocation_charge=checked_counted_v2(counted,limits,node_budget,path_work_budget)?;
+                let built=scan_v2_budget(bytes,ScanMode::Build,None,Some(source),Some(counted.storage_counts),budget,image_id)?;
+                checked_built_v2(&built,counted)?;
+                let mut definitions=crate::safe_svg_source::reserve_vec(budget,image_id,crate::SafeSvgSourceStage::IrDefinitions,built.definitions.len())?;
+                let mut built=built;
+                let old=std::mem::take(&mut built.definitions);let bound=old.len();
+                for (_,definition) in old {crate::safe_svg_source::permit(budget,image_id,crate::SafeSvgSourceStage::IrDefinitions,0,0,64)?;crate::safe_svg_source::push_within(&mut definitions,definition,Some(bound))?;}
+                let (canonical,fingerprint)=canonical_ir_observed(&built,&definitions,path_work,allocation_charge,budget,image_id)?;
+                Ok(assemble_ir_v2(built,definitions,path_work,allocation_charge,canonical,fingerprint))
+            }else{decode_v2_impl(bytes,limits,node_budget,path_work_budget,Some(source),counted,closed_path_work).map_err(Into::into)}
+        })();
+        result.map_err(|error:crate::SafeSvgSourceError<B::Error>|error.map_native(|error|match error{
+            ResourceAdmissionError::SafeSvg2Detailed(failure)=>ResourceAdmissionError::SafeSvg2Detailed(failure.locate(bytes)),
+            error=>error,
+        }))
+    }
+
+    fn close_clips_observed<B:crate::SafeSvgSourceBudget>(
+        analyzed:&ScanResultV2<'_>,path_work_budget:u64,budget:&mut B,image_id:typaxis_core::ImageResourceId,
+    )->Result<u64,crate::SafeSvgSourceError<B::Error>>{
+        let mut index=crate::safe_svg_source::clip_closure::Index::new(
+            analyzed.definitions.iter().map(|(id,definition)|(*id,definition.path.segments.len() as u64)),budget,image_id,
+        )?;
+        let mut replay=0u64;
+        for reference in &analyzed.references {
+            let segments=index.lookup(reference.id,budget,image_id)?.ok_or_else(||reference.failure(error(SafeVectorFailureReason::ForbiddenFeature)))?;
+            crate::safe_svg_source::permit(budget,image_id,crate::SafeSvgSourceStage::ClipReplay,0,0,64)?;
+            replay=replay.checked_add(segments).ok_or(ResourceAdmissionError::VectorPathSegmentLimit)?;
+            if analyzed.counts.stored_segments.checked_add(replay).map_or(true,|work|work>path_work_budget){
+                return Err(reference.failure(SafeSvg2Failure::budget(VectorBudgetKind::ClipReplay,path_work_budget,analyzed.counts.stored_segments.saturating_add(replay))).into());
+            }
+        }
+        index.finish(budget,image_id)?;
+        analyzed.counts.stored_segments.checked_add(replay).filter(|work|*work<=path_work_budget).ok_or(ResourceAdmissionError::VectorPathSegmentLimit).map_err(Into::into)
+    }
+
+    fn checked_counted_v2(
+        counted:&ScanResultV2<'_>,limits:&M4EffectiveResourceLimits,node_budget:u64,path_work_budget:u64,
+    )->Result<u64,ResourceAdmissionError>{
+        if counted.counts.nodes>node_budget{return Err(ResourceAdmissionError::VectorNodeLimit)}
+        if counted.counts.max_depth>limits.extension().get().max_vector_nesting_depth{return Err(ResourceAdmissionError::VectorNestingLimit)}
+        if counted.counts.stored_segments>path_work_budget{return Err(ResourceAdmissionError::VectorPathSegmentLimit)}
+        let charge=allocation_charge(counted.counts)?;
+        if charge>limits.base().get().max_decoded_image_bytes{return Err(SafeSvg2Failure::budget(VectorBudgetKind::Allocation,limits.base().get().max_decoded_image_bytes,charge))}
+        Ok(charge)
+    }
+
+    fn decode_v2_impl<'a>(
+        bytes: &'a [u8],
         limits: &M4EffectiveResourceLimits,
         node_budget: u64,
         path_work_budget: u64,
+        validated:Option<ValidatedSvgSource<'a>>,
+        counted:Option<ScanResultV2<'a>>,
+        closed_path_work:Option<u64>,
     ) -> Result<DecodedSafeVectorV2, ResourceAdmissionError> {
         let extension = limits.extension().get();
         if node_budget > extension.max_vector_nodes
@@ -4547,7 +4694,7 @@ mod v2 {
 
         // Pass 1 is allocation-free apart from the fixed scanner/stack. It
         // proves all cardinalities and the /2 charge before IR vectors exist.
-        let counted = scan_v2(
+        let counted = match counted{Some(counted)=>counted,None=>scan_v2(
             bytes,
             ScanMode::Count,
             Some(ScanLimits {
@@ -4555,28 +4702,14 @@ mod v2 {
                 stored_segments: path_work_budget,
                 depth: extension.max_vector_nesting_depth,
             }),
-        )?;
-        if counted.counts.nodes > node_budget {
-            return Err(ResourceAdmissionError::VectorNodeLimit);
-        }
-        if counted.counts.max_depth > extension.max_vector_nesting_depth {
-            return Err(ResourceAdmissionError::VectorNestingLimit);
-        }
-        if counted.counts.stored_segments > path_work_budget {
-            return Err(ResourceAdmissionError::VectorPathSegmentLimit);
-        }
-        let allocation_charge = allocation_charge(counted.counts)?;
-        if allocation_charge > limits.base().get().max_decoded_image_bytes {
-            return Err(SafeSvg2Failure::budget(
-                VectorBudgetKind::Allocation,
-                limits.base().get().max_decoded_image_bytes,
-                allocation_charge,
-            ));
-        }
+            validated,
+        )?};
+        let allocation_charge=checked_counted_v2(&counted,limits,node_budget,path_work_budget)?;
 
         // Pass 2 closes local clip definitions/references and charges replay.
-        let analyzed = scan_v2(bytes, ScanMode::Analyze, None)?;
-        if analyzed.counts != counted.counts || analyzed.root != counted.root {
+        let path_work=match closed_path_work {Some(work)=>work,None=>{
+        let analyzed = scan_v2(bytes, ScanMode::Analyze, None,validated)?;
+        if analyzed.counts != counted.counts || analyzed.root != counted.root || analyzed.storage_counts != counted.storage_counts {
             return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
         }
         let mut id_map = BTreeMap::new();
@@ -4623,20 +4756,13 @@ mod v2 {
         drop(used);
         drop(analyzed);
 
+        path_work
+        }};
+
         // Pass 3 builds the exact canonical /2 IR only after all limits close.
-        let built = scan_v2(bytes, ScanMode::Build, None)?;
-        if built.counts != counted.counts || built.root != counted.root || built.draws.is_empty() {
-            return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
-        }
-        if !built
-            .draws
-            .iter()
-            .any(|draw| draw.fill.is_visible() || draw.stroke.paint().is_visible())
-        {
-            return Err(error(SafeVectorFailureReason::ForbiddenFeature));
-        }
-        let definitions: Vec<_> = built
-            .definitions
+        let mut built = scan_v2(bytes, ScanMode::Build, None,validated)?;
+        checked_built_v2(&built,&counted)?;
+        let definitions: Vec<_> = std::mem::take(&mut built.definitions)
             .into_iter()
             .map(|(_, definition)| definition)
             .collect();
@@ -4652,6 +4778,25 @@ mod v2 {
             "{{\"algorithm\":\"{}\",\"ir\":{}}}",
             SAFE_VECTOR_IR_FINGERPRINT_ID_V2, canonical_jcs
         );
+        let fingerprint=sha256(fingerprint_jcs.as_bytes());
+        Ok(assemble_ir_v2(built,definitions,path_work,allocation_charge,canonical_jcs,fingerprint))
+    }
+
+    fn checked_built_v2(built:&ScanResultV2<'_>,counted:&ScanResultV2<'_>)->Result<(),ResourceAdmissionError>{
+        if built.counts != counted.counts || built.root != counted.root || built.storage_counts != counted.storage_counts || built.draws.is_empty() {
+            return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+        }
+        if !built
+            .draws
+            .iter()
+            .any(|draw| draw.fill.is_visible() || draw.stroke.paint().is_visible())
+        {
+            return Err(error(SafeVectorFailureReason::ForbiddenFeature));
+        }
+        Ok(())
+    }
+
+    fn assemble_ir_v2(built:ScanResultV2<'_>,definitions:Vec<SafeVectorClipDefinition>,path_work:u64,allocation_charge:u64,canonical_jcs:String,fingerprint:[u8;32])->DecodedSafeVectorV2{
         let ir = SafeVectorIrV2 {
             intrinsic_width: built.root.width,
             intrinsic_height: built.root.height,
@@ -4663,139 +4808,34 @@ mod v2 {
             stored_segment_count: built.counts.stored_segments,
             path_work,
             allocation_charge,
-            fingerprint: sha256(fingerprint_jcs.as_bytes()),
+            fingerprint,
             canonical_jcs,
         };
-        Ok(DecodedSafeVectorV2 {
+        DecodedSafeVectorV2 {
             work: SafeVectorWork {
                 nodes: ir.node_count,
                 path_work: ir.path_work,
             },
             ir,
-        })
+        }
     }
 
-    fn encode_ir_v2(
-        root: RootGeometry,
-        clips: &[SafeVectorClipDefinition],
-        draws: &[SafeVectorDrawV2],
-        counts: Counts,
-        path_work: u64,
-        allocation_charge: u64,
-    ) -> String {
-        let mut output = String::from("{\"algorithm\":");
-        push_jcs_string(&mut output, SAFE_VECTOR_IR_ID_V2);
-        output.push_str(",\"allocation\":{\"algorithm\":");
-        push_jcs_string(&mut output, SAFE_VECTOR_ALLOCATION_CHARGE_ID_V2);
-        output.push_str(",\"charge\":");
-        output.push_str(&allocation_charge.to_string());
-        output.push_str(",\"nodes\":");
-        output.push_str(&counts.nodes.to_string());
-        output.push_str(",\"paint_or_clip_commands\":");
-        output.push_str(&counts.commands.to_string());
-        output.push_str(",\"source_clip_id_bytes\":");
-        output.push_str(&counts.source_clip_id_bytes.to_string());
-        output.push_str(",\"stored_segments\":");
-        output.push_str(&counts.stored_segments.to_string());
-        output.push_str("},\"clips\":[");
-        for (index, clip) in clips.iter().enumerate() {
-            if index > 0 {
-                output.push(',');
-            }
-            output.push_str("{\"clip_id\":");
-            output.push_str(&clip.clip_id.to_string());
-            output.push_str(",\"fill_rule\":");
-            push_jcs_string(&mut output, clip.fill_rule.as_str());
-            output.push_str(",\"path\":");
-            encode_path(&mut output, &clip.path);
-            output.push_str(",\"transform\":");
-            encode_transform(&mut output, clip.transform);
-            output.push('}');
-        }
-        output.push_str("],\"draws\":[");
-        for (index, draw) in draws.iter().enumerate() {
-            if index > 0 {
-                output.push(',');
-            }
-            output.push_str("{\"clips\":[");
-            for (clip_index, clip) in draw.clips.iter().enumerate() {
-                if clip_index > 0 {
-                    output.push(',');
-                }
-                output.push_str("{\"clip_id\":");
-                output.push_str(&clip.clip_id.to_string());
-                output.push_str(",\"transform\":");
-                encode_transform(&mut output, clip.transform);
-                output.push('}');
-            }
-            output.push_str("],\"fill\":");
-            encode_paint_layer(&mut output, draw.fill);
-            output.push_str(",\"fill_rule\":");
-            push_jcs_string(&mut output, draw.fill_rule.as_str());
-            output.push_str(",\"path\":");
-            encode_path(&mut output, &draw.path);
-            output.push_str(",\"stroke\":{\"alpha\":");
-            output.push_str(&draw.stroke.paint.alpha.raw().to_string());
-            output.push_str(",\"line_cap\":");
-            push_jcs_string(&mut output, draw.stroke.line_cap.as_str());
-            output.push_str(",\"line_join\":");
-            push_jcs_string(&mut output, draw.stroke.line_join.as_str());
-            output.push_str(",\"miter_limit\":");
-            output.push_str(&draw.stroke.miter_limit.to_string());
-            output.push_str(",\"paint\":");
-            encode_paint(&mut output, draw.stroke.paint.paint);
-            output.push_str(",\"width\":");
-            output.push_str(&draw.stroke.width.to_string());
-            output.push_str("},\"transform\":");
-            encode_transform(&mut output, draw.transform);
-            output.push('}');
-        }
-        output.push_str("],\"intrinsic_height\":");
-        output.push_str(&root.height.get().raw().to_string());
-        output.push_str(",\"intrinsic_width\":");
-        output.push_str(&root.width.get().raw().to_string());
-        output.push_str(",\"parser\":");
-        push_jcs_string(&mut output, SAFE_SVG_PARSER_ID_V2);
-        output.push_str(",\"path_work\":");
-        output.push_str(&path_work.to_string());
-        output.push_str(",\"root_scale\":");
-        output.push_str(&root.root_scale.to_string());
-        output.push_str(",\"root_viewport_clip\":\"outermost\",\"view_box\":[");
-        for (index, value) in root.view_box.iter().enumerate() {
-            if index > 0 {
-                output.push(',');
-            }
-            output.push_str(&value.to_string());
-        }
-        output.push_str("]}");
-        output
+    include!("safe_svg_ir_output.rs");
+
+    fn encode_ir_v2(root:RootGeometry,clips:&[SafeVectorClipDefinition],draws:&[SafeVectorDrawV2],counts:Counts,path_work:u64,allocation_charge:u64)->String{
+        let mut output=String::new();
+        match write_ir_v2(&mut output,root,clips,draws,counts,path_work,allocation_charge){Ok(())=>output,Err(e)=>match e{}}
     }
 
-    fn encode_paint_layer(output: &mut String, layer: SafeVectorPaintLayer) {
-        output.push_str("{\"alpha\":");
-        output.push_str(&layer.alpha.raw().to_string());
-        output.push_str(",\"paint\":");
-        encode_paint(output, layer.paint);
-        output.push('}');
-    }
+    include!("safe_svg_ir_tests.rs");
 
-    fn encode_paint(output: &mut String, paint: SafeVectorPaint) {
-        output.push_str("{\"kind\":");
-        push_jcs_string(output, paint.as_str());
-        if let SafeVectorPaint::FixedRgb8(rgb) = paint {
-            output.push_str(",\"rgb\":[");
-            output.push_str(&rgb[0].to_string());
-            output.push(',');
-            output.push_str(&rgb[1].to_string());
-            output.push(',');
-            output.push_str(&rgb[2].to_string());
-            output.push(']');
-        }
-        output.push('}');
-    }
 }
 
+#[cfg(test)]
 pub(crate) use v2::decode_v2_with_work_budget;
+pub(crate) use v2::decode_v2_with_source_budget;
+#[cfg(test)]
+pub(crate) use v2::DecodedSafeVectorV2;
 pub use v2::{
     SafeVectorAlpha, SafeVectorDrawV2, SafeVectorIrV2, SafeVectorPaint, SafeVectorPaintLayer,
     SafeVectorStrokeV2,

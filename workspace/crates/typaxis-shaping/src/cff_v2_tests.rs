@@ -236,3 +236,98 @@ fn cff_v2_shape_original_rejects_missing_split_and_isolated_selectors() {
         ))
     ));
 }
+
+
+#[test]
+#[ignore = "requires explicit TYPAXIS_HARANO_FONT pointing to the unchanged original font"]
+fn cff_v2_original_coverage_work_refuses_without_storage_and_preserves_utf8_causes() {
+    struct Work {
+        calls: u64,
+        stop: Option<u64>,
+    }
+    impl shared_shape_storage::Storage for Work {
+        fn reserve<T>(
+            &mut self,
+            _: shared_shape_storage::Site,
+            _: usize,
+        ) -> Result<(), LinkedShaperError> {
+            panic!("coverage must not allocate")
+        }
+        fn records(&mut self, _: u64) -> Result<(), LinkedShaperError> {
+            panic!("coverage must not retain glyph records")
+        }
+        fn work(&mut self, n: u64) -> Result<(), LinkedShaperError> {
+            assert_eq!(n, 1);
+            let before = self.calls;
+            self.calls += 1;
+            if self.stop == Some(before) {
+                Err(LinkedShaperError::AllocationFailure)
+            } else {
+                Ok(())
+            }
+        }
+    }
+    let admission = original();
+    let pairs = original_pairs(&admission);
+    let sequences = pairs
+        .iter()
+        .take(1)
+        .chain(pairs.iter().skip(pairs.len() / 2).take(1))
+        .chain(pairs.iter().rev().take(1))
+        .map(|(a, b)| format!("{a}{b}"))
+        .collect::<Vec<_>>();
+    let texts = [
+        "".to_owned(),
+        "本文の柱".to_owned(),
+        "A\u{200b}".to_owned(),
+        "\u{e0100}".to_owned(),
+        "日\u{10ffff}".to_owned(),
+    ]
+    .into_iter()
+    .chain(sequences);
+    let mut all_visits = 0;
+    for text in texts {
+        let expected = coverage(&admission, &text);
+        let mut full = Work {
+            calls: 0,
+            stop: None,
+        };
+        assert_eq!(
+            coverage_with_storage(&admission, &text, &mut full),
+            expected
+        );
+        if text == "\u{e0100}" {
+            assert_eq!(
+                expected,
+                Err(Cff1ShapeErrorV2::MissingCoverage {
+                    byte_start: 0,
+                    byte_end: 4
+                })
+            );
+        }
+        if text == "日\u{10ffff}" {
+            assert_eq!(
+                expected,
+                Err(Cff1ShapeErrorV2::MissingCoverage {
+                    byte_start: 3,
+                    byte_end: 7
+                })
+            );
+        }
+        for stop in 0..full.calls {
+            let mut short = Work {
+                calls: 0,
+                stop: Some(stop),
+            };
+            assert_eq!(
+                coverage_with_storage(&admission, &text, &mut short),
+                Err(Cff1ShapeErrorV2::Backend(
+                    LinkedShaperError::AllocationFailure
+                ))
+            );
+            assert_eq!(short.calls, stop + 1);
+        }
+        all_visits += full.calls;
+    }
+    eprintln!("original CFF coverage refusal cutoffs={all_visits}");
+}

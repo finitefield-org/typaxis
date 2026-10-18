@@ -94,6 +94,11 @@ impl<'m, 'f, 's, 'p, 'a> BookV2TableBreakSearch<'m, 'f, 's, 'p, 'a> {
                 ending_bottom = ending_bottom.max(ends[i]);
             }
             let boundary = add(row_top, remaining, owner)?.max(ending_bottom);
+            if trial.breaks.is_empty() || in_header {
+                self.kernel.probe_capacity_event(boundary)?;
+            } else {
+                self.kernel.probe_strict_capacity_event(boundary)?;
+            }
             if ending_done
                 && boundary <= capacity
                 && (trial.breaks.is_empty() || boundary < capacity || in_header)

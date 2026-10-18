@@ -3,26 +3,14 @@
 use super::*;
 use typaxis_core::NodeId;
 use typaxis_display_list::book_v2::{
-    BookV2BodyDisplay, BookV2BodyPaintIndex as Paint, BookV2ImageSource,
+    BookV2BodyDisplay, BookV2BodyPaintIndex, BookV2ColumnDisplay, BookV2ColumnPaintIndex,
+    BookV2ResourceDisplay, BookV2SemanticDisplay,
 };
 
 pub const BOOK_V2_MARKED_SCOPES_ALGORITHM: &str = "typaxis.book-2-marked-scopes/1";
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BookV2MarkedRole {
-    Text,
-    Label,
-    Formula,
-    Figure,
-    EquationNumber,
-    Separator,
-}
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BookV2MarkedArtifact {
-    RepeatedHeader,
-    FootnoteSeparator,
-    RunningHeader,
-    RunningFooter,
-}
+pub use typaxis_display_list::book_v2::{
+    BookV2SemanticArtifact as BookV2MarkedArtifact, BookV2SemanticKind as BookV2MarkedRole,
+};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Key {
     owner: Option<NodeId>,
@@ -36,126 +24,27 @@ struct Properties<'a> {
     alternative: Option<&'a str>,
     actual: Option<&'a str>,
 }
-fn properties<'a>(
-    display: &'a BookV2BodyDisplay<'_, '_, '_, '_, '_, '_, '_, '_>,
+fn properties<'borrow, 'a, D: BookV2SemanticDisplay<'a>>(
+    display: &'borrow D,
     index: usize,
-) -> Result<Properties<'a>, E> {
-    use BookV2MarkedRole as R;
-    let (owner, page, fragment, role, repeated, alternative, actual) =
-        match *display.paints().get(index).ok_or(E::Identity)? {
-            Paint::Text(i) => {
-                let d = &display.text().draws()[i];
-                (
-                    Some(d.owner()),
-                    d.page_index(),
-                    d.fragment_index(),
-                    R::Text,
-                    d.repeated_header(),
-                    None,
-                    None,
-                )
-            }
-            Paint::PageRegionText { region, draw } => {
-                let r = &display.page_regions()[region];
-                let d = &r.draws()[draw];
-                return Ok(Properties {
-                    key: Key {
-                        owner: Some(d.owner()), page: r.page_index(), fragment: region,
-                        role: R::Text,
-                        artifact: Some(match r.kind() {
-                            typaxis_syntax::book_v2::BookV2PageRegionKind::Header => BookV2MarkedArtifact::RunningHeader,
-                            typaxis_syntax::book_v2::BookV2PageRegionKind::Footer => BookV2MarkedArtifact::RunningFooter,
-                        }),
-                    }, alternative: None, actual: None,
-                });
-            }
-            Paint::Marker(i) => {
-                let d = &display.markers().draws()[i];
-                (
-                    Some(d.source().owner()),
-                    d.fragment().fragment().page_index(),
-                    d.fragment_index(),
-                    R::Label,
-                    d.repeated_header(),
-                    None,
-                    None,
-                )
-            }
-            Paint::Math(i) => {
-                let d = display.math().draws()[i].terminal();
-                let alt = display.math().draws()[i].alternative();
-                let actual = display.math().draws()[i].actual_text().ok_or(E::Identity)?;
-                (
-                    Some(d.source().owner()),
-                    d.page_index(),
-                    d.fragment_index(),
-                    R::Formula,
-                    d.repeated_header(),
-                    Some(alt),
-                    Some(actual),
-                )
-            }
-            Paint::Image(i) => {
-                let d = &display.images().draws()[i];
-                let (alt, actual) = match d.source() {
-                    BookV2ImageSource::Figure(f) => (f.source().alternative(), None),
-                    BookV2ImageSource::Vector(v) => {
-                        let a = v.source().alternative();
-                        (a.alternative(), a.authored_actual_text())
-                    }
-                };
-                (
-                    Some(d.source().owner()),
-                    d.fragment().fragment().page_index(),
-                    d.fragment_index(),
-                    R::Figure,
-                    d.repeated_header(),
-                    Some(alt),
-                    actual,
-                )
-            }
-            Paint::EquationNumber(i) => {
-                let d = display.numbers().draws()[i].placement();
-                (
-                    Some(d.geometry().owner()),
-                    d.geometry().page_index(),
-                    d.geometry().fragment_index() as usize,
-                    R::EquationNumber,
-                    d.repeated_header(),
-                    None,
-                    None,
-                )
-            }
-            Paint::FootnoteSeparator(i) => {
-                let d = &display.markers().separators()[i];
-                (
-                    None,
-                    d.page_index(),
-                    d.before_fragment_index(),
-                    R::Separator,
-                    false,
-                    None,
-                    None,
-                )
-            }
-        };
-    let artifact = if repeated {
-        Some(BookV2MarkedArtifact::RepeatedHeader)
-    } else if role == R::Separator {
-        Some(BookV2MarkedArtifact::FootnoteSeparator)
-    } else {
-        None
-    };
+) -> Result<Properties<'borrow>, E> {
+    let p = display
+        .semantic_paint(index)
+        .map_err(|_| E::Identity)?
+        .ok_or(E::Identity)?;
+    if p.kind() == BookV2MarkedRole::Formula && p.actual_text().is_none() {
+        return Err(E::Identity);
+    }
     Ok(Properties {
         key: Key {
-            owner,
-            page,
-            fragment,
-            role,
-            artifact,
+            owner: p.owner(),
+            page: p.page_index(),
+            fragment: p.fragment_index(),
+            role: p.kind(),
+            artifact: p.artifact(),
         },
-        alternative,
-        actual,
+        alternative: p.alternative(),
+        actual: p.actual_text(),
     })
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -190,17 +79,17 @@ impl BookV2MarkedScope {
 }
 // All group walking is linear. Text clusters may coalesce only within the
 // same actual owner/fragment/role; formula and number never share a scope.
-fn visit(
-    display: &BookV2BodyDisplay<'_, '_, '_, '_, '_, '_, '_, '_>,
+fn visit<'a, D: BookV2SemanticDisplay<'a>>(
+    display: &D,
     budget: &mut Budget,
     mut emit: impl FnMut(&mut Budget, Properties<'_>, Range<usize>, Option<u32>) -> Result<(), E>,
 ) -> Result<usize, E> {
-    let pages = display.source().source().geometry().pages().len();
+    let pages = display.page_count();
     let mut start = 0;
     let mut previous_page = None;
     let mut next_mcid = 0u32;
     let mut count = 0usize;
-    while start < display.paints().len() {
+    while start < display.paint_count() {
         budget.step(1)?;
         let p = properties(display, start)?;
         if p.key.page as usize >= pages || previous_page.is_some_and(|page| page > p.key.page) {
@@ -212,7 +101,7 @@ fn visit(
         }
         let mut end = start + 1;
         if p.key.role == BookV2MarkedRole::Text {
-            while end < display.paints().len() {
+            while end < display.paint_count() {
                 budget.step(1)?;
                 if properties(display, end)?.key != p.key {
                     break;
@@ -240,7 +129,9 @@ fn begin(p: &Properties<'_>, mcid: Option<u32>, out: &mut Encoder<'_>) -> Result
                 b"/Artifact << /Type /Pagination /Subtype /Header >> BDC\n"
             }
             BookV2MarkedArtifact::FootnoteSeparator => b"/Artifact << /Type /Layout >> BDC\n",
-            BookV2MarkedArtifact::RunningFooter => b"/Artifact << /Type /Pagination /Subtype /Footer >> BDC\n",
+            BookV2MarkedArtifact::RunningFooter => {
+                b"/Artifact << /Type /Pagination /Subtype /Footer >> BDC\n"
+            }
         });
     }
     out.extend(match p.key.role {
@@ -262,23 +153,61 @@ fn begin(p: &Properties<'_>, mcid: Option<u32>, out: &mut Encoder<'_>) -> Result
     }
     Ok(())
 }
-pub struct BookV2MarkedScopes<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'m BookV2ImageCommands<'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2MarkedScopesData<
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    'v,
+    'a,
+    D: BookV2SemanticDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'m BookV2ImageCommandsData<'k, 'j, 'r, 'i, 'v, 'a, D, P>,
     groups: Vec<BookV2MarkedScope>,
     pages: Vec<Range<usize>>,
     bytes: Vec<u8>,
     fingerprint: [u8; 32],
     budget: Budget,
 }
-impl<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2MarkedScopes<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+pub type BookV2MarkedScopes<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2MarkedScopesData<
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        'v,
+        'a,
+        BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2BodyPaintIndex,
+    >;
+/// Column semantic ownership stays in every parent.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2MarkedScopes, BookV2ColumnMarkedScopes};
+/// fn body<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnMarkedScopes<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>) -> BookV2MarkedScopes<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnMarkedScopes<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2MarkedScopesData<
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+impl<'m, 'k, 'j, 'r, 'i, 'v, 'a, D: BookV2SemanticDisplay<'a, Paint = P>, P: Copy + Eq>
+    BookV2MarkedScopesData<'m, 'k, 'j, 'r, 'i, 'v, 'a, D, P>
 {
-    pub fn source(
-        &self,
-    ) -> &'m BookV2ImageCommands<'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn source(&self) -> &'m BookV2ImageCommandsData<'k, 'j, 'r, 'i, 'v, 'a, D, P> {
         self.source
     }
-    pub fn display(&self) -> &'v BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn display(&self) -> &'v D {
         self.source.source().source().source().source().display()
     }
     pub fn groups(&self) -> &[BookV2MarkedScope] {
@@ -344,15 +273,55 @@ impl<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         self.budget.work
     }
 }
-pub struct BookV2MarkedScopeBuilder<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'m BookV2ImageCommands<'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2MarkedScopeBuilderData<
+    'm,
+    'k,
+    'j,
+    'r,
+    'i,
+    'v,
+    'a,
+    D: BookV2SemanticDisplay<'a>,
+    P: Copy = <D as BookV2ResourceDisplay<'a>>::Paint,
+> {
+    source: &'m BookV2ImageCommandsData<'k, 'j, 'r, 'i, 'v, 'a, D, P>,
     pub(super) budget: Budget,
 }
-impl<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2MarkedScopeBuilder<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+pub type BookV2MarkedScopeBuilder<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2MarkedScopeBuilderData<
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        'v,
+        'a,
+        BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2BodyPaintIndex,
+    >;
+/// Column semantic ownership stays in every parent.
+///
+/// ```compile_fail
+/// use typaxis_pdf::book_v2::{BookV2MarkedScopeBuilder, BookV2ColumnMarkedScopeBuilder};
+/// fn body<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(value: BookV2ColumnMarkedScopeBuilder<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>) -> BookV2MarkedScopeBuilder<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> { value }
+/// ```
+pub type BookV2ColumnMarkedScopeBuilder<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2MarkedScopeBuilderData<
+        'm,
+        'k,
+        'j,
+        'r,
+        'i,
+        'v,
+        'a,
+        BookV2ColumnDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        BookV2ColumnPaintIndex,
+    >;
+impl<'m, 'k, 'j, 'r, 'i, 'v, 'a, D: BookV2SemanticDisplay<'a, Paint = P>, P: Copy + Eq>
+    BookV2MarkedScopeBuilderData<'m, 'k, 'j, 'r, 'i, 'v, 'a, D, P>
 {
     pub fn new(
-        source: &'m BookV2ImageCommands<'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        source: &'m BookV2ImageCommandsData<'k, 'j, 'r, 'i, 'v, 'a, D, P>,
         limits: &M4EffectiveResourceLimits,
         max_work: u64,
         prior_records: u64,
@@ -360,7 +329,40 @@ impl<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         prior_output: u64,
         prior_work: u64,
     ) -> Result<Self, E> {
-        let inherited = BookV2ImageCommandBuilder::new(
+        Self::new_counted(
+            source,
+            limits,
+            max_work,
+            prior_records,
+            prior_spool,
+            prior_output,
+            prior_work,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+            &mut 0,
+        )
+    }
+    /// Keep every accepted constructor reservation visible even on failure.
+    pub fn new_counted(
+        source: &'m BookV2ImageCommandsData<'k, 'j, 'r, 'i, 'v, 'a, D, P>,
+        limits: &M4EffectiveResourceLimits,
+        max_work: u64,
+        prior_records: u64,
+        prior_spool: u64,
+        prior_output: u64,
+        prior_work: u64,
+        observed_records: &mut u64,
+        observed_spool: &mut u64,
+        observed_output: &mut u64,
+        observed_work: &mut u64,
+    ) -> Result<Self, E> {
+        *observed_records = prior_records.max(source.record_charge());
+        *observed_spool = prior_spool.max(source.spool_charge());
+        *observed_output = prior_output.max(source.output_charge());
+        *observed_work = prior_work.max(source.work_steps());
+
+        let inherited = BookV2ImageCommandBuilderData::new_counted(
             source.source(),
             limits,
             max_work,
@@ -368,6 +370,10 @@ impl<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
             prior_spool.max(source.spool_charge()),
             prior_output.max(source.output_charge()),
             prior_work.max(source.work_steps()),
+            observed_records,
+            observed_spool,
+            observed_output,
+            observed_work,
         )?;
         Ok(Self {
             source,
@@ -386,9 +392,7 @@ impl<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
     pub fn work_steps(&self) -> u64 {
         self.budget.work
     }
-    pub fn build(
-        &mut self,
-    ) -> Result<BookV2MarkedScopes<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>, E> {
+    pub fn build(&mut self) -> Result<BookV2MarkedScopesData<'m, 'k, 'j, 'r, 'i, 'v, 'a, D, P>, E> {
         let display = self.source.source().source().source().source().display();
         let mut closing = 0usize;
         let count = visit(display, &mut self.budget, |_, p, _, _| {
@@ -401,7 +405,7 @@ impl<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
                 .ok_or(E::Output)?;
             Ok(())
         })?;
-        let npages = display.source().source().geometry().pages().len();
+        let npages = display.page_count();
         let records = count
             .checked_add(npages)
             .and_then(|n| n.checked_add(1))
@@ -501,7 +505,7 @@ impl<'m, 'k, 'j, 'r, 'i, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
         fingerprint = self
             .budget
             .fold(fingerprint, &(npages as u64).to_be_bytes())?;
-        Ok(BookV2MarkedScopes {
+        Ok(BookV2MarkedScopesData {
             source: self.source,
             groups,
             pages,

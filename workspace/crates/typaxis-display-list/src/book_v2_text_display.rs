@@ -73,16 +73,16 @@ impl<'s, 'p, 'a> BookV2TextDraw<'s, 'p, 'a> {
     }
 }
 
-pub struct BookV2TextDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    source: &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
+pub struct BookV2SourceTextDisplay<'d, 's, 'p, 'a, S: ?Sized> {
+    source: &'d S,
     admitted: &'d AdmittedProductionResourceLedgerV3,
     draws: Vec<BookV2TextDraw<'s, 'p, 'a>>,
     fingerprint: [u8; 32],
     records: u64,
     work: u64,
 }
-impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2TextDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    pub fn source(&self) -> &'d BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a> {
+impl<'d, 's, 'p, 'a, S: ?Sized> BookV2SourceTextDisplay<'d, 's, 'p, 'a, S> {
+    pub fn source(&self) -> &'d S {
         self.source
     }
     pub fn admitted(&self) -> &'d AdmittedProductionResourceLedgerV3 {
@@ -100,18 +100,57 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2TextDisplay<'d, 'g, 'q, 'b, 'f, 's, '
     pub fn work_steps(&self) -> u64 {
         self.work
     }
+    pub(super) fn from_projection(
+        source: &'d S,
+        admitted: &'d AdmittedProductionResourceLedgerV3,
+        data: TextProjection<'s, 'p, 'a>,
+        records: u64,
+        work: u64,
+    ) -> Self {
+        Self {
+            source,
+            admitted,
+            draws: data.draws,
+            fingerprint: data.fingerprint,
+            records,
+            work,
+        }
+    }
+}
+
+pub type BookV2TextDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2SourceTextDisplay<'d, 's, 'p, 'a, BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>>;
+pub type BookV2ColumnTextDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> =
+    BookV2SourceTextDisplay<'d, 's, 'p, 'a, BookV2ColumnMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>>;
+pub(super) struct TextProjection<'s, 'p, 'a> {
+    pub(super) draws: Vec<BookV2TextDraw<'s, 'p, 'a>>,
+    pub(super) fingerprint: [u8; 32],
 }
 
 impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
-    /// Uses the same source/font admission and cumulative counters as math
-    /// projection. Building either component never refunds the other component.
+    /// Uses the same source/font admission and cumulative counters as math.
     pub fn build_text(
         &mut self,
     ) -> Result<BookV2TextDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2MathDisplayError> {
+        let source = self.source;
+        let data = self.projection().collect_text()?;
+        Ok(BookV2TextDisplay::from_projection(
+            source,
+            self.admitted,
+            data,
+            self.record_charge(),
+            self.work_steps(),
+        ))
+    }
+}
+impl<'e, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> Projector<'e, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub(super) fn collect_text(
+        &mut self,
+    ) -> Result<TextProjection<'s, 'p, 'a>, BookV2MathDisplayError> {
         let root = NodeId::new(0);
         let source = self.source;
-        let lines = source.source().flow().lines();
-        let pages = source.source().geometry().pages();
+        let lines = source.original_graph().lines();
+        let pages = source.pages();
         let mut required = 1usize;
         let mut count = 0usize;
         // Preflight every retained cluster/glyph before allocating the draw list.
@@ -122,7 +161,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                 let fragment = placed.fragment();
                 self.step(fragment.owner())?;
                 let lines = source
-                    .fragment_flow(fragment_index)
+                    .fragment_graph(fragment_index)
                     .ok_or_else(|| error(fragment.owner(), E::ReceiptMismatch))?
                     .lines();
                 fragment_index = fragment_index
@@ -156,12 +195,12 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                 }
             }
         }
-        if required as u64 > self.remaining {
+        if required as u64 > *self.remaining {
             return Err(error(root, E::RecordLimit).into());
         }
         // Commit the entire allocation before reserving it; a later failure
         // retains even the slots whose glyph projection was never reached.
-        take(&mut self.remaining, required, root)?;
+        take(self.remaining, required, root)?;
         let mut draws = Vec::new();
         draws
             .try_reserve_exact(count)
@@ -188,7 +227,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                 let fragment = placed.fragment();
                 self.step(fragment.owner())?;
                 let lines = source
-                    .fragment_flow(index)
+                    .fragment_graph(index)
                     .ok_or_else(|| error(fragment.owner(), E::ReceiptMismatch))?
                     .lines();
                 if let ProductionBodyFragmentSource::ParagraphLine {
@@ -318,13 +357,6 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
                     .ok_or_else(|| error(root, E::RecordLimit))?;
             }
         }
-        Ok(BookV2TextDisplay {
-            source,
-            admitted: self.admitted,
-            draws,
-            fingerprint,
-            records: self.record_charge(),
-            work: self.work_steps(),
-        })
+        Ok(TextProjection { draws, fingerprint })
     }
 }

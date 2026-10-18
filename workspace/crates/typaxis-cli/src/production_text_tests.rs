@@ -1152,7 +1152,10 @@ fn production_inline_real_vmb_formula_alone_fits_after_origin_compensation() {
                 paragraph.line_height().unwrap(),
                 &mut typaxis_linebreak::ProductionLineBreakBudget::new(100, 10)
             ),
-            Err(typaxis_linebreak::AtomicVectorInlineError::NoFeasibleLine)
+            Err(typaxis_linebreak::AtomicVectorInlineError::InlineSizeExceeded {
+                owner, source_span, required_inline_size, maximum_inline_size,
+            }) if owner == occurrence.item().node_id() && source_span == occurrence.item().source_span()
+                && required_inline_size.get().raw() == 1_556_093 && maximum_inline_size.get().raw() == 1_556_092
         ));
     });
 }

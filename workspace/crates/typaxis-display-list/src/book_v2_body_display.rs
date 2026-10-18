@@ -58,6 +58,12 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, '
     pub fn paints(&self) -> &[BookV2BodyPaintIndex] {
         &self.paints
     }
+    pub(crate) fn page_region_paint(&self, paint: BookV2BodyPaintIndex) -> Option<(usize, usize)> {
+        match paint {
+            BookV2BodyPaintIndex::PageRegionText { region, draw } => Some((region, draw)),
+            _ => None,
+        }
+    }
     pub fn page_regions(&self) -> &[BookV2PageRegionDisplay<'d>] {
         &self.regions
     }
@@ -142,7 +148,6 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
     pub fn build_body(
         &mut self,
     ) -> Result<BookV2BodyDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>, BookV2MathDisplayError> {
-        let root = NodeId::new(0);
         let mut display = BookV2BodyDisplay {
             math: self.build()?,
             text: self.build_text()?,
@@ -156,28 +161,7 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
             records: 0,
             work: 0,
         };
-        let counts = display.counts();
-        let mut count = 0usize;
-        for n in counts {
-            self.step(root)?;
-            count = count
-                .checked_add(n)
-                .ok_or_else(|| error(root, E::RecordLimit))?;
-        }
-        take(
-            &mut self.remaining,
-            count
-                .checked_add(1)
-                .ok_or_else(|| error(root, E::RecordLimit))?,
-            root,
-        )?;
-        display
-            .paints
-            .try_reserve_exact(count)
-            .map_err(|_| error(root, E::AllocationFailure))?;
-        self.step(root)?;
-        let mut fp = sha256(BOOK_V2_BODY_DISPLAY_ALGORITHM.as_bytes());
-        for hash in [
+        let hashes = [
             self.source.fingerprint(),
             self.admitted.fingerprint(),
             display.math.fingerprint(),
@@ -186,44 +170,16 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2MathDisplayBuilder<'d, 'g, 'q, 'b, 'f
             display.markers.fingerprint(),
             display.images.fingerprint(),
             display.anchors.fingerprint(),
-        ] {
-            fp = self.fold(fp, &hash, root)?;
-        }
-        fp = self.fold(fp, &(count as u64).to_be_bytes(), root)?;
-        let mut cursors = [0; 6];
-        let mut previous = None;
-        for _ in 0..count {
-            let mut next = None;
-            for stream in 0..6 {
-                self.step(root)?;
-                if cursors[stream] < counts[stream] {
-                    let (paint, key) = display.next(stream, cursors[stream]);
-                    if next.is_none_or(|(_, _, first)| key < first) {
-                        next = Some((stream, paint, key));
-                    }
-                }
-            }
-            let (stream, paint, key) = next.ok_or_else(|| error(root, E::ReceiptMismatch))?;
-            if previous.is_some_and(|p| p > key || (p == key && key.1 == 2)) {
-                return Err(error(root, E::ReceiptMismatch).into());
-            }
-            // Component fingerprints bind geometry/roles. This record also
-            // binds exact interleaving, including separate number placement.
-            let mut bytes = [0; 22];
-            bytes[0] = stream as u8;
-            bytes[1..9].copy_from_slice(&(cursors[stream] as u64).to_be_bytes());
-            bytes[9..17].copy_from_slice(&(key.0 as u64).to_be_bytes());
-            bytes[17] = key.1;
-            bytes[18..22].copy_from_slice(&key.2.to_be_bytes());
-            fp = self.fold(fp, &bytes, root)?;
-            display.paints.push(paint);
-            cursors[stream] += 1;
-            previous = Some(key);
-        }
-        if cursors != counts {
-            return Err(error(root, E::ReceiptMismatch).into());
-        }
-        display.fingerprint = fp;
+        ];
+        let (paints, fingerprint) = super::display_merge::merge(
+            &mut self.projection(),
+            BOOK_V2_BODY_DISPLAY_ALGORITHM,
+            hashes,
+            display.counts(),
+            |stream, index| display.next(stream, index),
+        )?;
+        display.paints = paints;
+        display.fingerprint = fingerprint;
         display.records = self.record_charge();
         display.work = self.work_steps();
         Ok(display)

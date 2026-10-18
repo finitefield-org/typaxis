@@ -3,6 +3,9 @@
 use super::*;
 #[path = "book_v2_header_source_closure.rs"]
 mod headers;
+#[path = "book_v2_source_graph.rs"]
+mod source_graph;
+pub use source_graph::{BookV2SourceGraph, BookV2SourceReferenceView};
 
 pub struct BookV2BodySourceClosure<'g, 'q, 'b, 'f, 's, 'p, 'a> {
     geometry: &'g BookV2BodyMixedPlacedSequence<'q, 'b, 'f, 's, 'p, 'a>,
@@ -27,6 +30,9 @@ impl<'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2BodySourceClosure<'g, 'q, 'b, 'f, 's, 'p,
     pub fn flow(&self) -> &'b BookV2PreparedBodyFlow<'f, 's, 'p, 'a> {
         self.flow
     }
+    pub fn original_graph(&self) -> BookV2SourceGraph<'b, 'f, 's, 'p, 'a> {
+        BookV2SourceGraph::new(self.flow)
+    }
     pub fn semantic_fragments(&self) -> usize {
         self.semantic_fragments
     }
@@ -42,7 +48,10 @@ impl<'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2BodySourceClosure<'g, 'q, 'b, 'f, 's, 'p,
     ) -> Option<&'b BookV2PreparedBodyFlow<'f, 's, 'p, 'a>> {
         let page = self.geometry.pages().get(page)?;
         page.fragments().get(fragment)?;
-        Some(page.header_variant(fragment).map_or(self.flow, |v| v.measurements().flow()))
+        Some(
+            page.header_variant(fragment)
+                .map_or(self.flow, |v| v.measurements().flow()),
+        )
     }
     pub fn header_variant_fragments(&self) -> usize {
         self.header_variant_fragments
@@ -76,6 +85,132 @@ impl<'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2BodySourceClosure<'g, 'q, 'b, 'f, 's, 'p,
     }
 }
 
+/// Exact source coverage for physical columns. This proof carries no
+/// single-body display or PDF authorization.
+///
+/// ```compile_fail
+/// use typaxis_pagination::book_v2::{BookV2ColumnSourceClosure, BookV2BodySourceClosure};
+/// fn single<'g, 'q, 'b, 'f, 's, 'p, 'a>(v: BookV2ColumnSourceClosure<'g, 'q, 'b, 'f, 's, 'p, 'a>)
+///     -> BookV2BodySourceClosure<'g, 'q, 'b, 'f, 's, 'p, 'a> { v }
+/// ```
+pub struct BookV2ColumnSourceClosure<'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    geometry: &'g BookV2ColumnPlacedSequence<'q, 'b, 'f, 's, 'p, 'a>,
+    stable: &'q BookV2ColumnStablePages<'b, 'f, 's, 'p, 'a>,
+    flow: &'b BookV2PreparedBodyFlow<'f, 's, 'p, 'a>,
+    counts: SourceClosureSummary,
+    records: u64,
+    work: u64,
+}
+impl<'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2ColumnSourceClosure<'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn original_graph(&self) -> BookV2SourceGraph<'b, 'f, 's, 'p, 'a> {
+        BookV2SourceGraph::new(self.flow)
+    }
+    pub fn fragment_graph(
+        &self,
+        page: usize,
+        fragment: usize,
+    ) -> Option<BookV2SourceGraph<'b, 'f, 's, 'p, 'a>> {
+        self.fragment_flow(page, fragment)
+            .map(BookV2SourceGraph::new)
+    }
+    pub fn geometry(&self) -> &'g BookV2ColumnPlacedSequence<'q, 'b, 'f, 's, 'p, 'a> {
+        self.geometry
+    }
+    pub fn stable(&self) -> &'q BookV2ColumnStablePages<'b, 'f, 's, 'p, 'a> {
+        self.stable
+    }
+    pub fn semantic_fragments(&self) -> usize {
+        self.counts.semantic_fragments
+    }
+    pub fn repeated_fragments(&self) -> usize {
+        self.counts.repeated_fragments
+    }
+    pub fn header_variant_fragments(&self) -> usize {
+        self.counts.header_variant_fragments
+    }
+    pub fn has_header_variants(&self) -> bool {
+        self.header_variant_fragments() != 0
+    }
+    pub fn unreferenced_definitions(&self) -> usize {
+        self.counts.unreferenced_definitions
+    }
+    pub fn semantic_math(&self) -> usize {
+        self.counts.semantic_math
+    }
+    pub fn repeated_math(&self) -> usize {
+        self.counts.repeated_math
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.records
+    }
+    pub fn work_steps(&self) -> u64 {
+        self.work
+    }
+    /// The actual original or repeated-header graph for an admitted fragment.
+    pub fn fragment_lines(
+        &self,
+        page: usize,
+        fragment: usize,
+    ) -> Option<&'s typaxis_layout::book_v2::BookV2InlineLineLayout<'p, 'a>> {
+        self.fragment_flow(page, fragment).map(|flow| flow.lines())
+    }
+    pub(super) fn flow(&self) -> &'b BookV2PreparedBodyFlow<'f, 's, 'p, 'a> {
+        self.flow
+    }
+    pub(super) fn fragment_flow(
+        &self,
+        page: usize,
+        fragment: usize,
+    ) -> Option<&'b BookV2PreparedBodyFlow<'f, 's, 'p, 'a>> {
+        let page = self.geometry.pages().get(page)?;
+        page.fragments().get(fragment)?;
+        let view = SourceClosurePage::Columns(page);
+        Some(
+            view.header_variant(fragment)
+                .map_or(self.flow, |v| v.measurements().flow()),
+        )
+    }
+}
+
+impl<'b, 'f, 's, 'p, 'a> BookV2ColumnPageSearch<'b, 'f, 's, 'p, 'a> {
+    /// Verify one semantic visit for every selected original source, retaining
+    /// repeated copies as artifacts and unreferenced definitions as unadmitted.
+    pub fn close_column_page_sources<'g, 'q>(
+        &mut self,
+        stable: &'q BookV2ColumnStablePages<'b, 'f, 's, 'p, 'a>,
+        geometry: &'g BookV2ColumnPlacedSequence<'q, 'b, 'f, 's, 'p, 'a>,
+    ) -> Result<BookV2ColumnSourceClosure<'g, 'q, 'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError>
+    {
+        self.verify_sequence(stable.sequence())?;
+        self.verify_sequence(geometry.sequence())?;
+        let root = NodeId::new(0);
+        if !std::ptr::eq(stable.sequence(), geometry.sequence()) {
+            return Err(error(root, E::ReceiptMismatch));
+        }
+        let demand = &stable
+            .sequence()
+            .pages()
+            .last()
+            .ok_or_else(|| error(root, E::ReceiptMismatch))?
+            .next_state()
+            .source_state()
+            .source
+            .demand;
+        let counts = self.inner.close_page_source_kernel(
+            demand,
+            geometry.pages().iter().map(SourceClosurePage::Columns),
+        )?;
+        Ok(BookV2ColumnSourceClosure {
+            geometry,
+            stable,
+            flow: self.inner.content.flow,
+            counts,
+            records: self.record_charge(),
+            work: self.work_steps(),
+        })
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 struct SourceVisit {
     semantic: bool,
@@ -104,6 +239,208 @@ impl SourceVisit {
     }
 }
 
+/// Borrow either physical representation inside the shared source proof only.
+/// This adapter never creates a single-body receipt for column geometry.
+#[derive(Clone, Copy)]
+enum SourceClosurePage<'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    Body(&'g BookV2BodyMixedPlacedPage<'q, 'b, 'f, 's, 'p, 'a>),
+    Columns(&'g BookV2ColumnPlacedPage<'q, 'b, 'f, 's, 'p, 'a>),
+}
+impl<'g, 'q, 'b, 'f, 's, 'p, 'a> SourceClosurePage<'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    fn page_index(self) -> u32 {
+        match self {
+            Self::Body(p) => p.selection().page_index(),
+            Self::Columns(p) => p.selection().page_index(),
+        }
+    }
+    fn forced_break(self) -> Option<NodeId> {
+        match self {
+            Self::Body(p) => p.selection().forced_break(),
+            Self::Columns(p) => p.selection().forced_break(),
+        }
+    }
+    fn forced_table(
+        self,
+        search: &mut BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>,
+    ) -> Result<
+        Option<&'g crate::book_v2::BookV2TableFragmentSelection<'b, 'f, 's, 'p, 'a>>,
+        ProductionBodyPaginationError,
+    > {
+        match self {
+            Self::Body(page) => Ok(page
+                .selection()
+                .candidate()
+                .parts()
+                .last()
+                .and_then(|part| part.table())
+                .filter(|table| table.forced_break_owner().is_some())),
+            Self::Columns(page) => {
+                for column in page.selection().candidate().columns().iter().rev() {
+                    search.content.step(NodeId::new(0))?;
+                    if let Some(table) = column
+                        .parts()
+                        .last()
+                        .and_then(|part| part.table())
+                        .filter(|table| table.forced_break_owner().is_some())
+                    {
+                        return Ok(Some(table));
+                    }
+                }
+                Ok(None)
+            }
+        }
+    }
+    fn next_item(self) -> usize {
+        match self {
+            Self::Body(p) => p.selection().candidate().next_state().next_item(),
+            Self::Columns(p) => p.selection().candidate().next_state().next_item(),
+        }
+    }
+    fn body_regions(
+        self,
+    ) -> impl DoubleEndedIterator<Item = (Rect, &'g [BookV2BodySelectedPart<'b, 'f, 's, 'p, 'a>])>
+    {
+        let (body, columns) = match self {
+            Self::Body(p) => (Some(p), None),
+            Self::Columns(p) => (None, Some(p)),
+        };
+        body.into_iter()
+            .map(|p| {
+                (
+                    p.selection().body_bounds(),
+                    p.selection().candidate().parts(),
+                )
+            })
+            .chain(columns.into_iter().flat_map(|p| {
+                p.selection()
+                    .candidate()
+                    .columns()
+                    .iter()
+                    .map(|c| (c.bounds(), c.parts()))
+            }))
+    }
+    fn body_parts(
+        self,
+    ) -> impl DoubleEndedIterator<Item = (Rect, &'g BookV2BodySelectedPart<'b, 'f, 's, 'p, 'a>)>
+    {
+        self.body_regions()
+            .flat_map(|(bounds, parts)| parts.iter().map(move |p| (bounds, p)))
+    }
+    fn footnotes(self) -> Option<&'g BookV2FootnoteRegionSelection<'b, 'f, 's, 'p, 'a>> {
+        match self {
+            Self::Body(p) => p.selection().candidate().footnotes(),
+            Self::Columns(p) => p.selection().candidate().footnotes(),
+        }
+    }
+    fn footnote_bounds(self) -> Option<Rect> {
+        match self {
+            Self::Body(p) => p.selection().candidate().footnote_bounds(),
+            Self::Columns(p) => p.selection().candidate().footnote_bounds(),
+        }
+    }
+    fn fragments(self) -> &'g [ProductionBodyFootnotePlacedFragment] {
+        match self {
+            Self::Body(p) => p.fragments(),
+            Self::Columns(p) => p.fragments(),
+        }
+    }
+    fn cell_roles(self) -> &'g [Option<ProductionTablePlacedCellRole>] {
+        match self {
+            Self::Body(p) => p.cell_roles(),
+            Self::Columns(p) => p.cell_roles(),
+        }
+    }
+    fn repeated_caption_positions(self) -> &'g [usize] {
+        match self {
+            Self::Body(p) => p.repeated_caption_positions(),
+            Self::Columns(p) => p.source_repeated_caption_positions(),
+        }
+    }
+    fn header_variants(self) -> &'g [BookV2BodyPlacedHeaderVariant<'b, 'f, 's, 'p, 'a>] {
+        match self {
+            Self::Body(p) => p.header_variants(),
+            Self::Columns(p) => p.source_header_variants(),
+        }
+    }
+    fn header_variant(
+        self,
+        fragment: usize,
+    ) -> Option<&'g BookV2BodyPlacedHeaderVariant<'b, 'f, 's, 'p, 'a>> {
+        let variants = self.header_variants();
+        variants
+            .binary_search_by_key(&fragment, |v| v.fragment_index())
+            .ok()
+            .map(|i| &variants[i])
+    }
+    fn fragments_with_roles(
+        self,
+    ) -> impl Iterator<
+        Item = (
+            &'g ProductionBodyFootnotePlacedFragment,
+            Option<ProductionTablePlacedCellRole>,
+            bool,
+        ),
+    > {
+        self.fragments()
+            .iter()
+            .zip(super::mixed_placement::roles_with_repetition(
+                self.cell_roles(),
+                self.repeated_caption_positions(),
+            ))
+            .map(|(fragment, (cell, repeated))| (fragment, cell, repeated))
+    }
+    fn horizontal(
+        self,
+        search: &mut BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a>,
+        flow: &'b BookV2PreparedBodyFlow<'f, 's, 'p, 'a>,
+        index: usize,
+        definition: Option<usize>,
+        variant: bool,
+    ) -> Result<Length, ProductionBodyPaginationError> {
+        match self {
+            Self::Body(page) if variant => {
+                super::header_placement::origin_delta(flow, page.selection(), definition.is_some())
+            }
+            Self::Body(page) => search.page_origin_delta(page.selection(), definition.is_some()),
+            Self::Columns(page) => {
+                let root = NodeId::new(0);
+                search.source_lookup_work(page.columns().len(), root)?;
+                let actual = match (page.fragment_column(index), definition) {
+                    (Some(column), None) => {
+                        page.columns().get(usize::from(column)).map(|c| c.bounds())
+                    }
+                    (None, Some(_)) => self.footnote_bounds(),
+                    _ => None,
+                }
+                .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+                let frames = flow
+                    .lines()
+                    .frames()
+                    .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+                let measured = if definition.is_some() {
+                    frames.footnote_region()
+                } else {
+                    Some(frames.body())
+                }
+                .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+                actual
+                    .x()
+                    .checked_sub(measured.x())
+                    .ok_or_else(|| error(root, E::ArithmeticOverflow))
+            }
+        }
+    }
+}
+
+struct SourceClosureSummary {
+    semantic_fragments: usize,
+    repeated_fragments: usize,
+    header_variant_fragments: usize,
+    unreferenced_definitions: usize,
+    semantic_math: usize,
+    repeated_math: usize,
+}
+
 impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     /// Bind an exact stable sequence and its placed geometry to every actual
     /// paintable source leaf. Forced breaks are source events, not paint leaves.
@@ -120,12 +457,6 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         if !std::ptr::eq(stable.sequence(), geometry.sequence()) {
             return Err(error(root, E::ReceiptMismatch));
         }
-        let header_sources = if self.headers.is_some() {
-            Some(headers::OriginalHeaderSources::prepare(self)?)
-        } else {
-            None
-        };
-        let flow = self.content.flow;
         let demand = stable
             .sequence()
             .pages()
@@ -134,6 +465,45 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             .next_state()
             .source_state()
             .demand();
+        let counts = self.close_page_source_kernel(
+            demand,
+            geometry.pages().iter().map(SourceClosurePage::Body),
+        )?;
+        Ok(BookV2BodySourceClosure {
+            geometry,
+            stable,
+            flow: self.content.flow,
+            semantic_fragments: counts.semantic_fragments,
+            repeated_fragments: counts.repeated_fragments,
+            header_variant_fragments: counts.header_variant_fragments,
+            unreferenced_definitions: counts.unreferenced_definitions,
+            semantic_math: counts.semantic_math,
+            repeated_math: counts.repeated_math,
+            records: self.record_charge(),
+            work: self.work_steps(),
+        })
+    }
+
+    fn close_page_source_kernel<'g, 'q>(
+        &mut self,
+        demand: &BookV2FootnoteDemandState<'b, 'f, 's, 'p, 'a>,
+        pages: impl IntoIterator<Item = SourceClosurePage<'g, 'q, 'b, 'f, 's, 'p, 'a>>,
+    ) -> Result<SourceClosureSummary, ProductionBodyPaginationError>
+    where
+        'b: 'q,
+        'f: 'q,
+        's: 'q,
+        'p: 'q,
+        'a: 'q,
+        'q: 'g,
+    {
+        let root = NodeId::new(0);
+        let header_sources = if self.headers.is_some() {
+            Some(headers::OriginalHeaderSources::prepare(self)?)
+        } else {
+            None
+        };
+        let flow = self.content.flow;
         self.verify_state(demand)?;
         if !demand.pending_definitions().is_empty() {
             return Err(error(root, E::ReceiptMismatch));
@@ -156,7 +526,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         let mut header_variant_fragments = 0usize;
         let mut semantic_math = 0usize;
         let mut repeated_math = 0usize;
-        for page in geometry.pages() {
+        for page in pages {
             self.content.step(root)?;
             if let Some(sources) = &header_sources {
                 header_variant_fragments = header_variant_fragments
@@ -165,15 +535,9 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             } else if !page.header_variants().is_empty() {
                 return Err(error(root, E::ReceiptMismatch));
             }
-            if let Some(owner) = page.selection().forced_break() {
+            if let Some(owner) = page.forced_break() {
                 self.content.step(owner)?;
-                let candidate = page.selection().candidate();
-                if let Some(table) = candidate
-                    .parts()
-                    .last()
-                    .and_then(|part| part.table())
-                    .filter(|t| t.forced_break_owner().is_some())
-                {
+                if let Some(table) = page.forced_table(self)? {
                     let mut first = None;
                     for index in table.forced_break_items() {
                         self.content.step(owner)?;
@@ -189,7 +553,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                         return Err(error(owner, E::ReceiptMismatch));
                     }
                 } else {
-                    let index = candidate.next_state().next_item();
+                    let index = page.next_item();
                     let item = flow
                         .body_items()
                         .get(index)
@@ -198,7 +562,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                     visits[index].consume(false, item.owner())?;
                 }
             }
-            if let Some(region) = page.selection().candidate().footnotes() {
+            if let Some(region) = page.footnotes() {
                 for placed in region.fragments() {
                     self.content.step(root)?;
                     let fragment = placed.fragment();
@@ -261,7 +625,7 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 let item = &paint_flow.collected.items[index];
                 if item.owner() != owner
                     || item.source() != Some(fragment.source())
-                    || fragment.page_index() != page.selection().page_index()
+                    || fragment.page_index() != page.page_index()
                 {
                     return Err(error(owner, E::ReceiptMismatch));
                 }
@@ -270,14 +634,14 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 } else if !repeated {
                     return Err(error(owner, E::ReceiptMismatch));
                 }
-                let horizontal = if variant.is_some() {
-                    super::header_placement::origin_delta(
-                        paint_flow, page.selection(), placed.definition_index().is_some(),
-                    )?
-                } else {
-                    self.page_origin_delta(page.selection(), placed.definition_index().is_some())?
-                };
-                if variant.is_some()
+                let horizontal = page.horizontal(
+                    self,
+                    paint_flow,
+                    fragment_index,
+                    placed.definition_index(),
+                    variant.is_some(),
+                )?;
+                if (variant.is_some() || matches!(page, SourceClosurePage::Columns(_)))
                     && (fragment.bounds().x() != add(item.x(), horizontal, owner)?
                         || fragment.bounds().width() != item.width()
                         || fragment.bounds().height().get() != item.height())
@@ -325,18 +689,13 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 visits[index].finish(referenced, item.owner())?;
             }
         }
-        Ok(BookV2BodySourceClosure {
-            geometry,
-            stable,
-            flow,
+        Ok(SourceClosureSummary {
             semantic_fragments,
             repeated_fragments,
             header_variant_fragments,
             unreferenced_definitions,
             semantic_math,
             repeated_math,
-            records: self.record_charge(),
-            work: self.work_steps(),
         })
     }
 

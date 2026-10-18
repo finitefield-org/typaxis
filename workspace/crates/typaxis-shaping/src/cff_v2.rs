@@ -72,25 +72,45 @@ fn selector(c: char) -> bool {
     matches!(c as u32,0xfe00..=0xfe0f | 0xe0100..=0xe01ef)
 }
 pub(super) fn coverage(admission: &Cff1AdmissionV2, text: &str) -> Result<(), Cff1ShapeErrorV2> {
+    coverage_with_storage(admission, text, &mut shared_shape_storage::NoStorage)
+}
+pub(super) fn coverage_with_storage<S: shared_shape_storage::Storage>(
+    admission: &Cff1AdmissionV2,
+    text: &str,
+    storage: &mut S,
+) -> Result<(), Cff1ShapeErrorV2> {
     let mut chars = text.char_indices().peekable();
-    while let Some((start, base)) = chars.next() {
+    loop {
+        storage.work(1).map_err(Cff1ShapeErrorV2::Backend)?;
+        let Some((start, base)) = chars.next() else {
+            break;
+        };
+        storage.work(1).map_err(Cff1ShapeErrorV2::Backend)?;
         let vs = chars.peek().copied().filter(|(_, c)| selector(*c));
         let end = if let Some((at, c)) = vs {
+            storage.work(1).map_err(Cff1ShapeErrorV2::Backend)?;
             chars.next();
             at + c.len_utf8()
         } else {
             start + base.len_utf8()
         };
-        let missing = selector(base)
-            || if let Some((_, vs)) = vs {
-                admission
-                    .cmap()
-                    .glyph_for_sequence(base, Some(vs))
-                    .is_none()
-            } else {
-                !is_shaping_default_ignorable(base)
-                    && admission.cmap().glyph_for_sequence(base, None).is_none()
-            };
+        let missing = if selector(base) {
+            true
+        } else if let Some((_, vs)) = vs {
+            admission
+                .cmap()
+                .glyph_for_sequence_with_work(base, Some(vs), &mut || storage.work(1))
+                .map_err(Cff1ShapeErrorV2::Backend)?
+                .is_none()
+        } else if is_shaping_default_ignorable(base) {
+            false
+        } else {
+            admission
+                .cmap()
+                .glyph_for_sequence_with_work(base, None, &mut || storage.work(1))
+                .map_err(Cff1ShapeErrorV2::Backend)?
+                .is_none()
+        };
         if missing {
             return Err(Cff1ShapeErrorV2::MissingCoverage {
                 byte_start: start as u32,

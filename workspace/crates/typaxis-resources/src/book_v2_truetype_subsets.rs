@@ -64,12 +64,10 @@ impl<'x, 'c, 'a> BookV2TrueTypeSubset<'x, 'c, 'a> {
         self.work
     }
 }
-impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-    BookV2FontSelectionBuilder<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
-{
+impl<'v, 'a, D: BookV2ResourceDisplay<'a>> BookV2FontSelectionBuilderData<'v, 'a, D> {
     pub fn write_truetype_font<'x, 'c>(
         &mut self,
-        closures: &'x BookV2FontClosures<'c, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+        closures: &'x BookV2FontClosuresData<'c, 'v, 'a, D>,
         index: usize,
     ) -> Result<BookV2TrueTypeSubset<'x, 'c, 'a>, BookV2TrueTypeSubsetError> {
         if !std::ptr::eq(self.display, closures.selection().display()) {

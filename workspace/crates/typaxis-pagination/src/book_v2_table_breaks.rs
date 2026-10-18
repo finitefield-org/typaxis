@@ -614,3 +614,6 @@ pub(in crate::production_body::body_flow) use definition_context::BookV2Definiti
 
 #[path = "book_v2_table_earlier_capacity.rs"]
 mod earlier_capacity;
+#[path = "book_v2_table_capacity_groups.rs"]
+mod capacity_groups;
+pub(in crate::production_body::body_flow) use capacity_groups::{BookV2TableCapacityGroup, BookV2TableCapacityObservation};

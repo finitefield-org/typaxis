@@ -49,6 +49,52 @@ impl<'a> BodyFonts<'a> {
             }
         }
     }
+    pub fn select_with_storage<S: Storage>(
+        self,
+        families: &[String],
+        storage: &mut S,
+    ) -> Result<(FontFaceId, BodyFont<'a>), ProductionTextShapeErrorKind> {
+        use ProductionTextShapeErrorKind as E;
+        let face_id = if S::OBSERVED {
+            self.font_families()
+                .try_resolve_with_work(families, &mut |amount| storage.work(amount))
+                .map_err(|error| match error {
+                    typaxis_font::FontFamilyWorkError::Family(_) => E::MissingSelectedFont,
+                    typaxis_font::FontFamilyWorkError::ArithmeticOverflow => {
+                        E::Backend(LinkedShaperError::ArithmeticOverflow)
+                    }
+                    typaxis_font::FontFamilyWorkError::Refused(error) => E::Backend(error),
+                })?
+        } else {
+            self.font_families()
+                .resolve(families)
+                .map_err(|_| E::MissingSelectedFont)?
+        };
+        let font = if !S::OBSERVED {
+            self.font(face_id)
+        } else {
+            match self {
+                Self::Legacy(ledger) => {
+                    let mut selected = None;
+                    for font in ledger.fonts() {
+                        storage.work(1).map_err(E::Backend)?;
+                        if font.font_face_id() == face_id {
+                            selected = Some(BodyFont::Legacy(font));
+                            break;
+                        }
+                    }
+                    selected
+                }
+                #[cfg(feature = "book-v2-staging")]
+                Self::BookV2(_, _) => {
+                    storage.work(1).map_err(E::Backend)?;
+                    self.font(face_id)
+                }
+            }
+        }
+        .ok_or(E::MissingSelectedFont)?;
+        Ok((face_id, font))
+    }
     pub fn fingerprint(self) -> [u8; 32] {
         match self {
             Self::Legacy(v) => v.fingerprint().bytes(),
@@ -99,13 +145,21 @@ impl<'a> BodyFont<'a> {
             Self::BookV2(f) => f.font_instance_id(),
         }
     }
+    #[cfg(feature = "book-v2-staging")]
     pub fn coverage(self, text: &str) -> Result<(), ProductionTextShapeErrorKind> {
+        self.coverage_with_storage(text, &mut NoStorage)
+    }
+    pub fn coverage_with_storage<S: Storage>(
+        self,
+        text: &str,
+        storage: &mut S,
+    ) -> Result<(), ProductionTextShapeErrorKind> {
         #[cfg(feature = "book-v2-staging")]
         if let Self::BookV2(instance) = self {
             if let typaxis_resource_admission::AdmittedProductionFontV3::Cff1V2(font) =
                 instance.font()
             {
-                return crate::cff_v2::coverage(font.admission(), text)
+                return crate::cff_v2::coverage_with_storage(font.admission(), text, storage)
                     .map_err(ProductionTextShapeErrorKind::CffV2);
             }
         }
@@ -117,23 +171,33 @@ impl<'a> BodyFont<'a> {
                 _ => unreachable!("CFF handled above"),
             },
         };
-        validate_admitted_font_coverage(font, text).map_err(|e| match e {
+        let result = if S::OBSERVED {
+            crate::truetype_coverage::validate(font, text, storage)
+        } else {
+            validate_admitted_font_coverage(font, text)
+        };
+        result.map_err(|e| match e {
             StagingEquationNumberShapeError::MissingDeclaredFontCoverage => {
                 ProductionTextShapeErrorKind::MissingDeclaredFontCoverage
             }
+            StagingEquationNumberShapeError::Backend(e) => ProductionTextShapeErrorKind::Backend(e),
             _ => ProductionTextShapeErrorKind::InvalidFontMetrics,
         })
     }
-    pub fn run_coverage(
+    pub fn run_coverage<S: Storage>(
         self,
         text: &str,
         post_context: &str,
+        storage: &mut S,
     ) -> Result<(), ProductionTextShapeErrorKind> {
         #[cfg(feature = "book-v2-staging")]
         if let Self::BookV2(instance) = self {
             if let typaxis_resource_admission::AdmittedProductionFontV3::Cff1V2(font) =
                 instance.font()
             {
+                storage.work(1).map_err(|e| {
+                    ProductionTextShapeErrorKind::CffV2(Cff1ShapeErrorV2::Backend(e))
+                })?;
                 if post_context
                     .chars()
                     .next()
@@ -143,11 +207,11 @@ impl<'a> BodyFont<'a> {
                         Cff1ShapeErrorV2::SplitVariationSequence,
                     ));
                 }
-                return crate::cff_v2::coverage(font.admission(), text)
+                return crate::cff_v2::coverage_with_storage(font.admission(), text, storage)
                     .map_err(ProductionTextShapeErrorKind::CffV2);
             }
         }
-        let _ = (text, post_context);
+        let _ = (text, post_context, storage);
         Ok(())
     }
 }

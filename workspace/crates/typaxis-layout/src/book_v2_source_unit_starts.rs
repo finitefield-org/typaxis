@@ -23,6 +23,23 @@ impl BookV2BodyInlineFrames<'_, '_> {
         consumed: &mut u64,
         observed_records: &mut u64,
     ) -> Result<u64, ProductionInlinePreparationError> {
+        self.apply_source_unit_starts_with_record_limit(
+            assignments,
+            maximum_work,
+            consumed,
+            observed_records,
+            self.prepared.output_record_limit,
+        )
+    }
+
+    pub(super) fn apply_source_unit_starts_with_record_limit(
+        &mut self,
+        assignments: &BookV2SourceWidthAssignments<'_, '_>,
+        maximum_work: u64,
+        consumed: &mut u64,
+        observed_records: &mut u64,
+        record_limit: u64,
+    ) -> Result<u64, ProductionInlinePreparationError> {
         let mut work = 0u64;
         let result = (|| {
             use ProductionInlinePreparationErrorKind as E;
@@ -55,7 +72,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
                 .record_charge()
                 .checked_add(starts.len() as u64)
                 .and_then(|n| n.checked_add(1))
-                .filter(|n| *n <= self.prepared.output_record_limit)
+                .filter(|n| *n <= record_limit.min(self.prepared.output_record_limit))
                 .ok_or_else(|| error(root, E::UnitLimit))?;
             *observed_records = records;
             for (index, (p, values)) in self.prepared.paragraphs.iter().zip(starts).enumerate() {
@@ -75,7 +92,7 @@ impl BookV2BodyInlineFrames<'_, '_> {
                     }
                     records = records
                         .checked_add(count as u64)
-                        .filter(|n| *n <= self.prepared.output_record_limit)
+                        .filter(|n| *n <= record_limit.min(self.prepared.output_record_limit))
                         .ok_or_else(|| error(p.owner(), E::UnitLimit))?;
                     *observed_records = records;
                 }

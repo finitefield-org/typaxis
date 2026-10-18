@@ -23,7 +23,7 @@ pub(super) fn fingerprint_source_flow<P, N>(
     output.finish()
 }
 
-fn write_source_flow<P, N, W: Write + ?Sized>(
+pub(super) fn write_source_flow<P, N, W: Write + ?Sized>(
     flow: &SourceTextFlow<'_, P, N>,
     algorithm: &str,
     language_sha256: [u8; 32],

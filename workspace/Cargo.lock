@@ -119,19 +119,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "harfrust"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcd79170b62101f61285314e749ea0ccad616f8779d99571c6380a86d690ab9a"
-dependencies = [
- "bitflags",
- "bytemuck",
- "core_maths",
- "read-fonts",
- "smallvec",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -420,6 +407,7 @@ dependencies = [
  "typaxis-document",
  "typaxis-document-package",
  "typaxis-font",
+ "typaxis-host-admission",
  "typaxis-layout",
  "typaxis-linebreak",
  "typaxis-machine-input",
@@ -488,6 +476,17 @@ version = "0.1.0"
 dependencies = [
  "read-fonts",
  "typaxis-core",
+]
+
+[[package]]
+name = "typaxis-harfrust"
+version = "0.1.1"
+dependencies = [
+ "bitflags",
+ "bytemuck",
+ "core_maths",
+ "read-fonts",
+ "smallvec",
 ]
 
 [[package]]
@@ -599,6 +598,7 @@ dependencies = [
  "typaxis-layout",
  "typaxis-linebreak",
  "typaxis-resource-admission",
+ "typaxis-shaping",
  "typaxis-style",
  "typaxis-syntax",
  "typaxis-text",
@@ -655,15 +655,20 @@ dependencies = [
 name = "typaxis-shaping"
 version = "0.1.0"
 dependencies = [
- "harfrust",
  "read-fonts",
+ "serde_json",
  "typaxis-core",
+ "typaxis-document",
+ "typaxis-document-package",
  "typaxis-font",
+ "typaxis-harfrust",
  "typaxis-layout-contract",
+ "typaxis-machine-input",
  "typaxis-resource-admission",
  "typaxis-syntax",
  "typaxis-text",
- "unicode-bidi",
+ "typaxis-unicode-bidi",
+ "typaxis-unicode-segmentation",
  "unicode-script",
  "unicode-segmentation",
 ]
@@ -718,10 +723,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "unicode-bidi"
+name = "typaxis-unicode-bidi"
 version = "0.3.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5"
+
+[[package]]
+name = "typaxis-unicode-segmentation"
+version = "1.12.0"
 
 [[package]]
 name = "unicode-ident"

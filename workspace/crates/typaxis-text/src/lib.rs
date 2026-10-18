@@ -238,7 +238,7 @@ impl TextStore {
 }
 
 mod generated_overlay;
-pub use generated_overlay::GeneratedTextOverlay;
+pub use generated_overlay::{GeneratedOverlayCountedError, GeneratedOverlayWorkError, GeneratedTextOverlay};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GeneratedBufferDraft {

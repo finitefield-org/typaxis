@@ -26,7 +26,7 @@ members = [
   "crates/typaxis-testkit",
   "crates/typaxis-cli",
 ]
-exclude = ["fuzz"]
+exclude = ["fuzz", "vendor/typaxis-unicode-bidi", "vendor/typaxis-harfrust", "vendor/typaxis-unicode-segmentation"]
 
 [workspace.package]
 version = "0.1.0"

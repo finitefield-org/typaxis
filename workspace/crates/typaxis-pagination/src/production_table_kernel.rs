@@ -9,6 +9,11 @@ use parallel::CellContinuation;
 #[cfg(feature = "book-v2-staging")]
 #[path = "production_table_capacity_breaks.rs"]
 mod capacity;
+#[cfg(feature = "book-v2-staging")]
+#[path = "production_table_capacity_events.rs"]
+mod capacity_events;
+#[cfg(feature = "book-v2-staging")]
+pub(super) use capacity_events::CapacityProbe;
 
 #[derive(Clone, Copy)]
 pub(super) struct TablePosition {
@@ -73,8 +78,14 @@ pub(super) struct TableBreakKernel<'m> {
     pub(super) charge: Charge,
     pub(super) maximum_records: u64,
     pub(super) work: Work,
+    #[cfg(feature = "book-v2-staging")]
+    pub(super) capacity_probe: Option<CapacityProbe>,
 }
 impl TableBreakKernel<'_> {
+    #[cfg(feature = "book-v2-staging")]
+    pub(super) fn capacity_proof_spool_limit(&self) -> Option<u64> {
+        self.input.max_canonical_bytes
+    }
     /// Physical reservation may vary after the original header was consumed.
     /// Source offsets and row bands continue to use `header_height`.
     pub(super) fn paint_header_height(&self) -> Length {
@@ -184,6 +195,8 @@ impl TableBreakKernel<'_> {
         }
         let table = self.input.table;
         let owner = table.owner;
+        #[cfg(feature = "book-v2-staging")]
+        self.probe_common_capacity_events(cursor)?;
         if (!cursor.initial && cursor.row == table.rows.len())
             || cursor.offset < self.header_height
             || cursor.offset > table.height
@@ -305,6 +318,8 @@ impl TableBreakKernel<'_> {
         {
             return Err(error(owner, E::SpoolLimit));
         }
+        #[cfg(feature = "book-v2-staging")]
+        self.probe_capacity_spool(canonical_capacity as u64)?;
         let mut bytes = Vec::new();
         bytes
             .try_reserve_exact(canonical_capacity)
@@ -385,6 +400,8 @@ impl TableBreakKernel<'_> {
     ) -> Result<Option<TableFragmentProjection>, ProductionBodyPaginationError> {
         let table = self.input.table;
         let owner = table.owner;
+        #[cfg(feature = "book-v2-staging")]
+        self.probe_common_capacity_events(cursor)?;
         let caption = table
             .caption
             .as_ref()
@@ -960,6 +977,8 @@ pub(super) fn prepare_kernel_counted<'m>(
             reserved_by_parent: false,
             #[cfg(feature = "book-v2-staging")]
             common_offset_cells: false,
+            #[cfg(feature = "book-v2-staging")]
+            capacity_probe: None,
             max_ends,
             tree_base,
             charge: Charge {

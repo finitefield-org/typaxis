@@ -12,7 +12,15 @@ pub(super) fn add_source_text_references<'a, S: FlowSource<'a>>(
         return Ok(());
     }
     for pi in 0..collector.paragraphs.len() {
+        collector
+            .source
+            .operations()
+            .step(collector.paragraphs[pi].owner(), 1)?;
         for si in 0..collector.paragraphs[pi].items().len() {
+            collector
+                .source
+                .operations()
+                .step(collector.paragraphs[pi].owner(), 1)?;
             let site = collector.paragraphs[pi].items()[si];
             let Some(ProductionInlineReference::Anchor {
                 target,
@@ -26,13 +34,19 @@ pub(super) fn add_source_text_references<'a, S: FlowSource<'a>>(
             let owner = site.owner();
             let missing = || failure(ProductionFlowErrorKind::MissingReferenceLabel, owner);
             let explicit = match format {
-                ProductionReferenceFormat::Number => collector.source.reference_number(target),
-                _ => collector.source.reference_label(target_owner),
+                ProductionReferenceFormat::Number => {
+                    collector.source.reference_number(owner, target)?
+                }
+                _ => collector.source.reference_label(owner, target_owner)?,
             };
             let heading = if format == ProductionReferenceFormat::Text
                 && explicit.is_none()
-                && collector.source.heading_label(target_owner)
+                && collector.source.heading_label(owner, target_owner)?
             {
+                collector
+                    .source
+                    .operations()
+                    .step(owner, collector.paragraphs.len() as u64)?;
                 Some(
                     collector
                         .paragraphs
@@ -66,6 +80,10 @@ pub(super) fn add_source_text_references<'a, S: FlowSource<'a>>(
                 }
                 Ok(())
             };
+            collector
+                .source
+                .operations()
+                .step(owner, heading.map_or(0, |p| p.items().len() as u64))?;
             let mut length = 0usize;
             visit(&mut |text| {
                 length = length
@@ -98,17 +116,25 @@ pub(super) fn add_source_text_references<'a, S: FlowSource<'a>>(
             // Reserve and copy only after the complete generated length and
             // shared text budget are known; authored buffers remain untouched.
             collector.source.reserve_records(owner, 1)?;
-            let mut text = String::new();
-            text.try_reserve_exact(length)
-                .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+            let mut text = collector.source.operations().empty_string(owner, length)?;
+            collector
+                .source
+                .operations()
+                .step(owner, heading.map_or(0, |p| p.items().len() as u64))?;
             visit(&mut |part| {
+                collector
+                    .source
+                    .operations()
+                    .step(owner, part.len() as u64 + 1)?;
                 text.push_str(part);
                 Ok(())
             })?;
-            collector
-                .generated_records
-                .try_reserve(1)
-                .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+            collector.source.operations().grow(
+                owner,
+                &mut collector.generated_records,
+                1,
+                false,
+            )?;
             collector.generated_bytes = total;
             collector
                 .generated_records

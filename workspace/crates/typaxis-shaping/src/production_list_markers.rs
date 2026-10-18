@@ -39,21 +39,31 @@ impl<'a> ProductionListMarkerShape<'a> {
     }
 }
 
-pub(super) fn shape_markers<'a>(
+pub(super) fn shape_markers<'a, S: Storage>(
     flow: BodyFlow<'a>,
     admitted: BodyFonts<'_>,
     limits: &M4EffectiveResourceLimits,
     output_records: &mut u64,
     maximum_records: Option<u64>,
+    storage: &mut S,
 ) -> Result<Vec<ProductionListMarkerShape<'a>>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let mut output = Vec::new();
     for (index, item) in flow_call!(flow, list_items()).iter().enumerate() {
         let owner = item.owner();
-        let text = flow_call!(flow, list_marker_text(index))
-            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-        let provenance = flow_call!(flow, list_marker_provenance(index))
-            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+        storage.owner(owner);
+        storage.work(1).map_err(|e| error(owner, E::Backend(e)))?;
+        let (provenance, text) = if S::OBSERVED {
+            flow_call!(flow, list_marker_with_work(index, &mut |n| storage.work(n)))
+                .map_err(|e| error(owner, E::Backend(e)))?
+                .ok_or_else(|| error(owner, E::ReceiptMismatch))?
+        } else {
+            let text = flow_call!(flow, list_marker_text(index))
+                .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+            let provenance = flow_call!(flow, list_marker_provenance(index))
+                .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+            (provenance, text)
+        };
         let list = flow_call!(flow, lists())
             .get(item.list_index() as usize)
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
@@ -76,10 +86,9 @@ pub(super) fn shape_markers<'a>(
             limits,
             output_records,
             maximum_records,
+            storage,
         )?;
-        output
-            .try_reserve(1)
-            .map_err(|_| error(owner, E::AllocationFailure))?;
+        body_reserve_one(&mut output, storage, Site::ListMarkers, owner)?;
         output.push(ProductionListMarkerShape {
             source: item,
             marker_index: index as u32,
@@ -111,12 +120,13 @@ pub(super) struct GeneratedMarkerGlyphs<'a> {
     pub advance: PositiveLength,
     pub fingerprint: [u8; 32],
 }
-pub(super) fn shape_generated_marker<'a>(
+pub(super) fn shape_generated_marker<'a, S: Storage>(
     input: GeneratedMarkerInput<'a>,
     admitted: BodyFonts<'_>,
     limits: &M4EffectiveResourceLimits,
     output_records: &mut u64,
     maximum_records: Option<u64>,
+    storage: &mut S,
 ) -> Result<GeneratedMarkerGlyphs<'a>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let GeneratedMarkerInput {
@@ -132,14 +142,10 @@ pub(super) fn shape_generated_marker<'a>(
     if provenance.buffer_key().owner() != owner {
         return Err(error(owner, E::ReceiptMismatch));
     }
-    let face_id = admitted
-        .font_families()
-        .resolve(families)
-        .map_err(|_| error(owner, E::MissingSelectedFont))?;
-    let font = admitted
-        .font(face_id)
-        .ok_or_else(|| error(owner, E::MissingSelectedFont))?;
-    font.coverage(text).map_err(|kind| {
+    let (face_id, font) = admitted
+        .select_with_storage(families, storage)
+        .map_err(|kind| error(owner, kind))?;
+    font.coverage_with_storage(text, storage).map_err(|kind| {
         error(
             owner,
             match kind {
@@ -151,8 +157,16 @@ pub(super) fn shape_generated_marker<'a>(
     if linked_backend_record_bound(text).map_err(|e| error(owner, E::Backend(e)))? > maximum {
         return Err(error(owner, E::ContextLimit));
     }
-    let face = harfrust::FontRef::from_index(font.bytes(), font.face_index())
-        .map_err(|_| error(owner, E::InvalidFontMetrics))?;
+    let face = crate::font_reader::read_with_tables(font.bytes(), font.face_index(), 1, storage)
+        .map_err(|e| {
+            error(
+                owner,
+                match e {
+                    LinkedShaperError::InvalidFontOrFace => E::InvalidFontMetrics,
+                    e => E::Backend(e),
+                },
+            )
+        })?;
     let hhea = face
         .hhea()
         .map_err(|_| error(owner, E::InvalidFontMetrics))?;
@@ -171,7 +185,8 @@ pub(super) fn shape_generated_marker<'a>(
     };
     let source = ShapeSourceSpan::Generated(provenance);
     let run_id = GlyphRunId::new(u32::try_from(index).map_err(|_| error(owner, E::OutputLimit))?);
-    maximum_records.unwrap_or(limits.base().get().max_fragments)
+    maximum_records
+        .unwrap_or(limits.base().get().max_fragments)
         .checked_sub(*output_records)
         .and_then(|n| n.checked_sub(1))
         .filter(|n| *n > 0)
@@ -203,30 +218,41 @@ pub(super) fn shape_generated_marker<'a>(
             max_output_records: record_maximum,
         },
         &mut budget,
-        owner, output_records, maximum_records,
+        owner,
+        output_records,
+        maximum_records,
+        storage,
     )?;
     let expected = ExpectedGlyphRun {
         run_id,
         font: font.instance_id(),
         bidi_level: BidiLevel::LTR,
         source,
-        utf8_boundaries: utf8_boundaries(source, text)
-            .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
+        utf8_boundaries: shared_storage::utf8_boundaries_with_storage(source, text, storage)
+            .map_err(|_| error(owner, E::ReceiptMismatch))?,
         glyph_count: font.metadata().glyph_count,
         max_output_records: record_maximum,
     };
-    if !budget.matches_output(&run) || validate_glyph_run(&expected, &run).is_err() {
+    if !budget.matches_output(&run)
+        || shared_storage::validate_glyph_run_with_storage(&expected, &run, storage).is_err()
+    {
         return Err(error(owner, E::ReceiptMismatch));
     }
-    if run.glyphs.iter().any(|g| g.original_gid.get() == 0) {
-        return Err(error(owner, E::MissingGeneratedGlyph));
+    for glyph in &run.glyphs {
+        storage.work(1).map_err(|e| error(owner, E::Backend(e)))?;
+        if glyph.original_gid.get() == 0 {
+            return Err(error(owner, E::MissingGeneratedGlyph));
+        }
     }
-    let advance = run
-        .glyphs
-        .iter()
-        .try_fold(Length::ZERO, |n, g| n.checked_add(g.advance_x))
-        .and_then(PositiveLength::new)
-        .ok_or_else(|| error(owner, E::InvalidFontMetrics))?;
+    let mut advance = Length::ZERO;
+    for glyph in &run.glyphs {
+        storage.work(1).map_err(|e| error(owner, E::Backend(e)))?;
+        advance = advance
+            .checked_add(glyph.advance_x)
+            .ok_or_else(|| error(owner, E::InvalidFontMetrics))?;
+    }
+    let advance =
+        PositiveLength::new(advance).ok_or_else(|| error(owner, E::InvalidFontMetrics))?;
     if maximum_records.is_none() {
         *output_records = output_records
             .checked_add(1 + run.glyphs.len() as u64 + run.clusters.len() as u64)
@@ -240,22 +266,22 @@ pub(super) fn shape_generated_marker<'a>(
         .and_then(|n| n.checked_add(run.clusters.len().checked_mul(16)?))
         .and_then(|n| n.checked_add(224))
         .ok_or_else(|| error(owner, E::OutputLimit))?;
-    let mut bytes = Sha256::new();
-    bytes.update(&owner.get().to_be_bytes());
-    bytes.update(&sha256(
+    let mut bytes = Digest::new(owner, storage)?;
+    bytes.update(&owner.get().to_be_bytes())?;
+    bytes.hash_into(
         typaxis_core::generation_kind_wire_name(provenance.buffer_key().generation_kind())
             .as_bytes(),
-    ));
-    bytes.update(&provenance.buffer_key().owner_local_ordinal().to_be_bytes());
-    bytes.update(&sha256(text.as_bytes()));
-    bytes.update(&sha256(language.as_bytes()));
-    bytes.update(&metrics.content_hash);
+    )?;
+    bytes.update(&provenance.buffer_key().owner_local_ordinal().to_be_bytes())?;
+    bytes.hash_into(text.as_bytes())?;
+    bytes.hash_into(language.as_bytes())?;
+    bytes.update(&metrics.content_hash)?;
     for n in [
         face_id.get(),
         font.face_index(),
         provenance.text_span().text_id().get(),
     ] {
-        bytes.update(&n.to_be_bytes());
+        bytes.update(&n.to_be_bytes())?;
     }
     for n in [
         metrics.size.get(),
@@ -263,14 +289,14 @@ pub(super) fn shape_generated_marker<'a>(
         metrics.descender,
         metrics.line_gap,
     ] {
-        bytes.update(&n.raw().to_be_bytes());
+        bytes.update(&n.raw().to_be_bytes())?;
     }
-    bytes.update(&(run.glyphs.len() as u64).to_be_bytes());
-    bytes.update(&(run.clusters.len() as u64).to_be_bytes());
+    bytes.update(&(run.glyphs.len() as u64).to_be_bytes())?;
+    bytes.update(&(run.clusters.len() as u64).to_be_bytes())?;
     for g in &run.glyphs {
-        bytes.update(&g.original_gid.get().to_be_bytes());
+        bytes.update(&g.original_gid.get().to_be_bytes())?;
         for n in [g.advance_x, g.advance_y, g.offset_x, g.offset_y] {
-            bytes.update(&n.raw().to_be_bytes());
+            bytes.update(&n.raw().to_be_bytes())?;
         }
     }
     for c in &run.clusters {
@@ -283,7 +309,7 @@ pub(super) fn shape_generated_marker<'a>(
             c.glyph_start,
             c.glyph_end,
         ] {
-            bytes.update(&n.to_be_bytes());
+            bytes.update(&n.to_be_bytes())?;
         }
     }
     Ok(GeneratedMarkerGlyphs {
@@ -292,6 +318,6 @@ pub(super) fn shape_generated_marker<'a>(
         font: metrics,
         run,
         advance,
-        fingerprint: bytes.finish(),
+        fingerprint: bytes.finish()?,
     })
 }

@@ -1,6 +1,8 @@
 //! Authored equation labels using the actual /3 font instances and shared shaper.
 use super::*;
 use typaxis_syntax::book_v2::PreparedBookVector;
+#[path = "book_v2_equation_number_storage.rs"]
+mod storage;
 
 pub const BOOK_V2_EQUATION_NUMBER_ALGORITHM: &str = "typaxis.book-2-equation-number-shape/1";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -13,6 +15,7 @@ pub enum BookV2EquationNumberErrorKind {
     OutputLimit,
     SpoolLimit,
     AllocationFailure,
+    ObservedAccounting(BookV2ObservedAccountingError),
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BookV2EquationNumberError {
@@ -141,6 +144,37 @@ pub fn shape_book_v2_equation_numbers_counted<'a>(
     prior_records: u64,
     observed_records: &mut u64,
 ) -> Result<Option<BookV2EquationNumberShapes<'a>>, BookV2EquationNumberError> {
+    shape_numbers_kernel(shaped, limits, prior_records, observed_records, None)
+}
+
+/// Charge this stage's shape vector, canonical receipt buffer, fingerprint
+/// buffer and traversal work to the live command before requesting storage.
+/// Shared itemizer/output vectors are paid at their reserve sites, including
+/// failed suffixes. Opaque bidi/backend scratch and allocator overcapacity
+/// remain outside this API's storage claim.
+pub fn shape_book_v2_equation_numbers_with_observed_storage<'a>(
+    shaped: &'a BookV2AuthoredTextShape<'a>,
+    limits: &M4EffectiveResourceLimits,
+    accounting: &mut BookV2ObservedSourceAccounting<'_, '_>,
+) -> Result<Option<BookV2EquationNumberShapes<'a>>, BookV2EquationNumberError> {
+    accounting
+        .require_limit_domain(limits.base())
+        .map_err(|err| BookV2EquationNumberError {
+            owner: NodeId::new(0),
+            kind: BookV2EquationNumberErrorKind::ObservedAccounting(err),
+        })?;
+    let prior = accounting.counters()[0];
+    let mut observed = prior;
+    shape_numbers_kernel(shaped, limits, prior, &mut observed, Some(accounting))
+}
+
+fn shape_numbers_kernel<'a>(
+    shaped: &'a BookV2AuthoredTextShape<'a>,
+    limits: &M4EffectiveResourceLimits,
+    prior_records: u64,
+    observed_records: &mut u64,
+    mut accounting: Option<&mut BookV2ObservedSourceAccounting<'_, '_>>,
+) -> Result<Option<BookV2EquationNumberShapes<'a>>, BookV2EquationNumberError> {
     *observed_records = prior_records;
     use BookV2EquationNumberErrorKind as E;
     let failure = |owner, kind| BookV2EquationNumberError { owner, kind };
@@ -149,6 +183,11 @@ pub fn shape_book_v2_equation_numbers_counted<'a>(
         .map_err(|e| failure(e.owner, E::ReceiptMismatch))?;
     let body = shaped.flow.body();
     let sources = body.body().vectors();
+    storage::pay(
+        &mut accounting,
+        NodeId::new(0),
+        [0, 0, sources.len() as u64],
+    )?;
     let count = sources
         .iter()
         .filter(|s| s.equation_number().is_some())
@@ -162,6 +201,12 @@ pub fn shape_book_v2_equation_numbers_counted<'a>(
         .filter(|n| *n <= limits.base().get().max_fragments)
         .ok_or_else(|| failure(NodeId::new(0), E::OutputLimit))?;
     *observed_records = charge;
+    storage::pay(
+        &mut accounting,
+        NodeId::new(0),
+        [charge - prior_records, 0, 0],
+    )?;
+    storage::pay_vector::<BookV2EquationNumberShape<'_>>(&mut accounting, NodeId::new(0), count)?;
     let mut shapes = Vec::new();
     shapes
         .try_reserve_exact(count)
@@ -170,6 +215,7 @@ pub fn shape_book_v2_equation_numbers_counted<'a>(
     let mut fingerprint = sha256(BOOK_V2_EQUATION_NUMBER_ALGORITHM.as_bytes());
     for source in sources.iter().filter(|s| s.equation_number().is_some()) {
         let owner = source.node_id();
+        storage::pay(&mut accounting, owner, [0, 0, 1])?;
         let number = source
             .equation_number()
             .ok_or_else(|| failure(owner, E::ReceiptMismatch))?;
@@ -188,13 +234,13 @@ pub fn shape_book_v2_equation_numbers_counted<'a>(
         let families = text_style
             .font_families()
             .ok_or_else(|| failure(owner, E::MissingTextStyle))?;
-        let font_face = fonts
-            .font_families()
-            .resolve(families)
-            .map_err(|_| failure(owner, E::MissingSelectedFont))?;
-        let font = fonts
-            .font(font_face)
-            .ok_or_else(|| failure(owner, E::MissingSelectedFont))?;
+        let (font_face, font) = if let Some(a) = accounting.as_deref_mut() {
+            storage::select_font_observed(fonts, families, owner, a)?
+        } else {
+            fonts
+                .select_with_storage(families, &mut NoStorage)
+                .map_err(|_| failure(owner, E::MissingSelectedFont))?
+        };
         let language = shaped
             .flow
             .navigation()
@@ -234,10 +280,14 @@ pub fn shape_book_v2_equation_numbers_counted<'a>(
                 E::Shape(StagingEquationNumberShapeError::ContextLimit),
             ));
         }
-        font.coverage(text)
-            .map_err(|e| failure(owner, E::Coverage(e)))?;
+        if let Some(a) = accounting.as_deref_mut() {
+            storage::coverage_observed(font, text, owner, a)?;
+        } else {
+            font.coverage(text)
+                .map_err(|e| failure(owner, E::Coverage(e)))?;
+        }
         let metadata = font.metadata();
-        let (paragraph_level, runs, width) = shape_equation_number_runs(EquationNumberRunInput {
+        let run_input = EquationNumberRunInput {
             exact_text: text,
             text_span,
             font_bytes: font.bytes(),
@@ -248,9 +298,18 @@ pub fn shape_book_v2_equation_numbers_counted<'a>(
             font_size,
             language: Some(language),
             maximum_records,
-            total_records: Some(limits.base().get().max_fragments - charge),
-        })
-        .map_err(|e| failure(owner, E::Shape(e)))?;
+            total_records: Some(
+                accounting
+                    .as_ref()
+                    .map_or(limits.base().get().max_fragments, |a| a.maximum_records())
+                    - charge,
+            ),
+        };
+        let (paragraph_level, runs, width) = if let Some(a) = accounting.as_deref_mut() {
+            storage::shape_runs_observed(run_input, owner, a)?
+        } else {
+            shape_equation_number_runs(run_input).map_err(|e| failure(owner, E::Shape(e)))?
+        };
         if !equation_number_runs_cover_with_level(text_span, &runs, typaxis_core::MAX_BIDI_LEVEL) {
             return Err(failure(owner, E::ReceiptMismatch));
         }
@@ -266,17 +325,31 @@ pub fn shape_book_v2_equation_numbers_counted<'a>(
             .filter(|n| *n <= limits.base().get().max_fragments)
             .ok_or_else(|| failure(owner, E::OutputLimit))?;
         *observed_records = charge;
+        if let Some(a) = accounting.as_ref() {
+            // The shared producer paid each run/output record before allocation.
+            // Keep those accepted records on every later spool/work refusal.
+            if a.counters()[0] != charge {
+                return Err(failure(owner, E::ReceiptMismatch));
+            }
+        }
+        storage::pay(&mut accounting, owner, [0, 0, records])?;
         // The shared glyph encoder's scalar fields are bounded; preflight its
         // temporary canonical storage before constructing the string.
-        if records
-            .checked_mul(1024)
-            .and_then(|n| n.checked_add(1024))
-            .map_or(true, |n| n > limits.base().get().max_spool_bytes)
+        if accounting.is_none()
+            && records
+                .checked_mul(1024)
+                .and_then(|n| n.checked_add(1024))
+                .map_or(true, |n| n > limits.base().get().max_spool_bytes)
         {
             return Err(failure(owner, E::SpoolLimit));
         }
-        let glyph_digest = sha256(encode_equation_number_glyph_receipt(&runs).as_bytes());
+        let glyph_digest = if let Some(accounting) = accounting.as_deref_mut() {
+            storage::glyph_digest(owner, &runs, accounting)?
+        } else {
+            sha256(encode_equation_number_glyph_receipt(&runs).as_bytes())
+        };
         let mut digest = Vec::new();
+        storage::pay(&mut accounting, owner, [0, 256, 256])?;
         digest
             .try_reserve_exact(256)
             .map_err(|_| failure(owner, E::AllocationFailure))?;

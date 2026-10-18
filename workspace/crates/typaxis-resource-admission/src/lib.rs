@@ -1,15 +1,40 @@
 #![forbid(unsafe_code)]
+mod resource_read_budget;
+mod resource_open_budget;
+mod host_catalog;
+mod staging_catalog_budget;
+pub use staging_catalog_budget::{staging_declared_base_catalog_with_budget, ResourceCatalogBudget, ResourceCatalogBudgetFailure, ResourceCatalogError, ResourceCatalogRequest, ResourceCatalogStage};
+mod resource_declaration_budget;
+mod resource_attempts;
+mod image_bindings;
+pub use resource_read_budget::{
+    HostReadBudget, HostReadBudgetFailure, HostReadRequest, HostReadStage,
+    host_open_identity_work_bound, HOST_OPEN_IDENTITY_NODE_BYTES, HOST_OPEN_IDENTITY_SLOT_BYTES,
+    ResourceReadBudgetFailure, ResourceReadError,
+};
 
 mod production_v3;
 pub use production_v3::{
+    ProductionFontBindingBudgetFailureV3, ProductionFontBindingBudgetResultV3, ProductionFontBindingCauseV3,
+    ProductionResourceLedgerBudgetV3,ProductionResourceLedgerBudgetFailureV3,ProductionResourceLedgerErrorV3,ProductionResourceLedgerPointV3,ProductionResourceLedgerStageV3,ProductionResourceLedgerStorageV3,
     AdmittedCff1FontV2, AdmittedProductionFontInstanceV3, AdmittedProductionFontInstancesV3,
-    AdmittedProductionFontV3, AdmittedProductionResourceLedgerV3, ProductionResourceErrorV3,
-    StagingProductionResourceResolverV3, STAGING_PRODUCTION_RESOURCE_SET_V3,
+    AdmittedProductionFontV3, AdmittedProductionResourceLedgerV3,
+    ProductionAdmissionBudgetFailureV3, ProductionAdmissionBudgetResultV3,
+    ProductionBaseCmapBudgetFailureV3, ProductionBaseCmapBudgetResultV3,
+    ProductionCmapBudgetFailureV3, ProductionCmapBudgetResultV3, ProductionFontInstanceBudgetV3,
+    ProductionFontInstanceErrorV3, ProductionResourceAdmissionSessionIdentityV3,
+    ProductionResourceErrorV3, StagingProductionResourceResolverV3,
+    STAGING_PRODUCTION_RESOURCE_SET_V3,
 };
-mod jpeg;
 mod font_diagnostic;
-pub use font_diagnostic::{FontContainerFailure, FontContainerFailureReason, SUPPORTED_FONT_OUTLINES_NOTE};
+mod font_media_budget;
+mod jpeg;
+pub use font_diagnostic::{
+    FontContainerFailure, FontContainerFailureReason, SUPPORTED_FONT_OUTLINES_NOTE,
+};
 mod safe_vector;
+mod safe_svg_source;
+pub use safe_svg_source::{SafeSvgSourceBudget,SafeSvgSourceBudgetFailure,SafeSvgSourceError,SafeSvgSourceRequest,SafeSvgSourceStage};
 mod svg_diagnostic;
 pub use svg_diagnostic::{
     BudgetScope, DiagnosticToken, ResourceByteSpan, SafeSvg2DetailReason, SafeSvg2Failure,
@@ -45,7 +70,10 @@ use typaxis_document::{
     FontFaceDeclaration, FontMediaDeclaration, FontMediaType, ImageDeclaration,
     ImageMediaDeclaration, ImageMediaType, ResourceCatalog, StagingM4ResourceCatalog,
 };
-use typaxis_font::{admit_sfnt_cff1_detailed, Cff1Admission, Cff1Error, Cff1Failure, FontFamilyError, FontFamilyTable};
+use typaxis_font::{
+    admit_sfnt_cff1_detailed, Cff1Admission, Cff1Error, Cff1Failure, FontFamilyError,
+    FontFamilyTable,
+};
 use typaxis_host_admission::{
     HostAdmissionError, HostAdmissionSession, HostReadIdentityLedger, HostReadIdentityLedgerToken,
     HostRootSetToken, OpenedContainedFile, RegisteredHostReadCandidate,
@@ -427,6 +455,18 @@ impl AdmittedImage {
         m4_limits_fingerprint: [u8; 32],
         m4_profile_fingerprint: [u8; 32],
     ) -> Self {
+        Self::from_verified_shared_safe_vector_v2(image_id,uri,bytes,sha256,Arc::new(ir),m4_limits_fingerprint,m4_profile_fingerprint)
+    }
+
+    fn from_verified_shared_safe_vector_v2(
+        image_id: ImageResourceId,
+        uri: PortablePath,
+        bytes: Vec<u8>,
+        sha256: [u8; 32],
+        ir: Arc<SafeVectorIrV2>,
+        m4_limits_fingerprint: [u8; 32],
+        m4_profile_fingerprint: [u8; 32],
+    ) -> Self {
         Self {
             image_id,
             uri,
@@ -436,7 +476,7 @@ impl AdmittedImage {
             width: NonZeroU32::MIN,
             height: NonZeroU32::MIN,
             decoded_bytes: ir.allocation_charge(),
-            safe_vector: Some(AdmittedSafeVector::V2(Arc::new(ir))),
+            safe_vector: Some(AdmittedSafeVector::V2(ir)),
             jpeg: None,
             m4_limits_fingerprint: Some(m4_limits_fingerprint),
             m4_profile_fingerprint: Some(m4_profile_fingerprint),
@@ -766,10 +806,22 @@ impl ResourceAdmissionError {
         use typaxis_diagnostics::*;
         match self {
             Self::SafeSvg2Detailed(failure) => match failure.budget {
-                Some(VectorBudgetFailure { kind: VectorBudgetKind::Nodes, .. }) => R7120,
-                Some(VectorBudgetFailure { kind: VectorBudgetKind::StoredSegments | VectorBudgetKind::ClipReplay, .. }) => R7121,
-                Some(VectorBudgetFailure { kind: VectorBudgetKind::Nesting, .. }) => R7122,
-                Some(VectorBudgetFailure { kind: VectorBudgetKind::Allocation, .. }) => R7111,
+                Some(VectorBudgetFailure {
+                    kind: VectorBudgetKind::Nodes,
+                    ..
+                }) => R7120,
+                Some(VectorBudgetFailure {
+                    kind: VectorBudgetKind::StoredSegments | VectorBudgetKind::ClipReplay,
+                    ..
+                }) => R7121,
+                Some(VectorBudgetFailure {
+                    kind: VectorBudgetKind::Nesting,
+                    ..
+                }) => R7122,
+                Some(VectorBudgetFailure {
+                    kind: VectorBudgetKind::Allocation,
+                    ..
+                }) => R7111,
                 None => R7100,
             },
             Self::InvalidJpeg(JpegFailureReason::PixelLimit) => R7110,
@@ -777,7 +829,9 @@ impl ResourceAdmissionError {
             Self::VectorNodeLimit => R7120,
             Self::VectorPathSegmentLimit => R7121,
             Self::VectorNestingLimit => R7122,
-            Self::Cff1Detailed(failure) => Self::InvalidCff1(failure.kind).production_diagnostic_code(),
+            Self::Cff1Detailed(failure) => {
+                Self::InvalidCff1(failure.kind).production_diagnostic_code()
+            }
             Self::InvalidCff1(Cff1Error::TableLimit) => R7130,
             Self::InvalidCff1(Cff1Error::GlyphLimit) => R7131,
             Self::InvalidCff1(Cff1Error::SubroutineLimit) => R7132,
@@ -786,9 +840,15 @@ impl ResourceAdmissionError {
             Self::InvalidCff1(Cff1Error::SubsetByteLimit) => R7135,
             Self::UnsupportedContainedOpen => I9110,
             Self::ResourceLengthMismatch => I9113,
-            Self::NonCanonicalResourceId | Self::ReceiptKindMismatch | Self::ReceiptIdentityMismatch
-            | Self::ReceiptSessionMismatch | Self::MissingAdmittedRootSet | Self::RootSetMismatch
-            | Self::InvalidCff1(Cff1Error::InvalidGlyphClosure | Cff1Error::ReceiptMismatch) => I9190,
+            Self::NonCanonicalResourceId
+            | Self::ReceiptKindMismatch
+            | Self::ReceiptIdentityMismatch
+            | Self::ReceiptSessionMismatch
+            | Self::MissingAdmittedRootSet
+            | Self::RootSetMismatch
+            | Self::InvalidCff1(Cff1Error::InvalidGlyphClosure | Cff1Error::ReceiptMismatch) => {
+                I9190
+            }
             _ => R7100,
         }
     }
@@ -807,7 +867,11 @@ impl ResourceAdmissionError {
         }
         let message = self.canonical_message();
         let code = self.production_diagnostic_code().to_string();
-        message.strip_prefix(&code).unwrap_or(message).trim_start_matches([':', ' ']).to_owned()
+        message
+            .strip_prefix(&code)
+            .unwrap_or(message)
+            .trim_start_matches([':', ' '])
+            .to_owned()
     }
 
     /// Stable canonical text for projection into diagnostics. Host error text
@@ -885,7 +949,9 @@ impl ResourceAdmissionError {
                 JpegFailureReason::DecodeLimit => "R7111: JPEG decode workspace limit was exceeded",
                 JpegFailureReason::SpoolLimit => "R7100: JPEG spool limit was exceeded",
             },
-            Self::FontContainerDetailed(_) => "font container or selected outline is invalid or unsupported",
+            Self::FontContainerDetailed(_) => {
+                "font container or selected outline is invalid or unsupported"
+            }
             Self::Cff1Detailed(failure) => Self::InvalidCff1(failure.kind).canonical_message(),
             Self::InvalidCff1(error) => match error {
                 Cff1Error::TableLimit => "R7130: CFF1 font table limit was exceeded",
@@ -1001,14 +1067,16 @@ enum PendingResourceId {
     Image(ImageResourceId),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum PendingResourceDeclaration {
-    Font(FontFaceDeclaration),
-    Image(ImageDeclaration),
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PendingResourceDeclaration<'declaration> {
+    Font(&'declaration FontFaceDeclaration),
+    Image(&'declaration ImageDeclaration),
 }
 
 /// Logical resource binding around one generic host-owned contained open.
 /// Only this crate can attach a font/image ID to the host read identity.
+/// It borrows the session's immutable declaration. Pending read bytes receive
+/// their own URI and can outlive this host session.
 ///
 /// ```compile_fail
 /// use typaxis_resource_admission::VerifiedResourceSource;
@@ -1016,16 +1084,16 @@ enum PendingResourceDeclaration {
 /// ```
 pub struct VerifiedResourceSource<'roots> {
     id: PendingResourceId,
-    declaration: PendingResourceDeclaration,
+    declaration: PendingResourceDeclaration<'roots>,
     opened: OpenedContainedFile<'roots>,
 }
 
 /// Resource adapter over the generic host owner. It alone resolves logical
 /// font/image IDs to declarations and binds them to host open identities.
 #[derive(Debug)]
-pub struct HostResourceAdmissionSession {
+pub struct HostResourceAdmissionSession<C = ResourceCatalog> {
     host: HostAdmissionSession,
-    declarations: ResourceCatalog,
+    declarations: C,
     font_candidates: Vec<RegisteredHostReadCandidate>,
     image_candidates: Vec<RegisteredHostReadCandidate>,
 }
@@ -1060,39 +1128,17 @@ impl HostResourceAdmissionSession {
         declarations: &ResourceCatalog,
         ledger: Option<&HostReadIdentityLedger>,
     ) -> Result<Self, ResourceAdmissionError> {
-        if !ResourceAdmissionCapabilityToken::compiled().contained_resource_open() {
-            return Err(ResourceAdmissionError::UnsupportedContainedOpen);
-        }
-        validate_declaration_order(declarations)?;
-        let host = match ledger {
-            Some(ledger) => HostAdmissionSession::new_with_read_ledger(context, config, ledger),
-            None => HostAdmissionSession::new(context, config),
-        }
-        .map_err(map_host_error)?;
-        let font_count = declarations.font_faces.len();
-        let declaration_count = font_count
-            .checked_add(declarations.images.len())
-            .ok_or(ResourceAdmissionError::ResourceLimit)?;
-        let paths = (0..declaration_count).map(|index| {
-            if index < font_count {
-                &declarations.font_faces[index].uri
-            } else {
-                &declarations.images[index - font_count].uri
-            }
-        });
-        let mut font_candidates = host
-            .roots()
-            .register_candidates(paths)
-            .map_err(map_host_error)?;
-        let image_candidates = font_candidates.split_off(font_count);
+        let registered = host_catalog::register(context, config, declarations, ledger)?;
         Ok(Self {
-            host,
+            host: registered.host,
             declarations: declarations.clone(),
-            font_candidates,
-            image_candidates,
+            font_candidates: registered.fonts,
+            image_candidates: registered.images,
         })
     }
+}
 
+impl<C: std::borrow::Borrow<ResourceCatalog>> HostResourceAdmissionSession<C> {
     pub const fn roots(&self) -> HostRootSetToken<'_> {
         self.host.roots()
     }
@@ -1110,6 +1156,7 @@ impl HostResourceAdmissionSession {
     ) -> Result<VerifiedResourceSource<'_>, ResourceAdmissionError> {
         let declaration = self
             .declarations
+            .borrow()
             .font_faces
             .get(font_face_id.get() as usize)
             .filter(|candidate| candidate.font_face_id == font_face_id)
@@ -1124,7 +1171,7 @@ impl HostResourceAdmissionSession {
             .map_err(map_host_error)?;
         Ok(VerifiedResourceSource {
             id: PendingResourceId::Font(font_face_id),
-            declaration: PendingResourceDeclaration::Font(declaration.clone()),
+            declaration: PendingResourceDeclaration::Font(declaration),
             opened,
         })
     }
@@ -1135,6 +1182,7 @@ impl HostResourceAdmissionSession {
     ) -> Result<VerifiedResourceSource<'_>, ResourceAdmissionError> {
         let declaration = self
             .declarations
+            .borrow()
             .images
             .get(image_id.get() as usize)
             .filter(|candidate| candidate.image_id == image_id)
@@ -1149,7 +1197,7 @@ impl HostResourceAdmissionSession {
             .map_err(map_host_error)?;
         Ok(VerifiedResourceSource {
             id: PendingResourceId::Image(image_id),
-            declaration: PendingResourceDeclaration::Image(declaration.clone()),
+            declaration: PendingResourceDeclaration::Image(declaration),
             opened,
         })
     }
@@ -1455,11 +1503,11 @@ impl ResourceAdmissionBudget {
             reserved_bytes: 0,
         })
     }
-    fn reserve(
-        &mut self,
+    fn checked_reservation(
+        &self,
         kind: ResourceReadKind,
         exact_length: u64,
-    ) -> Result<(), ResourceAdmissionError> {
+    ) -> Result<u64, ResourceAdmissionError> {
         let per_resource = match kind {
             ResourceReadKind::Font => self.limits.get().max_font_bytes,
             ResourceReadKind::Image => self.limits.get().max_image_bytes,
@@ -1474,8 +1522,7 @@ impl ResourceAdmissionBudget {
         if aggregate > self.limits.get().max_resource_bytes {
             return Err(ResourceAdmissionError::ResourceLimit);
         }
-        self.reserved_bytes = aggregate;
-        Ok(())
+        Ok(aggregate)
     }
 }
 
@@ -1489,10 +1536,10 @@ pub struct AdmittedResourceResolver<'roots> {
     declarations: ResourceCatalog,
     declared_media_policy: Option<Arc<DeclaredMediaPolicy>>,
     budget: ResourceAdmissionBudget,
-    attempted_fonts: BTreeSet<FontFaceId>,
-    attempted_images: BTreeSet<ImageResourceId>,
+    attempted_fonts: resource_attempts::Attempts<FontFaceId>,
+    attempted_images: resource_attempts::Attempts<ImageResourceId>,
     fonts: BTreeMap<FontFaceId, AdmittedFont>,
-    images: BTreeMap<ImageResourceId, AdmittedImage>,
+    images: image_bindings::Images,
     m4_limits: Option<M4EffectiveResourceLimits>,
     m4_profile_fingerprint: Option<[u8; 32]>,
     vector_nodes_used: u64,
@@ -1586,10 +1633,10 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             declarations: declarations.clone(),
             declared_media_policy: None,
             budget,
-            attempted_fonts: BTreeSet::new(),
-            attempted_images: BTreeSet::new(),
+            attempted_fonts: resource_attempts::Attempts::new(),
+            attempted_images: resource_attempts::Attempts::new(),
             fonts: BTreeMap::new(),
-            images: BTreeMap::new(),
+            images: image_bindings::Images::new(),
             m4_limits: None,
             m4_profile_fingerprint: None,
             vector_nodes_used: 0,
@@ -1600,8 +1647,12 @@ impl<'roots> AdmittedResourceResolver<'roots> {
 
     fn skip_non_vector_declarations(&mut self) {
         if let Some(policy) = &self.declared_media_policy {
-            while policy.images.get(self.next_vector_declaration_index)
-                .is_some_and(|media| !matches!(media, ImageMediaType::SvgSafe1 | ImageMediaType::SvgSafe2))
+            while policy
+                .images
+                .get(self.next_vector_declaration_index)
+                .is_some_and(|media| {
+                    !matches!(media, ImageMediaType::SvgSafe1 | ImageMediaType::SvgSafe2)
+                })
             {
                 self.next_vector_declaration_index += 1;
             }
@@ -1611,12 +1662,28 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         &mut self,
         source: VerifiedResourceSource<'roots>,
     ) -> Result<PendingResourceBytes, ResourceAdmissionError> {
+        match self.read_font_with_budget(source, &mut resource_read_budget::UnobservedResourceRead)
+        {
+            Ok(value) => Ok(value),
+            Err(ResourceReadError::Native(error)) => Err(error),
+            Err(ResourceReadError::Budget(failure)) => match failure.failure.error {},
+        }
+    }
+    /// Debit stable bytes and read/digest work after authentic source and
+    /// aggregate byte checks, before the native read buffer is allocated.
+    /// Opted-in attempt permits precede those byte checks; aggregate bytes and
+    /// the attempt are committed together after the mark permit succeeds.
+    pub fn read_font_with_budget<B: HostReadBudget>(
+        &mut self,
+        source: VerifiedResourceSource<'roots>,
+        budget: &mut B,
+    ) -> Result<PendingResourceBytes, ResourceReadError<B::Error>> {
         let roots = self.roots.ok_or(ResourceAdmissionError::RootSetMismatch)?;
         roots
             .validate_opened(&source.opened)
             .map_err(map_host_error)?;
         let PendingResourceId::Font(font_face_id) = source.id else {
-            return Err(ResourceAdmissionError::ReceiptKindMismatch);
+            return Err(ResourceAdmissionError::ReceiptKindMismatch.into());
         };
         let declaration = self
             .declarations
@@ -1624,20 +1691,32 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .get(font_face_id.get() as usize)
             .filter(|candidate| candidate.font_face_id == font_face_id)
             .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
-        if source.declaration != PendingResourceDeclaration::Font(declaration.clone()) {
-            return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+        if !resource_declaration_budget::matches(source.declaration, PendingResourceDeclaration::Font(declaration), ResourceErrorSubject::FontFace(font_face_id), budget)? {
+            return Err(ResourceAdmissionError::ReceiptIdentityMismatch.into());
         }
-        if self.attempted_fonts.contains(&font_face_id) {
-            return Err(ResourceAdmissionError::ConflictingLogicalResource);
+        if self.attempted_fonts.contains(font_face_id, self.declarations.font_faces.len(), budget)? {
+            return Err(ResourceAdmissionError::ConflictingLogicalResource.into());
         }
         let exact_length = source.opened.observed_exact_length();
-        self.budget.reserve(ResourceReadKind::Font, exact_length)?;
-        self.attempted_fonts.insert(font_face_id);
+        let aggregate = self.budget.checked_reservation(ResourceReadKind::Font, exact_length)?;
+        self.attempted_fonts.mark(font_face_id, budget)?;
+        self.budget.reserved_bytes = aggregate;
         let expected_read = source.opened.read_identity().clone();
         let permit = roots
             .issue_bounded_read_permit(source.opened)
             .map_err(map_host_error)?;
-        let receipt = roots.read_bounded(permit).map_err(map_host_error)?;
+        let receipt = match roots.read_bounded_with_budget(permit, budget) {
+            Ok(value) => value,
+            Err(typaxis_host_admission::HostReadError::Native(error)) => {
+                return Err(map_host_error(error).into());
+            }
+            Err(typaxis_host_admission::HostReadError::Budget(failure)) => {
+                return Err(ResourceReadError::Budget(ResourceReadBudgetFailure {
+                    subject: ResourceErrorSubject::FontFace(font_face_id),
+                    failure,
+                }));
+            }
+        };
         let stable = roots
             .accept_receipt(&expected_read, receipt)
             .map_err(map_host_error)?;
@@ -1645,7 +1724,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         Ok(PendingResourceBytes {
             session: self.session.clone(),
             id: PendingResourceId::Font(font_face_id),
-            uri: declaration.uri.clone(),
+            uri: resource_declaration_budget::pending_uri(&declaration.uri, ResourceErrorSubject::FontFace(font_face_id), budget)?,
             face_index: Some(declaration.face_index),
             bytes,
             sha256,
@@ -1655,12 +1734,24 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         &mut self,
         source: VerifiedResourceSource<'roots>,
     ) -> Result<PendingResourceBytes, ResourceAdmissionError> {
+        match self.read_image_with_budget(source, &mut resource_read_budget::UnobservedResourceRead)
+        {
+            Ok(value) => Ok(value),
+            Err(ResourceReadError::Native(error)) => Err(error),
+            Err(ResourceReadError::Budget(failure)) => match failure.failure.error {},
+        }
+    }
+    pub fn read_image_with_budget<B: HostReadBudget>(
+        &mut self,
+        source: VerifiedResourceSource<'roots>,
+        budget: &mut B,
+    ) -> Result<PendingResourceBytes, ResourceReadError<B::Error>> {
         let roots = self.roots.ok_or(ResourceAdmissionError::RootSetMismatch)?;
         roots
             .validate_opened(&source.opened)
             .map_err(map_host_error)?;
         let PendingResourceId::Image(image_id) = source.id else {
-            return Err(ResourceAdmissionError::ReceiptKindMismatch);
+            return Err(ResourceAdmissionError::ReceiptKindMismatch.into());
         };
         let declaration = self
             .declarations
@@ -1668,20 +1759,32 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .get(image_id.get() as usize)
             .filter(|candidate| candidate.image_id == image_id)
             .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
-        if source.declaration != PendingResourceDeclaration::Image(declaration.clone()) {
-            return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+        if !resource_declaration_budget::matches(source.declaration, PendingResourceDeclaration::Image(declaration), ResourceErrorSubject::Image(image_id), budget)? {
+            return Err(ResourceAdmissionError::ReceiptIdentityMismatch.into());
         }
-        if self.attempted_images.contains(&image_id) {
-            return Err(ResourceAdmissionError::ConflictingLogicalResource);
+        if self.attempted_images.contains(image_id, self.declarations.images.len(), budget)? {
+            return Err(ResourceAdmissionError::ConflictingLogicalResource.into());
         }
         let exact_length = source.opened.observed_exact_length();
-        self.budget.reserve(ResourceReadKind::Image, exact_length)?;
-        self.attempted_images.insert(image_id);
+        let aggregate = self.budget.checked_reservation(ResourceReadKind::Image, exact_length)?;
+        self.attempted_images.mark(image_id, budget)?;
+        self.budget.reserved_bytes = aggregate;
         let expected_read = source.opened.read_identity().clone();
         let permit = roots
             .issue_bounded_read_permit(source.opened)
             .map_err(map_host_error)?;
-        let receipt = roots.read_bounded(permit).map_err(map_host_error)?;
+        let receipt = match roots.read_bounded_with_budget(permit, budget) {
+            Ok(value) => value,
+            Err(typaxis_host_admission::HostReadError::Native(error)) => {
+                return Err(map_host_error(error).into());
+            }
+            Err(typaxis_host_admission::HostReadError::Budget(failure)) => {
+                return Err(ResourceReadError::Budget(ResourceReadBudgetFailure {
+                    subject: ResourceErrorSubject::Image(image_id),
+                    failure,
+                }));
+            }
+        };
         let stable = roots
             .accept_receipt(&expected_read, receipt)
             .map_err(map_host_error)?;
@@ -1689,7 +1792,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         Ok(PendingResourceBytes {
             session: self.session.clone(),
             id: PendingResourceId::Image(image_id),
-            uri: declaration.uri.clone(),
+            uri: resource_declaration_budget::pending_uri(&declaration.uri, ResourceErrorSubject::Image(image_id), budget)?,
             face_index: None,
             bytes,
             sha256,
@@ -1768,12 +1871,15 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .as_ref()
             .and_then(|policy| policy.fonts.get(font_face_id.get() as usize))
             .ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?;
-        let face_index = source.face_index()
+        let face_index = source
+            .face_index()
             .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?;
-        let observed = attest_declared_font_media_kind(source.bytes(), face_index)
-            .map_err(|_| ResourceAdmissionError::FontContainerDetailed(
-                font_diagnostic::diagnose_font_container(source.bytes(), face_index)
-            ))?;
+        let observed =
+            attest_declared_font_media_kind(source.bytes(), face_index).map_err(|_| {
+                ResourceAdmissionError::FontContainerDetailed(
+                    font_diagnostic::diagnose_font_container(source.bytes(), face_index),
+                )
+            })?;
         let expected = match declared {
             FontMediaType::SfntTrueTypeGlyf => AdmittedFontMediaKind::SfntTrueTypeGlyf,
             FontMediaType::TtcTrueTypeGlyf => AdmittedFontMediaKind::TtcTrueTypeGlyf,
@@ -1928,12 +2034,22 @@ impl<'roots> AdmittedResourceResolver<'roots> {
     /// checked before the first IR allocation; no PNG or general-XML fallback
     /// is attempted.
     pub fn parse_and_bind_declared_safe_vector(
+        &mut self,source:PendingResourceBytes,
+    )->Result<(),ResourceAdmissionError>{
+        match self.parse_and_bind_declared_safe_vector_with_source_budget(source,&mut safe_svg_source::Unobserved){
+            Ok(value)=>Ok(value),
+            Err(SafeSvgSourceError::Native(error))=>Err(error),
+            Err(SafeSvgSourceError::Budget(failure))=>match failure.error {},
+        }
+    }
+    pub fn parse_and_bind_declared_safe_vector_with_source_budget<B:SafeSvgSourceBudget>(
         &mut self,
         source: PendingResourceBytes,
-    ) -> Result<(), ResourceAdmissionError> {
+        budget:&mut B,
+    ) -> Result<(), SafeSvgSourceError<B::Error>> {
         self.ensure_session(&source)?;
         let PendingResourceId::Image(image_id) = source.id else {
-            return Err(ResourceAdmissionError::ReceiptKindMismatch);
+            return Err((ResourceAdmissionError::ReceiptKindMismatch).into());
         };
         let declared = *self
             .declared_media_policy
@@ -1944,7 +2060,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             ImageMediaType::SvgSafe1 => SafeVectorParserProfile::SafeSvg1,
             ImageMediaType::SvgSafe2 => SafeVectorParserProfile::SafeSvg2,
             ImageMediaType::Png | ImageMediaType::JpegBaseline => {
-                return Err(ResourceAdmissionError::DeclaredMediaMismatch)
+                return Err((ResourceAdmissionError::DeclaredMediaMismatch).into())
             }
         };
         let declaration = self
@@ -1956,33 +2072,33 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         if parser_profile == SafeVectorParserProfile::SafeSvg2
             && declaration.expected_sha256.is_none()
         {
-            return Err(ResourceAdmissionError::InvalidSafeVectorV2(
+            return Err((ResourceAdmissionError::InvalidSafeVectorV2(
                 SafeVectorFailureReason::HashMismatch,
-            ));
+            )).into());
         }
         if declaration
             .expected_sha256
             .is_some_and(|expected| expected != source.content_hash())
         {
-            return Err(match parser_profile {
+            return Err((match parser_profile {
                 SafeVectorParserProfile::SafeSvg1 => ResourceAdmissionError::ExpectedHashMismatch,
                 SafeVectorParserProfile::SafeSvg2 => ResourceAdmissionError::InvalidSafeVectorV2(
                     SafeVectorFailureReason::HashMismatch,
                 ),
-            });
+            }).into());
         }
         if matches!(
             attest_image_media_kind(source.bytes()),
             Ok(AdmittedImageMediaKind::Png | AdmittedImageMediaKind::JpegBaseline)
         ) {
-            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+            return Err((ResourceAdmissionError::DeclaredMediaMismatch).into());
         }
         let limits = self
             .m4_limits
             .as_ref()
             .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
         if self.next_vector_declaration_index != image_id.get() as usize {
-            return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+            return Err((ResourceAdmissionError::ReceiptIdentityMismatch).into());
         }
         let remaining_nodes = limits
             .extension()
@@ -1991,7 +2107,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .checked_sub(self.vector_nodes_used)
             .ok_or(ResourceAdmissionError::VectorNodeLimit)?;
         if remaining_nodes == 0 && parser_profile == SafeVectorParserProfile::SafeSvg1 {
-            return Err(ResourceAdmissionError::VectorNodeLimit);
+            return Err((ResourceAdmissionError::VectorNodeLimit).into());
         }
         let remaining_path_work = limits
             .extension()
@@ -2019,17 +2135,27 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                 (work, receipt)
             }
             SafeVectorParserProfile::SafeSvg2 => {
-                let decoded = safe_vector::decode_v2_with_work_budget(
+                let decoded = safe_vector::decode_v2_with_source_budget(
                     source.bytes(),
                     limits,
                     remaining_nodes,
                     remaining_path_work,
-                ).map_err(|error| {
+                    image_id,budget,
+                )
+                .map_err(|error| error.map_native(|error| {
                     if let ResourceAdmissionError::SafeSvg2Detailed(mut failure) = error {
                         if let Some(budget) = &mut failure.budget {
                             let (total, used) = match budget.kind {
-                                VectorBudgetKind::Nodes => (limits.extension().get().max_vector_nodes, self.vector_nodes_used),
-                                VectorBudgetKind::StoredSegments | VectorBudgetKind::ClipReplay => (limits.extension().get().max_vector_path_segments, self.vector_path_work_used),
+                                VectorBudgetKind::Nodes => (
+                                    limits.extension().get().max_vector_nodes,
+                                    self.vector_nodes_used,
+                                ),
+                                VectorBudgetKind::StoredSegments | VectorBudgetKind::ClipReplay => {
+                                    (
+                                        limits.extension().get().max_vector_path_segments,
+                                        self.vector_path_work_used,
+                                    )
+                                }
                                 _ => return error,
                             };
                             budget.scope = BudgetScope::DocumentTotal;
@@ -2038,8 +2164,13 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                             budget.used_before_resource = used;
                         }
                         ResourceAdmissionError::SafeSvg2Detailed(failure)
-                    } else { error }
-                })?;
+                    } else {
+                        error
+                    }
+                }))?;
+                if B::OBSERVED && B::OBSERVE_BINDING {
+                    return self.bind_observed_safe_vector_v2(source,decoded.ir,decoded.work.nodes,decoded.work.path_work,budget);
+                }
                 let work = decoded.work;
                 let owner = VerifiedMetadataReceiptOwner::new();
                 let receipt = owner.issue_safe_vector_v2(
@@ -2057,14 +2188,14 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .checked_add(work.nodes)
             .ok_or(ResourceAdmissionError::VectorNodeLimit)?;
         if next_nodes > limits.extension().get().max_vector_nodes {
-            return Err(ResourceAdmissionError::VectorNodeLimit);
+            return Err((ResourceAdmissionError::VectorNodeLimit).into());
         }
         let next_path_work = self
             .vector_path_work_used
             .checked_add(work.path_work)
             .ok_or(ResourceAdmissionError::VectorPathSegmentLimit)?;
         if next_path_work > limits.extension().get().max_vector_path_segments {
-            return Err(ResourceAdmissionError::VectorPathSegmentLimit);
+            return Err((ResourceAdmissionError::VectorPathSegmentLimit).into());
         }
         self.bind_verified_metadata(receipt)?;
         self.vector_nodes_used = next_nodes;
@@ -2093,6 +2224,18 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             ImageMediaType::SvgSafe1 | ImageMediaType::SvgSafe2 => {
                 self.parse_and_bind_declared_safe_vector(source)
             }
+        }
+    }
+
+    /// Observe Safe-SVG 2 source validation; other image parsers retain their native policy.
+    pub fn parse_and_bind_declared_image_with_source_budget<B:SafeSvgSourceBudget>(
+        &mut self,source:PendingResourceBytes,budget:&mut B,
+    )->Result<(),SafeSvgSourceError<B::Error>>{
+        let image_id=source.image_id().ok_or(ResourceAdmissionError::ReceiptKindMismatch)?;
+        match self.declared_media_policy.as_ref().and_then(|p|p.images.get(image_id.get() as usize)).copied().ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?{
+            ImageMediaType::Png=>self.parse_and_bind_declared_png(source).map_err(Into::into),
+            ImageMediaType::JpegBaseline=>self.parse_and_bind_declared_jpeg(source).map_err(Into::into),
+            ImageMediaType::SvgSafe1|ImageMediaType::SvgSafe2=>self.parse_and_bind_declared_safe_vector_with_source_budget(source,budget),
         }
     }
 
@@ -2269,7 +2412,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                     height,
                     decoded_bytes,
                 );
-                let replaced = self.images.insert(id, image);
+                let replaced = self.images.insert(id, image)?;
                 debug_assert!(replaced.is_none());
             }
             VerifiedMetadata::Jpeg {
@@ -2315,7 +2458,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                     source.sha256,
                     attestation,
                 );
-                let replaced = self.images.insert(id, image);
+                let replaced = self.images.insert(id, image)?;
                 debug_assert!(replaced.is_none());
             }
             VerifiedMetadata::SafeVector {
@@ -2365,7 +2508,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                     m4_limits_fingerprint,
                     m4_profile_fingerprint,
                 );
-                let replaced = self.images.insert(id, image);
+                let replaced = self.images.insert(id, image)?;
                 debug_assert!(replaced.is_none());
             }
             VerifiedMetadata::SafeVector2 {
@@ -2374,7 +2517,28 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                 m4_limits_fingerprint,
                 m4_profile_fingerprint,
             } => {
-                self.ensure_session(&source)?;
+                let id=self.validate_safe_vector_v2_binding(&source,m4_limits_fingerprint,m4_profile_fingerprint)?;
+                if self.images.contains_key(&id) {
+                    return Err(ResourceAdmissionError::ConflictingLogicalResource);
+                }
+                let image = AdmittedImage::from_verified_safe_vector_v2(
+                    id,
+                    source.uri,
+                    source.bytes,
+                    source.sha256,
+                    *ir,
+                    m4_limits_fingerprint,
+                    m4_profile_fingerprint,
+                );
+                let replaced = self.images.insert(id, image)?;
+                debug_assert!(replaced.is_none());
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_safe_vector_v2_binding(&self,source:&PendingResourceBytes,m4_limits_fingerprint:[u8;32],m4_profile_fingerprint:[u8;32])->Result<ImageResourceId,ResourceAdmissionError>{
+                self.ensure_session(source)?;
                 let id = source
                     .image_id()
                     .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?;
@@ -2403,22 +2567,37 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                 {
                     return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
                 }
-                if self.images.contains_key(&id) {
-                    return Err(ResourceAdmissionError::ConflictingLogicalResource);
-                }
-                let image = AdmittedImage::from_verified_safe_vector_v2(
-                    id,
-                    source.uri,
-                    source.bytes,
-                    source.sha256,
-                    *ir,
-                    m4_limits_fingerprint,
-                    m4_profile_fingerprint,
-                );
-                let replaced = self.images.insert(id, image);
-                debug_assert!(replaced.is_none());
+        Ok(id)
+    }
+
+    fn bind_observed_safe_vector_v2<B:SafeSvgSourceBudget>(
+        &mut self,source:PendingResourceBytes,ir:SafeVectorIrV2,nodes:u64,path_work:u64,budget:&mut B,
+    )->Result<(),SafeSvgSourceError<B::Error>>{
+        use SafeSvgSourceStage as S;
+        let limits=self.m4_limits.as_ref().ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
+        let fingerprint=limits.fingerprint();
+        let profile=self.m4_profile_fingerprint.ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
+        let id=self.validate_safe_vector_v2_binding(&source,fingerprint,profile)?;
+        if ir.draws().is_empty() || ir.allocation_charge()==0{return Err(ResourceAdmissionError::InvalidSafeVectorV2(SafeVectorFailureReason::MalformedSvg).into())}
+        let next_nodes=self.vector_nodes_used.checked_add(nodes).filter(|n|*n<=limits.extension().get().max_vector_nodes).ok_or(ResourceAdmissionError::VectorNodeLimit)?;
+        let next_work=self.vector_path_work_used.checked_add(path_work).filter(|n|*n<=limits.extension().get().max_vector_path_segments).ok_or(ResourceAdmissionError::VectorPathSegmentLimit)?;
+        // Pay the declaration walk before publishing the image or advancing counters.
+        safe_svg_source::permit(budget,id,S::BindingAdvance,0,0,64)?;
+        let mut next=self.next_vector_declaration_index.checked_add(1).ok_or(ResourceAdmissionError::ResourceLimit)?;
+        if let Some(policy)=&self.declared_media_policy {
+            while policy.images.get(next).is_some_and(|media|!matches!(media,ImageMediaType::SvgSafe1|ImageMediaType::SvgSafe2)){
+                safe_svg_source::permit(budget,id,S::BindingAdvance,0,0,64)?;
+                next+=1;
             }
         }
+        let at=self.images.prepare(self.declarations.images.len(),budget,id)?;
+        // Match Arc's current header/data layout without copying the IR payload.
+        let header=std::alloc::Layout::new::<[std::sync::atomic::AtomicUsize;2]>();
+        let bytes=header.extend(std::alloc::Layout::new::<SafeVectorIrV2>()).map_err(|_|ResourceAdmissionError::ResourceLimit)?.0.pad_to_align().size();
+        safe_svg_source::permit(budget,id,S::IrOwner,1,bytes,64)?;
+        let image=AdmittedImage::from_verified_shared_safe_vector_v2(id,source.uri,source.bytes,source.sha256,Arc::new(ir),fingerprint,profile);
+        self.images.insert_prepared(at,image)?;
+        self.vector_nodes_used=next_nodes;self.vector_path_work_used=next_work;self.next_vector_declaration_index=next;
         Ok(())
     }
 
@@ -2472,7 +2651,12 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         }
         // Only the finalized ledger permits direct indexing. Partial progress
         // receipts retain their map/lookup semantics.
-        if self.images.values().enumerate().any(|(index, image)| image.image_id().get() as usize != index) {
+        if self
+            .images
+            .values()
+            .enumerate()
+            .any(|(index, image)| image.image_id().get() as usize != index)
+        {
             return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
         }
         let mut vector_aliases = Vec::new();
@@ -2643,95 +2827,7 @@ fn attest_declared_font_media_kind(
     bytes: &[u8],
     face_index: u32,
 ) -> Result<AdmittedFontMediaKind, ResourceAdmissionError> {
-    let media_kind = attest_font_media_kind(bytes)?;
-    let directory_offset = match media_kind {
-        AdmittedFontMediaKind::SfntTrueTypeGlyf => {
-            if face_index != 0 {
-                return Err(ResourceAdmissionError::InvalidMetadata);
-            }
-            0usize
-        }
-        AdmittedFontMediaKind::TtcTrueTypeGlyf => {
-            let count = read_be_u32(bytes, 8)?;
-            if face_index >= count {
-                return Err(ResourceAdmissionError::InvalidMetadata);
-            }
-            let offset_position = 12usize
-                .checked_add(
-                    usize::try_from(face_index)
-                        .map_err(|_| ResourceAdmissionError::InvalidMetadata)?
-                        .checked_mul(4)
-                        .ok_or(ResourceAdmissionError::InvalidMetadata)?,
-                )
-                .ok_or(ResourceAdmissionError::InvalidMetadata)?;
-            usize::try_from(read_be_u32(bytes, offset_position)?)
-                .map_err(|_| ResourceAdmissionError::InvalidMetadata)?
-        }
-        AdmittedFontMediaKind::SfntCff1 => {
-            if face_index != 0 {
-                return Err(ResourceAdmissionError::InvalidMetadata);
-            }
-            0usize
-        }
-    };
-    let signature_end = directory_offset
-        .checked_add(4)
-        .ok_or(ResourceAdmissionError::InvalidMetadata)?;
-    let observed_signature = bytes.get(directory_offset..signature_end);
-    let signature_matches = match media_kind {
-        AdmittedFontMediaKind::SfntTrueTypeGlyf | AdmittedFontMediaKind::TtcTrueTypeGlyf => {
-            observed_signature == Some(&0x0001_0000u32.to_be_bytes())
-        }
-        AdmittedFontMediaKind::SfntCff1 => observed_signature == Some(b"OTTO"),
-    };
-    if !signature_matches {
-        return Err(ResourceAdmissionError::InvalidMetadata);
-    }
-    let table_count = usize::from(read_be_u16(
-        bytes,
-        directory_offset
-            .checked_add(4)
-            .ok_or(ResourceAdmissionError::InvalidMetadata)?,
-    )?);
-    let directory_start = directory_offset
-        .checked_add(12)
-        .ok_or(ResourceAdmissionError::InvalidMetadata)?;
-    let mut has_glyf = false;
-    let mut has_loca = false;
-    let mut has_cff1 = false;
-    let mut has_cff2 = false;
-    for index in 0..table_count {
-        let record = directory_start
-            .checked_add(
-                index
-                    .checked_mul(16)
-                    .ok_or(ResourceAdmissionError::InvalidMetadata)?,
-            )
-            .ok_or(ResourceAdmissionError::InvalidMetadata)?;
-        let tag_end = record
-            .checked_add(4)
-            .ok_or(ResourceAdmissionError::InvalidMetadata)?;
-        match bytes
-            .get(record..tag_end)
-            .ok_or(ResourceAdmissionError::InvalidMetadata)?
-        {
-            b"glyf" => has_glyf = true,
-            b"loca" => has_loca = true,
-            b"CFF " => has_cff1 = true,
-            b"CFF2" => has_cff2 = true,
-            _ => {}
-        }
-    }
-    let valid_outline_tables = match media_kind {
-        AdmittedFontMediaKind::SfntTrueTypeGlyf | AdmittedFontMediaKind::TtcTrueTypeGlyf => {
-            has_glyf && has_loca && !has_cff1 && !has_cff2
-        }
-        AdmittedFontMediaKind::SfntCff1 => has_cff1 && !has_cff2 && !has_glyf && !has_loca,
-    };
-    if !valid_outline_tables {
-        return Err(ResourceAdmissionError::InvalidMetadata);
-    }
-    Ok(media_kind)
+    font_media_budget::attest_native(bytes, face_index)
 }
 
 fn attest_image_media_kind(bytes: &[u8]) -> Result<AdmittedImageMediaKind, ResourceAdmissionError> {
@@ -2919,7 +3015,9 @@ impl AdmittedResourceLedger {
         self.fonts.iter().find(|font| font.font_face_id() == id)
     }
     pub fn image(&self, id: ImageResourceId) -> Option<&AdmittedImage> {
-        self.images.get(id.get() as usize).filter(|image| image.image_id() == id)
+        self.images
+            .get(id.get() as usize)
+            .filter(|image| image.image_id() == id)
     }
     pub const fn font_families(&self) -> &FontFamilyTable {
         &self.font_families
@@ -3827,6 +3925,12 @@ fn push_hash_hex(output: &mut String, bytes: [u8; 32]) {
 
 #[cfg(test)]
 mod tests {
+    mod staging_catalog_budget_tests {
+        include!("staging_catalog_budget_tests.rs");
+    }
+    mod borrowed_host_catalog_tests {
+        include!("borrowed_host_catalog_tests.rs");
+    }
     mod production_v3_tests {
         include!("production_v3_tests.rs");
     }
@@ -5442,9 +5546,12 @@ mod tests {
                 },
             )
             .unwrap();
-            let host =
-                HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
-                    .unwrap();
+            let host = HostResourceAdmissionSession::new(
+                &host_context(tree.path(), &[]),
+                &config,
+                &catalog,
+            )
+            .unwrap();
             let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
                 &catalog,
                 &limits,

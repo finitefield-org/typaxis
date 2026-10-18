@@ -193,6 +193,7 @@ impl<'a> BookV2ColumnPageFrames<'a> {
 /// ```
 pub struct BookV2ColumnFramePlan<'a> {
     inner: BookV2PageFramePlan<'a>,
+    balance_requested: bool,
 }
 impl<'a> BookV2ColumnFramePlan<'a> {
     pub fn source(&self) -> &'a StyledBookV2Body {
@@ -215,6 +216,10 @@ impl<'a> BookV2ColumnFramePlan<'a> {
     }
     pub fn requires_width_reflow(&self) -> bool {
         self.inner.requires_width_reflow()
+    }
+    /// Cached during the already charged scan of reachable physical classes.
+    pub fn requests_last_page_balance(&self) -> bool {
+        self.balance_requested
     }
     pub fn minimum_body_height(&self) -> Length {
         self.inner.minimum_body_height()
@@ -301,6 +306,7 @@ pub fn prepare_book_v2_column_frame_plan_counted<'a>(
     let (mut minimum, mut width, mut height) = (None::<Length>, Length::ZERO, first.height());
     let mut note_width = None;
     let mut reflow = false;
+    let mut balance_requested = false;
     for frames in inner.all_frames() {
         *work = work
             .checked_add(1)
@@ -309,6 +315,9 @@ pub fn prepare_book_v2_column_frame_plan_counted<'a>(
         let base = frames
             .columns
             .map_or(frames.body.width().get(), |c| c.base.get());
+        balance_requested |= frames.columns.is_some_and(|c| {
+            c.layout.balance == typaxis_document_package::WireColumnBalance::LastPage
+        });
         let widest = frames.columns.map_or(Ok(base), |c| {
             c.base.get().checked_add(c.residual).ok_or(E::Geometry)
         })?;
@@ -329,5 +338,5 @@ pub fn prepare_book_v2_column_frame_plan_counted<'a>(
         height,
     );
     inner.width_reflow = reflow || minimum != Some(width);
-    Ok(BookV2ColumnFramePlan { inner })
+    Ok(BookV2ColumnFramePlan { inner, balance_requested })
 }

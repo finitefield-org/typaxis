@@ -6,10 +6,10 @@ use typaxis_syntax::PrecomposedVectorKind;
 
 pub const BOOK_V2_BODY_MATH_TERMINAL_ALGORITHM: &str = "typaxis.book-2-body-math-terminals/1";
 const HEADER_BYTES: usize = 7 * 32 + 5 * 8;
-const TERMINAL_BYTES: usize = 126;
-const NUMBER_BYTES: usize = 81;
-const VARIANT_HEADER_BYTES: usize = 32 + 8;
-const VARIANT_BYTES: usize = 4 + 8 + 8 + 5 * 32;
+pub(super) const TERMINAL_BYTES: usize = 126;
+pub(super) const NUMBER_BYTES: usize = 81;
+pub(super) const VARIANT_HEADER_BYTES: usize = 32 + 8;
+pub(super) const VARIANT_BYTES: usize = 4 + 8 + 8 + 5 * 32;
 
 #[derive(Clone, Copy, Debug)]
 pub enum BookV2BodyMathSource<'r, 'a> {
@@ -136,6 +136,180 @@ impl<'g, 'q, 'b, 'f, 's, 'p, 'a> BookV2BodyMathTerminals<'g, 'q, 'b, 'f, 's, 'p,
 }
 
 impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
+    pub(super) fn reserve_math_terminal_spool(
+        &mut self,
+        limits: &M4EffectiveResourceLimits,
+        prior_spool: u64,
+        native_spool: u64,
+        bytes: usize,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        let root = NodeId::new(0);
+        let lower_bound = self.terminal_spool.max(prior_spool).max(native_spool);
+        if lower_bound > limits.base().get().max_spool_bytes {
+            return Err(error(root, E::SpoolLimit));
+        }
+        self.terminal_spool = lower_bound;
+        self.terminal_spool = self
+            .terminal_spool
+            .checked_add(bytes as u64)
+            .filter(|n| *n <= limits.base().get().max_spool_bytes)
+            .ok_or_else(|| error(root, E::SpoolLimit))?;
+        Ok(())
+    }
+
+    /// Collect formula occurrences from an already closed physical fragment.
+    /// The consumer owns its distinct receipt and reserves storage beforehand.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn collect_fragment_math<F>(
+        &mut self,
+        flow: &'b BookV2PreparedBodyFlow<'f, 's, 'p, 'a>,
+        placed: &ProductionBodyFootnotePlacedFragment,
+        role: Option<ProductionTablePlacedCellRole>,
+        is_repeated: bool,
+        fragment_index: usize,
+        mut accept: F,
+    ) -> Result<(), ProductionBodyPaginationError>
+    where
+        F: FnMut(BookV2BodyMathTerminal<'s, 'p>) -> Result<(), ProductionBodyPaginationError>,
+    {
+        let fragment = placed.fragment();
+        let owner = fragment.owner();
+        let prepared = flow.lines().prepared();
+        let mut push = |this: &mut Self,
+                        binding,
+                        inline,
+                        origin_x,
+                        baseline,
+                        viewport|
+         -> Result<(), ProductionBodyPaginationError> {
+            this.content.step(owner)?;
+            accept(BookV2BodyMathTerminal {
+                source: binding,
+                page: fragment.page_index(),
+                fragment: fragment_index,
+                definition: placed.definition_index(),
+                item: placed.item_index(),
+                inline,
+                cell: role.map(|r| r.owner()),
+                repeated: is_repeated,
+                origin_x,
+                baseline,
+                viewport,
+            })
+        };
+        match fragment.source() {
+            ProductionBodyFragmentSource::ParagraphLine {
+                paragraph_index,
+                line_index,
+            } => {
+                let line = &flow.lines().paragraphs()[paragraph_index as usize].lines()
+                    [line_index as usize];
+                for (index, item) in line.items().iter().enumerate() {
+                    self.content.step(owner)?;
+                    let index =
+                        Some(u32::try_from(index).map_err(|_| error(owner, E::FragmentLimit))?);
+                    match item {
+                        ProductionPlacedInline::Vector(selected) => {
+                            let bindings = prepared
+                                .vector_bindings()
+                                .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                            self.source_lookup_work(bindings.receipts().len(), owner)?;
+                            let binding = bindings
+                                .receipt(selected.occurrence().item().node_id())
+                                .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                            if binding.kind() != PrecomposedVectorKind::MathVector {
+                                continue;
+                            }
+                            let local = selected.geometry();
+                            let viewport = translated(
+                                local.viewport(),
+                                fragment.bounds().x(),
+                                fragment.bounds().y(),
+                                owner,
+                            )?;
+                            push(
+                                self,
+                                BookV2BodyMathSource::Vector(binding),
+                                index,
+                                add(fragment.bounds().x(), local.pen_origin_x(), owner)?,
+                                add(fragment.bounds().y(), local.line_baseline_y(), owner)?,
+                                Some(viewport),
+                            )?;
+                        }
+                        ProductionPlacedInline::BookV2Math(selected) => {
+                            push(
+                                self,
+                                BookV2BodyMathSource::Native(selected.receipt()),
+                                index,
+                                add(fragment.bounds().x(), selected.pen_x(), owner)?,
+                                add(fragment.bounds().y(), selected.baseline(), owner)?,
+                                None,
+                            )?;
+                        }
+                        ProductionPlacedInline::Math(_) => {
+                            return Err(error(owner, E::ReceiptMismatch));
+                        }
+                        _ => (),
+                    }
+                }
+            }
+            ProductionBodyFragmentSource::VectorBlock { block_index } => {
+                let block = &flow
+                    .blocks()
+                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?
+                    .blocks()[block_index as usize];
+                let binding = block.binding();
+                if let PrecomposedVectorPlacementInput::MathVectorBlock(input) = binding.placement()
+                {
+                    let viewport = fragment
+                        .viewport()
+                        .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                    push(
+                        self,
+                        BookV2BodyMathSource::Vector(binding),
+                        None,
+                        viewport
+                            .x()
+                            .checked_sub(input.metrics().origin_x())
+                            .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
+                        fragment
+                            .baseline()
+                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
+                        Some(viewport),
+                    )?;
+                }
+            }
+            ProductionBodyFragmentSource::NativeMathBlock { block_index } => {
+                let native = prepared
+                    .native_math()
+                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                let block = &native.display_blocks()[block_index as usize];
+                self.source_lookup_work(native.receipts().len(), owner)?;
+                let receipt = native
+                    .receipt(owner)
+                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                let viewport = fragment
+                    .viewport()
+                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                push(
+                    self,
+                    BookV2BodyMathSource::Native(receipt),
+                    None,
+                    viewport
+                        .x()
+                        .checked_sub(block.left())
+                        .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
+                    fragment
+                        .baseline()
+                        .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
+                    None,
+                )?;
+            }
+            ProductionBodyFragmentSource::Figure { .. } => (),
+        }
+        Ok(())
+    }
+
     pub fn terminal_spool_charge(&self) -> u64 {
         self.terminal_spool
     }
@@ -220,15 +394,12 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             .and_then(|n| n.checked_add(HEADER_BYTES))
             .and_then(|n| n.checked_add(variant_bytes))
             .ok_or_else(|| error(root, E::SpoolLimit))?;
-        self.terminal_spool = self
-            .terminal_spool
-            .max(prior_spool)
-            .max(prepared.native_math().map_or(0, |n| n.spool_charge()));
-        self.terminal_spool = self
-            .terminal_spool
-            .checked_add(bytes as u64)
-            .filter(|n| *n <= limits.base().get().max_spool_bytes)
-            .ok_or_else(|| error(root, E::SpoolLimit))?;
+        self.reserve_math_terminal_spool(
+            limits,
+            prior_spool,
+            prepared.native_math().map_or(0, |n| n.spool_charge()),
+            bytes,
+        )?;
         self.content.charge.take(
             count
                 .checked_add(2)
@@ -299,150 +470,25 @@ impl<'b, 'f, 's, 'p, 'a> BookV2FootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 if source.has_header_variants() {
                     fragment_flows.push(flow);
                 }
-                let prepared = flow.lines().prepared();
-                let mut push = |this: &mut Self,
-                                binding,
-                                inline,
-                                origin_x,
-                                baseline,
-                                viewport|
-                 -> Result<(), ProductionBodyPaginationError> {
-                    this.content.step(owner)?;
-                    if terminals.len() >= count {
-                        return Err(error(owner, E::ReceiptMismatch));
-                    }
-                    if is_repeated {
-                        repeated += 1;
-                    } else {
-                        semantic += 1;
-                    }
-                    terminals.push(BookV2BodyMathTerminal {
-                        source: binding,
-                        page: fragment.page_index(),
-                        fragment: fragment_index,
-                        definition: placed.definition_index(),
-                        item: placed.item_index(),
-                        inline,
-                        cell: role.map(|r| r.owner()),
-                        repeated: is_repeated,
-                        origin_x,
-                        baseline,
-                        viewport,
-                    });
-                    Ok(())
-                };
-                match fragment.source() {
-                    ProductionBodyFragmentSource::ParagraphLine {
-                        paragraph_index,
-                        line_index,
-                    } => {
-                        let line = &flow.lines().paragraphs()[paragraph_index as usize].lines()
-                            [line_index as usize];
-                        for (index, item) in line.items().iter().enumerate() {
-                            self.content.step(owner)?;
-                            let index = Some(
-                                u32::try_from(index).map_err(|_| error(owner, E::FragmentLimit))?,
-                            );
-                            match item {
-                                ProductionPlacedInline::Vector(selected) => {
-                                    let bindings = prepared
-                                        .vector_bindings()
-                                        .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                                    self.source_lookup_work(bindings.receipts().len(), owner)?;
-                                    let binding = bindings
-                                        .receipt(selected.occurrence().item().node_id())
-                                        .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                                    if binding.kind() != PrecomposedVectorKind::MathVector {
-                                        continue;
-                                    }
-                                    let local = selected.geometry();
-                                    let viewport = translated(
-                                        local.viewport(),
-                                        fragment.bounds().x(),
-                                        fragment.bounds().y(),
-                                        owner,
-                                    )?;
-                                    push(
-                                        self,
-                                        BookV2BodyMathSource::Vector(binding),
-                                        index,
-                                        add(fragment.bounds().x(), local.pen_origin_x(), owner)?,
-                                        add(fragment.bounds().y(), local.line_baseline_y(), owner)?,
-                                        Some(viewport),
-                                    )?;
-                                }
-                                ProductionPlacedInline::BookV2Math(selected) => {
-                                    push(
-                                        self,
-                                        BookV2BodyMathSource::Native(selected.receipt()),
-                                        index,
-                                        add(fragment.bounds().x(), selected.pen_x(), owner)?,
-                                        add(fragment.bounds().y(), selected.baseline(), owner)?,
-                                        None,
-                                    )?;
-                                }
-                                ProductionPlacedInline::Math(_) => {
-                                    return Err(error(owner, E::ReceiptMismatch))
-                                }
-                                _ => (),
-                            }
+                self.collect_fragment_math(
+                    flow,
+                    placed,
+                    role,
+                    is_repeated,
+                    fragment_index,
+                    |terminal| {
+                        if terminals.len() >= count {
+                            return Err(error(owner, E::ReceiptMismatch));
                         }
-                    }
-                    ProductionBodyFragmentSource::VectorBlock { block_index } => {
-                        let block = &flow
-                            .blocks()
-                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?
-                            .blocks()[block_index as usize];
-                        let binding = block.binding();
-                        if let PrecomposedVectorPlacementInput::MathVectorBlock(input) =
-                            binding.placement()
-                        {
-                            let viewport = fragment
-                                .viewport()
-                                .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                            push(
-                                self,
-                                BookV2BodyMathSource::Vector(binding),
-                                None,
-                                viewport
-                                    .x()
-                                    .checked_sub(input.metrics().origin_x())
-                                    .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
-                                fragment
-                                    .baseline()
-                                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
-                                Some(viewport),
-                            )?;
+                        if is_repeated {
+                            repeated += 1;
+                        } else {
+                            semantic += 1;
                         }
-                    }
-                    ProductionBodyFragmentSource::NativeMathBlock { block_index } => {
-                        let native = prepared
-                            .native_math()
-                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                        let block = &native.display_blocks()[block_index as usize];
-                        self.source_lookup_work(native.receipts().len(), owner)?;
-                        let receipt = native
-                            .receipt(owner)
-                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                        let viewport = fragment
-                            .viewport()
-                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-                        push(
-                            self,
-                            BookV2BodyMathSource::Native(receipt),
-                            None,
-                            viewport
-                                .x()
-                                .checked_sub(block.left())
-                                .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
-                            fragment
-                                .baseline()
-                                .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
-                            None,
-                        )?;
-                    }
-                    ProductionBodyFragmentSource::Figure { .. } => (),
-                }
+                        terminals.push(terminal);
+                        Ok(())
+                    },
+                )?;
                 fragment_index = fragment_index
                     .checked_add(1)
                     .ok_or_else(|| error(owner, E::FragmentLimit))?;
@@ -534,12 +580,12 @@ fn translated(
         rect.height(),
     ))
 }
-fn encode_rect(rect: Rect, out: &mut Vec<u8>) {
+pub(super) fn encode_rect(rect: Rect, out: &mut Vec<u8>) {
     for value in [rect.x(), rect.y(), rect.width().get(), rect.height().get()] {
         out.extend_from_slice(&value.raw().to_be_bytes());
     }
 }
-fn encode_terminal(t: &BookV2BodyMathTerminal<'_, '_>, out: &mut Vec<u8>) {
+pub(super) fn encode_terminal(t: &BookV2BodyMathTerminal<'_, '_>, out: &mut Vec<u8>) {
     out.push(match t.source {
         BookV2BodyMathSource::Vector(_) => 0,
         BookV2BodyMathSource::Native(_) => 1,
@@ -565,7 +611,7 @@ fn encode_terminal(t: &BookV2BodyMathTerminal<'_, '_>, out: &mut Vec<u8>) {
     }
     out.extend_from_slice(&t.source.fingerprint());
 }
-fn encode_number(number: &BookV2BodyPlacedEquationNumber, out: &mut Vec<u8>) {
+pub(super) fn encode_number(number: &BookV2BodyPlacedEquationNumber, out: &mut Vec<u8>) {
     let n = number.geometry();
     for value in [
         n.owner().get(),

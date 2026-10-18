@@ -7,6 +7,11 @@ use typaxis_resource_admission::{
     AdmittedProductionFontInstancesV3, AdmittedProductionResourceLedgerV3,
 };
 use typaxis_syntax::book_v2::PreparedBookMath;
+#[path="book_v2_native_cff_math.rs"]
+mod cff_math;
+use cff_math::{ComputeFailure,NativeFace};
+pub use cff_math::compute_book_v2_native_math_cff_observed_counted;
+
 
 pub const BOOK_V2_NATIVE_MATH_ALGORITHM: &str = "typaxis.book-2-native-math/1";
 pub const BOOK_V2_NATIVE_MATH_SET_ALGORITHM: &str = "typaxis.book-2-native-math-set/1";
@@ -259,6 +264,13 @@ pub fn compute_preflighted_book_v2_native_math<'a>(
     preflight: BookV2NativeMathPreflight<'a>,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<BookV2NativeMath<'a>, ProductionNativeMathComputationError> {
+    match compute_preflighted_kernel(preflight,limits,&mut cff_math::NoCff,false) {
+        Ok(value)=>Ok(value),Err(ComputeFailure::Native(error))=>Err(error),Err(ComputeFailure::Access(never))=>match never{},
+    }
+}
+fn compute_preflighted_kernel<'a,P:cff_math::NativeProvider>(
+    preflight:BookV2NativeMathPreflight<'a>,limits:&M4EffectiveResourceLimits,provider:&mut P,allow_cff:bool,
+)->Result<BookV2NativeMath<'a>,ComputeFailure<P::Error>>{
     let BookV2NativeMathPreflight {
         bindings,
         admitted,
@@ -300,6 +312,7 @@ pub fn compute_preflighted_book_v2_native_math<'a>(
     fingerprint = fold_hash(fingerprint, instances.fingerprint());
     for source in nodes {
         let owner = source.domain().node_id;
+        provider.owner(owner);
         if previous.is_some_and(|p| p >= owner) {
             return Err(StagingMathLayoutError::ReceiptMismatch.into());
         }
@@ -311,6 +324,7 @@ pub fn compute_preflighted_book_v2_native_math<'a>(
             .font_families()
             .resolve(style.font_families())
             .map_err(|_| StagingMathLayoutError::UnknownMathFont(owner))?;
+        provider.face(selected_face);
         let instance = instances
             .resolve(FontInstanceId::new(selected_face.get()))
             .filter(|i| i.font().font_face_id() == selected_face)
@@ -319,10 +333,17 @@ pub fn compute_preflighted_book_v2_native_math<'a>(
         let face = match parsed_faces.get(&selected_face) {
             Some(face) => *face,
             None => {
-                let face = MathFontFace::parse(font.bytes(), font.face_index())
-                    .map_err(|_| StagingMathLayoutError::InvalidMathFont(owner))?;
-                parsed_faces.insert(selected_face, face);
-                face
+                let face=match font {
+                    typaxis_resource_admission::AdmittedProductionFontV3::TrueType(_)=>NativeFace::TrueType(
+                        MathFontFace::parse(font.bytes(),font.face_index()).map_err(|_|StagingMathLayoutError::InvalidMathFont(owner))?),
+                    typaxis_resource_admission::AdmittedProductionFontV3::Cff1V2(source)=>{
+                        if !allow_cff{return Err(StagingMathLayoutError::InvalidMathFont(owner).into());}
+                        let face=typaxis_font::CffMathFontFaceV2::from_admission_with_work(source.admission(),&mut |n|provider.work(n))
+                            .map_err(ComputeFailure::Access)?.map_err(|_|StagingMathLayoutError::InvalidMathFont(owner))?;
+                        NativeFace::Cff(face)
+                    }
+                };
+                parsed_faces.insert(selected_face, face);face
             }
         };
         let required = required_math_layout_units(source.parsed()).map_err(map_math_error)?;
@@ -332,10 +353,13 @@ pub fn compute_preflighted_book_v2_native_math<'a>(
         };
         let input = MathComputationInput::new(kind, style.font_size().get().raw(), required)
             .ok_or(StagingMathLayoutError::LayoutUnitLimit)?;
-        let computation = compute_math(source.parsed(), face, input).map_err(|e| match e {
-            MathComputationError::Font(_) => StagingMathLayoutError::InvalidMathFont(owner),
-            other => map_math_error(other),
-        })?;
+        let computation=match face {
+            NativeFace::TrueType(face)=>compute_math(source.parsed(),face,input),
+            NativeFace::Cff(face)=>match typaxis_math::compute_math_cff_v2(source.parsed(),face,input,provider){
+                Ok(value)=>Ok(value),Err(typaxis_math::CffMathComputationErrorV2::Computation(error))=>Err(error),
+                Err(typaxis_math::CffMathComputationErrorV2::Access(error))=>return Err(ComputeFailure::Access(error)),
+            },
+        }.map_err(|e|match e {MathComputationError::Font(_)=>StagingMathLayoutError::InvalidMathFont(owner),other=>map_math_error(other)})?;
         if computation.layout_work() != required {
             return Err(StagingMathLayoutError::ReceiptMismatch.into());
         }
@@ -425,4 +449,173 @@ impl<'p, 'a> BookV2PlacedInlineMath<'p, 'a> {
     pub fn baseline(&self) -> typaxis_core::Length {
         self.baseline
     }
+}
+
+/// A native computation whose exact local preflight was accepted by this loan.
+/// The immutable computation remains bound to its original source/resources.
+/// No constructor can turn a raw computation or numerical prefix into payment.
+pub struct BookV2ObservedNativeMath<'id, 'a> {
+    inner: BookV2NativeMath<'a>,
+    local_records: u64,
+    local_spool: u64,
+    local_work: u64,
+    identity: std::marker::PhantomData<fn(&'id mut ()) -> &'id mut ()>,
+}
+impl<'id, 'a> BookV2ObservedNativeMath<'id, 'a> {
+    pub fn math(&self) -> &BookV2NativeMath<'a> {
+        &self.inner
+    }
+    pub fn reserved_records(&self) -> u64 {
+        self.local_records
+    }
+    pub fn reserved_spool(&self) -> u64 {
+        self.local_spool
+    }
+    pub fn reserved_layout_units(&self) -> u64 {
+        self.local_work
+    }
+}
+
+#[derive(Debug)]
+pub enum BookV2ObservedNativeMathError {
+    Native(ProductionNativeMathComputationError),
+    Accounting(typaxis_shaping::book_v2::BookV2ObservedAccountingError),
+    Cff { owner:NodeId, font_face_id:FontFaceId,error:typaxis_font::CffSelectionFailureV2 },
+}
+impl std::fmt::Display for BookV2ObservedNativeMathError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "book-2 observed native math: {self:?}")
+    }
+}
+impl std::error::Error for BookV2ObservedNativeMathError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Native(error) => Some(error),
+            Self::Accounting(error) => Some(error),
+            Self::Cff { error,.. }=>Some(error),
+        }
+    }
+}
+
+/// Accept the real native preflight on the existing caller cells before any
+/// font-instance allocation, MATH parsing or computation. Each axis is evaluated
+/// independently in the original work/records/spool order, even after refusal.
+///
+/// ```
+/// use typaxis_core::M4EffectiveResourceLimits;
+/// use typaxis_resource_admission::AdmittedProductionResourceLedgerV3;
+/// use typaxis_layout::book_v2::{BookV2VectorBindings, compute_book_v2_native_math_observed_counted};
+/// use typaxis_shaping::book_v2::with_book_v2_observed_source_accounting;
+/// fn inspect<'a>(bindings: &'a BookV2VectorBindings<'a>, admitted: &'a AdmittedProductionResourceLedgerV3,
+///                limits: &M4EffectiveResourceLimits) {
+///     let (mut r, mut s, mut w) = (0, 0, 0);
+///     with_book_v2_observed_source_accounting(&mut r, &mut s, &mut w, limits.base(),
+///         limits.base().get().max_fragments, 1_000_000, |loan| {
+///             if let Ok(Some(native)) = compute_book_v2_native_math_observed_counted(bindings, admitted, limits, loan) {
+///                 assert_eq!(native.math().record_charge(), native.reserved_records());
+///             }
+///         });
+/// }
+/// ```
+///
+/// A paid owner cannot escape its fresh caller loan.
+/// ```compile_fail
+/// use typaxis_core::M4EffectiveResourceLimits;
+/// use typaxis_resource_admission::AdmittedProductionResourceLedgerV3;
+/// use typaxis_layout::book_v2::{BookV2VectorBindings, compute_book_v2_native_math_observed_counted};
+/// use typaxis_shaping::book_v2::with_book_v2_observed_source_accounting;
+/// fn escape<'a>(bindings: &'a BookV2VectorBindings<'a>, admitted: &'a AdmittedProductionResourceLedgerV3,
+///               limits: &M4EffectiveResourceLimits) {
+///     let (mut r, mut s, mut w) = (0, 0, 0);
+///     let escaped = with_book_v2_observed_source_accounting(&mut r, &mut s, &mut w, limits.base(),
+///         limits.base().get().max_fragments, 1_000_000, |loan|
+///             compute_book_v2_native_math_observed_counted(bindings, admitted, limits, loan).unwrap());
+///     let _ = escaped;
+/// }
+/// ```
+///
+/// Native payment from a different loan cannot be used for an inline graph.
+/// ```compile_fail
+/// use typaxis_core::M4EffectiveResourceLimits;
+/// use typaxis_resource_admission::AdmittedProductionResourceLedgerV3;
+/// use typaxis_layout::book_v2::{BookV2VectorBindings, compute_book_v2_native_math_observed_counted,
+///     prepare_book_v2_inline_items_with_observed_native_source_counted};
+/// use typaxis_linebreak::JapaneseLineBreakMode;
+/// use typaxis_shaping::book_v2::{BookV2AuthoredTextShape, with_book_v2_observed_source_accounting};
+/// use typaxis_syntax::book_v2::PreparedBookV2TextFlow;
+/// fn cross<'a>(flow: &'a PreparedBookV2TextFlow<'a>, shape: &'a BookV2AuthoredTextShape<'a>,
+///              bindings: &'a BookV2VectorBindings<'a>, admitted: &'a AdmittedProductionResourceLedgerV3,
+///              limits: &M4EffectiveResourceLimits, mode: JapaneseLineBreakMode) {
+///     let (mut r, mut s, mut w, mut r2, mut s2, mut w2) = (0, 0, 0, 0, 0, 0);
+///     with_book_v2_observed_source_accounting(&mut r, &mut s, &mut w, limits.base(),
+///         limits.base().get().max_fragments, 1_000_000, |first| {
+///             let native = compute_book_v2_native_math_observed_counted(bindings, admitted, limits, first).unwrap();
+///             with_book_v2_observed_source_accounting(&mut r2, &mut s2, &mut w2, limits.base(),
+///                 limits.base().get().max_fragments, 1_000_000, |second| {
+///                     second.with_zero_intrinsic_records(|second, graph|
+///                         prepare_book_v2_inline_items_with_observed_native_source_counted(flow, shape,
+///                             admitted, bindings, limits, mode, native.as_ref(), second, graph, &mut 0).map(|_| ()));
+///                 });
+///         });
+/// }
+/// ```
+///
+/// A raw native computation has no public payment constructor.
+/// ```compile_fail
+/// use typaxis_layout::book_v2::{BookV2NativeMath, BookV2ObservedNativeMath};
+/// fn forge<'id, 'a>(raw: BookV2NativeMath<'a>) {
+///     let _ = BookV2ObservedNativeMath {
+///         inner: raw, local_records: 0, local_spool: 0, local_work: 0,
+///         identity: std::marker::PhantomData,
+///     };
+/// }
+/// ```
+///
+/// Payment owners cannot be cloned.
+/// ```compile_fail
+/// use typaxis_layout::book_v2::BookV2ObservedNativeMath;
+/// fn duplicate<'id, 'a>(native: &BookV2ObservedNativeMath<'id, 'a>) -> BookV2ObservedNativeMath<'id, 'a> {
+///     native.clone()
+/// }
+/// ```
+#[allow(clippy::too_many_arguments)]
+pub fn compute_book_v2_native_math_observed_counted<'id, 'a, 'cells>(
+    bindings: &'a BookV2VectorBindings<'a>,
+    admitted: &'a AdmittedProductionResourceLedgerV3,
+    limits: &M4EffectiveResourceLimits,
+    accounting: &mut typaxis_shaping::book_v2::BookV2ObservedSourceAccounting<'id, 'cells>,
+) -> Result<Option<BookV2ObservedNativeMath<'id, 'a>>, BookV2ObservedNativeMathError> {
+    use BookV2ObservedNativeMathError as E;
+    // Bindings/policy errors keep their original precedence over loan domains.
+    bindings
+        .verify(bindings.body(), admitted, limits)
+        .map_err(|_| E::Native(StagingMathLayoutError::ReceiptMismatch.into()))?;
+    accounting
+        .require_limit_domain(limits.base())
+        .map_err(E::Accounting)?;
+    accounting
+        .require_limit_domain(bindings.body().styled().body().limits())
+        .map_err(E::Accounting)?;
+    let mut observed = BookV2NativeMathBudgetObservation::default();
+    let plan =
+        preflight_book_v2_native_math_counted(bindings, admitted, limits, 0, 0, &mut observed);
+    let root = NodeId::new(0);
+    let work = accounting.debit_work(root, observed.reserved_layout_units());
+    let records = accounting.debit_records(root, observed.record_charge());
+    let spool = accounting.debit_spool(root, observed.spool_charge());
+    let plan = plan.map_err(E::Native)?;
+    work.map_err(E::Accounting)?;
+    records.map_err(E::Accounting)?;
+    spool.map_err(E::Accounting)?;
+    plan.map(|plan| {
+        let inner = compute_preflighted_book_v2_native_math(plan, limits).map_err(E::Native)?;
+        Ok(BookV2ObservedNativeMath {
+            inner,
+            local_records: observed.record_charge(),
+            local_spool: observed.spool_charge(),
+            local_work: observed.reserved_layout_units(),
+            identity: std::marker::PhantomData,
+        })
+    })
+    .transpose()
 }

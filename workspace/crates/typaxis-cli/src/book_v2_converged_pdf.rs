@@ -12,10 +12,72 @@ pub enum BookV2ConvergenceError {
     Limit(&'static str),
     Identity,
     UnsupportedPageMaster,
+    /// Accepted original-source requests are retained without boxing an error.
+    ObservedSource(BookV2ObservedSourceFlowError),
+    ObservedAccounting(typaxis_shaping::book_v2::BookV2ObservedAccountingError),
+    ObservedLines(typaxis_layout::book_v2::BookV2ObservedBodyReshapeError),
+    ObservedPagination(typaxis_pagination::ProductionBodyPaginationError),
+    ObservedNative(typaxis_layout::book_v2::BookV2ObservedNativeMathError),
+    ObservedFrames(typaxis_syntax::book_v2::BookV2PageMasterError),
+    ObservedPageRegionLines(typaxis_layout::book_v2::BookV2ObservedPageRegionLayoutError),
+    ObservedDisplay(typaxis_display_list::book_v2::BookV2MathDisplayError),
     Stage {
         stage: &'static str,
         source: Box<dyn std::error::Error>,
     },
+}
+impl From<typaxis_layout::book_v2::BookV2ObservedBodyReshapeError> for BookV2ConvergenceError {
+    fn from(error: typaxis_layout::book_v2::BookV2ObservedBodyReshapeError) -> Self {
+        use typaxis_layout::book_v2::{
+            BookV2ObservedBodyReshapeError as L, BookV2ObservedInlineError as I,
+        };
+        use typaxis_shaping::book_v2::{
+            BookV2ObservedShapeError as S, BookV2ObservedVerificationError as V,
+        };
+        match error {
+            L::Shape(S::Verification(V::Source(e))) | L::Inline(I::Verification(V::Source(e))) => {
+                Self::ObservedSource(e)
+            }
+            L::Shape(S::Verification(V::Accounting(e)))
+            | L::Inline(I::Verification(V::Accounting(e)))
+            | L::Shape(S::Accounting(e))
+            | L::Inline(I::Accounting(e))
+            | L::Accounting(e) => Self::ObservedAccounting(e),
+            other => Self::ObservedLines(other),
+        }
+    }
+}
+impl From<typaxis_shaping::book_v2::BookV2ObservedVerificationError> for BookV2ConvergenceError {
+    fn from(error: typaxis_shaping::book_v2::BookV2ObservedVerificationError) -> Self {
+        match error {
+            typaxis_shaping::book_v2::BookV2ObservedVerificationError::Source(error) => {
+                Self::ObservedSource(error)
+            }
+            typaxis_shaping::book_v2::BookV2ObservedVerificationError::Accounting(error) => {
+                Self::ObservedAccounting(error)
+            }
+        }
+    }
+}
+impl From<typaxis_layout::book_v2::BookV2ObservedNativeMathError> for BookV2ConvergenceError {
+    fn from(error: typaxis_layout::book_v2::BookV2ObservedNativeMathError) -> Self {
+        match error {
+            typaxis_layout::book_v2::BookV2ObservedNativeMathError::Accounting(error) => {
+                Self::ObservedAccounting(error)
+            }
+            error => Self::ObservedNative(error),
+        }
+    }
+}
+impl From<typaxis_layout::book_v2::BookV2ObservedPageRegionLayoutError> for BookV2ConvergenceError {
+    fn from(error: typaxis_layout::book_v2::BookV2ObservedPageRegionLayoutError) -> Self {
+        match error {
+            typaxis_layout::book_v2::BookV2ObservedPageRegionLayoutError::Accounting(e) => {
+                Self::ObservedAccounting(e)
+            }
+            e => Self::ObservedPageRegionLines(e),
+        }
+    }
 }
 impl std::fmt::Display for BookV2ConvergenceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -26,18 +88,45 @@ impl std::error::Error for BookV2ConvergenceError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Stage { source, .. } => Some(source.as_ref()),
+            Self::ObservedSource(source) => Some(source),
+            Self::ObservedAccounting(source) => Some(source),
+            Self::ObservedLines(source) => Some(source),
+            Self::ObservedPagination(source) => Some(source),
+            Self::ObservedNative(source) => Some(source),
+            Self::ObservedFrames(source) => Some(source),
+            Self::ObservedPageRegionLines(source) => Some(source),
+            Self::ObservedDisplay(source) => Some(source),
             _ => None,
         }
     }
 }
 use BookV2ConvergenceError as E;
-#[path = "book_v2_header_catalog_driver.rs"]
-pub(super) mod header_catalog_driver;
 #[path = "book_v2_column_catalog_driver.rs"]
 pub(super) mod column_catalog_driver;
 #[path = "book_v2_column_page_driver.rs"]
 pub(super) mod column_page_driver;
-pub use column_page_driver::{with_budgeted_book_v2_column_pages, with_budgeted_book_v2_column_placement, BookV2ColumnPageBudget};
+#[path = "book_v2_header_catalog_driver.rs"]
+pub(super) mod header_catalog_driver;
+pub use column_page_driver::{
+    prepare_counted_book_v2_column_resources, BookV2ColumnInitialStyleLimit,
+    BookV2ColumnInitialStylePreparationError,
+};
+pub use column_page_driver::{
+    with_budgeted_book_v2_column_display, with_budgeted_book_v2_column_marked,
+    with_budgeted_book_v2_column_math, with_budgeted_book_v2_column_navigation,
+    with_budgeted_book_v2_column_pages, with_budgeted_book_v2_column_paints,
+    with_budgeted_book_v2_column_pdf, with_budgeted_book_v2_column_placement,
+    with_budgeted_book_v2_column_relations, with_budgeted_book_v2_column_resources,
+    with_budgeted_book_v2_column_sources, with_budgeted_converged_book_v2_column_pdf,
+    BookV2ColumnMarkedBundle, BookV2ColumnNavigationBundle, BookV2ColumnPageBudget,
+    BookV2ColumnPaintBundle, BookV2ColumnPdfBundle, BookV2ColumnPdfConvergenceBudget,
+    BookV2ColumnRelationBundle, BookV2ColumnResourceBundle,
+};
+#[cfg(test)]
+pub(in crate::book_v2_resources) use column_page_driver::{
+    with_converged_column_pdf_observer, with_convergence_probe_fixture, ColumnAttemptObserver,
+    ColumnPdfAttempt,
+};
 #[path = "book_v2_page_region_driver.rs"]
 pub(super) mod page_region_driver;
 fn stage<T: std::error::Error + 'static>(stage: &'static str, source: T) -> E {
@@ -53,7 +142,10 @@ pub(super) fn prepare_reserved_book_v2_navigation<'a>(
 ) -> Result<PreparedBookV2Navigation<'a>, E> {
     let mut observed = total.records;
     let navigation = prepare_book_v2_navigation_counted(
-        body, total.records, limits.base().get().max_fragments, &mut observed,
+        body,
+        total.records,
+        limits.base().get().max_fragments,
+        &mut observed,
     );
     total.records = observed;
     navigation.map_err(|error| match error {
@@ -95,6 +187,7 @@ impl WidthCycle {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BookV2PdfConvergenceObservation {
     candidates: u16,
+    balance_candidates: u64,
     width_passes: u16,
     width_refinements: u16,
     line_passes: u16,
@@ -105,6 +198,9 @@ pub struct BookV2PdfConvergenceObservation {
     work: u64,
 }
 impl BookV2PdfConvergenceObservation {
+    pub fn balance_candidates(self) -> u64 {
+        self.balance_candidates
+    }
     pub fn width_refinement_passes(self) -> u16 {
         self.width_refinements
     }
@@ -148,9 +244,8 @@ pub(super) fn with_reserved_book_v2_native_math<'a, R>(
     ) -> Result<R, typaxis_layout::ProductionNativeMathComputationError>,
 ) -> Result<R, E> {
     let mut native_budget = BookV2NativeMathBudgetObservation::default();
-    let plan = preflight_book_v2_native_math_counted(
-        bindings, admitted, limits, 0, 0, &mut native_budget,
-    );
+    let plan =
+        preflight_book_v2_native_math_counted(bindings, admitted, limits, 0, 0, &mut native_budget);
     // Reservations remain individually atomic: accept independent bounds and
     // retain the accepted prefix even if another bound or the preflight fails.
     let native_work = add(
@@ -303,7 +398,11 @@ pub fn with_budgeted_book_v2_pdf<R>(
         // Collect every authored Page reference, including unplaced definitions.
         let mut observed_records = total.records;
         let source = prepare_book_v2_text_flow_counted(
-            body.styled(), &navigation, total.records, caps.max_fragments, &mut observed_records,
+            body.styled(),
+            &navigation,
+            total.records,
+            caps.max_fragments,
+            &mut observed_records,
         );
         total.records = observed_records;
         let source = source.map_err(|e| stage("source", e))?;
@@ -394,7 +493,12 @@ pub fn with_budgeted_book_v2_pdf<R>(
             .ok_or(E::Limit("line passes"))?;
         let mut observed_records = total.records;
         let flow = prepare_book_v2_text_flow_with_page_references_counted(
-            body.styled(), &navigation, &values, total.records, caps.max_fragments, &mut observed_records,
+            body.styled(),
+            &navigation,
+            &values,
+            total.records,
+            caps.max_fragments,
+            &mut observed_records,
         );
         total.records = observed_records;
         let flow = flow.map_err(|e| stage("source labels", e))?;
@@ -769,7 +873,10 @@ pub fn with_budgeted_book_v2_pdf<R>(
             result?
         } else {
             let mut allowance = BookV2BodyLineBudget::new_with_source_records(
-                remaining_work, reshape_left, total.records, caps.max_fragments,
+                remaining_work,
+                reshape_left,
+                total.records,
+                caps.max_fragments,
             );
             let mut entered = false;
             let result = with_budgeted_book_v2_body_lines_with_source_widths(

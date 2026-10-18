@@ -2,7 +2,6 @@
 //! generated labels, but grants no host, font, layout, profile or PDF authority.
 use super::*;
 use crate::book_v2::{PreparedBookV2Navigation, StyledBookV2Body};
-use std::fmt::Write as _;
 use typaxis_core::{write_jcs_string, Sha256};
 use typaxis_style::book_v2::BookV2SemanticContainerComputedStyle;
 
@@ -35,9 +34,16 @@ impl BookV2SourceVerificationBudget {
     /// Use only after the caller has reserved this intrinsic graph bound in its
     /// prior history. This budget is an observation, never graph authorization.
     pub fn new_with_prepaid_records(
-        prior_records: u64, maximum_records: u64, prepaid_records: u64,
+        prior_records: u64,
+        maximum_records: u64,
+        prepaid_records: u64,
     ) -> Self {
-        Self { records: prior_records, maximum: maximum_records, retained_records: 0, prepaid_records: prepaid_records.min(prior_records) }
+        Self {
+            records: prior_records,
+            maximum: maximum_records,
+            retained_records: 0,
+            prepaid_records: prepaid_records.min(prior_records),
+        }
     }
     pub fn record_charge(&self) -> u64 {
         self.records
@@ -50,12 +56,18 @@ impl BookV2SourceVerificationBudget {
         if self.retained_records > remaining {
             return None;
         }
-        Some(remaining.saturating_add(self.prepaid_records).min(body_maximum))
+        Some(
+            remaining
+                .saturating_add(self.prepaid_records)
+                .min(body_maximum),
+        )
     }
     /// Keep already observed intrinsic output out of the room available for a
     /// new reconstruction. It is accounted separately from source history.
     pub fn include_retained_records(&mut self, records: u64) {
-        self.retained_records = self.retained_records.max(records.saturating_sub(self.prepaid_records));
+        self.retained_records = self
+            .retained_records
+            .max(records.saturating_sub(self.prepaid_records));
     }
     /// Keep every accepted reconstruction prefix, including failures and retries.
     pub fn verify(
@@ -64,7 +76,9 @@ impl BookV2SourceVerificationBudget {
         body: &StyledBookV2Body,
         navigation: &PreparedBookV2Navigation<'_>,
     ) -> Result<(), ProductionFlowError> {
-        let maximum = self.maximum.min(body.body().limits().get().max_fragments)
+        let maximum = self
+            .maximum
+            .min(body.body().limits().get().max_fragments)
             .saturating_sub(self.retained_records);
         flow.verify_for_counted(body, navigation, self.records, maximum, &mut self.records)
     }
@@ -82,7 +96,8 @@ struct BookV2SourceRecordBudget<'a> {
 }
 impl BookV2SourceRecordBudget<'_> {
     fn reserve(&mut self, owner: NodeId, count: u64) -> Result<(), ProductionFlowError> {
-        let next = self.observed
+        let next = self
+            .observed
             .checked_add(count)
             .filter(|n| *n <= self.maximum)
             .ok_or_else(|| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
@@ -96,17 +111,19 @@ impl<'a> FlowSource<'a> for BookV2FlowSource<'a, '_> {
         self.body.body().limits()
     }
     fn container_inheritance(
-        &self,
+        &mut self,
         owner: NodeId,
-    ) -> Option<&'a SemanticContainerInheritanceStyle> {
-        self.body
+    ) -> Result<Option<&'a SemanticContainerInheritanceStyle>, ProductionFlowError> {
+        Ok(self
+            .body
             .container_style(owner)
-            .map(|style| style.inheritance_style())
+            .map(|style| style.inheritance_style()))
     }
-    fn language(&self, owner: NodeId) -> Option<&'a str> {
-        self.navigation
+    fn language(&mut self, owner: NodeId) -> Result<Option<&'a str>, ProductionFlowError> {
+        Ok(self
+            .navigation
             .language(owner)
-            .map(|record| record.effective_language())
+            .map(|record| record.effective_language()))
     }
     fn anchors(&self) -> &'a [(AnchorId, NodeId)] {
         self.navigation.anchors()
@@ -114,20 +131,33 @@ impl<'a> FlowSource<'a> for BookV2FlowSource<'a, '_> {
     fn source_text_references(&self) -> bool {
         true
     }
-    fn reference_number(&self, anchor: &str) -> Option<&'a str> {
-        self.navigation.reference_number(anchor)
+    fn reference_number(
+        &mut self,
+        _owner: NodeId,
+        anchor: &str,
+    ) -> Result<Option<&'a str>, ProductionFlowError> {
+        Ok(self.navigation.reference_number(anchor))
     }
-    fn reference_label(&self, target: NodeId) -> Option<&'a str> {
-        self.navigation
+    fn reference_label(
+        &mut self,
+        _owner: NodeId,
+        target: NodeId,
+    ) -> Result<Option<&'a str>, ProductionFlowError> {
+        Ok(self
+            .navigation
             .outline()
             .iter()
             .find(|e| e.source.node_id == target)
-            .map(|e| e.label.as_str())
+            .map(|e| e.label.as_str()))
     }
-    fn heading_label(&self, target: NodeId) -> bool {
-        self.navigation
-            .language(target)
-            .is_some_and(|r| r.kind() == typaxis_document::book_v2::BookV2LanguageNodeKind::Heading)
+    fn heading_label(
+        &mut self,
+        _owner: NodeId,
+        target: NodeId,
+    ) -> Result<bool, ProductionFlowError> {
+        Ok(self.navigation.language(target).is_some_and(|r| {
+            r.kind() == typaxis_document::book_v2::BookV2LanguageNodeKind::Heading
+        }))
     }
     fn reserve_records(&mut self, owner: NodeId, count: u64) -> Result<(), ProductionFlowError> {
         if let Some(records) = &mut self.records {
@@ -175,7 +205,11 @@ impl<'a> PreparedBookV2TextFlow<'a> {
         navigation: &PreparedBookV2Navigation<'_>,
     ) -> Result<(), ProductionFlowError> {
         self.verify_for_counted(
-            body, navigation, 0, self.package.body().limits().get().max_fragments, &mut 0,
+            body,
+            navigation,
+            0,
+            self.package.body().limits().get().max_fragments,
+            &mut 0,
         )
     }
     /// Reconstruct and compare every flow field under both source and caller
@@ -195,8 +229,12 @@ impl<'a> PreparedBookV2TextFlow<'a> {
             return Err(mismatch());
         }
         let observed = prepare_inner_counted(
-            self.package, self.navigation, self.page_reference_values(),
-            prior_records, maximum_records, observed_records,
+            self.package,
+            self.navigation,
+            self.page_reference_values(),
+            prior_records,
+            maximum_records,
+            observed_records,
         )?;
         if self.events != observed.events
             || self.paragraphs != observed.paragraphs
@@ -244,7 +282,12 @@ fn prepare_inner<'a>(
     values: Option<&[(NodeId, u32)]>,
 ) -> Result<PreparedBookV2TextFlow<'a>, ProductionFlowError> {
     prepare_inner_counted(
-        body, navigation, values, 0, body.body().limits().get().max_fragments, &mut 0,
+        body,
+        navigation,
+        values,
+        0,
+        body.body().limits().get().max_fragments,
+        &mut 0,
     )
 }
 
@@ -260,7 +303,12 @@ pub fn prepare_book_v2_text_flow_counted<'a>(
     observed_records: &mut u64,
 ) -> Result<PreparedBookV2TextFlow<'a>, ProductionFlowError> {
     prepare_inner_counted(
-        body, navigation, None, prior_records, maximum_records, observed_records,
+        body,
+        navigation,
+        None,
+        prior_records,
+        maximum_records,
+        observed_records,
     )
 }
 
@@ -275,7 +323,12 @@ pub fn prepare_book_v2_text_flow_with_page_references_counted<'a>(
     observed_records: &mut u64,
 ) -> Result<PreparedBookV2TextFlow<'a>, ProductionFlowError> {
     prepare_inner_counted(
-        body, navigation, Some(values), prior_records, maximum_records, observed_records,
+        body,
+        navigation,
+        Some(values),
+        prior_records,
+        maximum_records,
+        observed_records,
     )
 }
 
@@ -317,36 +370,12 @@ fn prepare_inner_counted<'a>(
         limits,
         values,
     )?;
-    // Only the limits used by this source-flow stage enter this projection.
-    // Full source-body limits remain owned and compared by the immutable body.
-    let bound = limits.get();
     let mut limits_jcs = Sha256::new();
-    write!(
-        limits_jcs,
-        "[\"typaxis.book-2-source-flow-limits/1\",{},{},{},{},{}]",
-        bound.max_ast_nodes,
-        bound.max_fragments,
-        bound.max_pages,
-        bound.max_text_buffer_bytes,
-        bound.max_text_bytes,
-    )
-    .expect("writing source-flow limits to SHA-256 cannot fail");
+    write_book_v2_flow_limits(limits, &mut limits_jcs)
+        .expect("writing source-flow limits to SHA-256 cannot fail");
     let mut languages = Sha256::new();
-    languages
-        .write_str("[\"typaxis.book-2-source-flow-languages/1\"")
+    write_book_v2_flow_languages(navigation, &mut languages)
         .expect("writing source-flow languages to SHA-256 cannot fail");
-    for record in navigation.languages() {
-        write!(languages, ",[{},", record.node_id().get())
-            .expect("writing a language owner to SHA-256 cannot fail");
-        write_jcs_string(&mut languages, record.effective_language())
-            .expect("writing a canonical language to SHA-256 cannot fail");
-        languages
-            .write_char(']')
-            .expect("writing to SHA-256 cannot fail");
-    }
-    languages
-        .write_char(']')
-        .expect("writing to SHA-256 cannot fail");
     flow.fingerprint = fingerprint_source_flow(
         &flow,
         BOOK_V2_TEXT_FLOW_ALGORITHM,
@@ -357,6 +386,43 @@ fn prepare_inner_counted<'a>(
     Ok(flow)
 }
 
+fn write_book_v2_flow_limits<W: std::fmt::Write + ?Sized>(
+    limits: &ValidatedResourceLimits,
+    output: &mut W,
+) -> std::fmt::Result {
+    // Only limits used by this source stage enter this projection.
+    let bound = limits.get();
+    write!(
+        output,
+        "[\"typaxis.book-2-source-flow-limits/1\",{},{},{},{},{}]",
+        bound.max_ast_nodes,
+        bound.max_fragments,
+        bound.max_pages,
+        bound.max_text_buffer_bytes,
+        bound.max_text_bytes
+    )
+}
+
+fn write_book_v2_flow_languages<W: std::fmt::Write + ?Sized>(
+    navigation: &PreparedBookV2Navigation<'_>,
+    output: &mut W,
+) -> std::fmt::Result {
+    output.write_str("[\"typaxis.book-2-source-flow-languages/1\"")?;
+    for record in navigation.languages() {
+        write!(output, ",[{},", record.node_id().get())?;
+        write_jcs_string(output, record.effective_language())?;
+        output.write_char(']')?;
+    }
+    output.write_char(']')
+}
+
+#[path = "book_v2_page_candidates.rs"]
+pub(super) mod page_candidates;
+pub use page_candidates::{
+    prepare_book_v2_page_reference_candidate_counted, BookV2PageCandidateError,
+    BookV2PageCandidateObservation,
+};
+
 #[cfg(test)]
 #[path = "book_v2_flow_tests.rs"]
 mod tests;
@@ -365,5 +431,14 @@ mod tests;
 mod page_regions;
 pub use page_regions::{
     prepare_book_v2_page_region_text_flow, prepare_book_v2_page_region_text_flow_counted,
-    BookV2PageRegionKind, BookV2PageRegionTextFlow, BOOK_V2_PAGE_REGION_FLOW_ALGORITHM,
+    prepare_book_v2_page_region_text_flow_observed_counted, BookV2PageRegionKind,
+    BookV2PageRegionTextFlow, BOOK_V2_PAGE_REGION_FLOW_ALGORITHM,
+};
+
+#[path = "book_v2_observed_source_flow.rs"]
+mod observed_source;
+pub use super::source_ops::{BookV2ObservedSourceFlowError, BookV2ObservedSourceFlowObservation};
+pub use observed_source::{
+    prepare_book_v2_text_flow_observed_counted,
+    prepare_book_v2_text_flow_with_page_references_observed_counted,
 };
